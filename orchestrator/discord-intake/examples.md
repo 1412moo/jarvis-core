@@ -1,64 +1,36 @@
-# Discord Command Intake 예시 (MVP)
+# Discord Command Intake 예시 (MVP + E2E)
 
-아래 예시는 `intake_parser.py` + `task_draft_builder.py` 기준 최소 동작 예시다.
+아래 예시는 `run_intake_demo.py` 기준 end-to-end 동작 예시다.
 
-## 1) `/task 보고 시스템 개선`
+## 1) 정상 생성 예시
 - 입력
-  - `/task 보고 시스템 개선`
-- parser 결과(요약)
-  - `command_name="/task"`
-  - `required_args_present=true`
-  - `normalized_payload.request="보고 시스템 개선"`
-  - `hold_reason=null`, `error_reason=null`
-- draft 결과(요약)
-  - `result_type="task_draft"`
-  - `title="보고 시스템 개선"`
-  - `status="TODO"`
-  - `repo="jarvis-core"`
-  - `source_command="/task"`
+  - `/task report-system-improvement`
+- 실행
+  - `python3 orchestrator/discord-intake/run_intake_demo.py '/task report-system-improvement'`
+- 결과(요약)
+  - parser: `error_reason=null`, `hold_reason=null`
+  - draft: `result_type="task_draft"`
+  - file: `result_type="created"`, `task_id="task-####-report-system-improvement"`
 
-## 2) `/task production 삭제`
+## 2) hold 예시
 - 입력
   - `/task production 삭제`
-- parser 결과(요약)
-  - `command_name="/task"`
-  - `required_args_present=true`
-  - `hold_reason="needs_approval:risky_keyword_detected"`
-- draft 결과(요약)
-  - `result_type="hold"`
-  - `reason="hold_input:needs_approval:risky_keyword_detected"`
-  - 이번 단계에서는 보류 draft를 만들지 않음
+- 실행
+  - `python3 orchestrator/discord-intake/run_intake_demo.py '/task production 삭제'`
+- 결과(요약)
+  - parser: `hold_reason="needs_approval:risky_keyword_detected"`
+  - pipeline 중단: draft/file writer 미실행
 
-## 3) `/status task-0002`
+## 3) 잘못된 입력 예시
 - 입력
-  - `/status task-0002`
-- parser 결과(요약)
-  - `command_name="/status"`
-  - `required_args_present=true`
-  - `hold_reason=null`, `error_reason=null`
-- draft 결과(요약)
-  - `result_type="hold"`
-  - `reason="non_task_command_not_supported_for_draft"`
-  - `/status`, `/report`, `/approve`는 아직 draft 생성 대상 아님
+  - `/hello something`
+- 실행
+  - `python3 orchestrator/discord-intake/run_intake_demo.py '/hello something'`
+- 결과(요약)
+  - parser: `error_reason="unsupported_command"`
+  - pipeline 중단: draft/file writer 미실행
 
-## 로컬 확인 커맨드
-```bash
-python3 orchestrator/discord-intake/intake_parser.py
-python3 orchestrator/discord-intake/task_draft_builder.py
-```
-
-## 4) task draft → task file 생성
-- 입력(draft 예시)
-  - `title="parser-output-validation-rules"`
-  - `status="TODO"`
-  - `repo="jarvis-core"`
-  - `summary="파서 결과 검증 규칙 보강"`
-- writer 결과(요약)
-  - `result_type="created"`
-  - `file_path="memory/tasks/task-0004-parser-output-validation-rules.md"` (번호는 실행 시점에 따라 달라짐)
-  - `task_id="task-0004-parser-output-validation-rules"`
-
-## 로컬 확인 커맨드 (확장)
+## 개별 모듈 로컬 확인
 ```bash
 python3 orchestrator/discord-intake/intake_parser.py
 python3 orchestrator/discord-intake/task_draft_builder.py
