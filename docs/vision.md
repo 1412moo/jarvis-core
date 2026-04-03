@@ -1,4 +1,7 @@
 # Vision
+## 관련 문서
+- [Project North Star](./project-north-star.md)
+
 
 ## 장기 목표
 `jarvis-core`는 다중 프로젝트 운영을 위한 중앙 지휘 저장소로서,
