@@ -1,13 +1,13 @@
 """Minimal Discord bot adapter for jarvis-core intake pipeline.
 
 Scope (this step):
-- Accept only text command: /task <내용>
+- Accept text commands: /task <내용>, /status <task-id>
 - Reuse existing intake pipeline:
   intake_parser -> task_draft_builder -> task_file_writer
-- Reply with success/hold/error only
+- Read existing task markdown for status lookup
 
 Out of scope:
-- /status, /report, /approve
+- /report, /approve
 - GitHub execution/report automation/DB/web UI
 """
 
@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,10 @@ if str(INTAKE_DIR) not in sys.path:
 from intake_parser import parse_intake
 from task_draft_builder import build_task_draft
 from task_file_writer import write_task_file
+
+TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
+TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
+TASK_STATUS_REQUIRED_FIELDS = ("id", "title", "status", "updated_at", "summary")
 
 
 def _load_env_file(env_path: Path) -> None:
@@ -89,6 +94,46 @@ def _run_task_pipeline(command_text: str) -> dict[str, Any]:
     return _error_payload(str(file_result.get("reason") or "task_file_writer_failed"))
 
 
+def _run_status_lookup(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 2:
+        return _error_payload("usage:/status <task-id>")
+
+    task_id = parts[1].strip()
+    if not task_id:
+        return _error_payload("empty_task_id")
+    if not TASK_ID_PATTERN.fullmatch(task_id):
+        return _error_payload("invalid_task_id_format")
+
+    task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+    if not task_file.exists() or not task_file.is_file():
+        return {"result_type": "not_found", "task_id": task_id}
+
+    metadata: dict[str, str] = {}
+    for raw_line in task_file.read_text(encoding="utf-8").splitlines():
+        matched = TASK_META_LINE_PATTERN.match(raw_line.strip())
+        if not matched:
+            continue
+        key, value = matched.groups()
+        if key in TASK_STATUS_REQUIRED_FIELDS:
+            metadata[key] = value.strip()
+
+    missing_fields = [field for field in TASK_STATUS_REQUIRED_FIELDS if not metadata.get(field)]
+    if missing_fields:
+        return _error_payload(f"task_file_missing_fields:{','.join(missing_fields)}")
+
+    return {"result_type": "status", **metadata}
+
+
+def _run_command(command_text: str) -> dict[str, Any]:
+    content = command_text.strip()
+    if content.startswith("/task"):
+        return _run_task_pipeline(content)
+    if content.startswith("/status"):
+        return _run_status_lookup(content)
+    return _error_payload("unsupported_command")
+
+
 def _format_reply(pipeline_result: dict[str, Any]) -> str:
     result_type = pipeline_result.get("result_type")
     if result_type == "success":
@@ -99,11 +144,22 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         )
     if result_type == "hold":
         return f"⏸️ hold\n- reason: `{pipeline_result.get('reason')}`"
-    return f"❌ error\n- reason: `{pipeline_result.get('reason')}`"
+    if result_type == "status":
+        return (
+            "📄 task 정보\n"
+            f"- id: `{pipeline_result.get('id')}`\n"
+            f"- title: `{pipeline_result.get('title')}`\n"
+            f"- status: `{pipeline_result.get('status')}`\n"
+            f"- updated_at: `{pipeline_result.get('updated_at')}`\n"
+            f"- summary: `{pipeline_result.get('summary')}`"
+        )
+    if result_type == "not_found":
+        return f"⚠️ not found: `{pipeline_result.get('task_id')}`"
+    return f"❌ error: `{pipeline_result.get('reason')}`"
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Minimal Discord /task bot")
+    parser = argparse.ArgumentParser(description="Minimal Discord /task,/status bot")
     parser.add_argument(
         "--env-file",
         default=str(THIS_DIR / ".env"),
@@ -111,7 +167,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--self-check",
-        help="Run local pipeline check without Discord connection. Example: --self-check '/task 문서 정리'",
+        help="Run local command check without Discord connection. Example: --self-check '/status task-0001-bootstrap'",
     )
     return parser.parse_args()
 
@@ -145,11 +201,11 @@ async def _start_discord_bot() -> None:
         if not content.startswith("/"):
             return
 
-        if not content.startswith("/task"):
-            await message.reply("이 봇은 현재 `/task <내용>`만 지원합니다.")
+        if not content.startswith("/task") and not content.startswith("/status"):
+            await message.reply("이 봇은 현재 `/task <내용>`, `/status <task-id>`만 지원합니다.")
             return
 
-        result = _run_task_pipeline(content)
+        result = _run_command(content)
         await message.reply(_format_reply(result))
 
     token = os.environ["DISCORD_BOT_TOKEN"].strip()
@@ -168,7 +224,7 @@ def main() -> None:
         if not command_text:
             print(json.dumps(_error_payload("empty_input"), ensure_ascii=False))
             raise SystemExit(2)
-        print(json.dumps(_run_task_pipeline(command_text), ensure_ascii=False, indent=2))
+        print(json.dumps(_run_command(command_text), ensure_ascii=False, indent=2))
         return
 
     is_valid, reason = _validate_required_env()
