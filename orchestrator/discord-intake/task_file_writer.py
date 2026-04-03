@@ -28,7 +28,7 @@ DEFAULT_STATUS = "TODO"
 
 @dataclass
 class TaskFileWriteResult:
-    result_type: str  # "created" | "hold" | "error"
+    result_type: str  # "created" | "would_create" | "hold" | "error"
     file_path: str | None = None
     task_id: str | None = None
     summary: str | None = None
@@ -174,6 +174,41 @@ def write_task_file(task_draft: dict[str, Any], tasks_dir: Path = DEFAULT_TASKS_
             file_path=str(target_path),
             task_id=task_id,
             summary="task file created",
+        )
+
+    return TaskFileWriteResult(result_type="error", reason="failed_to_allocate_task_number")
+
+
+def preview_task_file_write(
+    task_draft: dict[str, Any], tasks_dir: Path = DEFAULT_TASKS_DIR
+) -> TaskFileWriteResult:
+    """Preview task file creation result without creating a file."""
+    is_valid, reason = _validate_draft(task_draft)
+    if not is_valid:
+        return TaskFileWriteResult(result_type="hold", reason=reason)
+
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return TaskFileWriteResult(result_type="error", reason="tasks_dir_not_found")
+
+    title = _normalize_spaces(task_draft["title"])
+    slug = _slugify(title)
+    existing_numbers = _existing_task_numbers(tasks_dir)
+    next_number = (max(existing_numbers) + 1) if existing_numbers else 1
+
+    # Same allocation policy as write_task_file, but no write side effect.
+    max_retries = 10
+    for _ in range(max_retries):
+        task_id = f"task-{next_number:04d}-{slug}"
+        file_name = f"{task_id}.md"
+        target_path = tasks_dir / file_name
+        if target_path.exists():
+            next_number += 1
+            continue
+        return TaskFileWriteResult(
+            result_type="would_create",
+            file_path=str(target_path),
+            task_id=task_id,
+            summary="task file would be created (dry-run)",
         )
 
     return TaskFileWriteResult(result_type="error", reason="failed_to_allocate_task_number")

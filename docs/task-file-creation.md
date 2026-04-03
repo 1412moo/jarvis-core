@@ -2,6 +2,9 @@
 
 이 문서는 `task draft object`를 받아 `memory/tasks/*.md` 실제 파일 1개를 생성하는 최소 로컬 규칙을 정의한다.
 
+> 참고: `run_intake_demo.py --no-write` dry-run 경로는 동일한 검증/번호 계산 규칙을 따르되,
+> `result_type="would_create"`만 반환하고 실제 파일은 생성하지 않는다.
+
 ## 1) 생성 흐름 (draft object → task file)
 
 1. draft 입력 검증
