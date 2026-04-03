@@ -1,16 +1,18 @@
-# Discord Minimal Bot Adapter (`/task`, `/status`)
+# Discord Minimal Bot Adapter (`/task`, `/status`, `/report`)
 
 ## 현재 구현 범위
-이 단계의 구현은 **`/task <내용>`, `/status <task-id>` 2개**만 처리한다.
+이 단계의 구현은 **`/task <내용>`, `/status <task-id>`, `/report` 3개**를 처리한다.
 
 - 처리 방식: Discord 일반 메시지 기반 (`/task ...` 텍스트)
 - intake 재사용: `parser -> draft -> file writer`
-- 성공 시 실제 `memory/tasks/*.md` 파일 생성
+- 성공 시 실제 `memory/tasks/*.md` 파일 생성 (`/task`만)
 - hold/error 시 생성 중단 + 이유 응답
 - `/status`는 `memory/tasks/<task-id>.md`를 **읽기 전용 조회**한다.
+- `/report`는 `memory/tasks/*.md`를 **읽기 전용 집계**한다.
+- `/report`는 새로운 report 파일을 생성하지 않는다.
 
 명시적 비범위:
-- `/report`, `/approve`
+- `/approve`
 - GitHub API 연동
 - 자동 보고 생성
 - DB
@@ -53,7 +55,7 @@ python3 adapters/discord/bot_minimal.py
 ## 동작 규칙
 ### `/task <내용>`
 1. 슬래시 형태 문자열이 아니면 무시
-2. `/task`, `/status`가 아니면 거절 응답
+2. `/task`, `/status`, `/report`가 아니면 거절 응답
 3. `/task <내용>`을 intake 파이프라인에 전달
 4. parser hold면 파일 생성 없이 hold 응답
 5. error면 error 응답
@@ -72,6 +74,13 @@ python3 adapters/discord/bot_minimal.py
 5. 파일이 없으면 `not found` 응답
 6. 형식 오류/필수 필드 누락 시 `error` 응답
 
+### `/report`
+1. 입력 형식 검증: `/report`만 허용 (`/report extra`는 error)
+2. `memory/tasks/*.md`를 읽어 상태별 개수 집계
+3. 최근 업데이트 task 최대 5건 조회
+4. 조회 가능한 task가 없으면 `empty` 응답
+5. 이 명령은 read-only이며 report 파일을 생성하지 않음
+
 ### 안전 규칙
 - 빈 입력(`/task`만 입력)은 거절(error)
 - 위험 키워드(예: `delete`, `production`, `삭제`)는 hold 처리
@@ -80,20 +89,20 @@ python3 adapters/discord/bot_minimal.py
 ---
 
 ## 응답 예시
-### 성공
+### task success
 ```text
 ✅ task 생성 완료
 - task_id: `task-0004-doc-update`
 - file: `task-0004-doc-update.md`
 ```
 
-### hold
+### task hold
 ```text
 ⏸️ hold
 - reason: `needs_approval:risky_keyword_detected`
 ```
 
-### error
+### task error
 ```text
 ❌ error: `missing_required_arg:request`
 ```
@@ -118,6 +127,43 @@ python3 adapters/discord/bot_minimal.py
 ❌ error: `invalid_task_id_format`
 ```
 
+### report success
+```text
+📊 task report
+- total: 3
+- TODO: 0
+- DOING: 0
+- BLOCKED: 0
+- DONE: 3
+- FAILED: 0
+- NEEDS_APPROVAL: 0
+
+최근 업데이트:
+1. task-0003-discord-report — DONE — 2026-04-03 01:10 UTC
+2. task-0002-discord-status — DONE — 2026-04-03 00:55 UTC
+3. task-0001-bootstrap — DONE — 2026-04-03 00:40 UTC
+```
+
+### report empty
+```text
+📊 task report
+- total: 0
+- TODO: 0
+- DOING: 0
+- BLOCKED: 0
+- DONE: 0
+- FAILED: 0
+- NEEDS_APPROVAL: 0
+
+최근 업데이트:
+(없음)
+```
+
+### report error
+```text
+❌ error: `usage:/report`
+```
+
 ---
 
 ## 최소 로컬 검증 (Discord 접속 전)
@@ -134,12 +180,14 @@ python3 adapters/discord/bot_minimal.py
 
 ### 3) Discord 없이 파이프라인 자체 확인 (`--self-check`)
 ```bash
-python3 adapters/discord/bot_minimal.py --self-check '/task 문서 구조 정리'
-python3 adapters/discord/bot_minimal.py --self-check '/task production 삭제'
-python3 adapters/discord/bot_minimal.py --self-check '/task'
-python3 adapters/discord/bot_minimal.py --self-check '/status task-0001-bootstrap'
-python3 adapters/discord/bot_minimal.py --self-check '/status task-9999-not-found'
-python3 adapters/discord/bot_minimal.py --self-check '/status invalid-id'
+python adapters/discord/bot_minimal.py --self-check '/task 문서 구조 정리'
+python adapters/discord/bot_minimal.py --self-check '/task production 삭제'
+python adapters/discord/bot_minimal.py --self-check '/task'
+python adapters/discord/bot_minimal.py --self-check '/status task-0001-bootstrap'
+python adapters/discord/bot_minimal.py --self-check '/status task-9999-not-found'
+python adapters/discord/bot_minimal.py --self-check '/status invalid-id'
+python adapters/discord/bot_minimal.py --self-check '/report'
+python adapters/discord/bot_minimal.py --self-check '/report extra'
 ```
 
 ---
@@ -148,4 +196,4 @@ python3 adapters/discord/bot_minimal.py --self-check '/status invalid-id'
 - Discord **공식 slash command 등록/동기화**
 - 명령 권한/채널 제한
 - 재시도/백오프/운영 모니터링
-- `/report`, `/approve`
+- `/approve`
