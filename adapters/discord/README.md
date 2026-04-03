@@ -1,14 +1,15 @@
 # Discord Minimal Bot Adapter (`/task`, `/status`, `/report`)
 
 ## 현재 구현 범위
-이 단계의 구현은 **`/task <내용>`, `/status <task-id>`, `/report` 3개**를 처리한다.
+이 단계의 구현은 **`/task <내용>`, `/status <task-id>`, `/report`, `/report today` 4개**를 처리한다.
 
 - 처리 방식: Discord 일반 메시지 기반 (`/task ...` 텍스트)
 - intake 재사용: `parser -> draft -> file writer`
 - 성공 시 실제 `memory/tasks/*.md` 파일 생성 (`/task`만)
 - hold/error 시 생성 중단 + 이유 응답
 - `/status`는 `memory/tasks/<task-id>.md`를 **읽기 전용 조회**한다.
-- `/report`는 `memory/tasks/*.md`를 **읽기 전용 집계**한다.
+- `/report`는 `memory/tasks/*.md`를 **읽기 전용 전체 집계**한다.
+- `/report today`는 `updated_at`의 **UTC 날짜 기준 오늘 집계**를 조회한다.
 - `/report`는 새로운 report 파일을 생성하지 않는다.
 
 명시적 비범위:
@@ -75,11 +76,12 @@ python3 adapters/discord/bot_minimal.py
 6. 형식 오류/필수 필드 누락 시 `error` 응답
 
 ### `/report`
-1. 입력 형식 검증: `/report`만 허용 (`/report extra`는 error)
-2. `memory/tasks/*.md`를 읽어 상태별 개수 집계
-3. 최근 업데이트 task 최대 5건 조회
-4. 조회 가능한 task가 없으면 `empty` 응답
-5. 이 명령은 read-only이며 report 파일을 생성하지 않음
+1. 입력 형식 검증: `/report` 또는 `/report today`만 허용
+2. `/report`: `memory/tasks/*.md`를 읽어 상태별 개수 전체 집계
+3. `/report today`: `updated_at`의 UTC 날짜가 오늘인 task만 집계
+4. 최근 업데이트 task 최대 5건 조회
+5. 조회 가능한 task가 없으면 `empty` 응답
+6. 이 명령은 read-only이며 report 파일을 생성하지 않음
 
 ### 안전 규칙
 - 빈 입력(`/task`만 입력)은 거절(error)
@@ -144,6 +146,22 @@ python3 adapters/discord/bot_minimal.py
 3. task-0001-bootstrap — DONE — 2026-04-03 00:40 UTC
 ```
 
+### report today success
+```text
+📊 task report (today, UTC)
+- total: 2
+- TODO: 0
+- DOING: 0
+- BLOCKED: 0
+- DONE: 2
+- FAILED: 0
+- NEEDS_APPROVAL: 0
+
+최근 업데이트:
+1. task-0003-discord-report — DONE — 2026-04-03 01:10 UTC
+2. task-0002-discord-status — DONE — 2026-04-03 00:55 UTC
+```
+
 ### report empty
 ```text
 📊 task report
@@ -180,14 +198,16 @@ python3 adapters/discord/bot_minimal.py
 
 ### 3) Discord 없이 파이프라인 자체 확인 (`--self-check`)
 ```bash
-python adapters/discord/bot_minimal.py --self-check '/task 문서 구조 정리'
-python adapters/discord/bot_minimal.py --self-check '/task production 삭제'
-python adapters/discord/bot_minimal.py --self-check '/task'
-python adapters/discord/bot_minimal.py --self-check '/status task-0001-bootstrap'
-python adapters/discord/bot_minimal.py --self-check '/status task-9999-not-found'
-python adapters/discord/bot_minimal.py --self-check '/status invalid-id'
-python adapters/discord/bot_minimal.py --self-check '/report'
-python adapters/discord/bot_minimal.py --self-check '/report extra'
+python3 adapters/discord/bot_minimal.py --self-check '/task 문서 구조 정리'
+python3 adapters/discord/bot_minimal.py --self-check '/task production 삭제'
+python3 adapters/discord/bot_minimal.py --self-check '/task'
+python3 adapters/discord/bot_minimal.py --self-check '/status task-0001-bootstrap'
+python3 adapters/discord/bot_minimal.py --self-check '/status task-9999-not-found'
+python3 adapters/discord/bot_minimal.py --self-check '/status invalid-id'
+python3 adapters/discord/bot_minimal.py --self-check '/report'
+python3 adapters/discord/bot_minimal.py --self-check '/report today'
+python3 adapters/discord/bot_minimal.py --self-check '/report extra'
+python3 adapters/discord/bot_minimal.py --self-check '/report today extra'
 ```
 
 ---
