@@ -196,6 +196,7 @@ def _run_report_today(command_text: str) -> dict[str, Any]:
     if not tasks_dir.exists() or not tasks_dir.is_dir():
         return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
 
+    # NOTE: `/report today` uses UTC date 기준 (task `updated_at` 포맷과 동일).
     today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
     parsed_tasks: list[dict[str, str]] = []
     for task_file in sorted(tasks_dir.glob("*.md")):
@@ -217,8 +218,6 @@ def _run_command(command_text: str) -> dict[str, Any]:
         return _run_status_lookup(content)
     if content == "/report today":
         return _run_report_today(content)
-    if content.startswith("/report "):
-        return _error_payload("usage:/report today")
     if content.startswith("/report"):
         return _run_report(content)
     return _error_payload("unsupported_command")
