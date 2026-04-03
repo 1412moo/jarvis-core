@@ -15,6 +15,9 @@
    - parser 결과를 받아 draft 생성 가능 여부 판단
    - `/task`만 task draft object 생성
    - hold/error 또는 `/status`/`/report`/`/approve`는 hold result 반환
+3. `task_file_writer.py`
+   - task draft object를 받아 `memory/tasks/*.md` 파일 1개 생성
+   - 번호 스캔/slug/id 생성/충돌 회피를 로컬 규칙으로 처리
 
 ## 범위
 - 포함
@@ -27,7 +30,7 @@
   - Discord API 연결
   - 토큰/비밀정보
   - 네트워크 호출
-  - task 파일 생성 및 외부 시스템 실행
+  - 외부 시스템 실행
   - GitHub 작업 실행
 
 ## 파일 구성
@@ -35,11 +38,13 @@
 - `task_draft_builder.py`: parser 출력 → task draft/hold 변환기
 - `command_schema.md`: 명령별 입력/검증/출력 스키마
 - `examples.md`: 최소 동작 예시
+- `task_file_writer.py`: draft → task markdown 파일 생성기(MVP)
 
 ## 로컬 실행
 ```bash
 python3 orchestrator/discord-intake/intake_parser.py
 python3 orchestrator/discord-intake/task_draft_builder.py
+python3 orchestrator/discord-intake/task_file_writer.py
 ```
 
 실행 시 샘플 입력들에 대한 JSON 형태 분류/초안 결과를 출력한다.
