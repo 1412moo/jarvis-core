@@ -52,11 +52,16 @@
   - 연속/양끝 하이픈 정리
 - 결과가 빈 문자열이면 생성 중단(hold)
 
+### 비ASCII(한글 포함) 제목 정책 (이번 단계 선택)
+- **선택 정책: 명시적 hold 처리**
+- 이유:
+  1. 현재 단계는 표준 라이브러리 기반 최소 구현이며, 임의 transliteration/fallback 규칙은 의미 왜곡 위험이 있음
+  2. 잘못된 slug로 파일이 생성되는 것보다, 명확한 hold(`invalid_title_for_slug`)가 운영상 안전함
+  3. 후속 단계에서 팀 합의된 slug 매핑 규칙(예: 로마자 변환 or 안전 fallback)을 도입하기 쉬움
+
 예시:
 - `Parser Output 검증 규칙 보강` → `parser-output`
-- `보고 시스템 개선` → (ASCII 기반 최소 규칙에서는 slug 생성 실패 가능)
-
-> 주의: 현재 구현은 표준 라이브러리 기반 최소 규칙으로 비-ASCII 문자를 제거한다. 한국어 title이 필요한 경우 후속 단계에서 transliteration 규칙을 추가한다.
+- `보고 시스템 개선` → `hold(reason=invalid_title_for_slug)`
 
 ## 5) created_at / updated_at 기록 규칙
 

@@ -48,3 +48,26 @@ python3 orchestrator/discord-intake/task_file_writer.py
 ```
 
 실행 시 샘플 입력들에 대한 JSON 형태 분류/초안 결과를 출력한다.
+
+
+## End-to-End 로컬 데모 실행
+`run_intake_demo.py`는 parser → draft → file writer를 한 번에 실행하는 로컬 데모 런너다.
+
+```bash
+python3 orchestrator/discord-intake/run_intake_demo.py '/task report-system-improvement'
+```
+
+단계별 출력:
+- `PARSER RESULT`
+- `DRAFT RESULT` (parser hold/error가 아니면 출력)
+- `FILE RESULT` (draft가 task_draft일 때만 출력)
+
+중단 규칙:
+- parser가 hold/error면 즉시 중단
+- draft가 hold/error면 file writer 미실행
+- file writer가 실패하면 reason 출력
+
+입력 예시:
+- 성공 예시: `/task report-system-improvement`
+- hold 예시: `/task production 삭제` (위험 키워드)
+- 잘못된 입력 예시: `/hello something` (지원하지 않는 명령)
