@@ -57,17 +57,40 @@ python3 orchestrator/discord-intake/task_file_writer.py
 python3 orchestrator/discord-intake/run_intake_demo.py '/task report-system-improvement'
 ```
 
+dry-run(파일 미생성) 모드:
+```bash
+python3 orchestrator/discord-intake/run_intake_demo.py --no-write '/task report-system-improvement'
+```
+
 단계별 출력:
 - `PARSER RESULT`
 - `DRAFT RESULT` (parser hold/error가 아니면 출력)
 - `FILE RESULT` (draft가 task_draft일 때만 출력)
+  - `--no-write` 사용 시 `result_type="would_create"`를 출력하며 실제 파일은 만들지 않음
 
 중단 규칙:
 - parser가 hold/error면 즉시 중단
 - draft가 hold/error면 file writer 미실행
 - file writer가 실패하면 reason 출력
 
+dry-run 최종 판정(`--no-write`)은 아래 중 하나를 항상 출력한다.
+- `DRY_RUN_OUTCOME: would_create`
+- `DRY_RUN_OUTCOME: hold`
+- `DRY_RUN_OUTCOME: error`
+
 입력 예시:
 - 성공 예시: `/task report-system-improvement`
 - hold 예시: `/task production 삭제` (위험 키워드)
 - 잘못된 입력 예시: `/hello something` (지원하지 않는 명령)
+
+## Smoke Test 실행
+대표 입력 3종(생성 가능/hold/잘못된 입력)을 dry-run 경로로 검증한다.
+
+```bash
+python3 orchestrator/discord-intake/run_smoke_tests.py
+```
+
+성공 기준:
+- 프로세스 exit code가 `0`
+- 요약 JSON의 `failed`가 `0`
+- 각 케이스의 `actual_outcome`이 기대값과 일치
