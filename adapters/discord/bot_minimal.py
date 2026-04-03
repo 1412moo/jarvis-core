@@ -146,22 +146,7 @@ def _read_task_metadata(task_file: Path) -> dict[str, str] | None:
     return metadata
 
 
-def _run_report(command_text: str) -> dict[str, Any]:
-    parts = command_text.strip().split()
-    if len(parts) != 1:
-        return _error_payload("usage:/report")
-
-    tasks_dir = REPO_ROOT / "memory" / "tasks"
-    if not tasks_dir.exists() or not tasks_dir.is_dir():
-        return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
-
-    parsed_tasks: list[dict[str, str]] = []
-    for task_file in sorted(tasks_dir.glob("*.md")):
-        metadata = _read_task_metadata(task_file)
-        if metadata is None:
-            continue
-        parsed_tasks.append(metadata)
-
+def _build_report_payload(parsed_tasks: list[dict[str, str]]) -> dict[str, Any]:
     if not parsed_tasks:
         return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
 
@@ -183,12 +168,57 @@ def _run_report(command_text: str) -> dict[str, Any]:
     return {"result_type": "report", "total": len(parsed_tasks), "counts": counts, "recent": recent}
 
 
+def _run_report(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 1:
+        return _error_payload("usage:/report")
+
+    tasks_dir = REPO_ROOT / "memory" / "tasks"
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
+
+    parsed_tasks: list[dict[str, str]] = []
+    for task_file in sorted(tasks_dir.glob("*.md")):
+        metadata = _read_task_metadata(task_file)
+        if metadata is None:
+            continue
+        parsed_tasks.append(metadata)
+
+    return _build_report_payload(parsed_tasks)
+
+
+def _run_report_today(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 2 or parts[0] != "/report" or parts[1] != "today":
+        return _error_payload("usage:/report today")
+
+    tasks_dir = REPO_ROOT / "memory" / "tasks"
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
+
+    today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
+    parsed_tasks: list[dict[str, str]] = []
+    for task_file in sorted(tasks_dir.glob("*.md")):
+        metadata = _read_task_metadata(task_file)
+        if metadata is None:
+            continue
+        updated_date = metadata["updated_at"].split(" ", 1)[0]
+        if updated_date == today_ymd:
+            parsed_tasks.append(metadata)
+
+    return _build_report_payload(parsed_tasks)
+
+
 def _run_command(command_text: str) -> dict[str, Any]:
     content = command_text.strip()
     if content.startswith("/task"):
         return _run_task_pipeline(content)
     if content.startswith("/status"):
         return _run_status_lookup(content)
+    if content == "/report today":
+        return _run_report_today(content)
+    if content.startswith("/report "):
+        return _error_payload("usage:/report today")
     if content.startswith("/report"):
         return _run_report(content)
     return _error_payload("unsupported_command")
@@ -294,7 +324,7 @@ async def _start_discord_bot() -> None:
             return
 
         if not content.startswith("/task") and not content.startswith("/status") and not content.startswith("/report"):
-            await message.reply("이 봇은 현재 `/task <내용>`, `/status <task-id>`, `/report`만 지원합니다.")
+            await message.reply("이 봇은 현재 `/task <내용>`, `/status <task-id>`, `/report`, `/report today`만 지원합니다.")
             return
 
         result = _run_command(content)
