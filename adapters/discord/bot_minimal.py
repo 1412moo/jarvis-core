@@ -1,13 +1,13 @@
 """Minimal Discord bot adapter for jarvis-core intake pipeline.
 
 Scope (this step):
-- Accept text commands: /task <내용>, /status <task-id>
+- Accept text commands: /task <내용>, /status <task-id>, /report
 - Reuse existing intake pipeline:
   intake_parser -> task_draft_builder -> task_file_writer
 - Read existing task markdown for status lookup
 
 Out of scope:
-- /report, /approve
+- /approve
 - GitHub execution/report automation/DB/web UI
 """
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from datetime import datetime
 import json
 import os
 import re
@@ -41,6 +42,7 @@ from task_file_writer import write_task_file
 TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
 TASK_STATUS_REQUIRED_FIELDS = ("id", "title", "status", "updated_at", "summary")
+REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
 
 
 def _load_env_file(env_path: Path) -> None:
@@ -125,12 +127,70 @@ def _run_status_lookup(command_text: str) -> dict[str, Any]:
     return {"result_type": "status", **metadata}
 
 
+def _read_task_metadata(task_file: Path) -> dict[str, str] | None:
+    metadata: dict[str, str] = {}
+    for raw_line in task_file.read_text(encoding="utf-8").splitlines():
+        matched = TASK_META_LINE_PATTERN.match(raw_line.strip())
+        if not matched:
+            continue
+        key, value = matched.groups()
+        if key in TASK_STATUS_REQUIRED_FIELDS:
+            metadata[key] = value.strip()
+
+    missing_fields = [field for field in TASK_STATUS_REQUIRED_FIELDS if not metadata.get(field)]
+    if missing_fields:
+        return None
+    if not TASK_ID_PATTERN.fullmatch(metadata["id"]):
+        return None
+
+    return metadata
+
+
+def _run_report(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 1:
+        return _error_payload("usage:/report")
+
+    tasks_dir = REPO_ROOT / "memory" / "tasks"
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
+
+    parsed_tasks: list[dict[str, str]] = []
+    for task_file in sorted(tasks_dir.glob("*.md")):
+        metadata = _read_task_metadata(task_file)
+        if metadata is None:
+            continue
+        parsed_tasks.append(metadata)
+
+    if not parsed_tasks:
+        return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
+
+    counts = {status: 0 for status in REPORT_STATUS_ORDER}
+    for task in parsed_tasks:
+        task_status = task["status"]
+        if task_status in counts:
+            counts[task_status] += 1
+
+    def _sort_key(task: dict[str, str]) -> tuple[int, str]:
+        updated_at = task["updated_at"]
+        try:
+            parsed = datetime.strptime(updated_at, "%Y-%m-%d %H:%M UTC")
+            return int(parsed.timestamp()), updated_at
+        except ValueError:
+            return 0, updated_at
+
+    recent = sorted(parsed_tasks, key=_sort_key, reverse=True)[:5]
+    return {"result_type": "report", "total": len(parsed_tasks), "counts": counts, "recent": recent}
+
+
 def _run_command(command_text: str) -> dict[str, Any]:
     content = command_text.strip()
     if content.startswith("/task"):
         return _run_task_pipeline(content)
     if content.startswith("/status"):
         return _run_status_lookup(content)
+    if content.startswith("/report"):
+        return _run_report(content)
     return _error_payload("unsupported_command")
 
 
@@ -155,11 +215,43 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         )
     if result_type == "not_found":
         return f"⚠️ not found: `{pipeline_result.get('task_id')}`"
+    if result_type == "report_empty":
+        counts = pipeline_result.get("counts") or {}
+        return (
+            "📊 task report\n"
+            "- total: 0\n"
+            f"- TODO: {counts.get('TODO', 0)}\n"
+            f"- DOING: {counts.get('DOING', 0)}\n"
+            f"- BLOCKED: {counts.get('BLOCKED', 0)}\n"
+            f"- DONE: {counts.get('DONE', 0)}\n"
+            f"- FAILED: {counts.get('FAILED', 0)}\n"
+            f"- NEEDS_APPROVAL: {counts.get('NEEDS_APPROVAL', 0)}\n\n"
+            "최근 업데이트:\n"
+            "(없음)"
+        )
+    if result_type == "report":
+        counts = pipeline_result.get("counts") or {}
+        recent = pipeline_result.get("recent") or []
+        recent_lines: list[str] = []
+        for index, task in enumerate(recent, start=1):
+            recent_lines.append(f"{index}. {task.get('id')} — {task.get('status')} — {task.get('updated_at')}")
+        recent_text = "\n".join(recent_lines) if recent_lines else "(없음)"
+        return (
+            "📊 task report\n"
+            f"- total: {pipeline_result.get('total', 0)}\n"
+            f"- TODO: {counts.get('TODO', 0)}\n"
+            f"- DOING: {counts.get('DOING', 0)}\n"
+            f"- BLOCKED: {counts.get('BLOCKED', 0)}\n"
+            f"- DONE: {counts.get('DONE', 0)}\n"
+            f"- FAILED: {counts.get('FAILED', 0)}\n"
+            f"- NEEDS_APPROVAL: {counts.get('NEEDS_APPROVAL', 0)}\n\n"
+            f"최근 업데이트:\n{recent_text}"
+        )
     return f"❌ error: `{pipeline_result.get('reason')}`"
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Minimal Discord /task,/status bot")
+    parser = argparse.ArgumentParser(description="Minimal Discord /task,/status,/report bot")
     parser.add_argument(
         "--env-file",
         default=str(THIS_DIR / ".env"),
@@ -201,8 +293,8 @@ async def _start_discord_bot() -> None:
         if not content.startswith("/"):
             return
 
-        if not content.startswith("/task") and not content.startswith("/status"):
-            await message.reply("이 봇은 현재 `/task <내용>`, `/status <task-id>`만 지원합니다.")
+        if not content.startswith("/task") and not content.startswith("/status") and not content.startswith("/report"):
+            await message.reply("이 봇은 현재 `/task <내용>`, `/status <task-id>`, `/report`만 지원합니다.")
             return
 
         result = _run_command(content)
