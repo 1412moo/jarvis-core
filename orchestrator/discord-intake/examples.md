@@ -46,3 +46,21 @@
 python3 orchestrator/discord-intake/intake_parser.py
 python3 orchestrator/discord-intake/task_draft_builder.py
 ```
+
+## 4) task draft → task file 생성
+- 입력(draft 예시)
+  - `title="parser-output-validation-rules"`
+  - `status="TODO"`
+  - `repo="jarvis-core"`
+  - `summary="파서 결과 검증 규칙 보강"`
+- writer 결과(요약)
+  - `result_type="created"`
+  - `file_path="memory/tasks/task-0004-parser-output-validation-rules.md"` (번호는 실행 시점에 따라 달라짐)
+  - `task_id="task-0004-parser-output-validation-rules"`
+
+## 로컬 확인 커맨드 (확장)
+```bash
+python3 orchestrator/discord-intake/intake_parser.py
+python3 orchestrator/discord-intake/task_draft_builder.py
+python3 orchestrator/discord-intake/task_file_writer.py
+```
