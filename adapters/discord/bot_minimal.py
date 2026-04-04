@@ -57,11 +57,20 @@ CONTRACT_APPROVE_TRANSITIONS = frozenset(
     }
 )
 PLAN_ALWAYS_FILES = ("docs/codex-workflow.md",)
+REVIEW_ALWAYS_FILES = ("docs/codex-workflow.md",)
 PLAN_KEYWORD_FILE_MAP: dict[str, tuple[str, ...]] = {
     "approve": ("docs/approve-file-writer-contract.md", "adapters/discord/bot_minimal.py"),
     "task": ("docs/command-to-task.md", "adapters/discord/bot_minimal.py"),
     "status": ("docs/status-report-contract.md", "docs/status-report-flow.md", "adapters/discord/bot_minimal.py"),
     "report": ("docs/status-report-contract.md", "docs/status-report-flow.md", "adapters/discord/bot_minimal.py"),
+    "intake": ("docs/discord-command-intake.md", "orchestrator/discord-intake/intake_parser.py"),
+    "parser": ("orchestrator/discord-intake/intake_parser.py", "docs/discord-command-intake.md"),
+}
+REVIEW_KEYWORD_FILE_MAP: dict[str, tuple[str, ...]] = {
+    "approve": ("docs/approve-file-writer-contract.md", "adapters/discord/bot_minimal.py"),
+    "status": ("docs/status-report-contract.md", "docs/status-report-flow.md", "adapters/discord/bot_minimal.py"),
+    "report": ("docs/status-report-contract.md", "docs/status-report-flow.md", "adapters/discord/bot_minimal.py"),
+    "task": ("docs/command-to-task.md", "adapters/discord/bot_minimal.py"),
     "intake": ("docs/discord-command-intake.md", "orchestrator/discord-intake/intake_parser.py"),
     "parser": ("orchestrator/discord-intake/intake_parser.py", "docs/discord-command-intake.md"),
 }
@@ -276,6 +285,82 @@ def _run_plan_draft(command_text: str) -> dict[str, Any]:
             "기존 /task /status /report /approve 동작 변경 금지",
         ],
         "codex_prompt": f"다음 요청의 최소 계획 초안을 작성하라: {request}. codex-workflow 규칙을 준수하고 범위 밖 확장을 금지하라.",
+    }
+
+
+def _build_review_notes(status: str) -> str:
+    if status == "TODO":
+        return "아직 구현 전 또는 계획 단계일 수 있음"
+    if status == "DOING":
+        return "진행 중 작업으로 보임"
+    if status == "DONE":
+        return "완료 상태로 보임"
+    if status == "FAILED":
+        return "실패 원인/재시도 계획 점검 필요"
+    if status == "NEEDS_APPROVAL":
+        return "승인 대기 상태로 보임"
+    if status == "BLOCKED":
+        return "차단 원인과 해소 조건 점검 필요"
+    return "상태 정보 점검 필요"
+
+
+def _build_recommended_next_steps(status: str) -> list[str]:
+    if status == "TODO":
+        return ["요구사항과 범위를 다시 확인한다", "작업 착수 조건을 정리한다"]
+    if status == "DOING":
+        return ["진행 중 산출물을 점검한다", "남은 작업을 우선순위로 정리한다"]
+    if status == "DONE":
+        return ["검증 근거와 결과를 최종 점검한다"]
+    if status == "FAILED":
+        return ["실패 원인을 명시한다", "재시도 조건과 계획을 정리한다"]
+    if status == "NEEDS_APPROVAL":
+        return ["승인 요청 항목과 사유를 점검한다", "승인 후 즉시 수행할 다음 작업을 정리한다"]
+    if status == "BLOCKED":
+        return ["차단 원인을 summary에 명확히 기록한다", "의존 주체와 재시도 조건을 확인한다"]
+    return ["task 메타데이터를 점검한다"]
+
+
+def _build_related_files(metadata: dict[str, str]) -> list[str]:
+    related_files: list[str] = list(REVIEW_ALWAYS_FILES)
+    searchable_text = f"{metadata.get('id', '')} {metadata.get('title', '')} {metadata.get('summary', '')}".lower()
+    for keyword, mapped_files in REVIEW_KEYWORD_FILE_MAP.items():
+        if keyword in searchable_text:
+            for path in mapped_files:
+                if path not in related_files:
+                    related_files.append(path)
+    return related_files
+
+
+def _run_review_task(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 2:
+        return _error_payload("usage:/review-task <task-id>")
+
+    task_id = parts[1].strip()
+    if not task_id:
+        return _error_payload("usage:/review-task <task-id>")
+    if not TASK_ID_PATTERN.fullmatch(task_id):
+        return _error_payload("invalid_task_id_format")
+
+    task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+    if not task_file.exists() or not task_file.is_file():
+        return {"result_type": "not_found", "task_id": task_id}
+
+    metadata = _read_task_metadata(task_file)
+    if metadata is None:
+        return _error_payload("task_file_missing_fields:id,title,status,updated_at,summary")
+
+    status = metadata["status"]
+    return {
+        "result_type": "review_task_result",
+        "task_id": metadata["id"],
+        "title": metadata["title"],
+        "status": status,
+        "updated_at": metadata["updated_at"],
+        "summary": metadata["summary"],
+        "review_notes": _build_review_notes(status),
+        "recommended_next_steps": _build_recommended_next_steps(status),
+        "related_files": _build_related_files(metadata),
     }
 
 
@@ -522,6 +607,8 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 def _run_command(command_text: str) -> dict[str, Any]:
     content = command_text.strip()
+    if content.startswith("/review-task"):
+        return _run_review_task(content)
     if content.startswith("/plan"):
         return _run_plan_draft(content)
     if content.startswith("/task"):
@@ -539,6 +626,22 @@ def _run_command(command_text: str) -> dict[str, Any]:
 
 def _format_reply(pipeline_result: dict[str, Any]) -> str:
     result_type = pipeline_result.get("result_type")
+    if result_type == "review_task_result":
+        recommended = pipeline_result.get("recommended_next_steps") or []
+        related_files = pipeline_result.get("related_files") or []
+        recommended_text = "\n".join(f"- {item}" for item in recommended) if recommended else "- (없음)"
+        related_text = "\n".join(f"- {path}" for path in related_files) if related_files else "- (없음)"
+        return (
+            "🧪 review task 결과\n"
+            f"- task_id: `{pipeline_result.get('task_id')}`\n"
+            f"- title: `{pipeline_result.get('title')}`\n"
+            f"- status: `{pipeline_result.get('status')}`\n"
+            f"- updated_at: `{pipeline_result.get('updated_at')}`\n"
+            f"- summary: `{pipeline_result.get('summary')}`\n"
+            f"- review_notes: `{pipeline_result.get('review_notes')}`\n\n"
+            f"recommended_next_steps:\n{recommended_text}\n\n"
+            f"related_files:\n{related_text}"
+        )
     if result_type == "plan_draft":
         files_to_check = pipeline_result.get("files_to_check") or []
         out_of_scope = pipeline_result.get("out_of_scope") or []
@@ -641,7 +744,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Minimal Discord /plan,/task,/status,/report,/approve bot")
+    parser = argparse.ArgumentParser(description="Minimal Discord /plan,/task,/status,/review-task,/report,/approve bot")
     parser.add_argument(
         "--env-file",
         default=str(THIS_DIR / ".env"),
@@ -785,9 +888,16 @@ async def _start_discord_bot() -> None:
         if not content.startswith("/"):
             return
 
-        if not content.startswith("/plan") and not content.startswith("/task") and not content.startswith("/status") and not content.startswith("/report") and not content.startswith("/approve"):
+        if (
+            not content.startswith("/plan")
+            and not content.startswith("/task")
+            and not content.startswith("/status")
+            and not content.startswith("/review-task")
+            and not content.startswith("/report")
+            and not content.startswith("/approve")
+        ):
             await message.reply(
-                "이 봇은 현재 `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/report`, `/report today`, `/approve <task-id> approve|reject`만 지원합니다."
+                "이 봇은 현재 `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/approve <task-id> approve|reject`만 지원합니다."
             )
             return
 
