@@ -233,6 +233,19 @@ def _build_approve_draft(parse_result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _build_approve_writer_input(approve_draft: dict[str, Any]) -> dict[str, Any]:
+    if approve_draft.get("result_type") != "approve_draft":
+        return _error_payload("approve_draft_required")
+
+    return {
+        "result_type": "approve_writer_input",
+        "writer_action": "apply_approve_transition",
+        "task_id": str(approve_draft.get("task_id") or ""),
+        "target_transition": approve_draft.get("proposed_transition") or {},
+        "apply_ready": bool(approve_draft.get("apply_ready", False)),
+    }
+
+
 def _run_approve_parse(command_text: str) -> dict[str, Any]:
     parts = command_text.strip().split()
     if len(parts) != 3:
@@ -248,7 +261,10 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
         return _error_payload("usage:/approve <task-id> approve|reject")
 
     parse_result = {"result_type": "approve_parse", "task_id": task_id, "decision": decision}
-    return _build_approve_draft(parse_result)
+    approve_draft = _build_approve_draft(parse_result)
+    if approve_draft.get("result_type") != "approve_draft":
+        return approve_draft
+    return _build_approve_writer_input(approve_draft)
 
 
 def _run_command(command_text: str) -> dict[str, Any]:
@@ -294,6 +310,15 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- task_id: `{pipeline_result.get('task_id')}`\n"
             f"- draft_type: `{pipeline_result.get('draft_type')}`\n"
             f"- proposed_transition: `{proposed_transition.get('from')} -> {proposed_transition.get('to')}`\n"
+            f"- apply_ready: `{pipeline_result.get('apply_ready')}`"
+        )
+    if result_type == "approve_writer_input":
+        target_transition = pipeline_result.get("target_transition") or {}
+        return (
+            "🧾 approve writer input 생성 완료\n"
+            f"- writer_action: `{pipeline_result.get('writer_action')}`\n"
+            f"- task_id: `{pipeline_result.get('task_id')}`\n"
+            f"- target_transition: `{target_transition.get('from')} -> {target_transition.get('to')}`\n"
             f"- apply_ready: `{pipeline_result.get('apply_ready')}`"
         )
     if result_type == "report_empty":
