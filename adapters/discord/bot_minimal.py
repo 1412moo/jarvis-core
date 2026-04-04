@@ -338,9 +338,12 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
     lines[status_line_index] = f"- status: `{transition_to}`"
     updated_line_index: int | None = None
     for idx, line in enumerate(lines):
-        if line.strip().startswith("- updated_at:"):
+        matched = TASK_META_LINE_PATTERN.match(line.strip())
+        if not matched:
+            continue
+        key, _ = matched.groups()
+        if key == "updated_at":
             updated_line_index = idx
-            break
     if updated_line_index is not None:
         lines[updated_line_index] = f"- updated_at: `{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}`"
 
