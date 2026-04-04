@@ -61,24 +61,22 @@
 - 목적
   - 특정 Task 또는 범위의 현재 상태를 확인
 - 필수 입력값
-  - `task_id` 또는 조회 범위(예: `today`, `open`)
+  - `task_id` (`task-####-slug` 형식)
 - 선택 입력값
-  - `repo`
-  - `limit`
+  - (없음, 현 단계 구현 범위)
 - 성공 시 기대 결과
-  - 요청 범위 내 상태 요약(예: TODO/IN_PROGRESS/BLOCKED)
+  - 대상 Task 메타데이터(id/title/status/updated_at/summary) 응답
 - 실패 또는 보류 조건
   - 대상 Task 식별 실패
-  - 범위 표현이 모호하여 결과 왜곡 가능성이 큰 경우
+  - task_id 형식 불일치
 
 ### 5.3 `/report`
 - 목적
   - 기간/대상 기준으로 진행 상황 보고를 요청
 - 필수 입력값
-  - `period` (예: `today`, `weekly`)
+  - (없음: `/report` 또는 `/report today`)
 - 선택 입력값
-  - `repo`
-  - `format` (간단/상세)
+  - `today` 키워드(UTC 날짜 기준)
 - 성공 시 기대 결과
   - 지정 기간의 작업 요약 보고 초안 제공
 - 실패 또는 보류 조건
@@ -89,11 +87,10 @@
 - 목적
   - 승인 필요 작업을 표시하거나 승인 의사 표현을 기록
 - 필수 입력값
-  - `target` (task_id 또는 승인 대상 식별자)
+  - `target` (full task id: `task-####-slug`)
   - `decision` (approve/reject)
 - 선택 입력값
-  - `reason`
-  - `scope` (부분 승인 범위)
+  - (없음, 현 단계 구현 범위)
 - 성공 시 기대 결과
   - 승인 이벤트가 기록되고 대상 Task 상태/플래그가 갱신됨
 - 실패 또는 보류 조건
@@ -128,11 +125,11 @@
 ## 9) 단순 예시 5개
 1. `/task 보고 시스템 개선`
    - 기대: 작업 생성 요청으로 분류, Task 초안(`TODO`) 생성
-2. `/status task-0002`
+2. `/status task-0002-report-system`
    - 기대: 해당 Task 상태 요약 반환, 미존재 시 보류/오류 응답
 3. `/report today`
    - 기대: 당일 기준 진행 요약 보고 초안 제공
-4. `/approve task-0007 approve`
+4. `/approve task-0007-discord-intake approve`
    - 기대: 승인 이벤트 기록, 대상 Task 승인 플래그 반영
 5. `디스코드 연동이랑 보고 자동화도 같이 해줘`
    - 기대: 자연어 복합 요청으로 인식, 2개 Task 후보로 분리 후 즉시 실행 없이 기록
