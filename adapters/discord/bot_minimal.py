@@ -240,125 +240,129 @@ def _build_approve_writer_input(approve_draft: dict[str, Any]) -> dict[str, Any]
 
     return {
         "result_type": "approve_writer_input",
-        "writer_action": "apply_approve_transition",
+        "draft_type": str(approve_draft.get("draft_type") or ""),
         "task_id": str(approve_draft.get("task_id") or ""),
-        "target_transition": approve_draft.get("proposed_transition") or {},
+        "proposed_transition": approve_draft.get("proposed_transition") or {},
         "apply_ready": bool(approve_draft.get("apply_ready", False)),
         "hold_reason": approve_draft.get("hold_reason"),
     }
 
 
-def _approve_writer_result_fail(
-    *,
-    task_id: str,
-    target_transition: dict[str, Any],
-    apply_ready: bool,
-    reason: str,
-    error_code: str,
-) -> dict[str, Any]:
+def _approve_writer_result_fail(*, task_id: str, reason: str, kind: str) -> dict[str, Any]:
     return {
-        "result_type": "approve_writer_result",
-        "writer_action": "apply_approve_transition",
+        "result_type": "approve_file_write_result",
         "task_id": task_id,
-        "target_transition": target_transition,
-        "apply_ready": apply_ready,
         "applied": False,
-        "error": True,
-        "error_code": error_code,
         "reason": reason,
+        "kind": kind,
     }
+
+
+def _apply_task_status_transition(task_id: str, transition_from: str, transition_to: str) -> tuple[bool, str]:
+    task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+    if not task_file.exists() or not task_file.is_file():
+        return False, "task_not_found"
+
+    lines = task_file.read_text(encoding="utf-8").splitlines()
+    status_line_index: int | None = None
+    current_status = ""
+    for idx, line in enumerate(lines):
+        matched = TASK_META_LINE_PATTERN.match(line.strip())
+        if not matched:
+            continue
+        key, value = matched.groups()
+        if key == "status":
+            status_line_index = idx
+            current_status = value.strip()
+            break
+
+    if status_line_index is None:
+        return False, "task_status_missing"
+    if current_status != transition_from:
+        return False, "status_mismatch"
+
+    lines[status_line_index] = f"- status: `{transition_to}`"
+    updated_line_index: int | None = None
+    for idx, line in enumerate(lines):
+        if line.strip().startswith("- updated_at:"):
+            updated_line_index = idx
+            break
+    if updated_line_index is not None:
+        lines[updated_line_index] = f"- updated_at: `{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}`"
+
+    task_file.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return True, ""
 
 
 def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[str, Any]:
     task_id = str(approve_writer_input.get("task_id") or "")
-    target_transition = approve_writer_input.get("target_transition")
+    proposed_transition = approve_writer_input.get("proposed_transition")
     apply_ready = bool(approve_writer_input.get("apply_ready", False))
     hold_reason = str(approve_writer_input.get("hold_reason") or "")
 
     if approve_writer_input.get("result_type") != "approve_writer_input":
         return _approve_writer_result_fail(
             task_id=task_id,
-            target_transition=target_transition if isinstance(target_transition, dict) else {},
-            apply_ready=apply_ready,
             reason="approve_writer_input_required",
-            error_code="invalid_result_type",
+            kind="error",
         )
 
-    writer_action = str(approve_writer_input.get("writer_action") or "")
-    if writer_action != "apply_approve_transition":
+    draft_type = str(approve_writer_input.get("draft_type") or "")
+    if draft_type != "approve_status_transition_draft":
         return _approve_writer_result_fail(
             task_id=task_id,
-            target_transition=target_transition if isinstance(target_transition, dict) else {},
-            apply_ready=apply_ready,
-            reason="invalid_writer_action",
-            error_code="invalid_writer_action",
+            reason="invalid_draft_type",
+            kind="error",
         )
 
     if not task_id:
         return _approve_writer_result_fail(
             task_id=task_id,
-            target_transition=target_transition if isinstance(target_transition, dict) else {},
-            apply_ready=apply_ready,
             reason="missing_task_id",
-            error_code="missing_task_id",
+            kind="error",
         )
 
-    if not isinstance(target_transition, dict):
+    if not isinstance(proposed_transition, dict):
         return _approve_writer_result_fail(
             task_id=task_id,
-            target_transition={},
-            apply_ready=apply_ready,
-            reason="target_transition_required",
-            error_code="missing_target_transition",
+            reason="proposed_transition_required",
+            kind="error",
         )
 
-    transition_from = str(target_transition.get("from") or "")
-    transition_to = str(target_transition.get("to") or "")
+    transition_from = str(proposed_transition.get("from") or "")
+    transition_to = str(proposed_transition.get("to") or "")
     if not transition_from or not transition_to:
         return _approve_writer_result_fail(
             task_id=task_id,
-            target_transition=target_transition,
-            apply_ready=apply_ready,
-            reason="target_transition_fields_required",
-            error_code="missing_target_transition_fields",
+            reason="proposed_transition_fields_required",
+            kind="error",
         )
 
     if transition_from != "NEEDS_APPROVAL":
         return _approve_writer_result_fail(
             task_id=task_id,
-            target_transition=target_transition,
-            apply_ready=apply_ready,
             reason="invalid_transition_from",
-            error_code="invalid_transition_from",
+            kind="error",
         )
 
     if transition_to not in ("DOING", "FAILED"):
         return _approve_writer_result_fail(
             task_id=task_id,
-            target_transition=target_transition,
-            apply_ready=apply_ready,
             reason="invalid_transition_to",
-            error_code="invalid_transition_to",
+            kind="error",
         )
 
     if not apply_ready:
-        return {
-            "result_type": "approve_writer_result",
-            "writer_action": "apply_approve_transition",
-            "task_id": task_id,
-            "target_transition": target_transition,
-            "apply_ready": False,
-            "applied": False,
-            "hold": True,
-            "reason": hold_reason or "apply_ready_false",
-        }
+        return _approve_writer_result_fail(task_id=task_id, reason=hold_reason or "apply_ready_false", kind="hold")
+
+    applied, reason = _apply_task_status_transition(task_id, transition_from, transition_to)
+    if not applied:
+        reason_kind = "hold" if reason in ("task_not_found", "status_mismatch") else "error"
+        return _approve_writer_result_fail(task_id=task_id, reason=reason, kind=reason_kind)
 
     return {
-        "result_type": "approve_writer_result",
-        "writer_action": "apply_approve_transition",
+        "result_type": "approve_file_write_result",
         "task_id": task_id,
-        "target_transition": target_transition,
-        "apply_ready": True,
         "applied": True,
         "applied_transition": {"from": transition_from, "to": transition_to},
     }
@@ -436,29 +440,23 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- apply_ready: `{pipeline_result.get('apply_ready')}`"
         )
     if result_type == "approve_writer_input":
-        target_transition = pipeline_result.get("target_transition") or {}
+        proposed_transition = pipeline_result.get("proposed_transition") or {}
         return (
             "🧾 approve writer input 생성 완료\n"
-            f"- writer_action: `{pipeline_result.get('writer_action')}`\n"
+            f"- draft_type: `{pipeline_result.get('draft_type')}`\n"
             f"- task_id: `{pipeline_result.get('task_id')}`\n"
-            f"- target_transition: `{target_transition.get('from')} -> {target_transition.get('to')}`\n"
+            f"- proposed_transition: `{proposed_transition.get('from')} -> {proposed_transition.get('to')}`\n"
             f"- apply_ready: `{pipeline_result.get('apply_ready')}`"
         )
-    if result_type == "approve_writer_result":
-        target_transition = pipeline_result.get("target_transition") or {}
-        status_label = "success" if pipeline_result.get("applied") else "failed_or_hold"
+    if result_type == "approve_file_write_result":
+        applied_transition = pipeline_result.get("applied_transition") or {}
         return (
-            "🧾 approve writer result 생성 완료\n"
-            f"- status: `{status_label}`\n"
-            f"- writer_action: `{pipeline_result.get('writer_action')}`\n"
+            "🧾 approve file write result 생성 완료\n"
             f"- task_id: `{pipeline_result.get('task_id')}`\n"
-            f"- target_transition: `{target_transition.get('from')} -> {target_transition.get('to')}`\n"
-            f"- apply_ready: `{pipeline_result.get('apply_ready')}`\n"
             f"- applied: `{pipeline_result.get('applied')}`\n"
-            f"- hold: `{pipeline_result.get('hold')}`\n"
-            f"- error: `{pipeline_result.get('error')}`\n"
-            f"- reason: `{pipeline_result.get('reason')}`\n"
-            f"- error_code: `{pipeline_result.get('error_code')}`"
+            f"- applied_transition: `{applied_transition.get('from')} -> {applied_transition.get('to')}`\n"
+            f"- kind: `{pipeline_result.get('kind')}`\n"
+            f"- reason: `{pipeline_result.get('reason')}`"
         )
     if result_type == "report_empty":
         counts = pipeline_result.get("counts") or {}
