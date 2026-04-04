@@ -272,18 +272,26 @@ def _approve_writer_result_fail(*, task_id: str, reason: str, kind: str) -> dict
     }
 
 
+def _allowed_transition_targets(transition_from: str) -> tuple[str, ...]:
+    return ALLOWED_STATUS_TRANSITIONS.get(transition_from, ())
+
+
 def _is_allowed_status_transition(transition_from: str, transition_to: str) -> bool:
-    return transition_to in ALLOWED_STATUS_TRANSITIONS.get(transition_from, ())
+    return transition_to in _allowed_transition_targets(transition_from)
+
+
+def _validate_approve_transition(transition_from: str, transition_to: str) -> tuple[bool, str]:
+    if not _is_allowed_status_transition(transition_from, transition_to):
+        return False, "invalid_transition"
+    return True, ""
 
 
 def _validate_approve_transition_contract_sync() -> tuple[bool, list[str]]:
     reasons: list[str] = []
 
     code_approve_transitions = frozenset(
-        (source, target)
-        for source, targets in ALLOWED_STATUS_TRANSITIONS.items()
-        if source == "NEEDS_APPROVAL"
-        for target in targets
+        ("NEEDS_APPROVAL", target)
+        for target in _allowed_transition_targets("NEEDS_APPROVAL")
     )
     code_approve_states = frozenset({"NEEDS_APPROVAL", *(target for _, target in code_approve_transitions)})
 
@@ -392,10 +400,11 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
             kind="error",
         )
 
-    if not _is_allowed_status_transition(transition_from, transition_to):
+    transition_ok, transition_reason = _validate_approve_transition(transition_from, transition_to)
+    if not transition_ok:
         return _approve_writer_result_fail(
             task_id=task_id,
-            reason="invalid_transition",
+            reason=transition_reason,
             kind="error",
         )
 
