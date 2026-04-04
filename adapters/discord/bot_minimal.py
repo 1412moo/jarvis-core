@@ -280,10 +280,14 @@ def _is_allowed_status_transition(transition_from: str, transition_to: str) -> b
     return transition_to in _allowed_transition_targets(transition_from)
 
 
-def _validate_approve_transition(transition_from: str, transition_to: str) -> tuple[bool, str]:
+def _validate_status_transition(transition_from: str, transition_to: str) -> tuple[bool, str]:
     if not _is_allowed_status_transition(transition_from, transition_to):
         return False, "invalid_transition"
     return True, ""
+
+
+def _validate_approve_transition(transition_from: str, transition_to: str) -> tuple[bool, str]:
+    return _validate_status_transition(transition_from, transition_to)
 
 
 def _validate_approve_transition_contract_sync() -> tuple[bool, list[str]]:
