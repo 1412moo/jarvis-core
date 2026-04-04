@@ -27,7 +27,7 @@
    - `status=TODO`
    - `created_at`, `updated_at` 동일 UTC 시각으로 초기화
    - `title`, `repo`, `summary`, `id` 반영
-   - `source_command`가 있으면 선택적으로 하단 메타에 포함
+   - `source_command`가 있으면 선택적으로 하단 메타에 포함 (현재 intake draft 기준 값은 `/task`)
 7. 파일 생성
    - 덮어쓰기 금지(`open(..., "x")`)
    - 성공 시 created 결과 반환
@@ -104,7 +104,7 @@
   "status": "TODO",
   "repo": "jarvis-core",
   "summary": "보고 체계 문서 구조를 개선하는 task 파일을 생성한다.",
-  "source_command": "/task report-system-improvement"
+  "source_command": "/task"
 }
 ```
 
@@ -126,7 +126,7 @@
   "status": "TODO",
   "repo": "jarvis-core",
   "summary": "파서 결과의 누락/형식 오류 검증 규칙을 명확히 한다.",
-  "source_command": "/task parser-output-validation-rules"
+  "source_command": "/task"
 }
 ```
 

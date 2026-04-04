@@ -55,7 +55,7 @@
 - 실패 또는 보류 조건
   - 요청 의미가 지나치게 모호한 경우
   - 한 줄에 상충 목표가 과도하게 혼합된 경우(분리 필요)
-  - 파괴적/운영 영향 요청이 포함된 경우(`NEEDS_APPROVAL` 전환)
+  - 파괴적/운영 영향 요청이 포함된 경우(현재 구현은 `needs_approval:*` hold로 반환하며 Task 파일은 생성하지 않음)
 
 ### 5.2 `/status`
 - 목적
@@ -144,3 +144,7 @@
 - `orchestrator/discord-intake/intake_parser.py` 기준 MVP는 **슬래시 명령 4종**(`/task`, `/status`, `/report`, `/approve`)만 규칙 기반으로 파싱한다.
 - 본 설계 문서의 자연어 분해/복수 Task 분리 정책은 **후속 단계**로 남겨두며, 현재 구현에는 포함하지 않는다.
 - 현재 구현은 분류 + 필수값 검증 + 정규화 payload 반환 + hold/error reason 반환까지만 수행한다.
+- `/task` 구현 응답 포맷(현재)
+  - 정상 생성: `{"result_type":"success","task_id","file_name","file_path"}`
+  - 입력 오류: `{"result_type":"error","reason":"missing_required_arg:request"}` 등 parser reason 전달
+  - 위험 키워드 포함: `{"result_type":"hold","reason":"needs_approval:risky_keyword_detected"}` (task 파일 미생성)
