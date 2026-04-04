@@ -35,7 +35,7 @@
 - `status`
 - `repo`
 - `summary`
-- `source_command`
+- `source_command` (현재 구현값: 명령 전체 원문이 아니라 command name, 즉 `/task`)
 
 2. hold result
 - `result_type = "hold"`
