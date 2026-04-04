@@ -255,6 +255,72 @@ def _run_report_today(command_text: str) -> dict[str, Any]:
     return _build_report_payload(parsed_tasks)
 
 
+def _build_retro_today_payload(report_today_result: dict[str, Any]) -> dict[str, Any]:
+    counts = report_today_result.get("counts") or {}
+    total = int(report_today_result.get("total") or 0)
+    today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
+
+    failed_count = int(counts.get("FAILED", 0))
+    doing_count = int(counts.get("DOING", 0))
+    done_count = int(counts.get("DONE", 0))
+    needs_approval_count = int(counts.get("NEEDS_APPROVAL", 0))
+
+    highlights: list[str] = []
+    if total == 0:
+        highlights.append("오늘 반영된 작업이 없거나 기준에 맞는 변경이 없음")
+    else:
+        if done_count > 0:
+            highlights.append(f"DONE 상태 작업 {done_count}건이 오늘 반영됨")
+        if doing_count > 0:
+            highlights.append(f"DOING 상태 작업 {doing_count}건이 진행 중으로 확인됨")
+        if failed_count > 0:
+            highlights.append(f"FAILED 상태 작업 {failed_count}건이 확인됨")
+        if not highlights:
+            highlights.append("오늘 작업 상태 집계가 완료됨")
+    highlights = highlights[:3]
+
+    risks: list[str] = []
+    if failed_count > 0:
+        risks.append("실패 원인 재검토 필요")
+    if needs_approval_count > 0:
+        risks.append("승인 대기 항목 존재")
+    if total == 0:
+        risks.append("회고 대상 부족")
+
+    recommended_next_steps: list[str] = []
+    if total == 0:
+        recommended_next_steps.append("오늘 반영된 작업이 있는지 입력/상태 기록을 점검한다")
+    else:
+        recommended_next_steps.append("회고 highlights를 기준으로 다음 우선순위를 정리한다")
+    if failed_count > 0:
+        recommended_next_steps.append("FAILED 항목별 원인과 재시도 조건을 문서화한다")
+    if needs_approval_count > 0:
+        recommended_next_steps.append("승인 대기 항목의 승인 요청 조건을 확인한다")
+
+    if not recommended_next_steps:
+        recommended_next_steps.append("내일 작업 시작 전 오늘 요약을 참고해 계획을 갱신한다")
+    recommended_next_steps = recommended_next_steps[:3]
+
+    return {
+        "result_type": "retro_today_result",
+        "date": today_ymd,
+        "total": total,
+        "counts": counts,
+        "highlights": highlights,
+        "risks": risks,
+        "recommended_next_steps": recommended_next_steps,
+    }
+
+
+def _run_retro_today(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 2 or parts[0] != "/retro" or parts[1] != "today":
+        return _error_payload("usage:/retro today")
+
+    report_today_result = _run_report_today("/report today")
+    return _build_retro_today_payload(report_today_result)
+
+
 def _run_plan_draft(command_text: str) -> dict[str, Any]:
     parts = command_text.strip().split(maxsplit=1)
     if len(parts) != 2 or not parts[1].strip():
@@ -609,6 +675,8 @@ def _run_command(command_text: str) -> dict[str, Any]:
     content = command_text.strip()
     if content.startswith("/review-task"):
         return _run_review_task(content)
+    if content.startswith("/retro"):
+        return _run_retro_today(content)
     if content.startswith("/plan"):
         return _run_plan_draft(content)
     if content.startswith("/task"):
@@ -626,6 +694,26 @@ def _run_command(command_text: str) -> dict[str, Any]:
 
 def _format_reply(pipeline_result: dict[str, Any]) -> str:
     result_type = pipeline_result.get("result_type")
+    if result_type == "retro_today_result":
+        counts = pipeline_result.get("counts") or {}
+        highlights = pipeline_result.get("highlights") or []
+        risks = pipeline_result.get("risks") or []
+        next_steps = pipeline_result.get("recommended_next_steps") or []
+        highlights_text = "\n".join(f"- {item}" for item in highlights) if highlights else "- (없음)"
+        risks_text = "\n".join(f"- {item}" for item in risks) if risks else "- (없음)"
+        next_steps_text = "\n".join(f"- {item}" for item in next_steps) if next_steps else "- (없음)"
+        return (
+            "🪞 retro today 결과\n"
+            f"- date: `{pipeline_result.get('date')}`\n"
+            f"- total: {pipeline_result.get('total', 0)}\n"
+            f"- DONE: {counts.get('DONE', 0)}\n"
+            f"- DOING: {counts.get('DOING', 0)}\n"
+            f"- FAILED: {counts.get('FAILED', 0)}\n"
+            f"- NEEDS_APPROVAL: {counts.get('NEEDS_APPROVAL', 0)}\n\n"
+            f"highlights:\n{highlights_text}\n\n"
+            f"risks:\n{risks_text}\n\n"
+            f"recommended_next_steps:\n{next_steps_text}"
+        )
     if result_type == "review_task_result":
         recommended = pipeline_result.get("recommended_next_steps") or []
         related_files = pipeline_result.get("related_files") or []
@@ -744,7 +832,9 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Minimal Discord /plan,/task,/status,/review-task,/report,/approve bot")
+    parser = argparse.ArgumentParser(
+        description="Minimal Discord /plan,/task,/status,/review-task,/report,/retro today,/approve bot"
+    )
     parser.add_argument(
         "--env-file",
         default=str(THIS_DIR / ".env"),
@@ -893,11 +983,12 @@ async def _start_discord_bot() -> None:
             and not content.startswith("/task")
             and not content.startswith("/status")
             and not content.startswith("/review-task")
+            and not content.startswith("/retro")
             and not content.startswith("/report")
             and not content.startswith("/approve")
         ):
             await message.reply(
-                "이 봇은 현재 `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/approve <task-id> approve|reject`만 지원합니다."
+                "이 봇은 현재 `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다."
             )
             return
 
