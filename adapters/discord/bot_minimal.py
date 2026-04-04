@@ -42,6 +42,12 @@ TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
 TASK_STATUS_REQUIRED_FIELDS = ("id", "title", "status", "updated_at", "summary")
 REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
+ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
+    "TODO": ("DOING",),
+    "DOING": ("DONE",),
+    "FAILED": ("TODO",),
+    "NEEDS_APPROVAL": ("DOING", "FAILED"),
+}
 
 
 def _load_env_file(env_path: Path) -> None:
@@ -259,6 +265,10 @@ def _approve_writer_result_fail(*, task_id: str, reason: str, kind: str) -> dict
     }
 
 
+def _is_allowed_status_transition(transition_from: str, transition_to: str) -> bool:
+    return transition_to in ALLOWED_STATUS_TRANSITIONS.get(transition_from, ())
+
+
 def _apply_task_status_transition(task_id: str, transition_from: str, transition_to: str) -> tuple[bool, str]:
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
     if not task_file.exists() or not task_file.is_file():
@@ -345,14 +355,7 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
             kind="error",
         )
 
-    if transition_from != "NEEDS_APPROVAL":
-        return _approve_writer_result_fail(
-            task_id=task_id,
-            reason="invalid_transition",
-            kind="error",
-        )
-
-    if transition_to not in ("DOING", "FAILED"):
+    if not _is_allowed_status_transition(transition_from, transition_to):
         return _approve_writer_result_fail(
             task_id=task_id,
             reason="invalid_transition",
