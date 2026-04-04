@@ -1,5 +1,11 @@
 # Discord Command Intake Schema (MVP)
 
+[Document Type]
+- contract
+
+> 본 문서는 `orchestrator/discord-intake/intake_parser.py`의 parser contract만 다룬다.
+> `adapters/discord/bot_minimal.py`의 `/status`, `/report`, `/approve` runtime contract는 `docs/status-report-contract.md`, `docs/approve-file-writer-contract.md`를 따른다.
+
 ## 공통 출력 포맷
 모든 입력은 아래 구조로 반환한다.
 
@@ -62,6 +68,7 @@
 - hold 규칙(최소)
   - decision 미허용값: `invalid_decision_requires_confirmation`
   - target 형식 미확인: `unrecognized_target_format`
+  - 현재 구현 target 형식 확인 정규식: `^task-\d{4}$`
 
 ## 비범위 재확인
 - Discord 이벤트 수신/응답

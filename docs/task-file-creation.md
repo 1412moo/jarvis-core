@@ -1,5 +1,8 @@
 # Task File Creation (MVP)
 
+[Document Type]
+- contract
+
 이 문서는 `task draft object`를 받아 `memory/tasks/*.md` 실제 파일 1개를 생성하는 최소 로컬 규칙을 정의한다.
 
 > 참고: `run_intake_demo.py --no-write` dry-run 경로는 동일한 검증/번호 계산 규칙을 따르되,

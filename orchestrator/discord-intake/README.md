@@ -1,5 +1,8 @@
 # Discord Command Intake (최소 구현 뼈대)
 
+[Document Type]
+- flow
+
 ## 목적
 이 디렉터리는 Discord 명령 문자열을 **수신했다고 가정**하고,
 명령을 분류/검증하여 정규화된 payload 초안을 반환하는 최소 구조를 제공한다.
@@ -18,6 +21,11 @@
 3. `task_file_writer.py`
    - task draft object를 받아 `memory/tasks/*.md` 파일 1개 생성
    - 번호 스캔/slug/id 생성/충돌 회피를 로컬 규칙으로 처리
+
+## bot_minimal.py 연결 경계
+- `adapters/discord/bot_minimal.py`에서 intake 계층을 직접 소비하는 경로는 현재 `/task`만 해당한다.
+  - `/task` → `parse_intake` → `build_task_draft` → `write_task_file`
+- `/status`, `/report`, `/approve`는 `bot_minimal.py` 내부 전용 파서/조회/전이 로직을 사용하며 intake 계층 parser/draft/file writer를 직접 호출하지 않는다.
 
 ## 범위
 - 포함
