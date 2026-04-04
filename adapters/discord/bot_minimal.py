@@ -87,7 +87,10 @@ def _error_payload(reason: str) -> dict[str, Any]:
 def _run_task_pipeline(command_text: str) -> dict[str, Any]:
     parser_result = parse_intake(command_text).to_dict()
     if parser_result.get("error_reason"):
-        return _error_payload(str(parser_result.get("error_reason")))
+        error_reason = str(parser_result.get("error_reason"))
+        if error_reason == "missing_required_arg:request":
+            return _error_payload("usage:/task <request>")
+        return _error_payload(error_reason)
 
     if parser_result.get("hold_reason"):
         return {"result_type": "hold", "reason": str(parser_result.get("hold_reason"))}
@@ -529,12 +532,18 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- apply_ready: `{pipeline_result.get('apply_ready')}`"
         )
     if result_type == "approve_file_write_result":
-        applied_transition = pipeline_result.get("applied_transition") or {}
+        if pipeline_result.get("applied") is True:
+            applied_transition = pipeline_result.get("applied_transition") or {}
+            return (
+                "🧾 approve file write result 생성 완료\n"
+                f"- task_id: `{pipeline_result.get('task_id')}`\n"
+                f"- applied: `{pipeline_result.get('applied')}`\n"
+                f"- applied_transition: `{applied_transition.get('from')} -> {applied_transition.get('to')}`"
+            )
         return (
             "🧾 approve file write result 생성 완료\n"
             f"- task_id: `{pipeline_result.get('task_id')}`\n"
             f"- applied: `{pipeline_result.get('applied')}`\n"
-            f"- applied_transition: `{applied_transition.get('from')} -> {applied_transition.get('to')}`\n"
             f"- kind: `{pipeline_result.get('kind')}`\n"
             f"- reason: `{pipeline_result.get('reason')}`"
         )
