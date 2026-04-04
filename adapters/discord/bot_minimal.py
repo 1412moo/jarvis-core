@@ -58,6 +58,9 @@ CONTRACT_APPROVE_TRANSITIONS = frozenset(
 )
 
 
+# ---------------------------------------------------------------------------
+# Common / shared helpers
+# ---------------------------------------------------------------------------
 def _load_env_file(env_path: Path) -> None:
     """Very small .env loader to avoid extra dependencies."""
     if not env_path.exists() or not env_path.is_file():
@@ -78,6 +81,9 @@ def _error_payload(reason: str) -> dict[str, Any]:
     return {"result_type": "error", "reason": reason}
 
 
+# ---------------------------------------------------------------------------
+# Task intake + status/report metadata helpers
+# ---------------------------------------------------------------------------
 def _run_task_pipeline(command_text: str) -> dict[str, Any]:
     parser_result = parse_intake(command_text).to_dict()
     if parser_result.get("error_reason"):
@@ -181,6 +187,10 @@ def _build_report_payload(parsed_tasks: list[dict[str, str]]) -> dict[str, Any]:
     return {"result_type": "report", "total": len(parsed_tasks), "counts": counts, "recent": recent}
 
 
+def _empty_report_payload() -> dict[str, Any]:
+    return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
+
+
 def _run_report(command_text: str) -> dict[str, Any]:
     parts = command_text.strip().split()
     if len(parts) != 1:
@@ -188,7 +198,7 @@ def _run_report(command_text: str) -> dict[str, Any]:
 
     tasks_dir = REPO_ROOT / "memory" / "tasks"
     if not tasks_dir.exists() or not tasks_dir.is_dir():
-        return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
+        return _empty_report_payload()
 
     parsed_tasks: list[dict[str, str]] = []
     for task_file in sorted(tasks_dir.glob("*.md")):
@@ -207,7 +217,7 @@ def _run_report_today(command_text: str) -> dict[str, Any]:
 
     tasks_dir = REPO_ROOT / "memory" / "tasks"
     if not tasks_dir.exists() or not tasks_dir.is_dir():
-        return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
+        return _empty_report_payload()
 
     # NOTE: `/report today` uses UTC date 기준 (task `updated_at` 포맷과 동일).
     today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
@@ -223,8 +233,9 @@ def _run_report_today(command_text: str) -> dict[str, Any]:
     return _build_report_payload(parsed_tasks)
 
 
-
-
+# ---------------------------------------------------------------------------
+# Approve transition helpers
+# ---------------------------------------------------------------------------
 def _build_approve_draft(parse_result: dict[str, Any]) -> dict[str, Any]:
     if parse_result.get("result_type") != "approve_parse":
         return _error_payload("approve_parse_required")
@@ -460,6 +471,9 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
     return _build_approve_writer_result(approve_writer_input)
 
 
+# ---------------------------------------------------------------------------
+# Command routing / reply formatting
+# ---------------------------------------------------------------------------
 def _run_command(command_text: str) -> dict[str, Any]:
     content = command_text.strip()
     if content.startswith("/task"):
@@ -578,6 +592,9 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# ---------------------------------------------------------------------------
+# Self-check helpers
+# ---------------------------------------------------------------------------
 def _run_self_check_suite() -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
 
@@ -676,6 +693,9 @@ def _validate_required_env() -> tuple[bool, str | None]:
     return True, None
 
 
+# ---------------------------------------------------------------------------
+# Discord runtime / CLI entrypoint
+# ---------------------------------------------------------------------------
 async def _start_discord_bot() -> None:
     if discord is None:
         raise RuntimeError("missing_dependency:discord.py")
