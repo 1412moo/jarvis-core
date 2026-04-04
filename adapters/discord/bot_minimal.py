@@ -7,7 +7,6 @@ Scope (this step):
 - Read existing task markdown for status lookup
 
 Out of scope:
-- /approve
 - GitHub execution/report automation/DB/web UI
 """
 
@@ -210,12 +209,31 @@ def _run_report_today(command_text: str) -> dict[str, Any]:
     return _build_report_payload(parsed_tasks)
 
 
+def _run_approve_parse(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 3:
+        return _error_payload("usage:/approve <task-id> approve|reject")
+    if parts[0] != "/approve":
+        return _error_payload("usage:/approve <task-id> approve|reject")
+
+    task_id = parts[1].strip()
+    decision = parts[2].strip()
+    if not task_id:
+        return _error_payload("usage:/approve <task-id> approve|reject")
+    if decision not in ("approve", "reject"):
+        return _error_payload("usage:/approve <task-id> approve|reject")
+
+    return {"result_type": "approve_parse", "task_id": task_id, "decision": decision}
+
+
 def _run_command(command_text: str) -> dict[str, Any]:
     content = command_text.strip()
     if content.startswith("/task"):
         return _run_task_pipeline(content)
     if content.startswith("/status"):
         return _run_status_lookup(content)
+    if content.startswith("/approve"):
+        return _run_approve_parse(content)
     if content == "/report today":
         return _run_report_today(content)
     if content.startswith("/report"):
@@ -244,6 +262,12 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         )
     if result_type == "not_found":
         return f"⚠️ not found: `{pipeline_result.get('task_id')}`"
+    if result_type == "approve_parse":
+        return (
+            "🧾 approve 입력 파싱 완료\n"
+            f"- task_id: `{pipeline_result.get('task_id')}`\n"
+            f"- decision: `{pipeline_result.get('decision')}`"
+        )
     if result_type == "report_empty":
         counts = pipeline_result.get("counts") or {}
         return (
@@ -280,7 +304,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Minimal Discord /task,/status,/report bot")
+    parser = argparse.ArgumentParser(description="Minimal Discord /task,/status,/report,/approve bot")
     parser.add_argument(
         "--env-file",
         default=str(THIS_DIR / ".env"),
@@ -322,8 +346,10 @@ async def _start_discord_bot() -> None:
         if not content.startswith("/"):
             return
 
-        if not content.startswith("/task") and not content.startswith("/status") and not content.startswith("/report"):
-            await message.reply("이 봇은 현재 `/task <내용>`, `/status <task-id>`, `/report`, `/report today`만 지원합니다.")
+        if not content.startswith("/task") and not content.startswith("/status") and not content.startswith("/report") and not content.startswith("/approve"):
+            await message.reply(
+                "이 봇은 현재 `/task <내용>`, `/status <task-id>`, `/report`, `/report today`, `/approve <task-id> approve|reject`만 지원합니다."
+            )
             return
 
         result = _run_command(content)
