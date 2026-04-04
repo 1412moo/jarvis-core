@@ -566,6 +566,35 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
     return True, ""
 
 
+def _build_execution_candidate(task_id: str) -> dict[str, Any] | None:
+    task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+    if not task_file.exists() or not task_file.is_file():
+        return None
+
+    metadata = _read_task_metadata(task_file)
+    if metadata is None:
+        return None
+
+    title_summary = f"{metadata.get('title', '')} {metadata.get('summary', '')}".lower()
+    if any(keyword in title_summary for keyword in ("script", "run", "demo")):
+        return {
+            "result_type": "execution_candidate",
+            "task_id": task_id,
+            "execution_type": "script",
+            "action": "plan_script_execution",
+            "reason": "summary_or_title_contains_script_run_demo",
+        }
+    if "test" in title_summary or "검증" in f"{metadata.get('title', '')} {metadata.get('summary', '')}":
+        return {
+            "result_type": "execution_candidate",
+            "task_id": task_id,
+            "execution_type": "test",
+            "action": "plan_test_execution",
+            "reason": "summary_or_title_contains_test_or_검증",
+        }
+    return None
+
+
 def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[str, Any]:
     task_id = str(approve_writer_input.get("task_id") or "")
     proposed_transition = approve_writer_input.get("proposed_transition")
@@ -632,6 +661,7 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         reason_kind = "hold" if reason in ("task_not_found", "status_mismatch") else "error"
         return _approve_writer_result_fail(task_id=task_id, reason=reason, kind=reason_kind)
 
+    execution_candidate = _build_execution_candidate(task_id)
     return {
         "result_type": "approve_file_write_result",
         "task_id": task_id,
@@ -639,6 +669,7 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         "error": False,
         "reason": "",
         "applied_transition": {"from": transition_from, "to": transition_to},
+        "execution_candidate": execution_candidate,
     }
 
 
@@ -783,11 +814,20 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
     if result_type == "approve_file_write_result":
         if pipeline_result.get("applied") is True:
             applied_transition = pipeline_result.get("applied_transition") or {}
+            execution_candidate = pipeline_result.get("execution_candidate")
+            execution_line = ""
+            if isinstance(execution_candidate, dict):
+                execution_line = (
+                    f"\n🚀 execution candidate 생성됨\n"
+                    f"- execution_type: `{execution_candidate.get('execution_type')}`\n"
+                    f"- action: `{execution_candidate.get('action')}`"
+                )
             return (
                 "🧾 approve file write result 생성 완료\n"
                 f"- task_id: `{pipeline_result.get('task_id')}`\n"
                 f"- applied: `{pipeline_result.get('applied')}`\n"
                 f"- applied_transition: `{applied_transition.get('from')} -> {applied_transition.get('to')}`"
+                f"{execution_line}"
             )
         return (
             "🧾 approve file write result 생성 완료\n"
@@ -867,7 +907,13 @@ def _run_self_check_suite() -> dict[str, Any]:
         tasks_dir = temp_repo / "memory" / "tasks"
         tasks_dir.mkdir(parents=True, exist_ok=True)
 
-        def _write_task(task_id: str, status: str, updated_at: str) -> Path:
+        def _write_task(
+            task_id: str,
+            status: str,
+            updated_at: str,
+            title: str = "self-check",
+            summary: str = "self-check summary",
+        ) -> Path:
             task_file = tasks_dir / f"{task_id}.md"
             task_file.write_text(
                 "\n".join(
@@ -875,12 +921,12 @@ def _run_self_check_suite() -> dict[str, Any]:
                         f"# {task_id}",
                         "",
                         f"- id: `{task_id}`",
-                        "- title: `self-check`",
+                        f"- title: `{title}`",
                         f"- status: `{status}`",
                         "- repo: `jarvis-core`",
                         "- created_at: `2026-04-01 00:00 UTC`",
                         f"- updated_at: `{updated_at}`",
-                        "- summary: `self-check summary`",
+                        f"- summary: `{summary}`",
                         "",
                     ]
                 ),
@@ -902,7 +948,7 @@ def _run_self_check_suite() -> dict[str, Any]:
 
             old_updated_at = "2026-04-01 00:00 UTC"
             task_id_success = "task-0001-self-check"
-            _write_task(task_id_success, "NEEDS_APPROVAL", old_updated_at)
+            _write_task(task_id_success, "NEEDS_APPROVAL", old_updated_at, title="run demo", summary="self-check summary")
             before_status = _run_status_lookup(f"/status {task_id_success}")
             approve_result = _run_approve_parse(f"/approve {task_id_success} approve")
             after_status = _run_status_lookup(f"/status {task_id_success}")
@@ -915,6 +961,12 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and approve_result.get("reason") == ""
             )
             _record("approve_applied_payload", approve_result_ok, f"result={approve_result}")
+            execution_candidate_ok = (
+                isinstance(approve_result.get("execution_candidate"), dict)
+                and approve_result["execution_candidate"].get("result_type") == "execution_candidate"
+                and approve_result["execution_candidate"].get("execution_type") == "script"
+            )
+            _record("execution_candidate_created", execution_candidate_ok, f"result={approve_result}")
             _record("status_reader_writer_consistency", status_changed, f"before={before_status} after={after_status}")
             _record("updated_at_reader_writer_consistency", updated_at_changed, f"before={before_status} after={after_status}")
 
@@ -937,6 +989,16 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and not_found_result.get("reason") == "task_not_found"
             )
             _record("task_not_found", not_found_ok, f"result={not_found_result}")
+
+            task_id_no_candidate = "task-0003-self-check"
+            _write_task(task_id_no_candidate, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="문서 정리", summary="범위 확인")
+            no_candidate_result = _run_approve_parse(f"/approve {task_id_no_candidate} approve")
+            no_candidate_ok = (
+                no_candidate_result.get("result_type") == "approve_file_write_result"
+                and no_candidate_result.get("applied") is True
+                and no_candidate_result.get("execution_candidate") is None
+            )
+            _record("execution_candidate_not_created", no_candidate_ok, f"result={no_candidate_result}")
         finally:
             globals()["REPO_ROOT"] = original_repo_root
 
