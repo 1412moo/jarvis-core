@@ -209,6 +209,30 @@ def _run_report_today(command_text: str) -> dict[str, Any]:
     return _build_report_payload(parsed_tasks)
 
 
+
+
+def _build_approve_draft(parse_result: dict[str, Any]) -> dict[str, Any]:
+    if parse_result.get("result_type") != "approve_parse":
+        return _error_payload("approve_parse_required")
+
+    decision = str(parse_result.get("decision") or "")
+    task_id = str(parse_result.get("task_id") or "")
+    if decision == "approve":
+        transition_to = "DOING"
+    elif decision == "reject":
+        transition_to = "FAILED"
+    else:
+        return _error_payload("usage:/approve <task-id> approve|reject")
+
+    return {
+        "result_type": "approve_draft",
+        "draft_type": "approve_status_transition_draft",
+        "task_id": task_id,
+        "proposed_transition": {"from": "NEEDS_APPROVAL", "to": transition_to},
+        "apply_ready": True,
+    }
+
+
 def _run_approve_parse(command_text: str) -> dict[str, Any]:
     parts = command_text.strip().split()
     if len(parts) != 3:
@@ -223,7 +247,8 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
     if decision not in ("approve", "reject"):
         return _error_payload("usage:/approve <task-id> approve|reject")
 
-    return {"result_type": "approve_parse", "task_id": task_id, "decision": decision}
+    parse_result = {"result_type": "approve_parse", "task_id": task_id, "decision": decision}
+    return _build_approve_draft(parse_result)
 
 
 def _run_command(command_text: str) -> dict[str, Any]:
@@ -262,11 +287,14 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         )
     if result_type == "not_found":
         return f"⚠️ not found: `{pipeline_result.get('task_id')}`"
-    if result_type == "approve_parse":
+    if result_type == "approve_draft":
+        proposed_transition = pipeline_result.get("proposed_transition") or {}
         return (
-            "🧾 approve 입력 파싱 완료\n"
+            "🧾 approve draft 생성 완료\n"
             f"- task_id: `{pipeline_result.get('task_id')}`\n"
-            f"- decision: `{pipeline_result.get('decision')}`"
+            f"- draft_type: `{pipeline_result.get('draft_type')}`\n"
+            f"- proposed_transition: `{proposed_transition.get('from')} -> {proposed_transition.get('to')}`\n"
+            f"- apply_ready: `{pipeline_result.get('apply_ready')}`"
         )
     if result_type == "report_empty":
         counts = pipeline_result.get("counts") or {}
