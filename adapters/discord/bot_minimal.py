@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -569,7 +570,103 @@ def _parse_args() -> argparse.Namespace:
         "--self-check",
         help="Run local command check without Discord connection. Example: --self-check '/status task-0001-bootstrap'",
     )
+    parser.add_argument(
+        "--self-check-suite",
+        action="store_true",
+        help="Run minimal regression self-check suite for approve/status core behavior.",
+    )
     return parser.parse_args()
+
+
+def _run_self_check_suite() -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+
+    def _record(name: str, ok: bool, detail: str) -> None:
+        checks.append({"name": name, "ok": ok, "detail": detail})
+
+    original_repo_root = REPO_ROOT
+    with tempfile.TemporaryDirectory(prefix="jarvis-self-check-") as temp_dir:
+        temp_repo = Path(temp_dir)
+        tasks_dir = temp_repo / "memory" / "tasks"
+        tasks_dir.mkdir(parents=True, exist_ok=True)
+
+        def _write_task(task_id: str, status: str, updated_at: str) -> Path:
+            task_file = tasks_dir / f"{task_id}.md"
+            task_file.write_text(
+                "\n".join(
+                    [
+                        f"# {task_id}",
+                        "",
+                        f"- id: `{task_id}`",
+                        "- title: `self-check`",
+                        f"- status: `{status}`",
+                        "- repo: `jarvis-core`",
+                        "- created_at: `2026-04-01 00:00 UTC`",
+                        f"- updated_at: `{updated_at}`",
+                        "- summary: `self-check summary`",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            return task_file
+
+        globals()["REPO_ROOT"] = temp_repo
+        try:
+            transition_ok, transition_reason = _validate_status_transition("NEEDS_APPROVAL", "DOING")
+            _record("allowed_transition", transition_ok and transition_reason == "", f"reason={transition_reason}")
+
+            invalid_ok, invalid_reason = _validate_status_transition("DOING", "FAILED")
+            _record(
+                "invalid_transition",
+                (not invalid_ok) and invalid_reason == "invalid_transition",
+                f"reason={invalid_reason}",
+            )
+
+            old_updated_at = "2026-04-01 00:00 UTC"
+            task_id_success = "task-0001-self-check"
+            _write_task(task_id_success, "NEEDS_APPROVAL", old_updated_at)
+            before_status = _run_status_lookup(f"/status {task_id_success}")
+            approve_result = _run_approve_parse(f"/approve {task_id_success} approve")
+            after_status = _run_status_lookup(f"/status {task_id_success}")
+            status_changed = before_status.get("status") == "NEEDS_APPROVAL" and after_status.get("status") == "DOING"
+            updated_at_changed = before_status.get("updated_at") == old_updated_at and after_status.get("updated_at") != old_updated_at
+            approve_result_ok = (
+                approve_result.get("result_type") == "approve_file_write_result"
+                and approve_result.get("applied") is True
+                and approve_result.get("error") is False
+                and approve_result.get("reason") == ""
+            )
+            _record("approve_applied_payload", approve_result_ok, f"result={approve_result}")
+            _record("status_reader_writer_consistency", status_changed, f"before={before_status} after={after_status}")
+            _record("updated_at_reader_writer_consistency", updated_at_changed, f"before={before_status} after={after_status}")
+
+            task_id_mismatch = "task-0002-self-check"
+            _write_task(task_id_mismatch, "DOING", "2026-04-01 00:00 UTC")
+            mismatch_result = _run_approve_parse(f"/approve {task_id_mismatch} approve")
+            mismatch_ok = (
+                mismatch_result.get("result_type") == "approve_file_write_result"
+                and mismatch_result.get("applied") is False
+                and mismatch_result.get("error") is False
+                and mismatch_result.get("reason") == "status_mismatch"
+            )
+            _record("status_mismatch", mismatch_ok, f"result={mismatch_result}")
+
+            not_found_result = _run_approve_parse("/approve task-9999-self-check approve")
+            not_found_ok = (
+                not_found_result.get("result_type") == "approve_file_write_result"
+                and not_found_result.get("applied") is False
+                and not_found_result.get("error") is False
+                and not_found_result.get("reason") == "task_not_found"
+            )
+            _record("task_not_found", not_found_ok, f"result={not_found_result}")
+        finally:
+            globals()["REPO_ROOT"] = original_repo_root
+
+    failed = [check for check in checks if not check["ok"]]
+    if failed:
+        return {"result_type": "self_check_suite", "ok": False, "total": len(checks), "failed": failed, "checks": checks}
+    return {"result_type": "self_check_suite", "ok": True, "total": len(checks), "checks": checks}
 
 
 def _validate_required_env() -> tuple[bool, str | None]:
@@ -620,6 +717,10 @@ async def _start_discord_bot() -> None:
 def main() -> None:
     args = _parse_args()
     _load_env_file(Path(args.env_file))
+
+    if args.self_check_suite:
+        print(json.dumps(_run_self_check_suite(), ensure_ascii=False, indent=2))
+        return
 
     if args.self_check:
         command_text = args.self_check.strip()
