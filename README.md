@@ -40,3 +40,7 @@
 4. 메인 저장소와 서브 저장소 역할 혼합 금지
 
 자세한 규칙은 `AGENTS.md` 및 `docs/` 문서를 따릅니다.
+
+## 개발 루프
+- 현재 개발 루프(`/task -> /plan -> /review-task -> /approve -> /report -> /retro today`)는 아래 문서에서 관리한다.
+- 문서: [`docs/jarvis-dev-loop.md`](docs/jarvis-dev-loop.md)
