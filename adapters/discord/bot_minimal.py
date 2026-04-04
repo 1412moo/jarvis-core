@@ -263,7 +263,9 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
     if not task_file.exists() or not task_file.is_file():
         return False, "task_not_found"
 
-    lines = task_file.read_text(encoding="utf-8").splitlines()
+    task_text = task_file.read_text(encoding="utf-8")
+    has_trailing_newline = task_text.endswith("\n")
+    lines = task_text.splitlines()
     status_line_index: int | None = None
     current_status = ""
     for idx, line in enumerate(lines):
@@ -274,7 +276,6 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
         if key == "status":
             status_line_index = idx
             current_status = value.strip()
-            break
 
     if status_line_index is None:
         return False, "task_status_missing"
@@ -290,7 +291,10 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
     if updated_line_index is not None:
         lines[updated_line_index] = f"- updated_at: `{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}`"
 
-    task_file.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    new_text = "\n".join(lines)
+    if has_trailing_newline:
+        new_text += "\n"
+    task_file.write_text(new_text, encoding="utf-8")
     return True, ""
 
 
