@@ -253,6 +253,7 @@ def _approve_writer_result_fail(*, task_id: str, reason: str, kind: str) -> dict
         "result_type": "approve_file_write_result",
         "task_id": task_id,
         "applied": False,
+        "error": kind == "error",
         "reason": reason,
         "kind": kind,
     }
@@ -278,7 +279,7 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
             current_status = value.strip()
 
     if status_line_index is None:
-        return False, "task_status_missing"
+        return False, "write_failed"
     if current_status != transition_from:
         return False, "status_mismatch"
 
@@ -294,7 +295,10 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
     new_text = "\n".join(lines)
     if has_trailing_newline:
         new_text += "\n"
-    task_file.write_text(new_text, encoding="utf-8")
+    try:
+        task_file.write_text(new_text, encoding="utf-8")
+    except OSError:
+        return False, "write_failed"
     return True, ""
 
 
@@ -302,12 +306,11 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
     task_id = str(approve_writer_input.get("task_id") or "")
     proposed_transition = approve_writer_input.get("proposed_transition")
     apply_ready = bool(approve_writer_input.get("apply_ready", False))
-    hold_reason = str(approve_writer_input.get("hold_reason") or "")
 
     if approve_writer_input.get("result_type") != "approve_writer_input":
         return _approve_writer_result_fail(
             task_id=task_id,
-            reason="approve_writer_input_required",
+            reason="invalid_writer_input",
             kind="error",
         )
 
@@ -315,21 +318,21 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
     if draft_type != "approve_status_transition_draft":
         return _approve_writer_result_fail(
             task_id=task_id,
-            reason="invalid_draft_type",
+            reason="invalid_writer_input",
             kind="error",
         )
 
     if not task_id:
         return _approve_writer_result_fail(
             task_id=task_id,
-            reason="missing_task_id",
+            reason="invalid_writer_input",
             kind="error",
         )
 
     if not isinstance(proposed_transition, dict):
         return _approve_writer_result_fail(
             task_id=task_id,
-            reason="proposed_transition_required",
+            reason="invalid_writer_input",
             kind="error",
         )
 
@@ -338,26 +341,26 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
     if not transition_from or not transition_to:
         return _approve_writer_result_fail(
             task_id=task_id,
-            reason="proposed_transition_fields_required",
+            reason="invalid_writer_input",
             kind="error",
         )
 
     if transition_from != "NEEDS_APPROVAL":
         return _approve_writer_result_fail(
             task_id=task_id,
-            reason="invalid_transition_from",
+            reason="invalid_transition",
             kind="error",
         )
 
     if transition_to not in ("DOING", "FAILED"):
         return _approve_writer_result_fail(
             task_id=task_id,
-            reason="invalid_transition_to",
+            reason="invalid_transition",
             kind="error",
         )
 
     if not apply_ready:
-        return _approve_writer_result_fail(task_id=task_id, reason=hold_reason or "apply_ready_false", kind="hold")
+        return _approve_writer_result_fail(task_id=task_id, reason="apply_not_ready", kind="hold")
 
     applied, reason = _apply_task_status_transition(task_id, transition_from, transition_to)
     if not applied:
@@ -368,6 +371,8 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         "result_type": "approve_file_write_result",
         "task_id": task_id,
         "applied": True,
+        "error": False,
+        "reason": "",
         "applied_transition": {"from": transition_from, "to": transition_to},
     }
 
