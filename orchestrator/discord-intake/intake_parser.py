@@ -170,10 +170,8 @@ def parse_intake(command_text: str) -> ParseResult:
                 hold_reason="invalid_decision_requires_confirmation",
             )
 
-        # NOTE(2026-04-04): parser contract 계층의 최소 target 형식만 확인한다.
-        # runtime approve/status/task-file 계층의 full task id(task-####-slug)와는
-        # 현재 의도적으로 분리되어 있으며, 정렬은 후속 단계에서 결정한다.
-        target_ok = bool(re.match(r"^task-\d{4}$", target))
+        # NOTE(2026-04-04): `/approve target`은 운영 기준 full task id 형식과 정렬한다.
+        target_ok = bool(re.match(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$", target))
         hold_reason = None if target_ok else "unrecognized_target_format"
 
         return ParseResult(
@@ -194,9 +192,9 @@ def parse_intake(command_text: str) -> ParseResult:
 def main() -> None:
     samples = [
         "/task 보고 시스템 개선",
-        "/status task-0002",
+        "/status task-0002-report-system",
         "/report today",
-        "/approve task-0007 approve",
+        "/approve task-0007-discord-intake approve",
         "/approve wrong-target maybe",
     ]
     for sample in samples:

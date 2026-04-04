@@ -4,17 +4,17 @@
 - note
 
 ## 목적
-- `/approve target` 형식 계약과 실제 task id 체계의 차이를 **기능 변경 없이** 명확히 기록한다.
-- 다음 단계에서 정렬 방향을 선택할 때 기준 문서로 사용한다.
+- `/approve target` 형식을 현재 운영 기준(full task id)으로 정렬한 결과를 기록한다.
+- short id alias는 이번 단계 범위 밖임을 명확히 남긴다.
 
 ## 계층별 현재 규칙
 
 ### 1) parser target format (`orchestrator/discord-intake/intake_parser.py`)
-- `/approve <target> <decision>`에서 target은 `^task-\d{4}$`일 때만 형식 통과로 본다.
+- `/approve <target> <decision>`에서 target은 `^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$`일 때만 형식 통과로 본다.
 - 불일치 시 hold: `unrecognized_target_format`.
 - 예시
-  - 통과: `task-0007`
-  - hold: `task-0007-discord-intake`
+  - 통과: `task-0007-discord-intake`
+  - hold: `task-0007`
 
 ### 2) task model id (`docs/task-model.md`)
 - Task ID 규칙은 `task-####-slug`.
@@ -33,17 +33,17 @@
 - `/approve` runtime은 `<task-id>` 문자열을 그대로 받아 `memory/tasks/<task-id>.md`를 조회한다.
 - usage 문구/README 예시는 full id(`<task-id>`, 실제 운영상 `task-####-slug`)를 전제로 한다.
 
-## 현재 충돌 지점 (정확)
-1. parser 계층의 `/approve target` 규칙(`task-####`)과 task model/file/status 계층 규칙(`task-####-slug`)이 다르다.
-2. parser 예시에서 자연스러운 short id(`task-0007`)는 runtime 파일 조회 기준과 직접 호환되지 않는다.
-3. 문서들 간에 `/approve` 인자 명칭이 `target`/`task-id`로 혼재되어 동일 계층 규칙처럼 읽힐 수 있다.
+## 정렬 결과 (이번 단계)
+1. parser 계층 `/approve target` 규칙이 task model/file/status 계층과 동일한 full id(`task-####-slug`)로 정렬되었다.
+2. short id(`task-####`)는 parser 단계에서 `unrecognized_target_format` hold로 처리된다.
+3. 문서 기준도 full id 기준으로 동기화한다.
 
 ## 현재 운영 기준 (이번 단계 결론)
 - **운영 기준은 full task id(`task-####-slug`)를 단일 식별자로 사용**한다.
-- parser의 `target` 정규식(`task-####`)은 현재 “intake parser contract 계층의 제한 규칙”으로만 본다.
+- parser의 `target` 정규식도 동일 기준(`task-####-slug`)을 사용한다.
 
 ## 다음 단계 정렬 방향 (최대 2개)
-1. parser를 full task id(`task-####-slug`) 기준으로 확장한다. (parser regex/contract 동기화)
-2. short id alias(`task-####`)를 명시 도입하고, runtime에서 alias→full id 해석 단계를 추가한다.
+1. short id alias(`task-####`)를 명시 도입할지 별도 결정한다.
+2. alias 도입 시 runtime에서 alias→full id 해석 단계를 추가한다.
 
-> 본 문서는 기준 정리만 수행하며, 이번 단계에서 parser/runtime 동작은 변경하지 않는다.
+> 본 문서는 full id 정렬 결과를 기록하며, alias 기능은 포함하지 않는다.
