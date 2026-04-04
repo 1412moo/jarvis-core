@@ -246,6 +246,20 @@ def _build_approve_writer_input(approve_draft: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[str, Any]:
+    if approve_writer_input.get("result_type") != "approve_writer_input":
+        return _error_payload("approve_writer_input_required")
+
+    return {
+        "result_type": "approve_writer_result",
+        "writer_action": "apply_approve_transition",
+        "task_id": str(approve_writer_input.get("task_id") or ""),
+        "target_transition": approve_writer_input.get("target_transition") or {},
+        "apply_ready": bool(approve_writer_input.get("apply_ready", False)),
+        "write_applied": False,
+    }
+
+
 def _run_approve_parse(command_text: str) -> dict[str, Any]:
     parts = command_text.strip().split()
     if len(parts) != 3:
@@ -264,7 +278,12 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
     approve_draft = _build_approve_draft(parse_result)
     if approve_draft.get("result_type") != "approve_draft":
         return approve_draft
-    return _build_approve_writer_input(approve_draft)
+
+    approve_writer_input = _build_approve_writer_input(approve_draft)
+    if approve_writer_input.get("result_type") != "approve_writer_input":
+        return approve_writer_input
+
+    return _build_approve_writer_result(approve_writer_input)
 
 
 def _run_command(command_text: str) -> dict[str, Any]:
@@ -320,6 +339,16 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- task_id: `{pipeline_result.get('task_id')}`\n"
             f"- target_transition: `{target_transition.get('from')} -> {target_transition.get('to')}`\n"
             f"- apply_ready: `{pipeline_result.get('apply_ready')}`"
+        )
+    if result_type == "approve_writer_result":
+        target_transition = pipeline_result.get("target_transition") or {}
+        return (
+            "🧾 approve writer result 생성 완료\n"
+            f"- writer_action: `{pipeline_result.get('writer_action')}`\n"
+            f"- task_id: `{pipeline_result.get('task_id')}`\n"
+            f"- target_transition: `{target_transition.get('from')} -> {target_transition.get('to')}`\n"
+            f"- apply_ready: `{pipeline_result.get('apply_ready')}`\n"
+            f"- write_applied: `{pipeline_result.get('write_applied')}`"
         )
     if result_type == "report_empty":
         counts = pipeline_result.get("counts") or {}
