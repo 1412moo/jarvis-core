@@ -1,5 +1,8 @@
 # Intake Parser → Task Draft 연결 규칙 (MVP 브리지)
 
+[Document Type]
+- contract
+
 이 문서는 Discord intake parser의 정규화 결과(`ParseResult`)를 받아,
 실제 파일 생성 없이 **task draft object**를 만드는 최소 브리지 규칙을 정의한다.
 
