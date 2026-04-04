@@ -1,7 +1,7 @@
-# Discord Minimal Bot Adapter (`/task`, `/status`, `/report`)
+# Discord Minimal Bot Adapter (`/task`, `/status`, `/report`, `/approve`)
 
 ## 현재 구현 범위
-이 단계의 구현은 **`/task <내용>`, `/status <task-id>`, `/report`, `/report today` 4개**를 처리한다.
+이 단계의 구현은 **`/task <내용>`, `/status <task-id>`, `/report`, `/report today`, `/approve <task-id> approve|reject`**를 처리한다.
 
 - 처리 방식: Discord 일반 메시지 기반 (`/task ...` 텍스트)
 - intake 재사용: `parser -> draft -> file writer`
@@ -13,7 +13,6 @@
 - `/report`는 새로운 report 파일을 생성하지 않는다.
 
 명시적 비범위:
-- `/approve`
 - GitHub API 연동
 - 자동 보고 생성
 - DB
@@ -56,7 +55,7 @@ python3 adapters/discord/bot_minimal.py
 ## 동작 규칙
 ### `/task <내용>`
 1. 슬래시 형태 문자열이 아니면 무시
-2. `/task`, `/status`, `/report`가 아니면 거절 응답
+2. `/task`, `/status`, `/report`, `/approve`가 아니면 거절 응답
 3. `/task <내용>`을 intake 파이프라인에 전달
 4. parser hold면 파일 생성 없이 hold 응답
 5. error면 error 응답
@@ -83,8 +82,15 @@ python3 adapters/discord/bot_minimal.py
 5. 조회 가능한 task가 없으면 `empty` 응답
 6. 이 명령은 read-only이며 report 파일을 생성하지 않음
 
+### `/approve <task-id> approve|reject`
+1. 입력 형식 검증: `/approve` + task-id + decision(approve/reject)
+2. draft/writer 입력 구성 후 상태 전이 적용 시도
+3. 성공 시 `approve_file_write_result(applied=true)` 반환
+4. 대상 미존재/상태 불일치 등은 `approve_file_write_result(applied=false, kind, reason)` 반환
+5. usage 불일치는 `error(reason=usage:/approve <task-id> approve|reject)` 반환
+
 ### 안전 규칙
-- 빈 입력(`/task`만 입력)은 거절(error)
+- 빈 입력(`/task`만 입력)은 usage error(`usage:/task <request>`)
 - 위험 키워드(예: `delete`, `production`, `삭제`)는 hold 처리
 - hold/error는 `memory/tasks` 파일을 생성하지 않음
 
@@ -106,7 +112,7 @@ python3 adapters/discord/bot_minimal.py
 
 ### task error
 ```text
-❌ error: `missing_required_arg:request`
+❌ error: `usage:/task <request>`
 ```
 
 ### status success

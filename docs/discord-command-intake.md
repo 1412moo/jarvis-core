@@ -146,5 +146,34 @@
 - 현재 구현은 분류 + 필수값 검증 + 정규화 payload 반환 + hold/error reason 반환까지만 수행한다.
 - `/task` 구현 응답 포맷(현재)
   - 정상 생성: `{"result_type":"success","task_id","file_name","file_path"}`
-  - 입력 오류: `{"result_type":"error","reason":"missing_required_arg:request"}` 등 parser reason 전달
+  - 입력 오류(필수값 누락): `{"result_type":"error","reason":"usage:/task <request>"}` 고정 usage 반환
+  - 입력 오류(기타): `{"result_type":"error","reason":"..."}` 형태 reason 반환
   - 위험 키워드 포함: `{"result_type":"hold","reason":"needs_approval:risky_keyword_detected"}` (task 파일 미생성)
+
+## 12) 명령 응답 포맷/에러 정책 (2026-04-04 정리)
+- 공통 에러 payload: `{"result_type":"error","reason":"..."}`.
+- 명령 usage 오류는 가능한 한 `reason="usage:..."`로 고정한다.
+- hold가 필요한 경우: `{"result_type":"hold","reason":"..."}`.
+
+### `/task`
+- 성공: `success` + `task_id/file_name/file_path`
+- usage 오류: `usage:/task <request>`
+- hold: `needs_approval:*` 또는 draft hold reason
+
+### `/status`
+- 성공: `status` + `id/title/status/updated_at/summary`
+- usage 오류: `usage:/status <task-id>`
+- 비즈니스 오류: `invalid_task_id_format`, `task_file_missing_fields:*`
+- 미존재: `{"result_type":"not_found","task_id":"..."}` (error payload와 의도적으로 분리)
+
+### `/report` / `/report today`
+- 성공: `report` 또는 `report_empty` + `total/counts/recent`
+- usage 오류:
+  - `/report`: `usage:/report`
+  - `/report today`: `usage:/report today`
+
+### `/approve`
+- 성공/실패 공통: `approve_file_write_result` + `task_id` + `applied`
+- `applied=false`: `kind(hold|error)` + `reason` 필수
+- 파싱 usage 오류: `usage:/approve <task-id> approve|reject`
+- 참고: `approve_file_write_result`는 approve 전용 writer contract 응답이므로 `/task`/`/status`/`/report`의 error/hold 구조와 **계층이 다르다**.
