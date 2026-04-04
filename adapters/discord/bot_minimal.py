@@ -48,6 +48,13 @@ ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "FAILED": ("TODO",),
     "NEEDS_APPROVAL": ("DOING", "FAILED"),
 }
+CONTRACT_APPROVE_STATES = frozenset({"NEEDS_APPROVAL", "DOING", "FAILED"})
+CONTRACT_APPROVE_TRANSITIONS = frozenset(
+    {
+        ("NEEDS_APPROVAL", "DOING"),
+        ("NEEDS_APPROVAL", "FAILED"),
+    }
+)
 
 
 def _load_env_file(env_path: Path) -> None:
@@ -269,6 +276,29 @@ def _is_allowed_status_transition(transition_from: str, transition_to: str) -> b
     return transition_to in ALLOWED_STATUS_TRANSITIONS.get(transition_from, ())
 
 
+def _validate_approve_transition_contract_sync() -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+
+    code_approve_transitions = frozenset(
+        (source, target)
+        for source, targets in ALLOWED_STATUS_TRANSITIONS.items()
+        if source == "NEEDS_APPROVAL"
+        for target in targets
+    )
+    code_approve_states = frozenset({"NEEDS_APPROVAL", *(target for _, target in code_approve_transitions)})
+
+    if code_approve_states != CONTRACT_APPROVE_STATES:
+        reasons.append("approve_contract_state_set_mismatch")
+    if code_approve_transitions != CONTRACT_APPROVE_TRANSITIONS:
+        reasons.append("approve_contract_transition_set_mismatch")
+    if not _is_allowed_status_transition("NEEDS_APPROVAL", "DOING") or not _is_allowed_status_transition(
+        "NEEDS_APPROVAL", "FAILED"
+    ):
+        reasons.append("approve_contract_required_transition_missing")
+
+    return not reasons, reasons
+
+
 def _apply_task_status_transition(task_id: str, transition_from: str, transition_to: str) -> tuple[bool, str]:
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
     if not task_file.exists() or not task_file.is_file():
@@ -316,6 +346,13 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
     task_id = str(approve_writer_input.get("task_id") or "")
     proposed_transition = approve_writer_input.get("proposed_transition")
     apply_ready = bool(approve_writer_input.get("apply_ready", False))
+    contract_ok, contract_reasons = _validate_approve_transition_contract_sync()
+    if not contract_ok:
+        return _approve_writer_result_fail(
+            task_id=task_id,
+            reason=f"approve_contract_mismatch:{','.join(contract_reasons)}",
+            kind="error",
+        )
 
     if approve_writer_input.get("result_type") != "approve_writer_input":
         return _approve_writer_result_fail(
