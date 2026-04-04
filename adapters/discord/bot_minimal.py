@@ -56,6 +56,16 @@ CONTRACT_APPROVE_TRANSITIONS = frozenset(
         ("NEEDS_APPROVAL", "FAILED"),
     }
 )
+PLAN_ALWAYS_FILES = ("docs/codex-workflow.md",)
+PLAN_KEYWORD_FILE_MAP: dict[str, tuple[str, ...]] = {
+    "approve": ("docs/approve-file-writer-contract.md", "adapters/discord/bot_minimal.py"),
+    "task": ("docs/command-to-task.md", "adapters/discord/bot_minimal.py"),
+    "status": ("docs/status-report-contract.md", "docs/status-report-flow.md", "adapters/discord/bot_minimal.py"),
+    "report": ("docs/status-report-contract.md", "docs/status-report-flow.md", "adapters/discord/bot_minimal.py"),
+    "intake": ("docs/discord-command-intake.md", "orchestrator/discord-intake/intake_parser.py"),
+    "parser": ("orchestrator/discord-intake/intake_parser.py", "docs/discord-command-intake.md"),
+}
+PLAN_DIRECTIONAL_KEYWORDS = ("architecture", "workflow", "north-star", "long-term", "execution")
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +244,39 @@ def _run_report_today(command_text: str) -> dict[str, Any]:
             parsed_tasks.append(metadata)
 
     return _build_report_payload(parsed_tasks)
+
+
+def _run_plan_draft(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].strip():
+        return _error_payload("usage:/plan <request>")
+
+    request = parts[1].strip()
+    lowered_request = request.lower()
+    files_to_check: list[str] = list(PLAN_ALWAYS_FILES)
+
+    for keyword, mapped_files in PLAN_KEYWORD_FILE_MAP.items():
+        if keyword in lowered_request:
+            for path in mapped_files:
+                if path not in files_to_check:
+                    files_to_check.append(path)
+
+    if any(keyword in lowered_request for keyword in PLAN_DIRECTIONAL_KEYWORDS):
+        if "docs/project-north-star.md" not in files_to_check:
+            files_to_check.append("docs/project-north-star.md")
+
+    return {
+        "result_type": "plan_draft",
+        "goal": request,
+        "files_to_check": files_to_check,
+        "scope_summary": "Discord /plan 최소 버전에서 계획 초안 생성까지만 수행",
+        "out_of_scope": [
+            "파일 저장/승인/실행 레이어 확장 금지",
+            "memory/tasks 반영 금지",
+            "기존 /task /status /report /approve 동작 변경 금지",
+        ],
+        "codex_prompt": f"다음 요청의 최소 계획 초안을 작성하라: {request}. codex-workflow 규칙을 준수하고 범위 밖 확장을 금지하라.",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +522,8 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 def _run_command(command_text: str) -> dict[str, Any]:
     content = command_text.strip()
+    if content.startswith("/plan"):
+        return _run_plan_draft(content)
     if content.startswith("/task"):
         return _run_task_pipeline(content)
     if content.startswith("/status"):
@@ -494,6 +539,19 @@ def _run_command(command_text: str) -> dict[str, Any]:
 
 def _format_reply(pipeline_result: dict[str, Any]) -> str:
     result_type = pipeline_result.get("result_type")
+    if result_type == "plan_draft":
+        files_to_check = pipeline_result.get("files_to_check") or []
+        out_of_scope = pipeline_result.get("out_of_scope") or []
+        files_text = "\n".join(f"- {path}" for path in files_to_check) if files_to_check else "- (없음)"
+        out_scope_text = "\n".join(f"- {item}" for item in out_of_scope) if out_of_scope else "- (없음)"
+        return (
+            "🧭 plan draft 생성 완료\n"
+            f"- goal: `{pipeline_result.get('goal')}`\n"
+            f"- scope_summary: `{pipeline_result.get('scope_summary')}`\n"
+            f"- codex_prompt: `{pipeline_result.get('codex_prompt')}`\n\n"
+            f"files_to_check:\n{files_text}\n\n"
+            f"out_of_scope:\n{out_scope_text}"
+        )
     if result_type == "success":
         return (
             "✅ task 생성 완료\n"
@@ -583,7 +641,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Minimal Discord /task,/status,/report,/approve bot")
+    parser = argparse.ArgumentParser(description="Minimal Discord /plan,/task,/status,/report,/approve bot")
     parser.add_argument(
         "--env-file",
         default=str(THIS_DIR / ".env"),
@@ -727,9 +785,9 @@ async def _start_discord_bot() -> None:
         if not content.startswith("/"):
             return
 
-        if not content.startswith("/task") and not content.startswith("/status") and not content.startswith("/report") and not content.startswith("/approve"):
+        if not content.startswith("/plan") and not content.startswith("/task") and not content.startswith("/status") and not content.startswith("/report") and not content.startswith("/approve"):
             await message.reply(
-                "이 봇은 현재 `/task <내용>`, `/status <task-id>`, `/report`, `/report today`, `/approve <task-id> approve|reject`만 지원합니다."
+                "이 봇은 현재 `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/report`, `/report today`, `/approve <task-id> approve|reject`만 지원합니다."
             )
             return
 
