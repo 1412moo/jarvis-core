@@ -214,6 +214,9 @@ python3 adapters/discord/bot_minimal.py --self-check '/report'
 python3 adapters/discord/bot_minimal.py --self-check '/report today'
 python3 adapters/discord/bot_minimal.py --self-check '/report extra'
 python3 adapters/discord/bot_minimal.py --self-check '/report today extra'
+python3 adapters/discord/bot_minimal.py --self-check '/approve task-0001-bootstrap approve'
+python3 adapters/discord/bot_minimal.py --self-check '/approve task-9999-self-check approve'
+python3 adapters/discord/bot_minimal.py --self-check '/approve task-0001 approve'
 ```
 
 ---
@@ -222,4 +225,3 @@ python3 adapters/discord/bot_minimal.py --self-check '/report today extra'
 - Discord **공식 slash command 등록/동기화**
 - 명령 권한/채널 제한
 - 재시도/백오프/운영 모니터링
-- `/approve`
