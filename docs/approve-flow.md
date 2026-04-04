@@ -23,3 +23,7 @@
 ## 단계 경계
 - 본 문서는 `/approve` 처리 흐름만 다룬다.
 - 실제 실행 레이어 트리거 및 배포/자동화는 범위에 포함하지 않는다.
+
+## 식별자 정합성 참고 (2026-04-04)
+- `/approve target` 형식과 task model id(`task-####-slug`) 간 현재 차이는 `docs/approve-target-id-alignment-note.md`를 기준으로 확인한다.
+- 본 문서에서는 정합성 이슈 해결 구현(파서 확장/alias 도입)을 다루지 않는다.

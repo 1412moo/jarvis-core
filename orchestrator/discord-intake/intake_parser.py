@@ -170,6 +170,9 @@ def parse_intake(command_text: str) -> ParseResult:
                 hold_reason="invalid_decision_requires_confirmation",
             )
 
+        # NOTE(2026-04-04): parser contract 계층의 최소 target 형식만 확인한다.
+        # runtime approve/status/task-file 계층의 full task id(task-####-slug)와는
+        # 현재 의도적으로 분리되어 있으며, 정렬은 후속 단계에서 결정한다.
         target_ok = bool(re.match(r"^task-\d{4}$", target))
         hold_reason = None if target_ok else "unrecognized_target_format"
 
