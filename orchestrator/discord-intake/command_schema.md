@@ -60,6 +60,7 @@
 - 입력: `/approve <target> <decision> [reason...]`
 - 필수: `target`, `decision`
 - decision 허용값: `approve`, `reject`
+- target 형식(운영 기준): `task-####-slug` (예: `task-0007-discord-intake`)
 - 출력 payload:
   - `target: str`
   - `decision: str`
@@ -68,7 +69,7 @@
 - hold 규칙(최소)
   - decision 미허용값: `invalid_decision_requires_confirmation`
   - target 형식 미확인: `unrecognized_target_format`
-  - 현재 구현 target 형식 확인 정규식: `^task-\d{4}$`
+  - 현재 구현 target 형식 확인 정규식: `^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$`
 
 ## 비범위 재확인
 - Discord 이벤트 수신/응답
