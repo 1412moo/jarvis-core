@@ -18,6 +18,7 @@ from datetime import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -31,6 +32,7 @@ except ModuleNotFoundError:
 
 THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = THIS_DIR.parent.parent
+CODEBASE_ROOT = THIS_DIR.parent.parent
 INTAKE_DIR = REPO_ROOT / "orchestrator" / "discord-intake"
 if str(INTAKE_DIR) not in sys.path:
     sys.path.insert(0, str(INTAKE_DIR))
@@ -75,6 +77,14 @@ REVIEW_KEYWORD_FILE_MAP: dict[str, tuple[str, ...]] = {
     "parser": ("orchestrator/discord-intake/intake_parser.py", "docs/discord-command-intake.md"),
 }
 PLAN_DIRECTIONAL_KEYWORDS = ("architecture", "workflow", "north-star", "long-term", "execution")
+EXECUTION_SCRIPT_WHITELIST: dict[tuple[str, str], tuple[str, ...]] = {
+    (
+        "plan_script_execution",
+        "discord_intake_smoke_tests",
+    ): ("python", "orchestrator/discord-intake/run_smoke_tests.py"),
+}
+EXECUTION_TIMEOUT_SECONDS = 10
+EXECUTION_OUTPUT_MAX_CHARS = 220
 
 
 # ---------------------------------------------------------------------------
@@ -577,11 +587,15 @@ def _build_execution_candidate(task_id: str) -> dict[str, Any] | None:
 
     title_summary = f"{metadata.get('title', '')} {metadata.get('summary', '')}".lower()
     if any(keyword in title_summary for keyword in ("script", "run", "demo")):
+        script_target = "unknown_script_target"
+        if any(keyword in title_summary for keyword in ("smoke", "demo")):
+            script_target = "discord_intake_smoke_tests"
         return {
             "result_type": "execution_candidate",
             "task_id": task_id,
             "execution_type": "script",
             "action": "plan_script_execution",
+            "target": script_target,
             "reason": "summary_or_title_contains_script_run_demo",
         }
     if "test" in title_summary or "검증" in f"{metadata.get('title', '')} {metadata.get('summary', '')}":
@@ -601,6 +615,7 @@ def _build_execution_request(execution_candidate: dict[str, Any]) -> dict[str, A
         "task_id": str(execution_candidate.get("task_id") or ""),
         "execution_type": str(execution_candidate.get("execution_type") or ""),
         "action": str(execution_candidate.get("action") or ""),
+        "target": str(execution_candidate.get("target") or ""),
         "requested_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
         "source": "approve_file_write_result",
     }
@@ -623,6 +638,88 @@ def _build_execution_result_dry_run(execution_request: dict[str, Any]) -> dict[s
         "success": False,
         "output_summary": output_summary,
         "error_reason": "dry_run_not_executed",
+    }
+
+
+def _summarize_execution_output(stdout: str, stderr: str) -> str:
+    merged = []
+    if stdout.strip():
+        merged.append(f"stdout={stdout.strip()}")
+    if stderr.strip():
+        merged.append(f"stderr={stderr.strip()}")
+    if not merged:
+        return "no_output"
+    normalized = " | ".join(merged).replace("\n", " ").replace("\r", " ")
+    if len(normalized) <= EXECUTION_OUTPUT_MAX_CHARS:
+        return normalized
+    return f"{normalized[:EXECUTION_OUTPUT_MAX_CHARS]}..."
+
+
+def _build_execution_result_real(execution_request: dict[str, Any]) -> dict[str, Any]:
+    task_id = str(execution_request.get("task_id") or "")
+    execution_type = str(execution_request.get("execution_type") or "")
+    action = str(execution_request.get("action") or "")
+    target = str(execution_request.get("target") or "")
+    base_payload = {
+        "result_type": "execution_result",
+        "task_id": task_id,
+        "execution_type": execution_type,
+        "action": action,
+    }
+
+    if execution_type != "script":
+        return {
+            **base_payload,
+            "executed": False,
+            "success": False,
+            "output_summary": "",
+            "error_reason": "execution_type_not_allowed",
+        }
+
+    command = EXECUTION_SCRIPT_WHITELIST.get((action, target))
+    if command is None:
+        return {
+            **base_payload,
+            "executed": False,
+            "success": False,
+            "output_summary": "",
+            "error_reason": "script_action_target_not_whitelisted",
+        }
+
+    try:
+        completed = subprocess.run(
+            list(command),
+            cwd=str(CODEBASE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=EXECUTION_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        summary = _summarize_execution_output(exc.stdout or "", exc.stderr or "")
+        return {
+            **base_payload,
+            "executed": True,
+            "success": False,
+            "output_summary": summary,
+            "error_reason": "execution_timeout",
+        }
+    except OSError:
+        return {
+            **base_payload,
+            "executed": False,
+            "success": False,
+            "output_summary": "",
+            "error_reason": "execution_start_failed",
+        }
+
+    success = completed.returncode == 0
+    return {
+        **base_payload,
+        "executed": True,
+        "success": success,
+        "output_summary": _summarize_execution_output(completed.stdout, completed.stderr),
+        "error_reason": "" if success else f"execution_failed:exit_code:{completed.returncode}",
     }
 
 
@@ -695,9 +792,11 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
     execution_candidate = _build_execution_candidate(task_id)
     execution_request = None
     execution_result_dry_run = None
+    execution_result = None
     if isinstance(execution_candidate, dict):
         execution_request = _build_execution_request(execution_candidate)
         execution_result_dry_run = _build_execution_result_dry_run(execution_request)
+        execution_result = _build_execution_result_real(execution_request)
     return {
         "result_type": "approve_file_write_result",
         "task_id": task_id,
@@ -708,6 +807,7 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         "execution_candidate": execution_candidate,
         "execution_request": execution_request,
         "execution_result_dry_run": execution_result_dry_run,
+        "execution_result": execution_result,
     }
 
 
@@ -854,12 +954,14 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             applied_transition = pipeline_result.get("applied_transition") or {}
             execution_candidate = pipeline_result.get("execution_candidate")
             execution_result_dry_run = pipeline_result.get("execution_result_dry_run")
+            execution_result = pipeline_result.get("execution_result")
             execution_line = ""
             if isinstance(execution_candidate, dict):
                 execution_line = (
                     f"\n🚀 execution candidate 생성됨\n"
                     f"- execution_type: `{execution_candidate.get('execution_type')}`\n"
-                    f"- action: `{execution_candidate.get('action')}`"
+                    f"- action: `{execution_candidate.get('action')}`\n"
+                    f"- target: `{execution_candidate.get('target')}`"
                 )
             dry_run_line = ""
             if isinstance(execution_result_dry_run, dict):
@@ -870,6 +972,15 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
                     f"- output_summary: `{execution_result_dry_run.get('output_summary')}`\n"
                     f"- error_reason: `{execution_result_dry_run.get('error_reason')}`"
                 )
+            execution_result_line = ""
+            if isinstance(execution_result, dict):
+                execution_result_line = (
+                    f"\n⚙️ execution result\n"
+                    f"- executed: `{execution_result.get('executed')}`\n"
+                    f"- success: `{execution_result.get('success')}`\n"
+                    f"- output_summary: `{execution_result.get('output_summary')}`\n"
+                    f"- error_reason: `{execution_result.get('error_reason')}`"
+                )
             return (
                 "🧾 approve file write result 생성 완료\n"
                 f"- task_id: `{pipeline_result.get('task_id')}`\n"
@@ -877,6 +988,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
                 f"- applied_transition: `{applied_transition.get('from')} -> {applied_transition.get('to')}`"
                 f"{execution_line}"
                 f"{dry_run_line}"
+                f"{execution_result_line}"
             )
         return (
             "🧾 approve file write result 생성 완료\n"
@@ -1014,6 +1126,7 @@ def _run_self_check_suite() -> dict[str, Any]:
                 isinstance(approve_result.get("execution_candidate"), dict)
                 and approve_result["execution_candidate"].get("result_type") == "execution_candidate"
                 and approve_result["execution_candidate"].get("execution_type") == "script"
+                and approve_result["execution_candidate"].get("target") == "discord_intake_smoke_tests"
             )
             _record("execution_candidate_created", execution_candidate_ok, f"result={approve_result}")
             execution_result_script_ok = (
@@ -1024,6 +1137,14 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and approve_result["execution_result_dry_run"].get("output_summary") == "dry-run: script execution planned"
             )
             _record("execution_result_dry_run_script", execution_result_script_ok, f"result={approve_result}")
+            execution_result_real_whitelist_ok = (
+                isinstance(approve_result.get("execution_result"), dict)
+                and approve_result["execution_result"].get("result_type") == "execution_result"
+                and approve_result["execution_result"].get("execution_type") == "script"
+                and approve_result["execution_result"].get("executed") is True
+                and approve_result["execution_result"].get("success") is True
+            )
+            _record("execution_result_real_whitelist_allowed", execution_result_real_whitelist_ok, f"result={approve_result}")
             _record("status_reader_writer_consistency", status_changed, f"before={before_status} after={after_status}")
             _record("updated_at_reader_writer_consistency", updated_at_changed, f"before={before_status} after={after_status}")
 
@@ -1038,6 +1159,18 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and test_candidate_result["execution_result_dry_run"].get("output_summary") == "dry-run: test execution planned"
             )
             _record("execution_result_dry_run_test", execution_result_test_ok, f"result={test_candidate_result}")
+
+            task_id_reject = "task-0005-self-check"
+            _write_task(task_id_reject, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="run script", summary="승인 후 실행")
+            reject_result = _run_approve_parse(f"/approve {task_id_reject} approve")
+            execution_result_reject_ok = (
+                isinstance(reject_result.get("execution_result"), dict)
+                and reject_result["execution_result"].get("result_type") == "execution_result"
+                and reject_result["execution_result"].get("executed") is False
+                and reject_result["execution_result"].get("success") is False
+                and reject_result["execution_result"].get("error_reason") == "script_action_target_not_whitelisted"
+            )
+            _record("execution_result_real_whitelist_rejected", execution_result_reject_ok, f"result={reject_result}")
 
             task_id_mismatch = "task-0002-self-check"
             _write_task(task_id_mismatch, "DOING", "2026-04-01 00:00 UTC")
@@ -1067,6 +1200,7 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and no_candidate_result.get("applied") is True
                 and no_candidate_result.get("execution_candidate") is None
                 and no_candidate_result.get("execution_result_dry_run") is None
+                and no_candidate_result.get("execution_result") is None
             )
             _record("execution_candidate_not_created", no_candidate_ok, f"result={no_candidate_result}")
         finally:
