@@ -45,6 +45,17 @@ TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
 TASK_STATUS_REQUIRED_FIELDS = ("id", "title", "status", "updated_at", "summary")
 TASK_EXECUTION_REVIEW_FIELDS = ("execution_status", "execution_updated_at", "execution_summary")
+TASK_EXECUTION_STATUS_FIELDS = (
+    "executed",
+    "success",
+    "dry_run",
+    "mode",
+    "reason",
+    "message",
+    "execution_status",
+    "execution_updated_at",
+    "execution_summary",
+)
 REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "TODO": ("DOING",),
@@ -153,30 +164,37 @@ def _run_status_lookup(command_text: str) -> dict[str, Any]:
     if len(parts) != 2:
         return _error_payload("usage:/status <task-id>")
 
-    task_id = parts[1].strip()
+    task_id = parts[1].strip().lower()
     if not task_id:
-        return _error_payload("empty_task_id")
+        return _error_payload("usage:/status <task-id>")
     if not TASK_ID_PATTERN.fullmatch(task_id):
-        return _error_payload("invalid_task_id_format")
+        return _error_payload("usage:/status <task-id>")
 
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
     if not task_file.exists() or not task_file.is_file():
         return {"result_type": "not_found", "task_id": task_id}
 
-    metadata: dict[str, str] = {}
-    for raw_line in task_file.read_text(encoding="utf-8").splitlines():
-        matched = TASK_META_LINE_PATTERN.match(raw_line.strip())
-        if not matched:
-            continue
-        key, value = matched.groups()
-        if key in TASK_STATUS_REQUIRED_FIELDS:
-            metadata[key] = value.strip()
+    try:
+        metadata = _read_task_metadata(task_file)
+        if metadata is None:
+            return _error_payload("task_file_missing_fields:id,title,status,updated_at,summary")
+        execution_metadata = _read_execution_status_metadata(task_file)
+    except OSError:
+        return _error_payload("task_file_read_failed")
 
-    missing_fields = [field for field in TASK_STATUS_REQUIRED_FIELDS if not metadata.get(field)]
-    if missing_fields:
-        return _error_payload(f"task_file_missing_fields:{','.join(missing_fields)}")
-
-    return {"result_type": "status", **metadata}
+    payload: dict[str, Any] = {
+        "result_type": "status",
+        "task_id": metadata["id"],
+        "title": metadata["title"],
+        "status": metadata["status"],
+        "updated_at": metadata["updated_at"],
+        "summary": metadata["summary"],
+    }
+    for key in TASK_EXECUTION_STATUS_FIELDS:
+        value = execution_metadata.get(key)
+        if value:
+            payload[key] = value
+    return payload
 
 
 def _read_task_metadata(task_file: Path) -> dict[str, str] | None:
@@ -206,6 +224,18 @@ def _read_execution_review_metadata(task_file: Path) -> dict[str, str]:
             continue
         key, value = matched.groups()
         if key in TASK_EXECUTION_REVIEW_FIELDS:
+            metadata[key] = value.strip()
+    return metadata
+
+
+def _read_execution_status_metadata(task_file: Path) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for raw_line in task_file.read_text(encoding="utf-8").splitlines():
+        matched = TASK_META_LINE_PATTERN.match(raw_line.strip())
+        if not matched:
+            continue
+        key, value = matched.groups()
+        if key in TASK_EXECUTION_STATUS_FIELDS:
             metadata[key] = value.strip()
     return metadata
 
@@ -1023,14 +1053,28 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
     if result_type == "hold":
         return f"⏸️ hold\n- reason: `{pipeline_result.get('reason')}`"
     if result_type == "status":
-        return (
+        execution_lines: list[str] = []
+        for key in ("executed", "success", "dry_run", "mode", "reason", "message"):
+            if key in pipeline_result and str(pipeline_result.get(key)).strip():
+                execution_lines.append(f"- {key}: `{pipeline_result.get(key)}`")
+        if "execution_status" in pipeline_result and str(pipeline_result.get("execution_status")).strip():
+            execution_lines.append(f"- execution_status: `{pipeline_result.get('execution_status')}`")
+        if "execution_updated_at" in pipeline_result and str(pipeline_result.get("execution_updated_at")).strip():
+            execution_lines.append(f"- execution_updated_at: `{pipeline_result.get('execution_updated_at')}`")
+        if "execution_summary" in pipeline_result and str(pipeline_result.get("execution_summary")).strip():
+            execution_lines.append(f"- execution_summary: `{pipeline_result.get('execution_summary')}`")
+        execution_text = "\n".join(execution_lines)
+        reply = (
             "📄 task 정보\n"
-            f"- id: `{pipeline_result.get('id')}`\n"
+            f"- task_id: `{pipeline_result.get('task_id')}`\n"
             f"- title: `{pipeline_result.get('title')}`\n"
             f"- status: `{pipeline_result.get('status')}`\n"
             f"- updated_at: `{pipeline_result.get('updated_at')}`\n"
             f"- summary: `{pipeline_result.get('summary')}`"
         )
+        if execution_text:
+            reply += f"\n\nexecution:\n{execution_text}"
+        return reply
     if result_type == "not_found":
         return f"⚠️ not found: `{pipeline_result.get('task_id')}`"
     if result_type == "approve_draft":
@@ -1382,6 +1426,34 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and no_candidate_result.get("execution_result") is None
             )
             _record("execution_candidate_not_created", no_candidate_ok, f"result={no_candidate_result}")
+
+            status_usage_error = _run_status_lookup("/status")
+            status_usage_error_ok = (
+                status_usage_error.get("result_type") == "error"
+                and status_usage_error.get("reason") == "usage:/status <task-id>"
+            )
+            _record("status_usage_error", status_usage_error_ok, f"result={status_usage_error}")
+
+            status_not_found = _run_status_lookup("/status task-9998-self-check")
+            status_not_found_ok = status_not_found.get("result_type") == "not_found"
+            _record("status_not_found", status_not_found_ok, f"result={status_not_found}")
+
+            status_execution_visible = _run_status_lookup(f"/status {task_id_success}")
+            status_execution_visible_ok = (
+                status_execution_visible.get("result_type") == "status"
+                and status_execution_visible.get("task_id") == task_id_success
+                and status_execution_visible.get("execution_status") == "success"
+                and str(status_execution_visible.get("execution_summary") or "") != ""
+            )
+            _record("status_execution_metadata_visible", status_execution_visible_ok, f"result={status_execution_visible}")
+
+            status_dry_run_only = _run_status_lookup(f"/status {task_id_reject}")
+            status_dry_run_only_ok = (
+                status_dry_run_only.get("result_type") == "status"
+                and status_dry_run_only.get("task_id") == task_id_reject
+                and status_dry_run_only.get("execution_status") == "not_executed"
+            )
+            _record("status_dry_run_only_safe", status_dry_run_only_ok, f"result={status_dry_run_only}")
         finally:
             globals()["REPO_ROOT"] = original_repo_root
 
