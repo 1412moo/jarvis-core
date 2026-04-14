@@ -791,6 +791,26 @@ def _build_execution_result_real(execution_request: dict[str, Any]) -> dict[str,
     }
 
 
+def _apply_execution_result_status_transition(task_id: str, execution_result: dict[str, Any] | None) -> tuple[bool, str]:
+    if not isinstance(execution_result, dict):
+        return False, "execution_result_missing"
+
+    executed = execution_result.get("executed")
+    success = execution_result.get("success")
+    if not isinstance(executed, bool):
+        return False, "execution_executed_not_boolean"
+    if not executed:
+        return False, "execution_not_executed"
+    if not isinstance(success, bool):
+        return False, "execution_success_not_boolean"
+
+    transition_to = "DONE" if success else "FAILED"
+    applied, reason = _apply_task_status_transition(task_id, "DOING", transition_to)
+    if not applied:
+        return False, f"transition_not_applied:{reason}"
+    return True, ""
+
+
 def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[str, Any]:
     task_id = str(approve_writer_input.get("task_id") or "")
     proposed_transition = approve_writer_input.get("proposed_transition")
@@ -861,11 +881,16 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
     execution_request = None
     execution_result_dry_run = None
     execution_result = None
+    execution_status_transition_applied = False
+    execution_status_transition_reason = "execution_result_missing"
     if isinstance(execution_candidate, dict):
         execution_request = _build_execution_request(execution_candidate)
         execution_result_dry_run = _build_execution_result_dry_run(execution_request)
         execution_result = _build_execution_result_real(execution_request)
         _write_execution_review_metadata(task_id, execution_result)
+        execution_status_transition_applied, execution_status_transition_reason = _apply_execution_result_status_transition(
+            task_id, execution_result
+        )
     return {
         "result_type": "approve_file_write_result",
         "task_id": task_id,
@@ -877,6 +902,8 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         "execution_request": execution_request,
         "execution_result_dry_run": execution_result_dry_run,
         "execution_result": execution_result,
+        "execution_status_transition_applied": execution_status_transition_applied,
+        "execution_status_transition_reason": execution_status_transition_reason,
     }
 
 
@@ -1030,6 +1057,8 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             execution_candidate = pipeline_result.get("execution_candidate")
             execution_result_dry_run = pipeline_result.get("execution_result_dry_run")
             execution_result = pipeline_result.get("execution_result")
+            execution_status_transition_applied = pipeline_result.get("execution_status_transition_applied")
+            execution_status_transition_reason = pipeline_result.get("execution_status_transition_reason")
             execution_line = ""
             if isinstance(execution_candidate, dict):
                 execution_line = (
@@ -1060,7 +1089,9 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
                 "🧾 approve file write result 생성 완료\n"
                 f"- task_id: `{pipeline_result.get('task_id')}`\n"
                 f"- applied: `{pipeline_result.get('applied')}`\n"
-                f"- applied_transition: `{applied_transition.get('from')} -> {applied_transition.get('to')}`"
+                f"- applied_transition: `{applied_transition.get('from')} -> {applied_transition.get('to')}`\n"
+                f"- execution_status_transition_applied: `{execution_status_transition_applied}`\n"
+                f"- execution_status_transition_reason: `{execution_status_transition_reason}`"
                 f"{execution_line}"
                 f"{dry_run_line}"
                 f"{execution_result_line}"
@@ -1188,7 +1219,7 @@ def _run_self_check_suite() -> dict[str, Any]:
             before_status = _run_status_lookup(f"/status {task_id_success}")
             approve_result = _run_approve_parse(f"/approve {task_id_success} approve")
             after_status = _run_status_lookup(f"/status {task_id_success}")
-            status_changed = before_status.get("status") == "NEEDS_APPROVAL" and after_status.get("status") == "DOING"
+            status_changed = before_status.get("status") == "NEEDS_APPROVAL" and after_status.get("status") == "DONE"
             updated_at_changed = before_status.get("updated_at") == old_updated_at and after_status.get("updated_at") != old_updated_at
             approve_result_ok = (
                 approve_result.get("result_type") == "approve_file_write_result"
@@ -1197,6 +1228,11 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and approve_result.get("reason") == ""
             )
             _record("approve_applied_payload", approve_result_ok, f"result={approve_result}")
+            execution_status_transition_success_ok = (
+                approve_result.get("execution_status_transition_applied") is True
+                and approve_result.get("execution_status_transition_reason") == ""
+            )
+            _record("execution_status_transition_success", execution_status_transition_success_ok, f"result={approve_result}")
             execution_candidate_ok = (
                 isinstance(approve_result.get("execution_candidate"), dict)
                 and approve_result["execution_candidate"].get("result_type") == "execution_candidate"
@@ -1220,6 +1256,13 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and approve_result["execution_result"].get("success") is True
             )
             _record("execution_result_real_whitelist_allowed", execution_result_real_whitelist_ok, f"result={approve_result}")
+            review_task_after_approve = _run_review_task(f"/review-task {task_id_success}")
+            review_execution_metadata_ok = (
+                review_task_after_approve.get("result_type") == "review_task_result"
+                and review_task_after_approve.get("execution_status") == "success"
+                and str(review_task_after_approve.get("execution_summary") or "") != ""
+            )
+            _record("review_task_execution_metadata_visible", review_execution_metadata_ok, f"result={review_task_after_approve}")
             _record("status_reader_writer_consistency", status_changed, f"before={before_status} after={after_status}")
             _record("updated_at_reader_writer_consistency", updated_at_changed, f"before={before_status} after={after_status}")
 
@@ -1246,6 +1289,67 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and reject_result["execution_result"].get("error_reason") == "script_action_target_not_whitelisted"
             )
             _record("execution_result_real_whitelist_rejected", execution_result_reject_ok, f"result={reject_result}")
+            reject_status_after = _run_status_lookup(f"/status {task_id_reject}")
+            execution_status_transition_reject_ok = (
+                reject_result.get("execution_status_transition_applied") is False
+                and reject_result.get("execution_status_transition_reason") == "execution_not_executed"
+                and reject_status_after.get("status") == "DOING"
+            )
+            _record("execution_status_transition_not_executed", execution_status_transition_reject_ok, f"result={reject_result}")
+
+            task_id_fail = "task-0006-self-check"
+            _write_task(task_id_fail, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            original_build_execution_result_real = _build_execution_result_real
+            try:
+                globals()["_build_execution_result_real"] = lambda execution_request: {
+                    "result_type": "execution_result",
+                    "task_id": str(execution_request.get("task_id") or ""),
+                    "execution_type": str(execution_request.get("execution_type") or ""),
+                    "action": str(execution_request.get("action") or ""),
+                    "executed": True,
+                    "success": False,
+                    "output_summary": "forced_failure",
+                    "error_reason": "execution_failed:exit_code:1",
+                }
+                fail_result = _run_approve_parse(f"/approve {task_id_fail} approve")
+            finally:
+                globals()["_build_execution_result_real"] = original_build_execution_result_real
+            fail_status_after = _run_status_lookup(f"/status {task_id_fail}")
+            execution_status_transition_failure_ok = (
+                fail_result.get("result_type") == "approve_file_write_result"
+                and fail_result.get("applied") is True
+                and fail_result.get("execution_status_transition_applied") is True
+                and fail_result.get("execution_status_transition_reason") == ""
+                and fail_status_after.get("status") == "FAILED"
+            )
+            _record("execution_status_transition_failed", execution_status_transition_failure_ok, f"result={fail_result}")
+
+            task_id_transition_fail = "task-0007-self-check"
+            _write_task(task_id_transition_fail, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            original_apply_task_status_transition = _apply_task_status_transition
+            try:
+                def _patched_apply_status_transition(task_id: str, transition_from: str, transition_to: str) -> tuple[bool, str]:
+                    if transition_from == "DOING":
+                        return False, "write_failed"
+                    return original_apply_task_status_transition(task_id, transition_from, transition_to)
+
+                globals()["_apply_task_status_transition"] = _patched_apply_status_transition
+                transition_fail_result = _run_approve_parse(f"/approve {task_id_transition_fail} approve")
+            finally:
+                globals()["_apply_task_status_transition"] = original_apply_task_status_transition
+            transition_fail_status_after = _run_status_lookup(f"/status {task_id_transition_fail}")
+            execution_status_transition_failure_non_blocking_ok = (
+                transition_fail_result.get("result_type") == "approve_file_write_result"
+                and transition_fail_result.get("applied") is True
+                and transition_fail_result.get("execution_status_transition_applied") is False
+                and transition_fail_result.get("execution_status_transition_reason") == "transition_not_applied:write_failed"
+                and transition_fail_status_after.get("status") == "DOING"
+            )
+            _record(
+                "execution_status_transition_failure_non_blocking",
+                execution_status_transition_failure_non_blocking_ok,
+                f"result={transition_fail_result}",
+            )
 
             task_id_mismatch = "task-0002-self-check"
             _write_task(task_id_mismatch, "DOING", "2026-04-01 00:00 UTC")
