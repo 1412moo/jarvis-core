@@ -44,6 +44,7 @@ from task_file_writer import write_task_file
 TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
 TASK_STATUS_REQUIRED_FIELDS = ("id", "title", "status", "updated_at", "summary")
+TASK_EXECUTION_REVIEW_FIELDS = ("execution_status", "execution_updated_at", "execution_summary")
 REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "TODO": ("DOING",),
@@ -194,6 +195,18 @@ def _read_task_metadata(task_file: Path) -> dict[str, str] | None:
     if not TASK_ID_PATTERN.fullmatch(metadata["id"]):
         return None
 
+    return metadata
+
+
+def _read_execution_review_metadata(task_file: Path) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for raw_line in task_file.read_text(encoding="utf-8").splitlines():
+        matched = TASK_META_LINE_PATTERN.match(raw_line.strip())
+        if not matched:
+            continue
+        key, value = matched.groups()
+        if key in TASK_EXECUTION_REVIEW_FIELDS:
+            metadata[key] = value.strip()
     return metadata
 
 
@@ -425,6 +438,7 @@ def _run_review_task(command_text: str) -> dict[str, Any]:
     metadata = _read_task_metadata(task_file)
     if metadata is None:
         return _error_payload("task_file_missing_fields:id,title,status,updated_at,summary")
+    execution_metadata = _read_execution_review_metadata(task_file)
 
     status = metadata["status"]
     return {
@@ -434,6 +448,9 @@ def _run_review_task(command_text: str) -> dict[str, Any]:
         "status": status,
         "updated_at": metadata["updated_at"],
         "summary": metadata["summary"],
+        "execution_status": execution_metadata.get("execution_status", ""),
+        "execution_updated_at": execution_metadata.get("execution_updated_at", ""),
+        "execution_summary": execution_metadata.get("execution_summary", ""),
         "review_notes": _build_review_notes(status),
         "recommended_next_steps": _build_recommended_next_steps(status),
         "related_files": _build_related_files(metadata),
@@ -565,6 +582,57 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
             updated_line_index = idx
     if updated_line_index is not None:
         lines[updated_line_index] = f"- updated_at: `{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}`"
+
+    new_text = "\n".join(lines)
+    if has_trailing_newline:
+        new_text += "\n"
+    try:
+        task_file.write_text(new_text, encoding="utf-8")
+    except OSError:
+        return False, "write_failed"
+    return True, ""
+
+
+def _write_execution_review_metadata(task_id: str, execution_result: dict[str, Any]) -> tuple[bool, str]:
+    task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+    if not task_file.exists() or not task_file.is_file():
+        return False, "task_not_found"
+
+    executed = bool(execution_result.get("executed", False))
+    success = bool(execution_result.get("success", False))
+    if executed and success:
+        execution_status = "success"
+    elif executed and not success:
+        execution_status = "failed"
+    else:
+        execution_status = "not_executed"
+
+    execution_summary = str(execution_result.get("output_summary") or execution_result.get("error_reason") or "")
+    execution_updated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    values_by_key = {
+        "execution_status": execution_status,
+        "execution_updated_at": execution_updated_at,
+        "execution_summary": execution_summary,
+    }
+
+    task_text = task_file.read_text(encoding="utf-8")
+    has_trailing_newline = task_text.endswith("\n")
+    lines = task_text.splitlines()
+    existing_indexes: dict[str, int] = {}
+    for idx, line in enumerate(lines):
+        matched = TASK_META_LINE_PATTERN.match(line.strip())
+        if not matched:
+            continue
+        key, _ = matched.groups()
+        if key in TASK_EXECUTION_REVIEW_FIELDS:
+            existing_indexes[key] = idx
+
+    for key in TASK_EXECUTION_REVIEW_FIELDS:
+        new_line = f"- {key}: `{values_by_key[key]}`"
+        if key in existing_indexes:
+            lines[existing_indexes[key]] = new_line
+        else:
+            lines.append(new_line)
 
     new_text = "\n".join(lines)
     if has_trailing_newline:
@@ -797,6 +865,7 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         execution_request = _build_execution_request(execution_candidate)
         execution_result_dry_run = _build_execution_result_dry_run(execution_request)
         execution_result = _build_execution_result_real(execution_request)
+        _write_execution_review_metadata(task_id, execution_result)
     return {
         "result_type": "approve_file_write_result",
         "task_id": task_id,
@@ -886,6 +955,9 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
     if result_type == "review_task_result":
         recommended = pipeline_result.get("recommended_next_steps") or []
         related_files = pipeline_result.get("related_files") or []
+        execution_status = str(pipeline_result.get("execution_status") or "")
+        execution_updated_at = str(pipeline_result.get("execution_updated_at") or "")
+        execution_summary = str(pipeline_result.get("execution_summary") or "")
         recommended_text = "\n".join(f"- {item}" for item in recommended) if recommended else "- (없음)"
         related_text = "\n".join(f"- {path}" for path in related_files) if related_files else "- (없음)"
         return (
@@ -895,6 +967,9 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- status: `{pipeline_result.get('status')}`\n"
             f"- updated_at: `{pipeline_result.get('updated_at')}`\n"
             f"- summary: `{pipeline_result.get('summary')}`\n"
+            f"- execution_status: `{execution_status or '(없음)'}`\n"
+            f"- execution_updated_at: `{execution_updated_at or '(없음)'}`\n"
+            f"- execution_summary: `{execution_summary or '(없음)'}`\n"
             f"- review_notes: `{pipeline_result.get('review_notes')}`\n\n"
             f"recommended_next_steps:\n{recommended_text}\n\n"
             f"related_files:\n{related_text}"
