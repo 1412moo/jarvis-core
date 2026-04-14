@@ -92,3 +92,6 @@ jarvis-core의 개발 루프를 입력/상태 관리 관점에서 정리한다.
   - 자동화
   - DB
   - 외부 API
+- 참고 contract:
+  - execution 최소 계약: `docs/execution-contract.md`
+
