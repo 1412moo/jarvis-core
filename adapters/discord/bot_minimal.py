@@ -56,6 +56,7 @@ TASK_EXECUTION_STATUS_FIELDS = (
     "execution_updated_at",
     "execution_summary",
 )
+RETRY_ALLOWED_STATUSES = frozenset({"FAILED", "DOING"})
 REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "TODO": ("DOING",),
@@ -719,6 +720,92 @@ def _build_execution_request(execution_candidate: dict[str, Any]) -> dict[str, A
     }
 
 
+def _run_execution_flow(task_id: str, source: str) -> dict[str, Any]:
+    execution_candidate = _build_execution_candidate(task_id)
+    execution_request = None
+    execution_result_dry_run = None
+    execution_result = None
+    execution_status_transition_applied = False
+    execution_status_transition_reason = "execution_result_missing"
+    if isinstance(execution_candidate, dict):
+        execution_request = _build_execution_request(execution_candidate)
+        execution_request["source"] = source
+        execution_result_dry_run = _build_execution_result_dry_run(execution_request)
+        execution_result = _build_execution_result_real(execution_request)
+        _write_execution_review_metadata(task_id, execution_result)
+        execution_status_transition_applied, execution_status_transition_reason = _apply_execution_result_status_transition(
+            task_id, execution_result
+        )
+    return {
+        "execution_candidate": execution_candidate,
+        "execution_request": execution_request,
+        "execution_result_dry_run": execution_result_dry_run,
+        "execution_result": execution_result,
+        "execution_status_transition_applied": execution_status_transition_applied,
+        "execution_status_transition_reason": execution_status_transition_reason,
+    }
+
+
+def _run_retry(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 2:
+        return _error_payload("usage:/retry <task-id>")
+    if parts[0] != "/retry":
+        return _error_payload("usage:/retry <task-id>")
+
+    task_id = parts[1].strip().lower()
+    if not task_id:
+        return _error_payload("usage:/retry <task-id>")
+    if not TASK_ID_PATTERN.fullmatch(task_id):
+        return _error_payload("usage:/retry <task-id>")
+
+    task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+    if not task_file.exists() or not task_file.is_file():
+        return {"result_type": "not_found", "task_id": task_id}
+
+    try:
+        metadata = _read_task_metadata(task_file)
+    except OSError:
+        return _error_payload("task_file_read_failed")
+    if metadata is None:
+        return _error_payload("task_file_missing_fields:id,title,status,updated_at,summary")
+
+    status = metadata.get("status") or ""
+    if status not in RETRY_ALLOWED_STATUSES:
+        return {
+            "result_type": "retry_not_allowed",
+            "task_id": task_id,
+            "status": status,
+            "reason": "retry_allowed_only_for:FAILED,DOING",
+        }
+
+    if _build_execution_candidate(task_id) is None:
+        return {
+            "result_type": "error",
+            "reason": "retry_execution_candidate_missing",
+            "task_id": task_id,
+        }
+
+    if status == "FAILED":
+        todo_applied, todo_reason = _apply_task_status_transition(task_id, "FAILED", "TODO")
+        if not todo_applied:
+            return _error_payload(f"retry_status_prep_failed:{todo_reason}")
+        doing_applied, doing_reason = _apply_task_status_transition(task_id, "TODO", "DOING")
+        if not doing_applied:
+            return _error_payload(f"retry_status_prep_failed:{doing_reason}")
+
+    execution_flow = _run_execution_flow(task_id, "retry")
+    execution_result = execution_flow.get("execution_result")
+    return {
+        "result_type": "retry_result",
+        "task_id": task_id,
+        "retried": True,
+        "execution_result": execution_result,
+        "execution_status_transition_applied": execution_flow.get("execution_status_transition_applied"),
+        "execution_status_transition_reason": execution_flow.get("execution_status_transition_reason"),
+    }
+
+
 def _build_execution_result_dry_run(execution_request: dict[str, Any]) -> dict[str, Any]:
     execution_type = str(execution_request.get("execution_type") or "")
     output_summary = "dry-run: execution planned"
@@ -907,20 +994,7 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         reason_kind = "hold" if reason in ("task_not_found", "status_mismatch") else "error"
         return _approve_writer_result_fail(task_id=task_id, reason=reason, kind=reason_kind)
 
-    execution_candidate = _build_execution_candidate(task_id)
-    execution_request = None
-    execution_result_dry_run = None
-    execution_result = None
-    execution_status_transition_applied = False
-    execution_status_transition_reason = "execution_result_missing"
-    if isinstance(execution_candidate, dict):
-        execution_request = _build_execution_request(execution_candidate)
-        execution_result_dry_run = _build_execution_result_dry_run(execution_request)
-        execution_result = _build_execution_result_real(execution_request)
-        _write_execution_review_metadata(task_id, execution_result)
-        execution_status_transition_applied, execution_status_transition_reason = _apply_execution_result_status_transition(
-            task_id, execution_result
-        )
+    execution_flow = _run_execution_flow(task_id, "approve_file_write_result")
     return {
         "result_type": "approve_file_write_result",
         "task_id": task_id,
@@ -928,12 +1002,12 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         "error": False,
         "reason": "",
         "applied_transition": {"from": transition_from, "to": transition_to},
-        "execution_candidate": execution_candidate,
-        "execution_request": execution_request,
-        "execution_result_dry_run": execution_result_dry_run,
-        "execution_result": execution_result,
-        "execution_status_transition_applied": execution_status_transition_applied,
-        "execution_status_transition_reason": execution_status_transition_reason,
+        "execution_candidate": execution_flow.get("execution_candidate"),
+        "execution_request": execution_flow.get("execution_request"),
+        "execution_result_dry_run": execution_flow.get("execution_result_dry_run"),
+        "execution_result": execution_flow.get("execution_result"),
+        "execution_status_transition_applied": execution_flow.get("execution_status_transition_applied"),
+        "execution_status_transition_reason": execution_flow.get("execution_status_transition_reason"),
     }
 
 
@@ -978,6 +1052,8 @@ def _run_command(command_text: str) -> dict[str, Any]:
         return _run_task_pipeline(content)
     if content.startswith("/status"):
         return _run_status_lookup(content)
+    if content.startswith("/retry"):
+        return _run_retry(content)
     if content.startswith("/approve"):
         return _run_approve_parse(content)
     if content == "/report today":
@@ -1145,6 +1221,28 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- task_id: `{pipeline_result.get('task_id')}`\n"
             f"- applied: `{pipeline_result.get('applied')}`\n"
             f"- kind: `{pipeline_result.get('kind')}`\n"
+            f"- reason: `{pipeline_result.get('reason')}`"
+        )
+    if result_type == "retry_result":
+        execution_result = pipeline_result.get("execution_result") or {}
+        return (
+            "🔁 retry result\n"
+            f"- task_id: `{pipeline_result.get('task_id')}`\n"
+            f"- retried: `{pipeline_result.get('retried')}`\n"
+            f"- executed: `{execution_result.get('executed')}`\n"
+            f"- success: `{execution_result.get('success')}`\n"
+            f"- dry_run: `False`\n"
+            f"- mode: `real`\n"
+            f"- reason: `{execution_result.get('error_reason')}`\n"
+            f"- message: `{execution_result.get('output_summary')}`\n"
+            f"- execution_status_transition_applied: `{pipeline_result.get('execution_status_transition_applied')}`\n"
+            f"- execution_status_transition_reason: `{pipeline_result.get('execution_status_transition_reason')}`"
+        )
+    if result_type == "retry_not_allowed":
+        return (
+            "⚠️ retry not allowed\n"
+            f"- task_id: `{pipeline_result.get('task_id')}`\n"
+            f"- status: `{pipeline_result.get('status')}`\n"
             f"- reason: `{pipeline_result.get('reason')}`"
         )
     if result_type == "report_empty":
@@ -1454,6 +1552,93 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and status_dry_run_only.get("execution_status") == "not_executed"
             )
             _record("status_dry_run_only_safe", status_dry_run_only_ok, f"result={status_dry_run_only}")
+
+            retry_usage_error = _run_retry("/retry")
+            retry_usage_error_ok = (
+                retry_usage_error.get("result_type") == "error"
+                and retry_usage_error.get("reason") == "usage:/retry <task-id>"
+            )
+            _record("retry_usage_error", retry_usage_error_ok, f"result={retry_usage_error}")
+
+            retry_not_found = _run_retry("/retry task-9997-self-check")
+            retry_not_found_ok = retry_not_found.get("result_type") == "not_found"
+            _record("retry_not_found", retry_not_found_ok, f"result={retry_not_found}")
+
+            task_id_retry_not_allowed = "task-0008-self-check"
+            _write_task(task_id_retry_not_allowed, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            retry_not_allowed_result = _run_retry(f"/retry {task_id_retry_not_allowed}")
+            retry_not_allowed_ok = (
+                retry_not_allowed_result.get("result_type") == "retry_not_allowed"
+                and retry_not_allowed_result.get("status") == "NEEDS_APPROVAL"
+            )
+            _record("retry_not_allowed_status", retry_not_allowed_ok, f"result={retry_not_allowed_result}")
+
+            task_id_retry_success = "task-0009-self-check"
+            _write_task(task_id_retry_success, "FAILED", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            retry_success_result = _run_retry(f"/retry {task_id_retry_success}")
+            retry_success_status = _run_status_lookup(f"/status {task_id_retry_success}")
+            retry_success_ok = (
+                retry_success_result.get("result_type") == "retry_result"
+                and retry_success_result.get("execution_status_transition_applied") is True
+                and retry_success_result.get("execution_status_transition_reason") == ""
+                and retry_success_status.get("status") == "DONE"
+            )
+            _record("retry_failed_to_done_on_success", retry_success_ok, f"result={retry_success_result} status={retry_success_status}")
+
+            task_id_retry_fail = "task-0010-self-check"
+            _write_task(task_id_retry_fail, "DOING", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            original_build_execution_result_real = _build_execution_result_real
+            try:
+                globals()["_build_execution_result_real"] = lambda execution_request: {
+                    "result_type": "execution_result",
+                    "task_id": str(execution_request.get("task_id") or ""),
+                    "execution_type": str(execution_request.get("execution_type") or ""),
+                    "action": str(execution_request.get("action") or ""),
+                    "executed": True,
+                    "success": False,
+                    "output_summary": "forced_retry_failure",
+                    "error_reason": "execution_failed:exit_code:1",
+                }
+                retry_fail_result = _run_retry(f"/retry {task_id_retry_fail}")
+            finally:
+                globals()["_build_execution_result_real"] = original_build_execution_result_real
+            retry_fail_status = _run_status_lookup(f"/status {task_id_retry_fail}")
+            retry_fail_ok = (
+                retry_fail_result.get("result_type") == "retry_result"
+                and retry_fail_result.get("execution_status_transition_applied") is True
+                and retry_fail_status.get("status") == "FAILED"
+            )
+            _record("retry_failed_on_execution_failure", retry_fail_ok, f"result={retry_fail_result} status={retry_fail_status}")
+
+            task_id_retry_not_executed = "task-0011-self-check"
+            _write_task(task_id_retry_not_executed, "DOING", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            original_build_execution_result_real = _build_execution_result_real
+            try:
+                globals()["_build_execution_result_real"] = lambda execution_request: {
+                    "result_type": "execution_result",
+                    "task_id": str(execution_request.get("task_id") or ""),
+                    "execution_type": str(execution_request.get("execution_type") or ""),
+                    "action": str(execution_request.get("action") or ""),
+                    "executed": False,
+                    "success": False,
+                    "output_summary": "",
+                    "error_reason": "script_action_target_not_whitelisted",
+                }
+                retry_not_executed_result = _run_retry(f"/retry {task_id_retry_not_executed}")
+            finally:
+                globals()["_build_execution_result_real"] = original_build_execution_result_real
+            retry_not_executed_status = _run_status_lookup(f"/status {task_id_retry_not_executed}")
+            retry_not_executed_ok = (
+                retry_not_executed_result.get("result_type") == "retry_result"
+                and retry_not_executed_result.get("execution_status_transition_applied") is False
+                and retry_not_executed_result.get("execution_status_transition_reason") == "execution_not_executed"
+                and retry_not_executed_status.get("status") == "DOING"
+            )
+            _record(
+                "retry_status_unchanged_when_not_executed",
+                retry_not_executed_ok,
+                f"result={retry_not_executed_result} status={retry_not_executed_status}",
+            )
         finally:
             globals()["REPO_ROOT"] = original_repo_root
 
@@ -1499,13 +1684,14 @@ async def _start_discord_bot() -> None:
             not content.startswith("/plan")
             and not content.startswith("/task")
             and not content.startswith("/status")
+            and not content.startswith("/retry")
             and not content.startswith("/review-task")
             and not content.startswith("/retro")
             and not content.startswith("/report")
             and not content.startswith("/approve")
         ):
             await message.reply(
-                "이 봇은 현재 `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다."
+                "이 봇은 현재 `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/retry <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다."
             )
             return
 
