@@ -595,6 +595,37 @@ def _build_execution_candidate(task_id: str) -> dict[str, Any] | None:
     return None
 
 
+def _build_execution_request(execution_candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "result_type": "execution_request",
+        "task_id": str(execution_candidate.get("task_id") or ""),
+        "execution_type": str(execution_candidate.get("execution_type") or ""),
+        "action": str(execution_candidate.get("action") or ""),
+        "requested_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+        "source": "approve_file_write_result",
+    }
+
+
+def _build_execution_result_dry_run(execution_request: dict[str, Any]) -> dict[str, Any]:
+    execution_type = str(execution_request.get("execution_type") or "")
+    output_summary = "dry-run: execution planned"
+    if execution_type == "script":
+        output_summary = "dry-run: script execution planned"
+    elif execution_type == "test":
+        output_summary = "dry-run: test execution planned"
+
+    return {
+        "result_type": "execution_result",
+        "task_id": str(execution_request.get("task_id") or ""),
+        "execution_type": execution_type,
+        "action": str(execution_request.get("action") or ""),
+        "executed": False,
+        "success": False,
+        "output_summary": output_summary,
+        "error_reason": "dry_run_not_executed",
+    }
+
+
 def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[str, Any]:
     task_id = str(approve_writer_input.get("task_id") or "")
     proposed_transition = approve_writer_input.get("proposed_transition")
@@ -662,6 +693,11 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         return _approve_writer_result_fail(task_id=task_id, reason=reason, kind=reason_kind)
 
     execution_candidate = _build_execution_candidate(task_id)
+    execution_request = None
+    execution_result_dry_run = None
+    if isinstance(execution_candidate, dict):
+        execution_request = _build_execution_request(execution_candidate)
+        execution_result_dry_run = _build_execution_result_dry_run(execution_request)
     return {
         "result_type": "approve_file_write_result",
         "task_id": task_id,
@@ -670,6 +706,8 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         "reason": "",
         "applied_transition": {"from": transition_from, "to": transition_to},
         "execution_candidate": execution_candidate,
+        "execution_request": execution_request,
+        "execution_result_dry_run": execution_result_dry_run,
     }
 
 
@@ -815,6 +853,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         if pipeline_result.get("applied") is True:
             applied_transition = pipeline_result.get("applied_transition") or {}
             execution_candidate = pipeline_result.get("execution_candidate")
+            execution_result_dry_run = pipeline_result.get("execution_result_dry_run")
             execution_line = ""
             if isinstance(execution_candidate, dict):
                 execution_line = (
@@ -822,12 +861,22 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
                     f"- execution_type: `{execution_candidate.get('execution_type')}`\n"
                     f"- action: `{execution_candidate.get('action')}`"
                 )
+            dry_run_line = ""
+            if isinstance(execution_result_dry_run, dict):
+                dry_run_line = (
+                    f"\n🧪 dry-run execution result\n"
+                    f"- executed: `{execution_result_dry_run.get('executed')}`\n"
+                    f"- success: `{execution_result_dry_run.get('success')}`\n"
+                    f"- output_summary: `{execution_result_dry_run.get('output_summary')}`\n"
+                    f"- error_reason: `{execution_result_dry_run.get('error_reason')}`"
+                )
             return (
                 "🧾 approve file write result 생성 완료\n"
                 f"- task_id: `{pipeline_result.get('task_id')}`\n"
                 f"- applied: `{pipeline_result.get('applied')}`\n"
                 f"- applied_transition: `{applied_transition.get('from')} -> {applied_transition.get('to')}`"
                 f"{execution_line}"
+                f"{dry_run_line}"
             )
         return (
             "🧾 approve file write result 생성 완료\n"
@@ -967,8 +1016,28 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and approve_result["execution_candidate"].get("execution_type") == "script"
             )
             _record("execution_candidate_created", execution_candidate_ok, f"result={approve_result}")
+            execution_result_script_ok = (
+                isinstance(approve_result.get("execution_result_dry_run"), dict)
+                and approve_result["execution_result_dry_run"].get("result_type") == "execution_result"
+                and approve_result["execution_result_dry_run"].get("execution_type") == "script"
+                and approve_result["execution_result_dry_run"].get("executed") is False
+                and approve_result["execution_result_dry_run"].get("output_summary") == "dry-run: script execution planned"
+            )
+            _record("execution_result_dry_run_script", execution_result_script_ok, f"result={approve_result}")
             _record("status_reader_writer_consistency", status_changed, f"before={before_status} after={after_status}")
             _record("updated_at_reader_writer_consistency", updated_at_changed, f"before={before_status} after={after_status}")
+
+            task_id_test_candidate = "task-0004-self-check"
+            _write_task(task_id_test_candidate, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="test 검증", summary="테스트 실행")
+            test_candidate_result = _run_approve_parse(f"/approve {task_id_test_candidate} approve")
+            execution_result_test_ok = (
+                isinstance(test_candidate_result.get("execution_result_dry_run"), dict)
+                and test_candidate_result["execution_result_dry_run"].get("result_type") == "execution_result"
+                and test_candidate_result["execution_result_dry_run"].get("execution_type") == "test"
+                and test_candidate_result["execution_result_dry_run"].get("executed") is False
+                and test_candidate_result["execution_result_dry_run"].get("output_summary") == "dry-run: test execution planned"
+            )
+            _record("execution_result_dry_run_test", execution_result_test_ok, f"result={test_candidate_result}")
 
             task_id_mismatch = "task-0002-self-check"
             _write_task(task_id_mismatch, "DOING", "2026-04-01 00:00 UTC")
@@ -997,6 +1066,7 @@ def _run_self_check_suite() -> dict[str, Any]:
                 no_candidate_result.get("result_type") == "approve_file_write_result"
                 and no_candidate_result.get("applied") is True
                 and no_candidate_result.get("execution_candidate") is None
+                and no_candidate_result.get("execution_result_dry_run") is None
             )
             _record("execution_candidate_not_created", no_candidate_ok, f"result={no_candidate_result}")
         finally:
