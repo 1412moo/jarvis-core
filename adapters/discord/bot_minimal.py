@@ -57,6 +57,7 @@ TASK_EXECUTION_STATUS_FIELDS = (
     "execution_summary",
 )
 RETRY_ALLOWED_STATUSES = frozenset({"FAILED", "DOING"})
+RUN_ALLOWED_STATUSES = frozenset({"DOING"})
 REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "TODO": ("DOING",),
@@ -806,6 +807,58 @@ def _run_retry(command_text: str) -> dict[str, Any]:
     }
 
 
+def _run_run(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 2:
+        return _error_payload("usage:/run <task-id>")
+    if parts[0] != "/run":
+        return _error_payload("usage:/run <task-id>")
+
+    task_id = parts[1].strip().lower()
+    if not task_id:
+        return _error_payload("usage:/run <task-id>")
+    if not TASK_ID_PATTERN.fullmatch(task_id):
+        return _error_payload("usage:/run <task-id>")
+
+    task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+    if not task_file.exists() or not task_file.is_file():
+        return {"result_type": "not_found", "task_id": task_id}
+
+    try:
+        metadata = _read_task_metadata(task_file)
+    except OSError:
+        return _error_payload("task_file_read_failed")
+    if metadata is None:
+        return _error_payload("task_file_missing_fields:id,title,status,updated_at,summary")
+
+    status = metadata.get("status") or ""
+    if status not in RUN_ALLOWED_STATUSES:
+        return {
+            "result_type": "run_not_allowed",
+            "task_id": task_id,
+            "status": status,
+            "reason": "run_allowed_only_for:DOING",
+        }
+
+    if _build_execution_candidate(task_id) is None:
+        return {
+            "result_type": "error",
+            "reason": "run_execution_candidate_missing",
+            "task_id": task_id,
+        }
+
+    execution_flow = _run_execution_flow(task_id, "run")
+    execution_result = execution_flow.get("execution_result")
+    return {
+        "result_type": "run_result",
+        "task_id": task_id,
+        "run_attempted": True,
+        "execution_result": execution_result,
+        "execution_status_transition_applied": execution_flow.get("execution_status_transition_applied"),
+        "execution_status_transition_reason": execution_flow.get("execution_status_transition_reason"),
+    }
+
+
 def _build_execution_result_dry_run(execution_request: dict[str, Any]) -> dict[str, Any]:
     execution_type = str(execution_request.get("execution_type") or "")
     output_summary = "dry-run: execution planned"
@@ -1054,6 +1107,8 @@ def _run_command(command_text: str) -> dict[str, Any]:
         return _run_status_lookup(content)
     if content.startswith("/retry"):
         return _run_retry(content)
+    if content.startswith("/run"):
+        return _run_run(content)
     if content.startswith("/approve"):
         return _run_approve_parse(content)
     if content == "/report today":
@@ -1245,6 +1300,28 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- status: `{pipeline_result.get('status')}`\n"
             f"- reason: `{pipeline_result.get('reason')}`"
         )
+    if result_type == "run_result":
+        execution_result = pipeline_result.get("execution_result") or {}
+        return (
+            "▶️ run result\n"
+            f"- task_id: `{pipeline_result.get('task_id')}`\n"
+            f"- run_attempted: `{pipeline_result.get('run_attempted')}`\n"
+            f"- executed: `{execution_result.get('executed')}`\n"
+            f"- success: `{execution_result.get('success')}`\n"
+            f"- dry_run: `False`\n"
+            f"- mode: `real`\n"
+            f"- reason: `{execution_result.get('error_reason')}`\n"
+            f"- message: `{execution_result.get('output_summary')}`\n"
+            f"- execution_status_transition_applied: `{pipeline_result.get('execution_status_transition_applied')}`\n"
+            f"- execution_status_transition_reason: `{pipeline_result.get('execution_status_transition_reason')}`"
+        )
+    if result_type == "run_not_allowed":
+        return (
+            "⚠️ run not allowed\n"
+            f"- task_id: `{pipeline_result.get('task_id')}`\n"
+            f"- status: `{pipeline_result.get('status')}`\n"
+            f"- reason: `{pipeline_result.get('reason')}`"
+        )
     if result_type == "report_empty":
         counts = pipeline_result.get("counts") or {}
         return (
@@ -1282,7 +1359,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Minimal Discord /plan,/task,/status,/review-task,/report,/retro today,/approve bot"
+        description="Minimal Discord /plan,/task,/status,/review-task,/report,/retro today,/approve,/run bot"
     )
     parser.add_argument(
         "--env-file",
@@ -1638,6 +1715,93 @@ def _run_self_check_suite() -> dict[str, Any]:
                 "retry_status_unchanged_when_not_executed",
                 retry_not_executed_ok,
                 f"result={retry_not_executed_result} status={retry_not_executed_status}",
+            )
+
+            run_usage_error = _run_run("/run")
+            run_usage_error_ok = (
+                run_usage_error.get("result_type") == "error"
+                and run_usage_error.get("reason") == "usage:/run <task-id>"
+            )
+            _record("run_usage_error", run_usage_error_ok, f"result={run_usage_error}")
+
+            run_not_found = _run_run("/run task-9996-self-check")
+            run_not_found_ok = run_not_found.get("result_type") == "not_found"
+            _record("run_not_found", run_not_found_ok, f"result={run_not_found}")
+
+            task_id_run_not_allowed = "task-0012-self-check"
+            _write_task(task_id_run_not_allowed, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            run_not_allowed_result = _run_run(f"/run {task_id_run_not_allowed}")
+            run_not_allowed_ok = (
+                run_not_allowed_result.get("result_type") == "run_not_allowed"
+                and run_not_allowed_result.get("status") == "NEEDS_APPROVAL"
+            )
+            _record("run_not_allowed_status", run_not_allowed_ok, f"result={run_not_allowed_result}")
+
+            task_id_run_success = "task-0013-self-check"
+            _write_task(task_id_run_success, "DOING", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            run_success_result = _run_run(f"/run {task_id_run_success}")
+            run_success_status = _run_status_lookup(f"/status {task_id_run_success}")
+            run_success_ok = (
+                run_success_result.get("result_type") == "run_result"
+                and run_success_result.get("execution_status_transition_applied") is True
+                and run_success_result.get("execution_status_transition_reason") == ""
+                and run_success_status.get("status") == "DONE"
+            )
+            _record("run_doing_to_done_on_success", run_success_ok, f"result={run_success_result} status={run_success_status}")
+
+            task_id_run_fail = "task-0014-self-check"
+            _write_task(task_id_run_fail, "DOING", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            original_build_execution_result_real = _build_execution_result_real
+            try:
+                globals()["_build_execution_result_real"] = lambda execution_request: {
+                    "result_type": "execution_result",
+                    "task_id": str(execution_request.get("task_id") or ""),
+                    "execution_type": str(execution_request.get("execution_type") or ""),
+                    "action": str(execution_request.get("action") or ""),
+                    "executed": True,
+                    "success": False,
+                    "output_summary": "forced_run_failure",
+                    "error_reason": "execution_failed:exit_code:1",
+                }
+                run_fail_result = _run_run(f"/run {task_id_run_fail}")
+            finally:
+                globals()["_build_execution_result_real"] = original_build_execution_result_real
+            run_fail_status = _run_status_lookup(f"/status {task_id_run_fail}")
+            run_fail_ok = (
+                run_fail_result.get("result_type") == "run_result"
+                and run_fail_result.get("execution_status_transition_applied") is True
+                and run_fail_status.get("status") == "FAILED"
+            )
+            _record("run_doing_to_failed_on_execution_failure", run_fail_ok, f"result={run_fail_result} status={run_fail_status}")
+
+            task_id_run_not_executed = "task-0015-self-check"
+            _write_task(task_id_run_not_executed, "DOING", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            original_build_execution_result_real = _build_execution_result_real
+            try:
+                globals()["_build_execution_result_real"] = lambda execution_request: {
+                    "result_type": "execution_result",
+                    "task_id": str(execution_request.get("task_id") or ""),
+                    "execution_type": str(execution_request.get("execution_type") or ""),
+                    "action": str(execution_request.get("action") or ""),
+                    "executed": False,
+                    "success": False,
+                    "output_summary": "",
+                    "error_reason": "script_action_target_not_whitelisted",
+                }
+                run_not_executed_result = _run_run(f"/run {task_id_run_not_executed}")
+            finally:
+                globals()["_build_execution_result_real"] = original_build_execution_result_real
+            run_not_executed_status = _run_status_lookup(f"/status {task_id_run_not_executed}")
+            run_not_executed_ok = (
+                run_not_executed_result.get("result_type") == "run_result"
+                and run_not_executed_result.get("execution_status_transition_applied") is False
+                and run_not_executed_result.get("execution_status_transition_reason") == "execution_not_executed"
+                and run_not_executed_status.get("status") == "DOING"
+            )
+            _record(
+                "run_status_unchanged_when_not_executed",
+                run_not_executed_ok,
+                f"result={run_not_executed_result} status={run_not_executed_status}",
             )
         finally:
             globals()["REPO_ROOT"] = original_repo_root
