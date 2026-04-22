@@ -1,15 +1,17 @@
-# Discord Minimal Bot Adapter (`/task`, `/status`, `/report`, `/approve`)
+# Discord Minimal Bot Adapter (`/task`, `/plan`, `/review-task`, `/approve`, `/run`, `/retry`, `/status`, `/report`, `/retro today`, `/help`)
 
 ## 현재 구현 범위
-이 단계의 구현은 **`/task <내용>`, `/status <task-id>`, `/report`, `/report today`, `/approve <task-id> approve|reject`**를 처리한다.
+이 단계의 구현은 **`/task <request>`, `/plan <request>`, `/review-task <task-id>`, `/approve <task-id> approve|reject`, `/run <task-id>`, `/retry <task-id>`, `/status <task-id>`, `/report`, `/report today`, `/retro today`, `/help`**를 처리한다.
 
 - 처리 방식: Discord 일반 메시지 기반 (`/task ...` 텍스트)
 - intake 재사용: `parser -> draft -> file writer`
 - 성공 시 실제 `memory/tasks/*.md` 파일 생성 (`/task`만)
 - hold/error 시 생성 중단 + 이유 응답
-- `/status`는 `memory/tasks/<task-id>.md`를 **읽기 전용 조회**한다.
-- `/report`는 `memory/tasks/*.md`를 **읽기 전용 전체 집계**한다.
-- `/report today`는 `updated_at`의 **UTC 날짜 기준 오늘 집계**를 조회한다.
+- read-only 명령: `/help`, `/plan`, `/review-task`, `/status`, `/report`, `/report today`, `/retro today`
+- 상태 변경/실행 명령: `/task`, `/approve`, `/run`, `/retry`
+- `/run`은 `DOING` 상태 task만 허용하며, 실행은 화이트리스트 조합에서만 시도된다.
+- `/retry`는 `FAILED/DOING` 상태 task 재실행용이며, 실행 후보가 없으면 중단된다.
+- `/retro today`는 `updated_at`의 **UTC 날짜 기준 오늘** task만 집계해 회고 요약을 만든다.
 - `/report`는 새로운 report 파일을 생성하지 않는다.
 
 명시적 비범위:
@@ -55,7 +57,7 @@ python3 adapters/discord/bot_minimal.py
 ## 동작 규칙
 ### `/task <내용>`
 1. 슬래시 형태 문자열이 아니면 무시
-2. `/task`, `/status`, `/report`, `/approve`가 아니면 거절 응답
+2. 지원 명령(`/help`, `/plan`, `/task`, `/status`, `/retry`, `/review-task`, `/retro today`, `/report`, `/report today`, `/approve`, `/run`)이 아니면 거절 응답
 3. `/task <내용>`을 intake 파이프라인에 전달
 4. parser hold면 파일 생성 없이 hold 응답
 5. error면 error 응답
@@ -88,6 +90,29 @@ python3 adapters/discord/bot_minimal.py
 3. 성공 시 `approve_file_write_result(applied=true)` 반환
 4. 대상 미존재/상태 불일치 등은 `approve_file_write_result(applied=false, kind, reason)` 반환
 5. usage 불일치는 `error(reason=usage:/approve <task-id> approve|reject)` 반환
+
+### `/run <task-id>`
+1. 입력 형식 검증: `/run` + task-id 1개만 허용
+2. 대상 task status가 `DOING`일 때만 실행 시도
+3. 실행 후보(`execution_candidate`)가 없으면 `run_execution_candidate_missing` 반환
+4. 실행은 화이트리스트 조합(`action=plan_script_execution`, `target=discord_intake_smoke_tests`)만 허용
+5. 결과는 `run_result`와 실행 결과/전이 적용 여부를 포함
+
+### `/retry <task-id>`
+1. 입력 형식 검증: `/retry` + task-id 1개만 허용
+2. 대상 task status가 `FAILED` 또는 `DOING`일 때만 재실행 시도
+3. `FAILED`인 경우 내부적으로 `FAILED -> TODO -> DOING` 준비 전이를 거친 뒤 실행 시도
+4. 실행 후보(`execution_candidate`)가 없으면 `retry_execution_candidate_missing` 반환
+5. 결과는 `retry_result`와 실행 결과/전이 적용 여부를 포함
+
+### `/help`
+1. 지원 명령 목록을 고정 텍스트로 안내한다.
+2. usage 불일치는 `error(reason=usage:/help)` 반환
+
+### Discord 일반 메시지 선필터의 현재 거절 안내 문구
+- 코드의 일반 메시지 선필터 응답은 현재 아래 목록을 안내한다.
+- ``이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/retry <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다.``
+- 참고: `_run_command()` 라우팅에는 `/run <task-id>`도 포함되어 있으며, self-check에서는 해당 명령을 검증한다.
 
 ### 안전 규칙
 - 빈 입력(`/task`만 입력)은 usage error(`usage:/task <request>`)
@@ -205,6 +230,8 @@ python3 adapters/discord/bot_minimal.py
 ### 3) Discord 없이 파이프라인 자체 확인 (`--self-check`)
 ```bash
 python3 adapters/discord/bot_minimal.py --self-check '/task 문서 구조 정리'
+python3 adapters/discord/bot_minimal.py --self-check '/plan Discord 명령 문서 동기화'
+python3 adapters/discord/bot_minimal.py --self-check '/review-task task-0001-bootstrap'
 python3 adapters/discord/bot_minimal.py --self-check '/task production 삭제'
 python3 adapters/discord/bot_minimal.py --self-check '/task'
 python3 adapters/discord/bot_minimal.py --self-check '/status task-0001-bootstrap'
@@ -217,6 +244,10 @@ python3 adapters/discord/bot_minimal.py --self-check '/report today extra'
 python3 adapters/discord/bot_minimal.py --self-check '/approve task-0001-bootstrap approve'
 python3 adapters/discord/bot_minimal.py --self-check '/approve task-9999-self-check approve'
 python3 adapters/discord/bot_minimal.py --self-check '/approve task-0001 approve'
+python3 adapters/discord/bot_minimal.py --self-check '/run task-0001-bootstrap'
+python3 adapters/discord/bot_minimal.py --self-check '/retry task-0001-bootstrap'
+python3 adapters/discord/bot_minimal.py --self-check '/retro today'
+python3 adapters/discord/bot_minimal.py --self-check '/help'
 ```
 
 ---
