@@ -376,6 +376,28 @@ def _run_retro_today(command_text: str) -> dict[str, Any]:
     return _build_retro_today_payload(report_today_result)
 
 
+def _run_help(command_text: str) -> dict[str, Any]:
+    parts = command_text.strip().split()
+    if len(parts) != 1 or parts[0] != "/help":
+        return _error_payload("usage:/help")
+
+    return {
+        "result_type": "help",
+        "lines": [
+            "/task <request> - task 생성",
+            "/plan <request> - 작업 계획 초안 생성",
+            "/review-task <task-id> - task 상세 검토",
+            "/approve <task-id> approve|reject - 승인/반려",
+            "/run <task-id> - DOING task 실행",
+            "/retry <task-id> - FAILED/DOING task 재실행",
+            "/status <task-id> - 단건 상태 확인",
+            "/report - 전체 task 집계",
+            "/report today - 오늘 업데이트 task 집계",
+            "/retro today - 오늘 회고 요약",
+        ],
+    }
+
+
 def _run_plan_draft(command_text: str) -> dict[str, Any]:
     parts = command_text.strip().split(maxsplit=1)
     if len(parts) != 2 or not parts[1].strip():
@@ -1095,6 +1117,8 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 def _run_command(command_text: str) -> dict[str, Any]:
     content = command_text.strip()
+    if content.startswith("/help"):
+        return _run_help(content)
     if content.startswith("/review-task"):
         return _run_review_task(content)
     if content.startswith("/retro"):
@@ -1120,6 +1144,10 @@ def _run_command(command_text: str) -> dict[str, Any]:
 
 def _format_reply(pipeline_result: dict[str, Any]) -> str:
     result_type = pipeline_result.get("result_type")
+    if result_type == "help":
+        lines = pipeline_result.get("lines") or []
+        body = "\n".join(f"- {line}" for line in lines) if lines else "- (없음)"
+        return f"📘 help\n{body}"
     if result_type == "retro_today_result":
         counts = pipeline_result.get("counts") or {}
         highlights = pipeline_result.get("highlights") or []
@@ -1803,6 +1831,23 @@ def _run_self_check_suite() -> dict[str, Any]:
                 run_not_executed_ok,
                 f"result={run_not_executed_result} status={run_not_executed_status}",
             )
+
+            help_result = _run_help("/help")
+            help_ok = (
+                help_result.get("result_type") == "help"
+                and any(str(line).startswith("/approve <task-id> approve|reject - 승인/반려") for line in (help_result.get("lines") or []))
+                and any(str(line).startswith("/run <task-id> - DOING task 실행") for line in (help_result.get("lines") or []))
+                and any(str(line).startswith("/retry <task-id> - FAILED/DOING task 재실행") for line in (help_result.get("lines") or []))
+                and any(str(line).startswith("/status <task-id> - 단건 상태 확인") for line in (help_result.get("lines") or []))
+            )
+            _record("help_command", help_ok, f"result={help_result}")
+
+            help_usage_error = _run_help("/help extra")
+            help_usage_error_ok = (
+                help_usage_error.get("result_type") == "error"
+                and help_usage_error.get("reason") == "usage:/help"
+            )
+            _record("help_usage_error", help_usage_error_ok, f"result={help_usage_error}")
         finally:
             globals()["REPO_ROOT"] = original_repo_root
 
@@ -1845,7 +1890,8 @@ async def _start_discord_bot() -> None:
             return
 
         if (
-            not content.startswith("/plan")
+            not content.startswith("/help")
+            and not content.startswith("/plan")
             and not content.startswith("/task")
             and not content.startswith("/status")
             and not content.startswith("/retry")
@@ -1855,7 +1901,7 @@ async def _start_discord_bot() -> None:
             and not content.startswith("/approve")
         ):
             await message.reply(
-                "이 봇은 현재 `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/retry <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다."
+                "이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/retry <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다."
             )
             return
 
