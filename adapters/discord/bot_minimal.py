@@ -310,70 +310,53 @@ def _run_report_today(command_text: str) -> dict[str, Any]:
     return _build_report_payload(parsed_tasks)
 
 
-def _build_retro_today_payload(report_today_result: dict[str, Any]) -> dict[str, Any]:
-    counts = report_today_result.get("counts") or {}
-    total = int(report_today_result.get("total") or 0)
-    today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
-
-    failed_count = int(counts.get("FAILED", 0))
-    doing_count = int(counts.get("DOING", 0))
-    done_count = int(counts.get("DONE", 0))
-    needs_approval_count = int(counts.get("NEEDS_APPROVAL", 0))
-
-    highlights: list[str] = []
-    if total == 0:
-        highlights.append("오늘 반영된 작업이 없거나 기준에 맞는 변경이 없음")
-    else:
-        if done_count > 0:
-            highlights.append(f"DONE 상태 작업 {done_count}건이 오늘 반영됨")
-        if doing_count > 0:
-            highlights.append(f"DOING 상태 작업 {doing_count}건이 진행 중으로 확인됨")
-        if failed_count > 0:
-            highlights.append(f"FAILED 상태 작업 {failed_count}건이 확인됨")
-        if not highlights:
-            highlights.append("오늘 작업 상태 집계가 완료됨")
-    highlights = highlights[:3]
-
-    risks: list[str] = []
-    if failed_count > 0:
-        risks.append("실패 원인 재검토 필요")
-    if needs_approval_count > 0:
-        risks.append("승인 대기 항목 존재")
-    if total == 0:
-        risks.append("회고 대상 부족")
-
-    recommended_next_steps: list[str] = []
-    if total == 0:
-        recommended_next_steps.append("오늘 반영된 작업이 있는지 입력/상태 기록을 점검한다")
-    else:
-        recommended_next_steps.append("회고 highlights를 기준으로 다음 우선순위를 정리한다")
-    if failed_count > 0:
-        recommended_next_steps.append("FAILED 항목별 원인과 재시도 조건을 문서화한다")
-    if needs_approval_count > 0:
-        recommended_next_steps.append("승인 대기 항목의 승인 요청 조건을 확인한다")
-
-    if not recommended_next_steps:
-        recommended_next_steps.append("내일 작업 시작 전 오늘 요약을 참고해 계획을 갱신한다")
-    recommended_next_steps = recommended_next_steps[:3]
-
-    return {
-        "result_type": "retro_today_result",
-        "date": today_ymd,
-        "total": total,
-        "counts": counts,
-        "highlights": highlights,
-        "risks": risks,
-        "recommended_next_steps": recommended_next_steps,
-    }
-
-
 def _run_retro_today(command_text: str) -> dict[str, Any]:
     parts = command_text.strip().split()
     if len(parts) != 2 or parts[0] != "/retro" or parts[1] != "today":
         return _error_payload("usage:/retro today")
 
-    report_today_result = _run_report_today("/report today")
-    return _build_retro_today_payload(report_today_result)
+    tasks_dir = REPO_ROOT / "memory" / "tasks"
+    today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
+    counts = {status: 0 for status in REPORT_STATUS_ORDER}
+    total = 0
+    completed_titles: list[str] = []
+    follow_up_titles: list[str] = []
+
+    if tasks_dir.exists() and tasks_dir.is_dir():
+        for task_file in sorted(tasks_dir.glob("*.md")):
+            metadata = _read_task_metadata(task_file)
+            if metadata is None:
+                continue
+            updated_date = metadata["updated_at"].split(" ", 1)[0]
+            if updated_date != today_ymd:
+                continue
+
+            total += 1
+            task_status = metadata["status"]
+            if task_status in counts:
+                counts[task_status] += 1
+            title = metadata["title"]
+            if task_status == "DONE":
+                completed_titles.append(title)
+            if task_status in {"FAILED", "BLOCKED"}:
+                follow_up_titles.append(title)
+
+    blocked_or_failed = counts["FAILED"] + counts["BLOCKED"]
+    if total == 0:
+        summary_line = "no task updates found today"
+    elif blocked_or_failed > 0:
+        summary_line = "today had blocked/failed items that may need follow-up"
+    else:
+        summary_line = f"today moved forward on {total} tasks"
+
+    return {
+        "result_type": "retro_today",
+        "total": total,
+        "counts": counts,
+        "completed_titles": completed_titles,
+        "follow_up_titles": follow_up_titles,
+        "summary_line": summary_line,
+    }
 
 
 def _run_help(command_text: str) -> dict[str, Any]:
@@ -1148,25 +1131,26 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         lines = pipeline_result.get("lines") or []
         body = "\n".join(f"- {line}" for line in lines) if lines else "- (없음)"
         return f"📘 help\n{body}"
-    if result_type == "retro_today_result":
+    if result_type == "retro_today":
         counts = pipeline_result.get("counts") or {}
-        highlights = pipeline_result.get("highlights") or []
-        risks = pipeline_result.get("risks") or []
-        next_steps = pipeline_result.get("recommended_next_steps") or []
-        highlights_text = "\n".join(f"- {item}" for item in highlights) if highlights else "- (없음)"
-        risks_text = "\n".join(f"- {item}" for item in risks) if risks else "- (없음)"
-        next_steps_text = "\n".join(f"- {item}" for item in next_steps) if next_steps else "- (없음)"
+        completed = pipeline_result.get("completed_titles") or []
+        follow_up = pipeline_result.get("follow_up_titles") or []
+        completed_text = "\n".join(f"- {item}" for item in completed) if completed else "- none"
+        follow_up_text = "\n".join(f"- {item}" for item in follow_up) if follow_up else "- none"
         return (
-            "🪞 retro today 결과\n"
-            f"- date: `{pipeline_result.get('date')}`\n"
-            f"- total: {pipeline_result.get('total', 0)}\n"
+            "retro for today\n"
+            f"updated tasks: {pipeline_result.get('total', 0)}\n\n"
+            "status summary\n"
+            f"- TODO: {counts.get('TODO', 0)}\n"
             f"- DONE: {counts.get('DONE', 0)}\n"
             f"- DOING: {counts.get('DOING', 0)}\n"
+            f"- BLOCKED: {counts.get('BLOCKED', 0)}\n"
             f"- FAILED: {counts.get('FAILED', 0)}\n"
             f"- NEEDS_APPROVAL: {counts.get('NEEDS_APPROVAL', 0)}\n\n"
-            f"highlights:\n{highlights_text}\n\n"
-            f"risks:\n{risks_text}\n\n"
-            f"recommended_next_steps:\n{next_steps_text}"
+            f"completed today\n{completed_text}\n\n"
+            f"needs follow-up\n{follow_up_text}\n\n"
+            "summary\n"
+            f"- {pipeline_result.get('summary_line', '')}"
         )
     if result_type == "review_task_result":
         recommended = pipeline_result.get("recommended_next_steps") or []
@@ -1848,6 +1832,34 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and help_usage_error.get("reason") == "usage:/help"
             )
             _record("help_usage_error", help_usage_error_ok, f"result={help_usage_error}")
+
+            today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
+            _write_task("task-0101-retro-done", "DONE", f"{today_ymd} 10:00 UTC", title="retro done item")
+            _write_task("task-0102-retro-blocked", "BLOCKED", f"{today_ymd} 11:00 UTC", title="retro blocked item")
+            retro_today_result = _run_retro_today("/retro today")
+            retro_today_ok = (
+                retro_today_result.get("result_type") == "retro_today"
+                and int(retro_today_result.get("total") or 0) >= 2
+                and int((retro_today_result.get("counts") or {}).get("DONE") or 0) >= 1
+                and int((retro_today_result.get("counts") or {}).get("BLOCKED") or 0) >= 1
+                and "retro done item" in (retro_today_result.get("completed_titles") or [])
+                and "retro blocked item" in (retro_today_result.get("follow_up_titles") or [])
+            )
+            _record("retro_today_command", retro_today_ok, f"result={retro_today_result}")
+
+            retro_usage_error = _run_retro_today("/retro")
+            retro_usage_error_ok = (
+                retro_usage_error.get("result_type") == "error"
+                and retro_usage_error.get("reason") == "usage:/retro today"
+            )
+            _record("retro_usage_error", retro_usage_error_ok, f"result={retro_usage_error}")
+
+            retro_usage_extra_error = _run_retro_today("/retro today extra")
+            retro_usage_extra_error_ok = (
+                retro_usage_extra_error.get("result_type") == "error"
+                and retro_usage_extra_error.get("reason") == "usage:/retro today"
+            )
+            _record("retro_usage_extra_error", retro_usage_extra_error_ok, f"result={retro_usage_extra_error}")
         finally:
             globals()["REPO_ROOT"] = original_repo_root
 
