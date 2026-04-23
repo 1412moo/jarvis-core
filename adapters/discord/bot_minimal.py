@@ -1907,13 +1907,14 @@ async def _start_discord_bot() -> None:
             and not content.startswith("/task")
             and not content.startswith("/status")
             and not content.startswith("/retry")
+            and not content.startswith("/run")
             and not content.startswith("/review-task")
             and not content.startswith("/retro")
             and not content.startswith("/report")
             and not content.startswith("/approve")
         ):
             await message.reply(
-                "이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/retry <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다."
+                "이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/retry <task-id>`, `/run <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다."
             )
             return
 
