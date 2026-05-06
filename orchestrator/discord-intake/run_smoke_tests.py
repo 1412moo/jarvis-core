@@ -32,7 +32,10 @@ def _run_case(name: str, command: str, expected_outcome: str, expected_exit_code
 def main() -> None:
     cases = [
         ("createable_task", "/task report-system-improvement", "would_create", 0),
+        ("hold_non_ascii_title", "/task 보고 시스템 개선", "hold", 1),
         ("hold_risky_task", "/task production 삭제", "hold", 0),
+        ("approve_parser_valid_but_draft_hold", "/approve task-0007 approve", "hold", 1),
+        ("approve_parser_hold_invalid_target", "/approve wrong-target approve", "hold", 0),
         ("invalid_command", "/hello something", "error", 1),
     ]
 
