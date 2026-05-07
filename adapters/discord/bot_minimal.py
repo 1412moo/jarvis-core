@@ -1212,6 +1212,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- id: `{pipeline_result.get('id')}`\n"
             f"- title: `{pipeline_result.get('title')}`\n"
             f"- status: `{pipeline_result.get('status')}`\n"
+            f"- note: `{_build_review_notes(str(pipeline_result.get('status') or ''))}`\n"
             f"- updated_at: `{pipeline_result.get('updated_at')}`\n"
             f"\nsummary:\n`{pipeline_result.get('summary')}`"
         )
