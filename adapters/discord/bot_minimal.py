@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 import json
 import os
 import re
@@ -297,7 +297,7 @@ def _run_report_today(command_text: str) -> dict[str, Any]:
         return _empty_report_payload()
 
     # NOTE: `/report today` uses UTC date 기준 (task `updated_at` 포맷과 동일).
-    today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
+    today_ymd = datetime.now(UTC).strftime("%Y-%m-%d")
     parsed_tasks: list[dict[str, str]] = []
     for task_file in sorted(tasks_dir.glob("*.md")):
         metadata = _read_task_metadata(task_file)
