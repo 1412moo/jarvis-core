@@ -1354,7 +1354,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         recent = pipeline_result.get("recent") or []
         recent_lines: list[str] = []
         for index, task in enumerate(recent, start=1):
-            recent_lines.append(f"{index}. {task.get('id')} — {task.get('status')} — {task.get('updated_at')}")
+            recent_lines.append(f"{index}. {task.get('id')} — {task.get('title')} — {task.get('status')} — {task.get('updated_at')}")
         recent_text = "\n".join(recent_lines) if recent_lines else "(없음)"
         return (
             "📊 task report\n"
