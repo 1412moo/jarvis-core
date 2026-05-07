@@ -1213,7 +1213,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- title: `{pipeline_result.get('title')}`\n"
             f"- status: `{pipeline_result.get('status')}`\n"
             f"- updated_at: `{pipeline_result.get('updated_at')}`\n"
-            f"- summary: `{pipeline_result.get('summary')}`"
+            f"\nsummary:\n`{pipeline_result.get('summary')}`"
         )
         if execution_text:
             reply += f"\n\nexecution:\n{execution_text}"
