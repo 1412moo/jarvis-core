@@ -35,7 +35,7 @@ def main() -> None:
         ("task_parser_error_missing_request", "/task", "error", 1),
         ("hold_non_ascii_title", "/task 보고 시스템 개선", "hold", 1),
         ("hold_risky_task", "/task production 삭제", "hold", 0),
-        ("approve_parser_valid_but_draft_hold", "/approve task-0007 approve", "hold", 1),
+        ("approve_parser_valid_but_draft_hold", "/approve task-0007-sample approve", "hold", 1),
         ("approve_parser_hold_invalid_target", "/approve wrong-target approve", "hold", 0),
         ("report_parser_valid_but_draft_hold", "/report today", "hold", 1),
         ("report_parser_hold_unrecognized_period", "/report monthly", "hold", 0),
