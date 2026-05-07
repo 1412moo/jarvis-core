@@ -38,6 +38,8 @@ def main() -> None:
         ("approve_parser_hold_invalid_target", "/approve wrong-target approve", "hold", 0),
         ("report_parser_valid_but_draft_hold", "/report today", "hold", 1),
         ("report_parser_hold_unrecognized_period", "/report monthly", "hold", 0),
+        ("status_parser_valid_but_draft_hold", "/status task-0002", "hold", 1),
+        ("status_parser_error_missing_target", "/status", "error", 1),
         ("invalid_command", "/hello something", "error", 1),
     ]
 
