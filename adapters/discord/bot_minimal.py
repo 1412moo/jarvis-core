@@ -170,7 +170,7 @@ def _run_status_lookup(command_text: str) -> dict[str, Any]:
     if not task_id:
         return _error_payload("usage:/status <task-id>")
     if not TASK_ID_PATTERN.fullmatch(task_id):
-        return _error_payload("usage:/status <task-id>")
+        return _error_payload("invalid_task_id_format")
 
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
     if not task_file.exists() or not task_file.is_file():
@@ -186,7 +186,7 @@ def _run_status_lookup(command_text: str) -> dict[str, Any]:
 
     payload: dict[str, Any] = {
         "result_type": "status",
-        "task_id": metadata["id"],
+        "id": metadata["id"],
         "title": metadata["title"],
         "status": metadata["status"],
         "updated_at": metadata["updated_at"],
@@ -1209,7 +1209,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         execution_text = "\n".join(execution_lines)
         reply = (
             "📄 task 정보\n"
-            f"- task_id: `{pipeline_result.get('task_id')}`\n"
+            f"- id: `{pipeline_result.get('id')}`\n"
             f"- title: `{pipeline_result.get('title')}`\n"
             f"- status: `{pipeline_result.get('status')}`\n"
             f"- updated_at: `{pipeline_result.get('updated_at')}`\n"
@@ -1628,7 +1628,7 @@ def _run_self_check_suite() -> dict[str, Any]:
             status_execution_visible = _run_status_lookup(f"/status {task_id_success}")
             status_execution_visible_ok = (
                 status_execution_visible.get("result_type") == "status"
-                and status_execution_visible.get("task_id") == task_id_success
+                and status_execution_visible.get("id") == task_id_success
                 and status_execution_visible.get("execution_status") == "success"
                 and str(status_execution_visible.get("execution_summary") or "") != ""
             )
@@ -1637,7 +1637,7 @@ def _run_self_check_suite() -> dict[str, Any]:
             status_dry_run_only = _run_status_lookup(f"/status {task_id_reject}")
             status_dry_run_only_ok = (
                 status_dry_run_only.get("result_type") == "status"
-                and status_dry_run_only.get("task_id") == task_id_reject
+                and status_dry_run_only.get("id") == task_id_reject
                 and status_dry_run_only.get("execution_status") == "not_executed"
             )
             _record("status_dry_run_only_safe", status_dry_run_only_ok, f"result={status_dry_run_only}")
