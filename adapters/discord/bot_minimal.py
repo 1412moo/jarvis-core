@@ -1118,7 +1118,7 @@ def _run_command(command_text: str) -> dict[str, Any]:
         return _run_run(content)
     if content.startswith("/approve"):
         return _run_approve_parse(content)
-    if content == "/report today":
+    if content == "/report today" or content.startswith("/report today "):
         return _run_report_today(content)
     if content.startswith("/report"):
         return _run_report(content)
