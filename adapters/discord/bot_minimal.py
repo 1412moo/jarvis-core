@@ -1861,6 +1861,29 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and retro_usage_extra_error.get("reason") == "usage:/retro today"
             )
             _record("retro_usage_extra_error", retro_usage_extra_error_ok, f"result={retro_usage_extra_error}")
+
+            status_invalid_task_id = _run_status_lookup("/status task-0002")
+            status_invalid_task_id_ok = (
+                status_invalid_task_id.get("result_type") == "error"
+                and status_invalid_task_id.get("reason") == "invalid_task_id_format"
+            )
+            _record("status_invalid_task_id_format", status_invalid_task_id_ok, f"result={status_invalid_task_id}")
+
+            report_today_extra_error = _run_command("/report today extra")
+            report_today_extra_error_ok = (
+                report_today_extra_error.get("result_type") == "error"
+                and report_today_extra_error.get("reason") == "usage:/report today"
+            )
+            _record("report_today_extra_usage", report_today_extra_error_ok, f"result={report_today_extra_error}")
+
+            report_result = _run_command("/report")
+            report_reply = _format_reply(report_result)
+            report_recent_title_visible_ok = (
+                report_result.get("result_type") == "report"
+                and "task-0101-retro-done" in report_reply
+                and "retro done item" in report_reply
+            )
+            _record("report_recent_title_visible", report_recent_title_visible_ok, f"reply={report_reply}")
         finally:
             globals()["REPO_ROOT"] = original_repo_root
 
