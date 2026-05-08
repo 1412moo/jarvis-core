@@ -316,7 +316,7 @@ def _run_retro_today(command_text: str) -> dict[str, Any]:
         return _error_payload("usage:/retro today")
 
     tasks_dir = REPO_ROOT / "memory" / "tasks"
-    today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
+    today_ymd = datetime.now(UTC).strftime("%Y-%m-%d")
     counts = {status: 0 for status in REPORT_STATUS_ORDER}
     total = 0
     completed_titles: list[str] = []
@@ -618,7 +618,7 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
         if key == "updated_at":
             updated_line_index = idx
     if updated_line_index is not None:
-        lines[updated_line_index] = f"- updated_at: `{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}`"
+        lines[updated_line_index] = f"- updated_at: `{datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}`"
 
     new_text = "\n".join(lines)
     if has_trailing_newline:
@@ -645,7 +645,7 @@ def _write_execution_review_metadata(task_id: str, execution_result: dict[str, A
         execution_status = "not_executed"
 
     execution_summary = str(execution_result.get("output_summary") or execution_result.get("error_reason") or "")
-    execution_updated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    execution_updated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     values_by_key = {
         "execution_status": execution_status,
         "execution_updated_at": execution_updated_at,
@@ -721,7 +721,7 @@ def _build_execution_request(execution_candidate: dict[str, Any]) -> dict[str, A
         "execution_type": str(execution_candidate.get("execution_type") or ""),
         "action": str(execution_candidate.get("action") or ""),
         "target": str(execution_candidate.get("target") or ""),
-        "requested_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+        "requested_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         "source": "approve_file_write_result",
     }
 
@@ -1834,7 +1834,7 @@ def _run_self_check_suite() -> dict[str, Any]:
             )
             _record("help_usage_error", help_usage_error_ok, f"result={help_usage_error}")
 
-            today_ymd = datetime.utcnow().strftime("%Y-%m-%d")
+            today_ymd = datetime.now(UTC).strftime("%Y-%m-%d")
             _write_task("task-0101-retro-done", "DONE", f"{today_ymd} 10:00 UTC", title="retro done item")
             _write_task("task-0102-retro-blocked", "BLOCKED", f"{today_ymd} 11:00 UTC", title="retro blocked item")
             retro_today_result = _run_retro_today("/retro today")
