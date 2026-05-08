@@ -1135,21 +1135,21 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         counts = pipeline_result.get("counts") or {}
         completed = pipeline_result.get("completed_titles") or []
         follow_up = pipeline_result.get("follow_up_titles") or []
-        completed_text = "\n".join(f"- {item}" for item in completed) if completed else "- none"
-        follow_up_text = "\n".join(f"- {item}" for item in follow_up) if follow_up else "- none"
+        completed_text = "\n".join(f"- {item}" for item in completed) if completed else "- (없음)"
+        follow_up_text = "\n".join(f"- {item}" for item in follow_up) if follow_up else "- (없음)"
         return (
-            "retro for today\n"
-            f"updated tasks: {pipeline_result.get('total', 0)}\n\n"
-            "status summary\n"
+            "📋 retro today\n"
+            f"- total: {pipeline_result.get('total', 0)}\n\n"
+            "status summary:\n"
             f"- TODO: {counts.get('TODO', 0)}\n"
-            f"- DONE: {counts.get('DONE', 0)}\n"
             f"- DOING: {counts.get('DOING', 0)}\n"
             f"- BLOCKED: {counts.get('BLOCKED', 0)}\n"
+            f"- DONE: {counts.get('DONE', 0)}\n"
             f"- FAILED: {counts.get('FAILED', 0)}\n"
             f"- NEEDS_APPROVAL: {counts.get('NEEDS_APPROVAL', 0)}\n\n"
-            f"completed today\n{completed_text}\n\n"
-            f"needs follow-up\n{follow_up_text}\n\n"
-            "summary\n"
+            f"completed today:\n{completed_text}\n\n"
+            f"needs follow-up:\n{follow_up_text}\n\n"
+            "summary:\n"
             f"- {pipeline_result.get('summary_line', '')}"
         )
     if result_type == "review_task_result":
