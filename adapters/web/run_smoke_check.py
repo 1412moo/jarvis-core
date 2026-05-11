@@ -78,6 +78,8 @@ def main() -> None:
                 None,
             ),
             ("missing", "GET", "/missing", 404, (), None),
+            ("tasks_status_done", "GET", "/tasks?status=DONE", 200, ("Filtered by status: DONE",), None),
+            ("tasks_status_invalid", "GET", "/tasks?status=INVALID", 400, (), None),
             ("post_tasks", "POST", "/tasks", 405, (), "GET"),
         ]
         results = [_run_case(port, *case) for case in cases]
