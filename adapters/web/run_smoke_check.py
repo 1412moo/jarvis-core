@@ -86,6 +86,14 @@ def main() -> None:
             ("tasks_status_invalid", "GET", "/tasks?status=INVALID", 400, (), None),
             ("tasks_auto_refresh", "GET", "/tasks", 200, ('http-equiv="refresh"',), None),
             (
+                "tasks_nav_links",
+                "GET",
+                "/tasks",
+                200,
+                ("/tasks?status=DONE", "/tasks?status=DOING"),
+                None,
+            ),
+            (
                 "task_detail_no_auto_refresh",
                 "GET",
                 "/tasks/task-0002-report-system",
@@ -93,6 +101,14 @@ def main() -> None:
                 (),
                 None,
                 ('http-equiv="refresh"',),
+            ),
+            (
+                "task_detail_nav_link",
+                "GET",
+                "/tasks/task-0002-report-system",
+                200,
+                ("/tasks?status=DONE",),
+                None,
             ),
             ("post_tasks", "POST", "/tasks", 405, (), "GET"),
         ]
