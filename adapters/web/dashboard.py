@@ -30,6 +30,14 @@ TASK_EXECUTION_FIELDS = (
     "execution_summary",
 )
 STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
+STATUS_BADGE_CLASSES = {
+    "TODO": "badge-todo",
+    "DOING": "badge-doing",
+    "BLOCKED": "badge-blocked",
+    "DONE": "badge-done",
+    "FAILED": "badge-failed",
+    "NEEDS_APPROVAL": "badge-needs-approval",
+}
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost"})
 
 
@@ -88,6 +96,12 @@ def _status_counts(tasks: list[dict[str, str]]) -> dict[str, int]:
         if status in counts:
             counts[status] += 1
     return counts
+
+
+def _status_badge(status: str) -> str:
+    badge_class = STATUS_BADGE_CLASSES.get(status)
+    class_value = "badge" if badge_class is None else f"badge {badge_class}"
+    return f'<span class="{class_value}">{_escape(status)}</span>'
 
 
 def _render_layout(title: str, body: str) -> str:
@@ -199,8 +213,39 @@ def _render_layout(title: str, body: str) -> str:
       border-radius: 999px;
       padding: 2px 8px;
       background: #f8fafc;
+      color: #344054;
       font-size: 12px;
       font-weight: 700;
+    }}
+    .badge-todo {{
+      background: #f2f4f7;
+      border-color: #d0d5dd;
+      color: #344054;
+    }}
+    .badge-doing {{
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }}
+    .badge-blocked {{
+      background: #fffbeb;
+      border-color: #fde68a;
+      color: #92400e;
+    }}
+    .badge-done {{
+      background: #ecfdf3;
+      border-color: #bbf7d0;
+      color: #166534;
+    }}
+    .badge-failed {{
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #991b1b;
+    }}
+    .badge-needs-approval {{
+      background: #ecfeff;
+      border-color: #a5f3fc;
+      color: #155e75;
     }}
   </style>
 </head>
@@ -230,7 +275,7 @@ def _render_task_rows(tasks: list[dict[str, str]]) -> str:
             "<tr>"
             f'<td><a href="/tasks/{_escape(task_id)}">{_escape(task_id)}</a></td>'
             f"<td>{_escape(task['title'])}</td>"
-            f'<td><span class="badge">{_escape(task["status"])}</span></td>'
+            f"<td>{_status_badge(task['status'])}</td>"
             f"<td>{_escape(task['updated_at'])}</td>"
             f'<td class="summary">{_escape(task["summary"])}</td>'
             "</tr>"
@@ -280,7 +325,8 @@ def _render_detail_fields(task: dict[str, str], fields: tuple[str, ...]) -> str:
     for field in fields:
         value = task.get(field)
         if value:
-            rows.append(f"<dt>{_escape(field)}</dt><dd>{_escape(value)}</dd>")
+            rendered_value = _status_badge(value) if field == "status" else _escape(value)
+            rows.append(f"<dt>{_escape(field)}</dt><dd>{rendered_value}</dd>")
     return f"<dl>{''.join(rows)}</dl>"
 
 
