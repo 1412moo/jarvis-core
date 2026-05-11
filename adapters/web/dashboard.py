@@ -160,6 +160,11 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
       font-weight: 700;
       padding: 4px 10px;
     }}
+    .nav a.active {{
+      background: #17202a;
+      border-color: #17202a;
+      color: #fff;
+    }}
     .muted {{
       color: #667085;
     }}
@@ -284,15 +289,18 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
 </html>"""
 
 
-def _render_nav() -> str:
+def _render_nav(active_status: str | None = None) -> str:
     links = (
-        ("All Tasks", "/tasks"),
-        ("DONE", "/tasks?status=DONE"),
-        ("DOING", "/tasks?status=DOING"),
-        ("FAILED", "/tasks?status=FAILED"),
-        ("BLOCKED", "/tasks?status=BLOCKED"),
+        ("All Tasks", "/tasks", None),
+        ("DONE", "/tasks?status=DONE", "DONE"),
+        ("DOING", "/tasks?status=DOING", "DOING"),
+        ("FAILED", "/tasks?status=FAILED", "FAILED"),
+        ("BLOCKED", "/tasks?status=BLOCKED", "BLOCKED"),
     )
-    items = [f'<a href="{_escape(href)}">{_escape(label)}</a>' for label, href in links]
+    items = []
+    for label, href, link_status in links:
+        active_class = ' class="active"' if active_status == link_status else ""
+        items.append(f'<a{active_class} href="{_escape(href)}">{_escape(label)}</a>')
     return f'<nav class="nav">{"".join(items)}</nav>'
 
 
@@ -342,7 +350,7 @@ def _render_index(status_filter: str | None = None) -> str:
         "<header>"
         "<h1>Jarvis Tasks</h1>"
         f'<p class="muted">Read-only view of {_escape(TASKS_DIR.relative_to(REPO_ROOT))}</p>'
-        f"{_render_nav()}"
+        f"{_render_nav(status_filter)}"
         "</header>"
         "<h2>Status counts</h2>"
         f"{_render_counts(counts)}"
@@ -399,7 +407,7 @@ def _render_task_detail(task_id: str) -> tuple[HTTPStatus, str]:
     body = (
         "<header>"
         f"<h1>{_escape(task['title'])}</h1>"
-        f"{_render_nav()}"
+        f"{_render_nav('')}"
         '<p><a href="/tasks">Back to task list</a></p>'
         "</header>"
         '<section class="detail">'
