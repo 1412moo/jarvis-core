@@ -104,13 +104,14 @@ def _status_badge(status: str) -> str:
     return f'<span class="{class_value}">{_escape(status)}</span>'
 
 
-def _render_layout(title: str, body: str) -> str:
+def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
+    refresh_meta = '  <meta http-equiv="refresh" content="30">\n' if auto_refresh else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{_escape(title)}</title>
+{refresh_meta}  <title>{_escape(title)}</title>
   <style>
     :root {{ color-scheme: light; }}
     body {{
@@ -308,7 +309,7 @@ def _render_index(status_filter: str | None = None) -> str:
         f"{filter_note}"
         f"{_render_task_rows(visible_tasks)}"
     )
-    return _render_layout("Jarvis Tasks", body)
+    return _render_layout("Jarvis Tasks", body, auto_refresh=True)
 
 
 def _task_by_id(task_id: str) -> dict[str, str] | None:
