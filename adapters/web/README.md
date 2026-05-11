@@ -26,6 +26,16 @@ http://127.0.0.1:8765/
 
 Unknown GET routes return `404`. Non-GET requests return `405`.
 
+Status filter:
+
+```text
+http://127.0.0.1:8765/tasks?status=DONE
+```
+
+Supported status values: `TODO`, `DOING`, `BLOCKED`, `DONE`, `FAILED`, `NEEDS_APPROVAL`.
+
+Invalid status values return `400`.
+
 ## Read-Only Principles
 
 - No write endpoints.
