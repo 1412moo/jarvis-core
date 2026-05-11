@@ -29,6 +29,7 @@ TASK_EXECUTION_FIELDS = (
     "execution_updated_at",
     "execution_summary",
 )
+DETAIL_MONO_FIELDS = ("id", "repo", "created_at", "updated_at", "execution_updated_at")
 STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
 STATUS_BADGE_CLASSES = {
     "TODO": "badge-todo",
@@ -207,12 +208,12 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
       background: #fff;
       border: 1px solid #d8dee6;
       border-radius: 6px;
-      padding: 16px;
+      padding: 20px;
     }}
     dl {{
       display: grid;
       grid-template-columns: 180px 1fr;
-      gap: 8px 16px;
+      gap: 12px 18px;
       margin: 0;
     }}
     dt {{
@@ -222,6 +223,18 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
     dd {{
       margin: 0;
       word-break: break-word;
+    }}
+    .detail-summary {{
+      background: #f8fafc;
+      border: 1px solid #e7ebf0;
+      border-radius: 6px;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+    }}
+    .mono {{
+      color: #344054;
+      font-family: Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 13px;
     }}
     .badge {{
       display: inline-block;
@@ -354,7 +367,14 @@ def _render_detail_fields(task: dict[str, str], fields: tuple[str, ...]) -> str:
     for field in fields:
         value = task.get(field)
         if value:
-            rendered_value = _status_badge(value) if field == "status" else _escape(value)
+            if field == "status":
+                rendered_value = _status_badge(value)
+            elif field == "summary":
+                rendered_value = f'<div class="detail-summary">{_escape(value)}</div>'
+            elif field in DETAIL_MONO_FIELDS:
+                rendered_value = f'<span class="mono">{_escape(value)}</span>'
+            else:
+                rendered_value = _escape(value)
             rows.append(f"<dt>{_escape(field)}</dt><dd>{rendered_value}</dd>")
     return f"<dl>{''.join(rows)}</dl>"
 
