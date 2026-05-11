@@ -9,7 +9,7 @@ from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -243,9 +243,15 @@ def _render_task_rows(tasks: list[dict[str, str]]) -> str:
     )
 
 
-def _render_index() -> str:
+def _render_index(status_filter: str | None = None) -> str:
     tasks = _load_tasks()
     counts = _status_counts(tasks)
+    visible_tasks = tasks
+    filter_note = ""
+    if status_filter is not None:
+        visible_tasks = [task for task in tasks if task["status"] == status_filter]
+        filter_note = f'<p class="muted">Filtered by status: {_escape(status_filter)}</p>'
+
     body = (
         "<header>"
         "<h1>Jarvis Tasks</h1>"
@@ -254,7 +260,8 @@ def _render_index() -> str:
         "<h2>Status counts</h2>"
         f"{_render_counts(counts)}"
         "<h2>Recently updated tasks</h2>"
-        f"{_render_task_rows(tasks)}"
+        f"{filter_note}"
+        f"{_render_task_rows(visible_tasks)}"
     )
     return _render_layout("Jarvis Tasks", body)
 
@@ -320,9 +327,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
-        if path in {"/", "/tasks"}:
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
+        if path == "/":
             self._send_html(HTTPStatus.OK, _render_index())
+            return
+
+        if path == "/tasks":
+            query = parse_qs(parsed_url.query, keep_blank_values=True)
+            status_filter = None
+            if "status" in query:
+                status_values = query["status"]
+                if len(status_values) != 1 or status_values[0] not in STATUS_ORDER:
+                    body = _render_layout("Bad Request", "<h1>Bad Request</h1><p>Invalid status filter.</p>")
+                    self._send_html(HTTPStatus.BAD_REQUEST, body)
+                    return
+                status_filter = status_values[0]
+
+            self._send_html(HTTPStatus.OK, _render_index(status_filter))
             return
 
         if path.startswith("/tasks/"):
