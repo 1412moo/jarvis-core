@@ -144,6 +144,21 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
     a:hover {{
       text-decoration: underline;
     }}
+    .nav {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }}
+    .nav a {{
+      background: #fff;
+      border: 1px solid #d8dee6;
+      border-radius: 999px;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 4px 10px;
+    }}
     .muted {{
       color: #667085;
     }}
@@ -256,6 +271,18 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
 </html>"""
 
 
+def _render_nav() -> str:
+    links = (
+        ("All Tasks", "/tasks"),
+        ("DONE", "/tasks?status=DONE"),
+        ("DOING", "/tasks?status=DOING"),
+        ("FAILED", "/tasks?status=FAILED"),
+        ("BLOCKED", "/tasks?status=BLOCKED"),
+    )
+    items = [f'<a href="{_escape(href)}">{_escape(label)}</a>' for label, href in links]
+    return f'<nav class="nav">{"".join(items)}</nav>'
+
+
 def _render_counts(counts: dict[str, int]) -> str:
     items = []
     for status in STATUS_ORDER:
@@ -302,6 +329,7 @@ def _render_index(status_filter: str | None = None) -> str:
         "<header>"
         "<h1>Jarvis Tasks</h1>"
         f'<p class="muted">Read-only view of {_escape(TASKS_DIR.relative_to(REPO_ROOT))}</p>'
+        f"{_render_nav()}"
         "</header>"
         "<h2>Status counts</h2>"
         f"{_render_counts(counts)}"
@@ -351,6 +379,7 @@ def _render_task_detail(task_id: str) -> tuple[HTTPStatus, str]:
     body = (
         "<header>"
         f"<h1>{_escape(task['title'])}</h1>"
+        f"{_render_nav()}"
         '<p><a href="/tasks">Back to task list</a></p>'
         "</header>"
         '<section class="detail">'
