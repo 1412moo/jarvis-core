@@ -65,6 +65,20 @@ Invoke-WebRequest http://127.0.0.1:8765/tasks
 Invoke-WebRequest http://127.0.0.1:8765/tasks/task-0002-report-system
 ```
 
+Run the localhost read-only HTTP contract smoke check:
+
+```powershell
+python -B adapters/web/run_smoke_check.py
+```
+
+The smoke check verifies:
+
+- `GET /`
+- `GET /tasks`
+- `GET /tasks/<task-id>`
+- `404`
+- `405`
+
 Confirm existing smoke tests still pass:
 
 ```powershell
