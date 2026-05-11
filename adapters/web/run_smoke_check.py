@@ -94,6 +94,22 @@ def main() -> None:
                 None,
             ),
             (
+                "tasks_nav_all_active",
+                "GET",
+                "/tasks",
+                200,
+                ('class="active"', '<a class="active" href="/tasks">All Tasks</a>'),
+                None,
+            ),
+            (
+                "tasks_done_nav_active",
+                "GET",
+                "/tasks?status=DONE",
+                200,
+                ('<a class="active" href="/tasks?status=DONE">DONE</a>',),
+                None,
+            ),
+            (
                 "task_detail_no_auto_refresh",
                 "GET",
                 "/tasks/task-0002-report-system",
@@ -109,6 +125,15 @@ def main() -> None:
                 200,
                 ("/tasks?status=DONE",),
                 None,
+            ),
+            (
+                "task_detail_nav_no_active",
+                "GET",
+                "/tasks/task-0002-report-system",
+                200,
+                ("/tasks?status=DONE",),
+                None,
+                ('class="active"',),
             ),
             ("post_tasks", "POST", "/tasks", 405, (), "GET"),
         ]
