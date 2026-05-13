@@ -78,3 +78,22 @@
 ## 9) BLOCKED / NEEDS_APPROVAL 시 summary 필수 기재 정보
 - `BLOCKED`: 무엇이 막았는지(원인), 누가/무엇이 해소 가능한지(의존 주체), 다음 재시도 조건을 반드시 남긴다.
 - `NEEDS_APPROVAL`: 어떤 항목의 승인이 필요한지(대상), 왜 필요한지(사유), 승인되면 바로 할 다음 작업을 반드시 남긴다.
+
+## 10) Optional Execution Metadata
+Execution-related fields are optional. They may be appended to a task markdown file only after the existing execution flow records a result.
+
+- `execution_candidate`: compact JSON metadata for the candidate selected by the execution flow.
+- `execution_request`: compact JSON metadata for the request built from the candidate.
+- `execution_result`: compact JSON metadata for the recorded execution result.
+- `executed`: `true` or `false`.
+- `success`: `true` or `false`.
+- `dry_run`: `true` or `false`.
+- `error`: error reason, when one exists.
+- `mode`: execution mode recorded by the current flow.
+- `reason`: reason or error reason, when one exists.
+- `message`: output summary, when one exists.
+- `execution_status`: `success`, `failed`, or `not_executed`.
+- `execution_updated_at`: metadata update time in UTC, `YYYY-MM-DD HH:MM UTC`.
+- `execution_summary`: short output or error summary.
+
+These fields do not replace the required task fields. If no execution result has been recorded, these fields may be absent.
