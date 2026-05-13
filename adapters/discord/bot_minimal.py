@@ -1719,6 +1719,17 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and retry_success_status.get("status") == "DONE"
             )
             _record("retry_failed_to_done_on_success", retry_success_ok, f"result={retry_success_result} status={retry_success_status}")
+            retry_success_metadata_ok = (
+                retry_success_status.get("execution_status") == "success"
+                and retry_success_status.get("executed") == "true"
+                and retry_success_status.get("success") == "true"
+                and retry_success_status.get("dry_run") == "false"
+                and retry_success_status.get("mode") == "real"
+                and '"source":"retry"' in str(retry_success_status.get("execution_request") or "")
+                and str(retry_success_status.get("execution_result") or "") != ""
+                and str(retry_success_status.get("execution_summary") or "") != ""
+            )
+            _record("retry_execution_metadata_persisted", retry_success_metadata_ok, f"status={retry_success_status}")
 
             task_id_retry_fail = "task-0010-self-check"
             _write_task(task_id_retry_fail, "DOING", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
@@ -1806,6 +1817,18 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and run_success_status.get("status") == "DONE"
             )
             _record("run_doing_to_done_on_success", run_success_ok, f"result={run_success_result} status={run_success_status}")
+            run_success_metadata_ok = (
+                run_success_status.get("execution_status") == "success"
+                and run_success_status.get("executed") == "true"
+                and run_success_status.get("success") == "true"
+                and run_success_status.get("dry_run") == "false"
+                and run_success_status.get("mode") == "real"
+                and '"source":"run"' in str(run_success_status.get("execution_request") or "")
+                and str(run_success_status.get("execution_candidate") or "") != ""
+                and str(run_success_status.get("execution_result") or "") != ""
+                and str(run_success_status.get("execution_summary") or "") != ""
+            )
+            _record("run_execution_metadata_persisted", run_success_metadata_ok, f"status={run_success_status}")
 
             task_id_run_fail = "task-0014-self-check"
             _write_task(task_id_run_fail, "DOING", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
@@ -1831,6 +1854,19 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and run_fail_status.get("status") == "FAILED"
             )
             _record("run_doing_to_failed_on_execution_failure", run_fail_ok, f"result={run_fail_result} status={run_fail_status}")
+            status_execution_error_reply = _format_reply(run_fail_status)
+            status_execution_error_visible_ok = (
+                run_fail_status.get("execution_status") == "failed"
+                and run_fail_status.get("error") == "execution_failed:exit_code:1"
+                and run_fail_status.get("message") == "forced_run_failure"
+                and "- error: `execution_failed:exit_code:1`" in status_execution_error_reply
+                and "- message: `forced_run_failure`" in status_execution_error_reply
+            )
+            _record(
+                "status_execution_error_metadata_visible",
+                status_execution_error_visible_ok,
+                f"status={run_fail_status} reply={status_execution_error_reply}",
+            )
 
             task_id_run_not_executed = "task-0015-self-check"
             _write_task(task_id_run_not_executed, "DOING", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
