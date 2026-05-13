@@ -33,6 +33,7 @@ DETAIL_MONO_FIELDS = ("id", "repo", "created_at", "updated_at", "execution_updat
 STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
 SORT_ORDER = ("updated-desc", "updated-asc", "status")
 STATUS_SORT_INDEX = {status: index for index, status in enumerate(STATUS_ORDER)}
+STATUS_FILTER_LINKS = (("ALL", None), ("TODO", "TODO"), ("DOING", "DOING"), ("DONE", "DONE"), ("FAILED", "FAILED"), ("NEEDS_APPROVAL", "NEEDS_APPROVAL"))
 STATUS_BADGE_CLASSES = {
     "TODO": "badge-todo",
     "DOING": "badge-doing",
@@ -178,6 +179,15 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
       background: #17202a;
       border-color: #17202a;
       color: #fff;
+    }}
+    .query-controls {{
+      margin-top: 12px;
+    }}
+    .query-controls p {{
+      margin: 4px 0;
+    }}
+    .query-controls a, .query-controls strong {{
+      margin-right: 8px;
     }}
     .muted {{
       color: #667085;
@@ -369,6 +379,31 @@ def _render_nav(active_status: str | None = None) -> str:
     return f'<nav class="nav">{"".join(items)}</nav>'
 
 
+def _render_query_controls(status_filter: str | None, sort_value: str, sort_query_value: str | None) -> str:
+    status_items = []
+    for label, value in STATUS_FILTER_LINKS:
+        if value == status_filter:
+            status_items.append(f"<strong>{_escape(label)}</strong>")
+        else:
+            href = f"/tasks{_tasks_query_suffix(value, sort_query_value)}"
+            status_items.append(f'<a href="{_escape(href)}">{_escape(label)}</a>')
+
+    sort_items = []
+    for value in SORT_ORDER:
+        if value == sort_value:
+            sort_items.append(f"<strong>{_escape(value)}</strong>")
+        else:
+            href = f"/tasks{_tasks_query_suffix(status_filter, value)}"
+            sort_items.append(f'<a href="{_escape(href)}">{_escape(value)}</a>')
+
+    return (
+        '<section class="query-controls">'
+        f'<p><span class="muted">Status:</span> {" ".join(status_items)}</p>'
+        f'<p><span class="muted">Sort:</span> {" ".join(sort_items)}</p>'
+        "</section>"
+    )
+
+
 def _render_counts(counts: dict[str, int]) -> str:
     items = []
     for status in STATUS_ORDER:
@@ -412,7 +447,12 @@ def _render_task_rows(tasks: list[dict[str, str]], query_suffix: str = "") -> st
     )
 
 
-def _render_index(status_filter: str | None = None, sort_value: str = "updated-desc", query_suffix: str = "") -> str:
+def _render_index(
+    status_filter: str | None = None,
+    sort_value: str = "updated-desc",
+    query_suffix: str = "",
+    sort_query_value: str | None = None,
+) -> str:
     tasks = _load_tasks()
     counts = _status_counts(tasks)
     visible_tasks = tasks
@@ -428,6 +468,7 @@ def _render_index(status_filter: str | None = None, sort_value: str = "updated-d
         "<h1>Jarvis Tasks</h1>"
         f'<p class="muted">Read-only view of {_escape(TASKS_DIR.relative_to(REPO_ROOT))}</p>'
         f"{_render_nav(status_filter)}"
+        f"{_render_query_controls(status_filter, sort_value, sort_query_value)}"
         "</header>"
         "<h2>Status counts</h2>"
         f"{_render_counts(counts)}"
@@ -540,7 +581,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 sort_query_value = sort_values[0]
             query_suffix = _tasks_query_suffix(status_filter, sort_query_value)
 
-            self._send_html(HTTPStatus.OK, _render_index(status_filter, sort_value, query_suffix))
+            self._send_html(HTTPStatus.OK, _render_index(status_filter, sort_value, query_suffix, sort_query_value))
             return
 
         if path.startswith("/tasks/"):
