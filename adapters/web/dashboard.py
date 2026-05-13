@@ -211,6 +211,7 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
     }}
     .summary {{
       max-width: 540px;
+      word-break: break-word;
     }}
     .detail {{
       background: #fff;
@@ -290,6 +291,28 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
       font-size: 13px;
       margin-top: 32px;
       padding-top: 16px;
+    }}
+    @media (max-width: 720px) {{
+      main {{
+        padding: 16px;
+      }}
+      .nav {{
+        gap: 6px;
+      }}
+      .nav a {{
+        padding: 3px 8px;
+      }}
+      table {{
+        display: block;
+        overflow-x: auto;
+      }}
+      .detail {{
+        padding: 16px;
+      }}
+      dl {{
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }}
     }}
   </style>
 </head>
