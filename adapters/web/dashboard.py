@@ -196,7 +196,7 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
       overflow: hidden;
     }}
     th, td {{
-      padding: 10px 12px;
+      padding: 8px 10px;
       border-bottom: 1px solid #e7ebf0;
       text-align: left;
       vertical-align: top;
@@ -210,8 +210,21 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
       border-bottom: 0;
     }}
     .summary {{
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
       max-width: 540px;
+      overflow: hidden;
       word-break: break-word;
+    }}
+    .task-id, .updated {{
+      font-family: Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 13px;
+      white-space: nowrap;
+    }}
+    .updated {{
+      color: #667085;
     }}
     .detail {{
       background: #fff;
@@ -355,10 +368,10 @@ def _render_task_rows(tasks: list[dict[str, str]]) -> str:
         task_id = task["id"]
         rows.append(
             "<tr>"
-            f'<td><a href="/tasks/{_escape(task_id)}">{_escape(task_id)}</a></td>'
+            f'<td><a class="task-id" href="/tasks/{_escape(task_id)}">{_escape(task_id)}</a></td>'
             f"<td>{_escape(task['title'])}</td>"
             f"<td>{_status_badge(task['status'])}</td>"
-            f"<td>{_escape(task['updated_at'])}</td>"
+            f'<td class="updated">{_escape(task["updated_at"])}</td>'
             f'<td class="summary">{_escape(task["summary"])}</td>'
             "</tr>"
         )
