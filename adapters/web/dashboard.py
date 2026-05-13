@@ -9,7 +9,7 @@ from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, urlencode, unquote, urlparse
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -378,18 +378,27 @@ def _render_counts(counts: dict[str, int]) -> str:
     return f'<section class="counts">{"".join(items)}</section>'
 
 
-def _render_task_rows(tasks: list[dict[str, str]]) -> str:
+def _tasks_query_suffix(status_filter: str | None = None, sort_value: str | None = None) -> str:
+    params = []
+    if status_filter is not None:
+        params.append(("status", status_filter))
+    if sort_value is not None:
+        params.append(("sort", sort_value))
+    return f"?{urlencode(params)}" if params else ""
+
+
+def _render_task_rows(tasks: list[dict[str, str]], query_suffix: str = "") -> str:
     if not tasks:
         return '<p class="muted">No task files found.</p>'
 
     rows = []
     for task in tasks:
         task_id = task["id"]
-        detail_path = f"/task/{_escape(task_id)}"
+        detail_path = f"/task/{task_id}{query_suffix}"
         rows.append(
             "<tr>"
-            f'<td><a class="task-id" href="{detail_path}">{_escape(task_id)}</a></td>'
-            f'<td><a href="{detail_path}">{_escape(task["title"])}</a></td>'
+            f'<td><a class="task-id" href="{_escape(detail_path)}">{_escape(task_id)}</a></td>'
+            f'<td><a href="{_escape(detail_path)}">{_escape(task["title"])}</a></td>'
             f"<td>{_status_badge(task['status'])}</td>"
             f'<td class="updated">{_escape(task["updated_at"])}</td>'
             f'<td class="summary">{_escape(task["summary"])}</td>'
@@ -403,7 +412,7 @@ def _render_task_rows(tasks: list[dict[str, str]]) -> str:
     )
 
 
-def _render_index(status_filter: str | None = None, sort_value: str = "updated-desc") -> str:
+def _render_index(status_filter: str | None = None, sort_value: str = "updated-desc", query_suffix: str = "") -> str:
     tasks = _load_tasks()
     counts = _status_counts(tasks)
     visible_tasks = tasks
@@ -425,7 +434,7 @@ def _render_index(status_filter: str | None = None, sort_value: str = "updated-d
         "<h2>Recently updated tasks</h2>"
         f"{filter_note}"
         f"{sort_note}"
-        f"{_render_task_rows(visible_tasks)}"
+        f"{_render_task_rows(visible_tasks, query_suffix)}"
     )
     return _render_layout("Jarvis Tasks", body, auto_refresh=True)
 
@@ -456,13 +465,14 @@ def _render_detail_fields(task: dict[str, str], fields: tuple[str, ...]) -> str:
     return f"<dl>{''.join(rows)}</dl>"
 
 
-def _render_task_detail(task_id: str) -> tuple[HTTPStatus, str]:
+def _render_task_detail(task_id: str, query_suffix: str = "") -> tuple[HTTPStatus, str]:
+    back_href = f"/tasks{query_suffix}"
     task = _task_by_id(task_id)
     if task is None:
         body = (
             "<header>"
             "<h1>Task not found</h1>"
-            '<p><a href="/tasks">Back to task list</a></p>'
+            f'<p><a href="{_escape(back_href)}">Back to task list</a></p>'
             "</header>"
             f"<p>No readable task exists for <code>{_escape(task_id)}</code>.</p>"
         )
@@ -477,7 +487,7 @@ def _render_task_detail(task_id: str) -> tuple[HTTPStatus, str]:
         "<header>"
         f"<h1>{_escape(task['title'])}</h1>"
         f"{_render_nav('')}"
-        '<p><a href="/tasks">Back to task list</a></p>'
+        f'<p><a href="{_escape(back_href)}">Back to task list</a></p>'
         "</header>"
         '<section class="detail">'
         f"{_render_detail_fields(task, TASK_REQUIRED_FIELDS)}"
@@ -512,6 +522,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed_url.query, keep_blank_values=True)
             status_filter = None
             sort_value = "updated-desc"
+            sort_query_value = None
             if "status" in query:
                 status_values = query["status"]
                 if len(status_values) != 1 or status_values[0] not in STATUS_ORDER:
@@ -526,19 +537,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._send_html(HTTPStatus.BAD_REQUEST, body)
                     return
                 sort_value = sort_values[0]
+                sort_query_value = sort_values[0]
+            query_suffix = _tasks_query_suffix(status_filter, sort_query_value)
 
-            self._send_html(HTTPStatus.OK, _render_index(status_filter, sort_value))
+            self._send_html(HTTPStatus.OK, _render_index(status_filter, sort_value, query_suffix))
             return
 
         if path.startswith("/tasks/"):
             task_id = unquote(path.removeprefix("/tasks/")).strip("/")
-            status, body = _render_task_detail(task_id)
+            query = parse_qs(parsed_url.query, keep_blank_values=True)
+            status_filter = query["status"][0] if len(query.get("status", [])) == 1 and query["status"][0] in STATUS_ORDER else None
+            sort_value = query["sort"][0] if len(query.get("sort", [])) == 1 and query["sort"][0] in SORT_ORDER else None
+            status, body = _render_task_detail(task_id, _tasks_query_suffix(status_filter, sort_value))
             self._send_html(status, body)
             return
 
         if path.startswith("/task/"):
             task_id = unquote(path.removeprefix("/task/")).strip("/")
-            status, body = _render_task_detail(task_id)
+            query = parse_qs(parsed_url.query, keep_blank_values=True)
+            status_filter = query["status"][0] if len(query.get("status", [])) == 1 and query["status"][0] in STATUS_ORDER else None
+            sort_value = query["sort"][0] if len(query.get("sort", [])) == 1 and query["sort"][0] in SORT_ORDER else None
+            status, body = _render_task_detail(task_id, _tasks_query_suffix(status_filter, sort_value))
             self._send_html(status, body)
             return
 
