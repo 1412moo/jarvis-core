@@ -59,11 +59,11 @@ def _parse_updated_at(value: str) -> tuple[int, str]:
 def _read_task_file(task_file: Path) -> dict[str, str] | None:
     metadata: dict[str, str] = {}
     try:
-        lines = task_file.read_text(encoding="utf-8").splitlines()
+        raw_markdown = task_file.read_text(encoding="utf-8")
     except OSError:
         return None
 
-    for raw_line in lines:
+    for raw_line in raw_markdown.splitlines():
         matched = TASK_META_LINE_PATTERN.match(raw_line.strip())
         if not matched:
             continue
@@ -76,6 +76,7 @@ def _read_task_file(task_file: Path) -> dict[str, str] | None:
         return None
 
     metadata["file_name"] = task_file.name
+    metadata["raw_markdown"] = raw_markdown
     return metadata
 
 
@@ -263,6 +264,14 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
       padding: 10px 12px;
       white-space: pre-wrap;
     }}
+    .raw-markdown {{
+      background: #f8fafc;
+      border: 1px solid #e7ebf0;
+      border-radius: 6px;
+      overflow-x: auto;
+      padding: 12px;
+      white-space: pre-wrap;
+    }}
     .mono {{
       color: #344054;
       font-family: Consolas, "Liberation Mono", Menlo, monospace;
@@ -376,10 +385,11 @@ def _render_task_rows(tasks: list[dict[str, str]]) -> str:
     rows = []
     for task in tasks:
         task_id = task["id"]
+        detail_path = f"/task/{_escape(task_id)}"
         rows.append(
             "<tr>"
-            f'<td><a class="task-id" href="/tasks/{_escape(task_id)}">{_escape(task_id)}</a></td>'
-            f"<td>{_escape(task['title'])}</td>"
+            f'<td><a class="task-id" href="{detail_path}">{_escape(task_id)}</a></td>'
+            f'<td><a href="{detail_path}">{_escape(task["title"])}</a></td>'
             f"<td>{_status_badge(task['status'])}</td>"
             f'<td class="updated">{_escape(task["updated_at"])}</td>'
             f'<td class="summary">{_escape(task["summary"])}</td>'
@@ -472,6 +482,8 @@ def _render_task_detail(task_id: str) -> tuple[HTTPStatus, str]:
         '<section class="detail">'
         f"{_render_detail_fields(task, TASK_REQUIRED_FIELDS)}"
         f"{execution_section}"
+        "<h2>Raw markdown</h2>"
+        f'<pre class="raw-markdown">{_escape(task.get("raw_markdown", ""))}</pre>'
         "</section>"
     )
     return HTTPStatus.OK, _render_layout(task["title"], body)
@@ -520,6 +532,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         if path.startswith("/tasks/"):
             task_id = unquote(path.removeprefix("/tasks/")).strip("/")
+            status, body = _render_task_detail(task_id)
+            self._send_html(status, body)
+            return
+
+        if path.startswith("/task/"):
+            task_id = unquote(path.removeprefix("/task/")).strip("/")
             status, body = _render_task_detail(task_id)
             self._send_html(status, body)
             return
