@@ -31,6 +31,8 @@ TASK_EXECUTION_FIELDS = (
 )
 DETAIL_MONO_FIELDS = ("id", "repo", "created_at", "updated_at", "execution_updated_at")
 STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
+SORT_ORDER = ("updated-desc", "updated-asc", "status")
+STATUS_SORT_INDEX = {status: index for index, status in enumerate(STATUS_ORDER)}
 STATUS_BADGE_CLASSES = {
     "TODO": "badge-todo",
     "DOING": "badge-doing",
@@ -97,6 +99,14 @@ def _status_counts(tasks: list[dict[str, str]]) -> dict[str, int]:
         if status in counts:
             counts[status] += 1
     return counts
+
+
+def _sort_tasks(tasks: list[dict[str, str]], sort_value: str) -> list[dict[str, str]]:
+    if sort_value == "updated-asc":
+        return sorted(tasks, key=lambda task: _parse_updated_at(task["updated_at"]))
+    if sort_value == "status":
+        return sorted(tasks, key=lambda task: STATUS_SORT_INDEX.get(task["status"], len(STATUS_ORDER)))
+    return sorted(tasks, key=lambda task: _parse_updated_at(task["updated_at"]), reverse=True)
 
 
 def _status_badge(status: str) -> str:
@@ -383,7 +393,7 @@ def _render_task_rows(tasks: list[dict[str, str]]) -> str:
     )
 
 
-def _render_index(status_filter: str | None = None) -> str:
+def _render_index(status_filter: str | None = None, sort_value: str = "updated-desc") -> str:
     tasks = _load_tasks()
     counts = _status_counts(tasks)
     visible_tasks = tasks
@@ -391,6 +401,8 @@ def _render_index(status_filter: str | None = None) -> str:
     if status_filter is not None:
         visible_tasks = [task for task in tasks if task["status"] == status_filter]
         filter_note = f'<p class="muted">Filtered by status: {_escape(status_filter)}</p>'
+    visible_tasks = _sort_tasks(visible_tasks, sort_value)
+    sort_note = f'<p class="muted">Sorted by: {_escape(sort_value)}</p>'
 
     body = (
         "<header>"
@@ -402,6 +414,7 @@ def _render_index(status_filter: str | None = None) -> str:
         f"{_render_counts(counts)}"
         "<h2>Recently updated tasks</h2>"
         f"{filter_note}"
+        f"{sort_note}"
         f"{_render_task_rows(visible_tasks)}"
     )
     return _render_layout("Jarvis Tasks", body, auto_refresh=True)
@@ -486,6 +499,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/tasks":
             query = parse_qs(parsed_url.query, keep_blank_values=True)
             status_filter = None
+            sort_value = "updated-desc"
             if "status" in query:
                 status_values = query["status"]
                 if len(status_values) != 1 or status_values[0] not in STATUS_ORDER:
@@ -493,8 +507,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._send_html(HTTPStatus.BAD_REQUEST, body)
                     return
                 status_filter = status_values[0]
+            if "sort" in query:
+                sort_values = query["sort"]
+                if len(sort_values) != 1 or sort_values[0] not in SORT_ORDER:
+                    body = _render_layout("Bad Request", "<h1>Bad Request</h1><p>Invalid sort value.</p>")
+                    self._send_html(HTTPStatus.BAD_REQUEST, body)
+                    return
+                sort_value = sort_values[0]
 
-            self._send_html(HTTPStatus.OK, _render_index(status_filter))
+            self._send_html(HTTPStatus.OK, _render_index(status_filter, sort_value))
             return
 
         if path.startswith("/tasks/"):
