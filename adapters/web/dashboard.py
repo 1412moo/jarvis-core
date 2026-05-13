@@ -107,6 +107,9 @@ def _status_badge(status: str) -> str:
 
 def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
     refresh_meta = '  <meta http-equiv="refresh" content="30">\n' if auto_refresh else ""
+    footer_text = "Localhost read-only dashboard"
+    if auto_refresh:
+        footer_text = f"{footer_text} · Auto refresh: 30s"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -281,10 +284,17 @@ def _render_layout(title: str, body: str, auto_refresh: bool = False) -> str:
       border-color: #a5f3fc;
       color: #155e75;
     }}
+    .footer {{
+      border-top: 1px solid #d8dee6;
+      color: #667085;
+      font-size: 13px;
+      margin-top: 32px;
+      padding-top: 16px;
+    }}
   </style>
 </head>
 <body>
-  <main>{body}</main>
+  <main>{body}<footer class="footer">{_escape(footer_text)}</footer></main>
 </body>
 </html>"""
 
