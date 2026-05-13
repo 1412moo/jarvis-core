@@ -44,11 +44,29 @@ from task_file_writer import write_task_file
 TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
 TASK_STATUS_REQUIRED_FIELDS = ("id", "title", "status", "updated_at", "summary")
-TASK_EXECUTION_REVIEW_FIELDS = ("execution_status", "execution_updated_at", "execution_summary")
-TASK_EXECUTION_STATUS_FIELDS = (
+TASK_EXECUTION_REVIEW_FIELDS = (
+    "execution_candidate",
+    "execution_request",
+    "execution_result",
     "executed",
     "success",
     "dry_run",
+    "error",
+    "mode",
+    "reason",
+    "message",
+    "execution_status",
+    "execution_updated_at",
+    "execution_summary",
+)
+TASK_EXECUTION_STATUS_FIELDS = (
+    "execution_candidate",
+    "execution_request",
+    "execution_result",
+    "executed",
+    "success",
+    "dry_run",
+    "error",
     "mode",
     "reason",
     "message",
@@ -630,13 +648,30 @@ def _apply_task_status_transition(task_id: str, transition_from: str, transition
     return True, ""
 
 
-def _write_execution_review_metadata(task_id: str, execution_result: dict[str, Any]) -> tuple[bool, str]:
+def _metadata_json(value: dict[str, Any] | None) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _metadata_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _write_execution_review_metadata(
+    task_id: str,
+    execution_result: dict[str, Any],
+    execution_candidate: dict[str, Any] | None = None,
+    execution_request: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
     if not task_file.exists() or not task_file.is_file():
         return False, "task_not_found"
 
     executed = bool(execution_result.get("executed", False))
     success = bool(execution_result.get("success", False))
+    reason = str(execution_result.get("error_reason") or "")
+    message = str(execution_result.get("output_summary") or "")
     if executed and success:
         execution_status = "success"
     elif executed and not success:
@@ -644,9 +679,19 @@ def _write_execution_review_metadata(task_id: str, execution_result: dict[str, A
     else:
         execution_status = "not_executed"
 
-    execution_summary = str(execution_result.get("output_summary") or execution_result.get("error_reason") or "")
+    execution_summary = message or reason
     execution_updated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     values_by_key = {
+        "execution_candidate": _metadata_json(execution_candidate),
+        "execution_request": _metadata_json(execution_request),
+        "execution_result": _metadata_json(execution_result),
+        "executed": _metadata_bool(executed),
+        "success": _metadata_bool(success),
+        "dry_run": "false",
+        "error": reason,
+        "mode": "real",
+        "reason": reason,
+        "message": message,
         "execution_status": execution_status,
         "execution_updated_at": execution_updated_at,
         "execution_summary": execution_summary,
@@ -738,7 +783,7 @@ def _run_execution_flow(task_id: str, source: str) -> dict[str, Any]:
         execution_request["source"] = source
         execution_result_dry_run = _build_execution_result_dry_run(execution_request)
         execution_result = _build_execution_result_real(execution_request)
-        _write_execution_review_metadata(task_id, execution_result)
+        _write_execution_review_metadata(task_id, execution_result, execution_candidate, execution_request)
         execution_status_transition_applied, execution_status_transition_reason = _apply_execution_result_status_transition(
             task_id, execution_result
         )
@@ -1197,7 +1242,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         return f"⏸️ hold\n- reason: `{pipeline_result.get('reason')}`"
     if result_type == "status":
         execution_lines: list[str] = []
-        for key in ("executed", "success", "dry_run", "mode", "reason", "message"):
+        for key in ("executed", "success", "dry_run", "mode", "reason", "error", "message"):
             if key in pipeline_result and str(pipeline_result.get(key)).strip():
                 execution_lines.append(f"- {key}: `{pipeline_result.get(key)}`")
         if "execution_status" in pipeline_result and str(pipeline_result.get("execution_status")).strip():
@@ -1876,12 +1921,13 @@ def _run_self_check_suite() -> dict[str, Any]:
             )
             _record("report_today_extra_usage", report_today_extra_error_ok, f"result={report_today_extra_error}")
 
+            _write_task("task-0110-report-visible", "DONE", "2099-01-01 00:00 UTC", title="report visible item")
             report_result = _run_command("/report")
             report_reply = _format_reply(report_result)
             report_recent_title_visible_ok = (
                 report_result.get("result_type") == "report"
-                and "task-0101-retro-done" in report_reply
-                and "retro done item" in report_reply
+                and "task-0110-report-visible" in report_reply
+                and "report visible item" in report_reply
             )
             _record("report_recent_title_visible", report_recent_title_visible_ok, f"reply={report_reply}")
         finally:
