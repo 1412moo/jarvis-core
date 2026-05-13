@@ -7,6 +7,7 @@ import json
 import threading
 from http.server import ThreadingHTTPServer
 
+import dashboard
 from dashboard import DashboardHandler
 
 
@@ -63,6 +64,61 @@ def _run_case(
     }
 
 
+def _run_execution_metadata_render_case() -> dict[str, object]:
+    old_task_by_id = dashboard._task_by_id
+    try:
+        dashboard._task_by_id = lambda task_id: {
+            "id": task_id,
+            "title": "Synthetic execution metadata task",
+            "status": "DONE",
+            "repo": "jarvis-core",
+            "created_at": "2026-05-13 00:00 UTC",
+            "updated_at": "2026-05-13 00:00 UTC",
+            "summary": "Render-only smoke check; no task file write.",
+            "execution_candidate": "true",
+            "execution_request": "dry-run",
+            "execution_result": "skipped",
+            "executed": "true",
+            "success": "false",
+            "dry_run": "true",
+            "error": "none",
+            "message": "execution skipped",
+            "raw_markdown": "# synthetic raw markdown",
+        }
+        actual_status, body = dashboard._render_task_detail("task-9999-synthetic")
+    finally:
+        dashboard._task_by_id = old_task_by_id
+
+    expected_text = (
+        "Execution metadata",
+        "execution_candidate",
+        "execution_request",
+        "execution_result",
+        "executed",
+        "success",
+        "dry_run",
+        "error",
+        "message",
+    )
+    missing_text = [text for text in expected_text if text not in body]
+    expected_status = 200
+    actual_status_value = actual_status.value
+    return {
+        "name": "execution_metadata_render",
+        "method": "HELPER",
+        "path": "_render_task_detail",
+        "expected_status": expected_status,
+        "actual_status": actual_status_value,
+        "expected_text": list(expected_text),
+        "missing_text": missing_text,
+        "unexpected_text": [],
+        "unexpected_present": [],
+        "expected_allow": None,
+        "actual_allow": None,
+        "passed": actual_status_value == expected_status and not missing_text,
+    }
+
+
 def main() -> None:
     server = ThreadingHTTPServer((HOST, 0), QuietDashboardHandler)
     port = int(server.server_address[1])
@@ -79,6 +135,30 @@ def main() -> None:
                 "/tasks/task-0002-report-system",
                 200,
                 ("task-0002-report-system", "Back to task list"),
+                None,
+            ),
+            (
+                "task_detail_singular_route",
+                "GET",
+                "/task/task-0002-report-system",
+                200,
+                ("task-0002-report-system", "Back to task list", 'href="/tasks"', "Raw markdown"),
+                None,
+            ),
+            (
+                "task_detail_singular_missing",
+                "GET",
+                "/task/task-9999-missing",
+                404,
+                ("Task not found",),
+                None,
+            ),
+            (
+                "task_detail_query_preserve",
+                "GET",
+                "/task/task-0002-report-system?status=DONE&sort=status",
+                200,
+                ('href="/tasks?status=DONE&amp;sort=status"',),
                 None,
             ),
             ("missing", "GET", "/missing", 404, (), None),
@@ -155,6 +235,7 @@ def main() -> None:
             ("post_tasks", "POST", "/tasks", 405, (), "GET"),
         ]
         results = [_run_case(port, *case) for case in cases]
+        results.append(_run_execution_metadata_render_case())
     finally:
         server.shutdown()
         server.server_close()
