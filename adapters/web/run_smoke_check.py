@@ -86,6 +86,14 @@ def main() -> None:
             ("tasks_status_invalid", "GET", "/tasks?status=INVALID", 400, (), None),
             ("tasks_auto_refresh", "GET", "/tasks", 200, ('http-equiv="refresh"',), None),
             (
+                "tasks_footer_info",
+                "GET",
+                "/tasks",
+                200,
+                ("Localhost read-only dashboard", "Auto refresh: 30s"),
+                None,
+            ),
+            (
                 "tasks_nav_links",
                 "GET",
                 "/tasks",
@@ -117,6 +125,15 @@ def main() -> None:
                 (),
                 None,
                 ('http-equiv="refresh"',),
+            ),
+            (
+                "task_detail_footer_info",
+                "GET",
+                "/tasks/task-0002-report-system",
+                200,
+                ("Localhost read-only dashboard",),
+                None,
+                ("Auto refresh: 30s",),
             ),
             (
                 "task_detail_nav_link",
