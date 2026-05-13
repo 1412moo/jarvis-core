@@ -19,9 +19,13 @@ TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
 TASK_REQUIRED_FIELDS = ("id", "title", "status", "repo", "created_at", "updated_at", "summary")
 TASK_EXECUTION_FIELDS = (
+    "execution_candidate",
+    "execution_request",
+    "execution_result",
     "executed",
     "success",
     "dry_run",
+    "error",
     "mode",
     "reason",
     "message",
