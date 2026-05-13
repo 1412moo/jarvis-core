@@ -15,33 +15,36 @@ python -B adapters/web/dashboard.py --host 127.0.0.1 --port 8765
 Open:
 
 ```text
-http://127.0.0.1:8765/
+http://127.0.0.1:8765/tasks
 ```
 
 ## Routes
 
 - `/`
 - `/tasks`
-- `/tasks/<task-id>`
+- `/task/<task-id>`
 
 Unknown GET routes return `404`. Non-GET requests return `405`.
 
-Status filter:
+Supported query values:
+
+- `status`: `TODO`, `DOING`, `BLOCKED`, `DONE`, `FAILED`, `NEEDS_APPROVAL`
+- `sort`: `updated-desc`, `updated-asc`, `status`
+
+Query examples:
 
 ```text
 http://127.0.0.1:8765/tasks?status=DONE
+http://127.0.0.1:8765/tasks?sort=status
+http://127.0.0.1:8765/tasks?status=DONE&sort=updated-asc
 ```
 
-Supported status values: `TODO`, `DOING`, `BLOCKED`, `DONE`, `FAILED`, `NEEDS_APPROVAL`.
-
-Invalid status values return `400`.
+Invalid query values return `400`.
 
 ## Read-Only Principles
 
 - No write endpoints.
 - No task create/edit/delete behavior.
-- No approve/run/retry controls.
-- No execution trigger.
 - No task status transition behavior.
 
 ## Data Source
@@ -72,7 +75,7 @@ Check the read-only routes:
 ```powershell
 Invoke-WebRequest http://127.0.0.1:8765/
 Invoke-WebRequest http://127.0.0.1:8765/tasks
-Invoke-WebRequest http://127.0.0.1:8765/tasks/task-0002-report-system
+Invoke-WebRequest http://127.0.0.1:8765/task/task-0002-report-system
 ```
 
 Run the localhost read-only HTTP contract smoke check:
@@ -85,7 +88,7 @@ The smoke check verifies:
 
 - `GET /`
 - `GET /tasks`
-- `GET /tasks/<task-id>`
+- `GET /task/<task-id>`
 - `404`
 - `405`
 
@@ -97,7 +100,6 @@ python -B orchestrator/discord-intake/run_smoke_tests.py
 
 ## Future Changes
 
-- Keep execution scope separate from UI scope.
 - Keep UI changes read-only unless a separate task explicitly expands the contract.
 - Be careful about importing `bot_minimal.py` directly; it also owns Discord command behavior and execution-related paths.
 - Treat shared parsing as a future refactor, not part of the single-file MVP.
