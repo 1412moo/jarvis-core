@@ -72,6 +72,17 @@ Run the smoke test:
 python -B apps/research-council/run_smoke_tests.py
 ```
 
+Run only the deterministic golden-case evaluation harness:
+
+```powershell
+python -B apps/research-council/run_golden_cases.py
+```
+
+Golden cases live under `golden_cases/` and assert invariant-level behavior,
+such as profile selection, required risk language, confidence blockers,
+reasoning traces, and JSON `quality_signals`. They intentionally avoid exact
+snapshot diffs.
+
 The demo prints Markdown to stdout. Generated reports are not written to committed
 paths by default. The local `apps/research-council/artifacts/` directory is
 ignored for generated JSON exports.

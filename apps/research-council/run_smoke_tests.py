@@ -19,6 +19,7 @@ from research_council import (
     resolve_domain_profile,
     run_research_council,
 )
+from research_council.evaluation import evaluate_golden_cases, format_regression_summary
 from run_demo import build_sample_input
 
 
@@ -792,6 +793,24 @@ def test_confidence_trace_linkage_and_json_additive_fields() -> None:
         )
 
 
+def test_golden_case_evaluation_harness() -> None:
+    summary = evaluate_golden_cases()
+    case_ids = {evaluation.case_id for evaluation in summary.evaluations}
+    _assert(summary.case_count >= 4, "golden case harness must load the committed cases")
+    _assert(summary.invariant_count >= 20, "golden case harness must evaluate invariants")
+    for expected_case_id in (
+        "ai_saas/weak_ai_wrapper",
+        "ai_saas/workflow_ai_assistant",
+        "medical_device/diagnostic_tool",
+        "generic/vague_consumer_idea",
+    ):
+        _assert(
+            expected_case_id in case_ids,
+            f"golden case harness missing {expected_case_id}",
+        )
+    _assert(summary.passed, format_regression_summary(summary))
+
+
 def test_run_demo_unknown_profile_fails_clearly() -> None:
     completed = subprocess.run(
         [
@@ -979,6 +998,7 @@ def main() -> None:
     test_ai_saas_reasoning_trace_explainability()
     test_medical_device_reasoning_trace_explainability()
     test_confidence_trace_linkage_and_json_additive_fields()
+    test_golden_case_evaluation_harness()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
     print("Research Council smoke tests passed")

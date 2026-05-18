@@ -1,0 +1,95 @@
+{
+  "case_id": "medical_device/diagnostic_tool",
+  "input": {
+    "raw_idea": "Medical device diagnostic tool for patients and clinicians that screens skin lesions and suggests risk levels before clinical review",
+    "goal": "Evaluate patient safety, regulatory risk, and clinical validation needs.",
+    "context": "Local planning only; do not assume human-use readiness or deployment approval."
+  },
+  "expected": {
+    "profile_id": "medical_device",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "safety regulatory trace",
+        "scope": "reasoning_trace",
+        "all": [
+          "patient safety risk unresolved",
+          "regulatory pathway unclear",
+          "clinical validation evidence missing"
+        ]
+      },
+      {
+        "name": "clinical validation concern",
+        "scope": "analysis_text",
+        "all": [
+          "clinical validation"
+        ]
+      },
+      {
+        "name": "conservative confidence wording",
+        "scope": "recommendation",
+        "all": [
+          "conservative",
+          "regulatory"
+        ]
+      },
+      {
+        "name": "non-clinical next step",
+        "scope": "recommendation",
+        "all": [
+          "non-clinical"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no optimistic deployment wording",
+        "scope": "result_text",
+        "terms": [
+          "ready for launch",
+          "safe for human use",
+          "clinically validated",
+          "approved for deployment",
+          "regulatory clearance established",
+          "AI-wrapper risk"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "safety gaps are confidence blockers",
+        "type": "evidence_confidence_impact",
+        "category": "safety_regulatory",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "conservative safety-first decision",
+        "type": "recommendation_decision_in",
+        "values": [
+          "pause_broad_use_resolve_safety_blocker"
+        ]
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "confidence rationale exists",
+        "type": "confidence_rationale_present"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}
