@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
-from research_council import run_research_council
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+from research_council import (
+    result_from_json,
+    result_to_artifacts_dict,
+    result_to_json,
+    result_to_json_dict,
+    run_research_council,
+)
+from research_council.claim_extractor import domain_profile_for
 from run_demo import build_sample_input
 
 
@@ -90,8 +102,131 @@ def test_deterministic_pipeline_contract() -> None:
     _assert("colon" in markdown.lower(), "colon screening sample must be reflected in the report")
 
 
+def test_json_export_contract() -> None:
+    input_data = build_sample_input()
+    result = run_research_council(input_data)
+    domain_profile = domain_profile_for(input_data)
+
+    payload = result_to_json_dict(result, domain_profile=domain_profile)
+    loaded_payload = json.loads(result_to_json(result, domain_profile=domain_profile))
+    _assert(loaded_payload == payload, "JSON payload must round-trip through json.loads")
+    _assert(
+        result_from_json(result_to_json(result, domain_profile=domain_profile)) == result,
+        "JSON payload must rehydrate to the original result",
+    )
+
+    _assert(loaded_payload["result_type"] == "research_council_result", "JSON result_type missing")
+    _assert(loaded_payload["version"] == "0.1", "JSON version missing")
+    _assert(isinstance(loaded_payload["claims"], list), "JSON claims must be a list")
+    _assert(
+        isinstance(loaded_payload["evidence_ledger"], list),
+        "JSON evidence ledger must be a list",
+    )
+    _assert(
+        isinstance(loaded_payload["reviewer_critiques"], list),
+        "JSON reviewer critiques must be a list",
+    )
+    _assert(isinstance(loaded_payload["experiments"], list), "JSON experiments must be a list")
+    _assert(
+        isinstance(loaded_payload["recommendation"], dict),
+        "JSON recommendation must be an object",
+    )
+    _assert(
+        loaded_payload["markdown_report"]["artifact_type"] == "markdown",
+        "JSON markdown artifact metadata must be preserved",
+    )
+    _assert(
+        loaded_payload["markdown_report"]["markdown"] == result.markdown_report.markdown,
+        "JSON markdown report content must be unchanged",
+    )
+    _assert(loaded_payload["domain_profile"]["id"], "JSON domain profile id must be preserved")
+    _assert(
+        loaded_payload["domain_profile"]["concept_label"],
+        "JSON domain profile concept label must be preserved",
+    )
+    _assert(
+        loaded_payload["domain_profile"]["blocker_order"],
+        "JSON domain profile blocker order must be preserved",
+    )
+
+    missing_entries = [
+        entry for entry in loaded_payload["evidence_ledger"] if entry["evidence_type"] == "missing"
+    ]
+    _assert(missing_entries, "JSON must preserve explicit missing evidence")
+    _assert(
+        all(entry["reference_label"] is None for entry in missing_entries),
+        "JSON missing evidence must not gain reference labels",
+    )
+    for category in REQUIRED_GAP_CATEGORIES:
+        _assert(
+            any(f"gap_category={category}" in entry["notes"] for entry in missing_entries),
+            f"JSON evidence gaps must include category {category}",
+        )
+
+    artifact_payload = result_to_artifacts_dict(
+        result,
+        domain_profile=domain_profile,
+    )
+    _assert(
+        isinstance(artifact_payload["markdown_report"], str),
+        "compact artifact JSON must expose markdown_report as text",
+    )
+    _assert(
+        artifact_payload["markdown_report_artifact"]["artifact_type"] == "markdown",
+        "compact artifact JSON must preserve markdown artifact metadata",
+    )
+    _assert(
+        artifact_payload["domain_profile"]["id"],
+        "compact artifact JSON must preserve domain profile fields",
+    )
+    _assert(
+        artifact_payload["domain_profile"]["evidence_needs"],
+        "compact artifact JSON must preserve domain evidence needs",
+    )
+
+
+def test_run_demo_json_output_support() -> None:
+    artifacts_root = Path(__file__).parent / "artifacts"
+    artifacts_root.mkdir(exist_ok=True)
+    json_path = artifacts_root / "smoke-result.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_demo.py")),
+            "--json-output",
+            str(json_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_demo --json-output failed: {completed.stderr.strip()}",
+    )
+    _assert(
+        completed.stdout.startswith("# Research Council Report"),
+        "run_demo markdown stdout must remain unchanged",
+    )
+    _assert(json_path.exists(), "run_demo --json-output must create a JSON file")
+    exported_json = json_path.read_text(encoding="utf-8")
+    exported_payload = json.loads(exported_json)
+    _assert(
+        exported_payload["domain_profile"]["evidence_needs"],
+        "run_demo JSON must preserve domain profile evidence needs",
+    )
+    exported_result = result_from_json(exported_json)
+    _assert(
+        exported_result.markdown_report.markdown == completed.stdout,
+        "run_demo JSON markdown must match stdout markdown",
+    )
+
+
 def main() -> None:
     test_deterministic_pipeline_contract()
+    test_json_export_contract()
+    test_run_demo_json_output_support()
     print("Research Council smoke tests passed")
 
 

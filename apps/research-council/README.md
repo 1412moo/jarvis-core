@@ -39,6 +39,12 @@ Run the placeholder demo:
 python -B apps/research-council/run_demo.py
 ```
 
+Optionally export the structured JSON result while preserving Markdown stdout:
+
+```powershell
+python -B apps/research-council/run_demo.py --json-output apps/research-council/artifacts/sample-result.json
+```
+
 Run the smoke test:
 
 ```powershell
@@ -46,7 +52,8 @@ python -B apps/research-council/run_smoke_tests.py
 ```
 
 The demo prints Markdown to stdout. Generated reports are not written to committed
-paths by default.
+paths by default. The local `apps/research-council/artifacts/` directory is
+ignored for generated JSON exports.
 
 ## Contract
 

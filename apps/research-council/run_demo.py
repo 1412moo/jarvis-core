@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from research_council import ResearchCouncilInput, run_research_council
+from research_council import ResearchCouncilInput, run_research_council, write_result_json
+from research_council.claim_extractor import domain_profile_for
 
 
 def build_sample_input() -> ResearchCouncilInput:
@@ -44,17 +45,29 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Optional path for writing the Markdown report; stdout is always used.",
     )
+    parser.add_argument(
+        "--json-output",
+        type=Path,
+        help="Optional path for writing the structured Research Council JSON result.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    result = run_research_council(build_sample_input())
+    input_data = build_sample_input()
+    result = run_research_council(input_data)
     markdown = result.markdown_report.markdown
     print(markdown, end="")
 
     if args.output:
         args.output.write_text(markdown, encoding="utf-8")
+    if args.json_output:
+        write_result_json(
+            result,
+            args.json_output,
+            domain_profile=domain_profile_for(input_data),
+        )
 
 
 if __name__ == "__main__":
