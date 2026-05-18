@@ -15,7 +15,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .claim_extractor import _coerce_input
+from .claim_extractor import (
+    EVIDENCE_GAP_CATEGORIES,
+    _coerce_input,
+    domain_profile_for,
+    evidence_request_for,
+)
 from .schemas import Claim, EvidenceEntry
 
 
@@ -68,6 +73,7 @@ def build_evidence_ledger(
     """
 
     input_view = _coerce_input(input_data)
+    domain_profile = domain_profile_for(input_data)
     claim_list = list(claims)
     entries: list[EvidenceEntry] = []
 
@@ -80,6 +86,9 @@ def build_evidence_ledger(
                 status=status,
                 raw_idea=input_view.raw_idea,
                 goal=input_view.goal,
+                evidence_request=evidence_request_for(
+                    domain_profile, _gap_category_for_claim(claim)
+                ),
             )
         )
 
@@ -92,11 +101,14 @@ def build_evidence_ledger(
                 id=f"evidence-{len(entries) + 1:03d}",
                 claim_id=target_claim.id,
                 evidence_type="provided",
-                summary=f"User-provided evidence: {_shorten(evidence_text)}",
+                summary=(
+                    "User-provided local support: "
+                    f"{_shorten(evidence_text)}"
+                ),
                 reference_label=f"provided_evidence:{len(entries) + 1:03d}",
                 notes=(
-                    "status=provided; source=user_supplied; this is local input only "
-                    "and has not been externally verified."
+                    "status=provided; source=user_supplied; support_scope=local_input_only; "
+                    "this may clarify the submitted concept but is not external validation."
                 ),
             )
         )
@@ -113,12 +125,22 @@ def evidence_status(entry: EvidenceEntry) -> str:
     return entry.evidence_type
 
 
+def evidence_gap_category(entry: EvidenceEntry) -> str | None:
+    """Return the deterministic evidence-gap category recorded in entry notes."""
+
+    match = re.search(r"\bgap_category=([a-z_]+)\b", entry.notes)
+    if match and match.group(1) in EVIDENCE_GAP_CATEGORIES:
+        return match.group(1)
+    return None
+
+
 def _primary_entry_for_claim(
     sequence_number: int,
     claim: Claim,
     status: str,
     raw_idea: str,
     goal: str,
+    evidence_request: str,
 ) -> EvidenceEntry:
     if status == "provided":
         return EvidenceEntry(
@@ -126,28 +148,30 @@ def _primary_entry_for_claim(
             claim_id=claim.id,
             evidence_type="provided",
             summary=(
-                "The claim is grounded in the user's local idea and goal: "
+                "The user supplied the concept and goal being evaluated: "
                 f"idea={_shorten(raw_idea)}; goal={_shorten(goal)}"
             ),
             reference_label="user_input",
             notes=(
-                "status=provided; source=user_input; this supports extraction only "
-                "and is not an external citation or validation."
+                "status=provided; source=user_input; support_scope=concept_description_only; "
+                "this does not validate feasibility, adoption, safety, environmental, "
+                "prior-art, or market claims."
             ),
         )
 
+    gap_category = _gap_category_for_claim(claim)
     if status == "assumed":
         return EvidenceEntry(
             id=f"evidence-{sequence_number:03d}",
             claim_id=claim.id,
             evidence_type="missing",
             summary=(
-                "Assumption is explicit: no direct evidence was supplied for this "
-                "claim beyond the local idea framing."
+                f"Assumption needs {gap_category.replace('_', ' ')} evidence: "
+                f"{evidence_request}"
             ),
             notes=(
-                "status=assumed; missing_evidence=user research, usage data, "
-                "adoption signal, or domain validation."
+                f"status=assumed; gap_category={gap_category}; "
+                f"missing_evidence={evidence_request}"
             ),
         )
 
@@ -157,13 +181,12 @@ def _primary_entry_for_claim(
             claim_id=claim.id,
             evidence_type="missing",
             summary=(
-                "External validation is needed before this claim can be treated as "
-                "supported."
+                f"Needs {gap_category.replace('_', ' ')} evidence before support: "
+                f"{evidence_request}"
             ),
             notes=(
-                "status=needs_external_validation; missing_evidence=external research, "
-                "prior-art review, regulatory review, material tests, market data, "
-                "or other independently checked support as applicable."
+                f"status=needs_external_validation; gap_category={gap_category}; "
+                f"missing_evidence={evidence_request}"
             ),
         )
 
@@ -172,14 +195,36 @@ def _primary_entry_for_claim(
         claim_id=claim.id,
         evidence_type="missing",
         summary=(
-            "The claim was extracted from the idea structure, but no verifying evidence "
-            "was supplied."
+            f"Missing {gap_category.replace('_', ' ')} evidence: {evidence_request}"
         ),
         notes=(
-            "status=missing; missing_evidence=prototype result, measurement, interview, "
-            "domain review, or other concrete support for the claim."
+            f"status=missing; gap_category={gap_category}; "
+            f"missing_evidence={evidence_request}"
         ),
     )
+
+
+def _gap_category_for_claim(claim: Claim) -> str:
+    text = f"{claim.text} {claim.rationale}".lower()
+    if _contains_any(text, ("novelty", "prior-art", "existing", "substitutes", "patents", "comparison")):
+        return "prior_art"
+    if _contains_any(text, ("market", "buyer", "payer", "commercial", "willingness to pay", "budget")):
+        return "market"
+    if _contains_any(text, ("user need", "adoption", "clinician", "patient adoption", "demand", "workflow fit", "avoidance")):
+        return "user_adoption"
+    if _contains_any(text, ("safety", "regulatory", "medical-device", "ingestion", "retention", "obstruction", "biocompatibility", "sanitation", "diagnostic-quality", "clinical oversight", "human use", "approval")):
+        return "safety_regulatory"
+    if _contains_any(text, ("wastewater", "biodegradable", "degradation", "environment", "discharge")):
+        return "environmental"
+    if _contains_any(text, ("technical", "feasibility", "implementation", "prototype", "sensing", "power", "data", "manufacturing", "experimentable")):
+        return "technical"
+    if claim.source_label == "assumed":
+        return "user_adoption"
+    return "technical"
+
+
+def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in text for needle in needles)
 
 
 def _best_claim_for_evidence(evidence_text: str, claims: list[Claim]) -> Claim | None:

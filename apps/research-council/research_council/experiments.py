@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from textwrap import shorten
 
+from .claim_extractor import domain_profile_for
 from .schemas import Claim, EvidenceEntry, ExperimentPlan, ResearchCouncilInput, ReviewerCritique
 
 
@@ -40,11 +41,20 @@ def propose_experiments(
     evidence_list = tuple(evidence_entries)
     critique_list = tuple(critiques)
     fallback_ids = _fallback_claim_ids(claim_list)
+    domain_profile = domain_profile_for(input_data)
+
+    if domain_profile.id == "capsule_medical_environmental":
+        drafts = (
+            _capsule_safety_boundary_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _capsule_sensing_bench_experiment(claim_list, critique_list, fallback_ids),
+            _capsule_degradation_experiment(claim_list, critique_list, fallback_ids),
+            _capsule_adoption_experiment(input_data, claim_list, critique_list, fallback_ids),
+        )
+        return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
 
     drafts = (
         _usefulness_experiment(input_data, claim_list, evidence_list, critique_list, fallback_ids),
         _evidence_gap_experiment(claim_list, evidence_list, fallback_ids),
-        _technical_spike_experiment(claim_list, critique_list, fallback_ids),
         _safety_tabletop_experiment(input_data, claim_list, critique_list, fallback_ids),
     )
 
@@ -65,10 +75,10 @@ def _usefulness_experiment(
         limit=2,
     )
     return _ExperimentDraft(
-        title="Manual usefulness readout",
+        title="Decision usefulness readout",
         hypothesis=(
-            "A target user can turn the Research Council output into a clearer next decision "
-            "than they had from the raw idea alone."
+            "A target user can turn the structured claims, gaps, and critiques into a clearer "
+            "next decision than they had from the raw idea alone."
         ),
         claim_ids=claim_ids,
         method=(
@@ -105,7 +115,7 @@ def _evidence_gap_experiment(
     unsupported_ids = _unsupported_claim_ids(claims, evidence_entries)
     claim_ids = unsupported_ids[:3] if unsupported_ids else fallback_ids
     return _ExperimentDraft(
-        title="Evidence gap closure check",
+        title="Primary evidence gap closure check",
         hypothesis=(
             "The highest-risk unsupported claims can be converted into explicit evidence needs "
             "or dropped without blocking a cheap next step."
@@ -132,48 +142,6 @@ def _evidence_gap_experiment(
         ),
         risk=(
             "The exercise improves evidence hygiene but does not create new external proof."
-        ),
-    )
-
-
-def _technical_spike_experiment(
-    claims: tuple[Claim, ...],
-    critiques: tuple[ReviewerCritique, ...],
-    fallback_ids: tuple[str, ...],
-) -> _ExperimentDraft:
-    claim_ids = _select_claim_ids(
-        claims,
-        ("technical", "workflow", "module", "pipeline", "local", "experiment", "integrat"),
-        _critique_claim_ids(critiques, "technical") or fallback_ids,
-        limit=2,
-    )
-    return _ExperimentDraft(
-        title="Local determinism spike",
-        hypothesis=(
-            "The reviewer and experiment logic can produce stable, schema-valid outputs for "
-            "representative ideas without hidden dependencies."
-        ),
-        claim_ids=claim_ids,
-        method=(
-            "Run the local modules twice with the same input, claims, and evidence ledger. Compare "
-            "reviewer roles, critique IDs, experiment IDs, and claim links for exact stability."
-        ),
-        metric=(
-            "Both runs return the same four reviewer roles and at least four schema-valid "
-            "experiment plans with non-empty linked claim IDs."
-        ),
-        minimum_sample="Two repeated runs against one sample idea, then one run against a second idea.",
-        estimated_time="30 minutes",
-        estimated_cost_level="free",
-        stop_criteria=(
-            "Stop if outputs are nondeterministic, schema-invalid, or require manual cleanup."
-        ),
-        decision_impact=(
-            "If stable, the modules are ready for later pipeline wiring; if not, keep them isolated "
-            "and simplify the heuristics."
-        ),
-        risk=(
-            "Passing a local spike does not prove the later integrated pipeline will handle every input shape."
         ),
     )
 
@@ -221,6 +189,186 @@ def _safety_tabletop_experiment(
         risk=(
             "A tabletop can miss domain-specific obligations and should not be treated as legal, "
             "medical, or compliance advice."
+        ),
+    )
+
+
+def _capsule_safety_boundary_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "safety_regulatory") or _select_claim_ids(
+        claims,
+        ("safety", "regulatory", "clinical", "patient", "ingested", "medical", "diagnostic"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Non-clinical capsule safety boundary table",
+        hypothesis=(
+            "The capsule concept can define safety blockers and stop conditions clearly enough "
+            "to decide which non-clinical tests are permissible next."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Create a table for ingestion, retention, obstruction, biocompatibility, sanitation, "
+            "diagnostic false reassurance, data quality, discharge, and degradation-byproduct risks. "
+            "For each row, record the minimum evidence required before moving beyond bench work. "
+            f"Respect these constraints: {_short_constraints(input_data)}."
+        ),
+        metric=(
+            "Every human-use or clinical-quality claim is either blocked, narrowed to bench-only "
+            "language, or paired with a named expert-review requirement."
+        ),
+        minimum_sample="One structured hazard table covering the current capsule concept.",
+        estimated_time="45-60 minutes",
+        estimated_cost_level="free",
+        stop_criteria=(
+            "Stop if any ingestion, retention, diagnostic, or degradation risk lacks a bench-only "
+            "test boundary."
+        ),
+        decision_impact=(
+            "Decide whether the idea is safe to explore through non-clinical bench tests only, "
+            "or whether it should pause until expert safety input is available."
+        ),
+        risk=(
+            "A table is not medical, regulatory, or toxicology clearance; it only prevents premature scope expansion."
+        ),
+    )
+
+
+def _capsule_sensing_bench_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "technical") or _select_claim_ids(
+        claims,
+        ("technical", "capsule", "sensor", "image", "data", "transit", "power", "inspection"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Bench capsule sensing and transit mockup",
+        hypothesis=(
+            "A capsule-sized non-ingestible mockup can collect interpretable observations while "
+            "moving through a curved, wet, colon-like channel."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Use an inert capsule-size shell or fixture in a simulated channel. Vary orientation, "
+            "fluid, occlusion, and speed; record whether images or sensor readings remain readable "
+            "and whether data capture assumptions are plausible. Do not use biological samples or people."
+        ),
+        metric=(
+            "At least one sensing mode produces readable observations across the simulated path "
+            "and records the failure cases that would make the concept impractical."
+        ),
+        minimum_sample="Three passes through one bench channel with different orientation or occlusion conditions.",
+        estimated_time="2-4 hours",
+        estimated_cost_level="low",
+        stop_criteria=(
+            "Stop if the mockup cannot produce interpretable readings under basic wet-channel conditions."
+        ),
+        decision_impact=(
+            "Proceed to more detailed engineering only if bench sensing survives the simplest transit conditions."
+        ),
+        risk=(
+            "A bench channel cannot prove clinical accuracy, safe ingestion, or full colon coverage."
+        ),
+    )
+
+
+def _capsule_degradation_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _select_claim_ids(
+        claims,
+        (
+            "environmental claim",
+            "measured degradation",
+            "wastewater compatibility",
+            "sewage treatment",
+            "byproducts",
+        ),
+        fallback_ids,
+        limit=2,
+    ) or _critique_claim_ids(critiques, "red_team")
+    return _ExperimentDraft(
+        title="Wastewater degradation screen",
+        hypothesis=(
+            "Candidate capsule materials can break down under simulated discharge conditions "
+            "without obvious persistent fragments or residue."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Expose material coupons or a nonfunctional shell to simulated wastewater conditions. "
+            "Record visible breakdown, mass change if measurable, fragments, residue, and timing. "
+            "Treat this as a screen, not environmental proof."
+        ),
+        metric=(
+            "The test produces a timed degradation curve or a clear failure result for at least "
+            "one candidate material."
+        ),
+        minimum_sample="One candidate material in three small containers or time checkpoints.",
+        estimated_time="1-7 days",
+        estimated_cost_level="low",
+        stop_criteria=(
+            "Stop if the material remains intact, leaves persistent fragments, or creates unknown residue."
+        ),
+        decision_impact=(
+            "Decide whether the biodegradable claim deserves more materials work or should be removed from the concept."
+        ),
+        risk=(
+            "A simple screen does not establish toxicology, wastewater treatment compatibility, or lifecycle impact."
+        ),
+    )
+
+
+def _capsule_adoption_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("user", "adoption", "market", "patient", "clinician", "payer", "screening"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Care-pathway adoption check",
+        hypothesis=(
+            "The capsule concept changes a real screening decision for at least one stakeholder "
+            "without relying on unsupported clinical claims."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Show the concept as a hypothetical non-clinical storyboard to one patient-like user "
+            "and one clinician, operator, or payer-like stakeholder. Ask what they would trust, "
+            "reject, compare against, or need to see before considering it. Keep the goal in frame: "
+            f"{_short_goal(input_data)}."
+        ),
+        metric=(
+            "Each stakeholder names one decision requirement, refusal point, or competing pathway "
+            "that would determine adoption."
+        ),
+        minimum_sample="Two structured interviews or readouts, separated by stakeholder type.",
+        estimated_time="60-120 minutes",
+        estimated_cost_level="free-to-low",
+        stop_criteria=(
+            "Stop if participants treat the idea as clinically proven or cannot identify a decision it would change."
+        ),
+        decision_impact=(
+            "Decide whether adoption uncertainty is worth testing after safety and bench feasibility blockers."
+        ),
+        risk=(
+            "Interview interest is not clinical validation, market proof, or reimbursement evidence."
         ),
     )
 

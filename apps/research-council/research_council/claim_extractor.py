@@ -20,6 +20,14 @@ DEFAULT_GOAL = (
 )
 
 _MAX_FOCUS_LENGTH = 180
+EVIDENCE_GAP_CATEGORIES: tuple[str, ...] = (
+    "technical",
+    "user_adoption",
+    "prior_art",
+    "safety_regulatory",
+    "environmental",
+    "market",
+)
 
 _KEYWORDS: dict[str, tuple[str, ...]] = {
     "capsule": (
@@ -151,6 +159,21 @@ class _ClaimSpec:
     rationale: str
 
 
+@dataclass(frozen=True)
+class EvidenceNeed:
+    category: str
+    request: str
+
+
+@dataclass(frozen=True)
+class DomainProfile:
+    id: str
+    label: str
+    concept_label: str
+    evidence_needs: tuple[EvidenceNeed, ...]
+    blocker_order: tuple[str, ...]
+
+
 def extract_claims(input_data: Any, goal: Any = None) -> list[Claim]:
     """Extract deterministic structured claims from a ResearchCouncilInput-like value.
 
@@ -191,6 +214,22 @@ def extract_claims(input_data: Any, goal: Any = None) -> list[Claim]:
         )
         for index, spec in enumerate(_dedupe_specs(specs), start=1)
     ]
+
+
+def domain_profile_for(input_data: Any) -> DomainProfile:
+    """Return a deterministic domain profile for local reviewer/report heuristics."""
+
+    input_view = _coerce_input(input_data)
+    return _domain_profile_from_signals(_detect_signals(input_view))
+
+
+def evidence_request_for(profile: DomainProfile, category: str) -> str:
+    """Return the most specific evidence request for a category in a profile."""
+
+    for need in profile.evidence_needs:
+        if need.category == category:
+            return need.request
+    return _GENERIC_EVIDENCE_REQUESTS.get(category, _GENERIC_FALLBACK_REQUEST)
 
 
 def _coerce_input(input_data: Any, goal_override: Any = None) -> _InputView:
@@ -294,6 +333,207 @@ def _detect_signals(input_view: _InputView) -> dict[str, bool]:
     return signals
 
 
+_GENERIC_FALLBACK_REQUEST = (
+    "Define the smallest observable result that would make this claim decision-relevant."
+)
+
+_GENERIC_EVIDENCE_REQUESTS: dict[str, str] = {
+    "technical": (
+        "Specify the core mechanism, a prototype path, measurable performance threshold, "
+        "and at least one failure-mode test."
+    ),
+    "user_adoption": (
+        "Identify the target user, current workaround, switching trigger, and a direct signal "
+        "that the problem is painful enough to change behavior."
+    ),
+    "prior_art": (
+        "Compare the concept against known substitutes, published work, patents, products, "
+        "or offline references supplied by the user."
+    ),
+    "safety_regulatory": (
+        "List the safety-sensitive uses, required review boundaries, approval assumptions, "
+        "and stop conditions before broader use."
+    ),
+    "environmental": (
+        "Measure material breakdown timing, residue, disposal pathway compatibility, and "
+        "whether the approach shifts risk elsewhere."
+    ),
+    "market": (
+        "Name the buyer, payer or budget owner, competing alternative, adoption barrier, "
+        "and willingness-to-pay signal."
+    ),
+}
+
+
+def _domain_profile_from_signals(signals: dict[str, bool]) -> DomainProfile:
+    if signals["capsule"] and signals["medical"] and signals["environmental"]:
+        return DomainProfile(
+            id="capsule_medical_environmental",
+            label="Capsule medical environmental",
+            concept_label="swallowable biodegradable colon-screening capsule",
+            evidence_needs=(
+                EvidenceNeed(
+                    "technical",
+                    (
+                        "Show that a swallowable capsule-sized mockup can capture useful colon "
+                        "observations during transit, retain/recover data, and tolerate occlusion, "
+                        "orientation changes, power limits, and safe passage constraints."
+                    ),
+                ),
+                EvidenceNeed(
+                    "user_adoption",
+                    (
+                        "Check whether patients, clinicians, and screening program operators would "
+                        "trust and use the capsule pathway compared with colonoscopy, stool tests, "
+                        "and other existing screening routes."
+                    ),
+                ),
+                EvidenceNeed(
+                    "prior_art",
+                    (
+                        "Map the concept against capsule endoscopy, colorectal screening workflows, "
+                        "biodegradable ingestible devices, retrieval/disposal approaches, and any "
+                        "user-supplied offline prior-art references."
+                    ),
+                ),
+                EvidenceNeed(
+                    "safety_regulatory",
+                    (
+                        "Define ingestion, retention, obstruction, biocompatibility, sanitation, "
+                        "diagnostic-quality, clinical oversight, and medical-device approval risks "
+                        "before any human-use claim."
+                    ),
+                ),
+                EvidenceNeed(
+                    "environmental",
+                    (
+                        "Measure degradation time, byproducts, micro-fragment risk, wastewater "
+                        "treatment compatibility, and whether the capsule remains safe after "
+                        "patient discharge."
+                    ),
+                ),
+                EvidenceNeed(
+                    "market",
+                    (
+                        "Identify who pays for the screening pathway, who buys or prescribes it, "
+                        "reimbursement assumptions, procurement barriers, and adoption triggers."
+                    ),
+                ),
+            ),
+            blocker_order=(
+                "safety_regulatory",
+                "technical",
+                "environmental",
+                "user_adoption",
+                "prior_art",
+                "market",
+            ),
+        )
+
+    if signals["medical_device"]:
+        return DomainProfile(
+            id="medical_device",
+            label="Medical device",
+            concept_label="medical device concept",
+            evidence_needs=(
+                EvidenceNeed(
+                    "technical",
+                    (
+                        "Demonstrate the device mechanism, performance threshold, reliability, "
+                        "data capture, and safe-use failure modes in a non-clinical prototype."
+                    ),
+                ),
+                EvidenceNeed(
+                    "user_adoption",
+                    (
+                        "Check clinician, patient, and institution workflow fit before assuming "
+                        "that a plausible health benefit becomes adoption."
+                    ),
+                ),
+                EvidenceNeed(
+                    "prior_art",
+                    (
+                        "Compare against existing devices, care pathways, clinical substitutes, "
+                        "and any user-supplied offline references."
+                    ),
+                ),
+                EvidenceNeed(
+                    "safety_regulatory",
+                    (
+                        "Identify patient safety, clinical oversight, data quality, privacy, "
+                        "and regulatory approval boundaries before use beyond research planning."
+                    ),
+                ),
+                EvidenceNeed("environmental", _GENERIC_EVIDENCE_REQUESTS["environmental"]),
+                EvidenceNeed("market", _GENERIC_EVIDENCE_REQUESTS["market"]),
+            ),
+            blocker_order=(
+                "safety_regulatory",
+                "technical",
+                "user_adoption",
+                "prior_art",
+                "market",
+                "environmental",
+            ),
+        )
+
+    if signals["hardware"]:
+        return DomainProfile(
+            id="hardware",
+            label="Hardware",
+            concept_label="hardware concept",
+            evidence_needs=tuple(
+                EvidenceNeed(category, request)
+                for category, request in _GENERIC_EVIDENCE_REQUESTS.items()
+            ),
+            blocker_order=(
+                "technical",
+                "safety_regulatory",
+                "user_adoption",
+                "market",
+                "prior_art",
+                "environmental",
+            ),
+        )
+
+    if signals["software"]:
+        return DomainProfile(
+            id="software",
+            label="Software",
+            concept_label="software concept",
+            evidence_needs=tuple(
+                EvidenceNeed(category, request)
+                for category, request in _GENERIC_EVIDENCE_REQUESTS.items()
+            ),
+            blocker_order=(
+                "user_adoption",
+                "technical",
+                "safety_regulatory",
+                "market",
+                "prior_art",
+                "environmental",
+            ),
+        )
+
+    return DomainProfile(
+        id="general",
+        label="General",
+        concept_label="submitted concept",
+        evidence_needs=tuple(
+            EvidenceNeed(category, request)
+            for category, request in _GENERIC_EVIDENCE_REQUESTS.items()
+        ),
+        blocker_order=(
+            "technical",
+            "user_adoption",
+            "prior_art",
+            "safety_regulatory",
+            "market",
+            "environmental",
+        ),
+    )
+
+
 def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
     return any(keyword.lower() in text for keyword in keywords)
 
@@ -313,8 +553,8 @@ def _concept_claim(input_view: _InputView, focus: str) -> _ClaimSpec:
         source_label="user_provided",
         confidence="high",
         rationale=(
-            "This claim restates the user's local input and anchors the research pass "
-            f"to the stated goal: {goal}"
+            "This restates the user's local input and goal; it does not validate the "
+            f"concept itself: {goal}"
         ),
     )
 

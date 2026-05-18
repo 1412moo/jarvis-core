@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, is_dataclass
+import re
 from typing import Any
 
 
@@ -119,8 +120,8 @@ def _render_executive_summary(
     lines = [
         "## Executive Summary",
         "",
-        "This is an early research brief based only on structured Research Council data. "
-        "The renderer does not add web research, external evidence, or citations.",
+        "This local-only brief uses the supplied input and evidence ledger. "
+        "It does not add web research, external evidence, or citations.",
         "",
         f"- Claims reviewed: {len(claims)}",
         (
@@ -176,17 +177,16 @@ def _render_claims(claims: list[Any]) -> list[str]:
 
     for claim in claims:
         claim_id = _first_text(_field(claim, "id"), default="claim-without-id")
-        lines.extend(
-            [
-                f"### {_clean_heading(claim_id)}",
-                "",
-                f"- Claim: {_clean_text(_field(claim, 'text'))}",
-                f"- Source label: {_code(_field(claim, 'source_label'), 'missing source label')}",
-                f"- Confidence: {_code(_field(claim, 'confidence'), 'missing confidence')}",
-                f"- Rationale: {_clean_text(_field(claim, 'rationale'))}",
-                "",
-            ]
+        source_label = _code(_field(claim, "source_label"), "missing source label")
+        confidence = _code(_field(claim, "confidence"), "missing confidence")
+        lines.append(
+            f"- {_code(claim_id)} [{source_label}, {confidence}]: "
+            f"{_clean_text(_field(claim, 'text'))}"
         )
+        rationale = _first_text(_field(claim, "rationale"), default="")
+        if rationale:
+            lines.append(f"  Rationale: {rationale}")
+    lines.append("")
     return lines
 
 
@@ -195,30 +195,40 @@ def _render_evidence_ledger(evidence_ledger: list[Any]) -> list[str]:
     if not evidence_ledger:
         return lines + ["No evidence ledger entries were supplied. Missing evidence is therefore unknown.", ""]
 
-    for entry in evidence_ledger:
-        entry_id = _first_text(_field(entry, "id"), default="evidence-without-id")
-        evidence_type = _first_text(_field(entry, "evidence_type"), default="missing evidence type")
-        summary_label = "Missing evidence" if evidence_type == "missing" else "Evidence summary"
-        reference_label = _first_text(_field(entry, "reference_label"), default="")
-        reference_text = (
-            "Not applicable; this entry describes missing evidence."
-            if evidence_type == "missing"
-            else _clean_text(reference_label, "No reference label supplied.")
-        )
-        lines.extend(
-            [
-                f"### {_clean_heading(entry_id)}",
-                "",
-                f"- Claim: {_code(_field(entry, 'claim_id'), 'missing claim id')}",
-                f"- Evidence status: {_code(evidence_type)}",
-                f"- {summary_label}: {_clean_text(_field(entry, 'summary'))}",
-                f"- Reference label: {reference_text}",
-            ]
-        )
-        notes = _first_text(_field(entry, "notes"), default="")
-        if notes:
-            lines.append(f"- Notes: {notes}")
+    provided_entries = [
+        entry for entry in evidence_ledger if _clean_text(_field(entry, "evidence_type"), "") == "provided"
+    ]
+    missing_entries = [
+        entry for entry in evidence_ledger if _clean_text(_field(entry, "evidence_type"), "") == "missing"
+    ]
+
+    if provided_entries:
+        lines.append("Provided local input:")
+        for entry in provided_entries:
+            entry_id = _first_text(_field(entry, "id"), default="evidence-without-id")
+            claim_id = _first_text(_field(entry, "claim_id"), default="missing claim id")
+            lines.append(
+                f"- {_code(entry_id)} -> {_code(claim_id)}: "
+                f"{_clean_text(_field(entry, 'summary'))}"
+            )
         lines.append("")
+
+    if missing_entries:
+        lines.append("Missing evidence entries:")
+        for entry in missing_entries:
+            entry_id = _first_text(_field(entry, "id"), default="evidence-without-id")
+            claim_id = _first_text(_field(entry, "claim_id"), default="missing claim id")
+            category = _gap_category(entry)
+            category_text = f" [{category}]" if category else ""
+            lines.append(
+                f"- {_code(entry_id)}{category_text} for {_code(claim_id)}: "
+                f"{_clean_text(_field(entry, 'summary'))}"
+            )
+        lines.append("")
+        return lines
+
+    lines.append("No explicit missing evidence entries were supplied.")
+    lines.append("")
     return lines
 
 
@@ -233,16 +243,16 @@ def _render_critiques(reviewer_critiques: list[Any]) -> list[str]:
         scope = _code(claim_id) if claim_id else "whole brief"
         lines.extend(
             [
-                f"### {_clean_heading(critique_id)}",
-                "",
-                f"- Reviewer role: {_clean_text(_field(critique, 'reviewer_role'), 'Missing reviewer role.')}",
-                f"- Scope: {scope}",
-                f"- Severity: {_code(_field(critique, 'severity'), 'missing severity')}",
-                f"- Finding: {_clean_text(_field(critique, 'finding'))}",
-                f"- Suggested action: {_clean_text(_field(critique, 'suggested_action'))}",
-                "",
+                (
+                    f"- {_code(critique_id)} "
+                    f"{_clean_text(_field(critique, 'reviewer_role'), 'Missing reviewer role.')} "
+                    f"({_code(_field(critique, 'severity'), 'missing severity')}, scope {scope}): "
+                    f"{_clean_text(_field(critique, 'finding'))}"
+                ),
+                f"  Suggested action: {_clean_text(_field(critique, 'suggested_action'))}",
             ]
         )
+    lines.append("")
     return lines
 
 
@@ -290,11 +300,14 @@ def _render_unknowns(
     if not evidence_ledger:
         lines.extend(["- Evidence ledger is missing, so support for all claims is unknown."])
     if missing_evidence:
-        lines.append("- Missing evidence entries:")
-        for entry in missing_evidence:
-            entry_id = _first_text(_field(entry, "id"), default="evidence-without-id")
-            claim_id = _first_text(_field(entry, "claim_id"), default="missing claim id")
-            lines.append(f"  - {_code(entry_id)} for {_code(claim_id)}: {_clean_text(_field(entry, 'summary'))}")
+        lines.append("- Missing evidence entries by category:")
+        for category, entries in _entries_by_gap_category(missing_evidence).items():
+            claim_ids = ", ".join(
+                _code(_first_text(_field(entry, "claim_id"), default="missing claim id"))
+                for entry in entries
+            )
+            first_summary = _clean_text(_field(entries[0], "summary"))
+            lines.append(f"  - {category}: {claim_ids}. {first_summary}")
     elif evidence_ledger:
         lines.append("- No explicit missing evidence entries were supplied.")
 
@@ -309,27 +322,17 @@ def _render_unknowns(
 
 def _render_next_steps(recommendation: Any, reviewer_critiques: list[Any], experiments: list[Any]) -> list[str]:
     lines = ["## Next Steps", ""]
-    steps: list[str] = []
 
     next_step = _first_text(_field(recommendation, "next_step"), default="")
-    if next_step:
-        steps.append(f"Do next: {next_step}")
-
-    for critique in reviewer_critiques:
-        action = _first_text(_field(critique, "suggested_action"), default="")
-        if action:
-            steps.append(action)
-
-    for experiment in experiments:
-        experiment_id = _first_text(_field(experiment, "id"), default="experiment-without-id")
-        title = _first_text(_field(experiment, "title"), default="Untitled experiment")
-        steps.append(f"Run {_code(experiment_id)}: {title}")
-
-    if not steps:
+    if not next_step:
         return lines + ["No next steps were supplied.", ""]
 
-    for step in _dedupe(steps):
-        lines.append(f"- {step}")
+    lines.append(f"- Do next: {next_step}")
+    primary_experiment = _primary_experiment_from_next_step(next_step, experiments)
+    if primary_experiment:
+        lines.append(
+            "- Use secondary experiments only after the primary blocker result is known."
+        )
     lines.append("")
     return lines
 
@@ -395,16 +398,27 @@ def _to_plain(value: Any) -> Any:
     return value
 
 
-def _dedupe(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for value in values:
-        normalized = value.casefold()
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        deduped.append(value)
-    return deduped
+def _gap_category(entry: Any) -> str | None:
+    notes = _first_text(_field(entry, "notes"), default="")
+    match = re.search(r"\bgap_category=([a-z_]+)\b", notes)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _entries_by_gap_category(entries: list[Any]) -> dict[str, list[Any]]:
+    grouped: dict[str, list[Any]] = {}
+    for entry in entries:
+        grouped.setdefault(_gap_category(entry) or "uncategorized", []).append(entry)
+    return grouped
+
+
+def _primary_experiment_from_next_step(next_step: str, experiments: list[Any]) -> Any | None:
+    for experiment in experiments:
+        experiment_id = _first_text(_field(experiment, "id"), default="")
+        if experiment_id and experiment_id in next_step:
+            return experiment
+    return None
 
 
 __all__ = ["render_markdown_report"]

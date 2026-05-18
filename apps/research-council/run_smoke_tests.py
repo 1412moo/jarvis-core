@@ -13,6 +13,15 @@ REQUIRED_REVIEWER_ROLES = {
     "red_team",
 }
 
+REQUIRED_GAP_CATEGORIES = {
+    "technical",
+    "user_adoption",
+    "prior_art",
+    "safety_regulatory",
+    "environmental",
+    "market",
+}
+
 
 def _assert(condition: bool, message: str) -> None:
     if not condition:
@@ -29,6 +38,14 @@ def test_deterministic_pipeline_contract() -> None:
     _assert(result.experiments, "experiments must exist")
     _assert(result.recommendation.decision, "recommendation must include a decision")
     _assert(result.recommendation.summary, "recommendation must include a summary")
+    _assert(
+        result.recommendation.next_step.count("experiment-") == 1,
+        "recommendation must select one primary next experiment",
+    )
+    _assert(
+        "concept input" in result.recommendation.summary,
+        "recommendation must distinguish concept description from proof",
+    )
     _assert(result.markdown_report.artifact_type == "markdown", "report must be markdown")
     _assert(result.markdown_report.markdown.strip(), "markdown report must exist")
 
@@ -50,6 +67,11 @@ def test_deterministic_pipeline_contract() -> None:
         any(claim.source_label == "needs_evidence" for claim in result.claims),
         "claims must mark evidence needs",
     )
+    for category in REQUIRED_GAP_CATEGORIES:
+        _assert(
+            any(f"gap_category={category}" in entry.notes for entry in result.evidence_ledger),
+            f"evidence gaps must include category {category}",
+        )
 
     markdown = result.markdown_report.markdown
     _assert(markdown.startswith("# Research Council Report"), "report markdown missing title")
@@ -59,6 +81,11 @@ def test_deterministic_pipeline_contract() -> None:
     _assert("## Minimum Viable Experiments" in markdown, "markdown report missing experiments")
     _assert("## Recommendation" in markdown, "markdown report missing recommendation")
     _assert("Missing evidence entries" in markdown, "markdown report must show evidence gaps")
+    _assert(
+        "Local determinism spike" not in markdown,
+        "developer QA experiments must not appear in the user-facing report",
+    )
+    _assert("primary next experiment" in markdown, "report must identify a primary next experiment")
     _assert("capsule" in markdown.lower(), "capsule sample must be reflected in the report")
     _assert("colon" in markdown.lower(), "colon screening sample must be reflected in the report")
 

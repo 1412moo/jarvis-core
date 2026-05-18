@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from textwrap import shorten
 
+from .claim_extractor import DomainProfile, domain_profile_for, evidence_request_for
+from .evidence_ledger import evidence_gap_category
 from .schemas import Claim, EvidenceEntry, ResearchCouncilInput, ReviewerCritique
 
 
@@ -23,13 +25,16 @@ REVIEWER_ROLES: tuple[str, ...] = (
 _TECHNICAL_KEYWORDS = (
     "build",
     "technical",
-    "workflow",
-    "module",
-    "pipeline",
-    "integration",
-    "automate",
-    "local",
-    "experiment",
+    "implementation",
+    "prototype",
+    "device",
+    "capsule",
+    "sensor",
+    "sensing",
+    "power",
+    "data",
+    "manufacturing",
+    "transit",
 )
 _MARKET_KEYWORDS = (
     "adopt",
@@ -59,10 +64,12 @@ _RED_TEAM_KEYWORDS = (
     "scale",
     "expand",
     "trust",
-    "automate",
     "unsupported",
     "evidence",
     "adopt",
+    "screen",
+    "diagnostic",
+    "safety",
 )
 _REGULATED_DOMAIN_KEYWORDS = (
     "medical",
@@ -90,15 +97,24 @@ def run_reviewers(
 
     claim_list = tuple(claims)
     evidence_list = tuple(evidence_entries)
+    domain_profile = domain_profile_for(input_data)
     evidence_by_claim = _evidence_by_claim(evidence_list)
     missing_claim_ids = _missing_claim_ids(claim_list, evidence_by_claim)
-    evidence_gap_note = _evidence_gap_note(claim_list, evidence_list, missing_claim_ids)
+    gap_category_by_claim = _gap_category_by_claim(evidence_list)
 
     critiques = [
-        _build_technical_critique(claim_list, missing_claim_ids, evidence_gap_note, 1),
-        _build_market_critique(claim_list, missing_claim_ids, evidence_gap_note, 2),
-        _build_safety_critique(input_data, claim_list, missing_claim_ids, evidence_gap_note, 3),
-        _build_red_team_critique(claim_list, missing_claim_ids, evidence_gap_note, 4),
+        _build_technical_critique(
+            claim_list, missing_claim_ids, gap_category_by_claim, domain_profile, 1
+        ),
+        _build_market_critique(
+            claim_list, missing_claim_ids, gap_category_by_claim, domain_profile, 2
+        ),
+        _build_safety_critique(
+            input_data, claim_list, missing_claim_ids, gap_category_by_claim, domain_profile, 3
+        ),
+        _build_red_team_critique(
+            claim_list, missing_claim_ids, gap_category_by_claim, domain_profile, 4
+        ),
     ]
     return critiques
 
@@ -106,52 +122,91 @@ def run_reviewers(
 def _build_technical_critique(
     claims: tuple[Claim, ...],
     missing_claim_ids: set[str],
-    evidence_gap_note: str,
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
     index: int,
 ) -> ReviewerCritique:
-    claim = _select_claim(claims, _TECHNICAL_KEYWORDS, missing_claim_ids)
+    claim = _select_claim_by_gap_category(
+        claims, ("technical",), missing_claim_ids, gap_category_by_claim, _TECHNICAL_KEYWORDS
+    )
     target = _claim_target_text(claim)
+    gap_note = _claim_gap_note(claim, gap_category_by_claim, domain_profile, fallback="technical")
     severity = _severity_for_claim(claim, missing_claim_ids, default="medium")
+    if domain_profile.id == "capsule_medical_environmental":
+        finding = (
+            f"The technical blocker is the capsule itself: {target} "
+            "must show that a swallowable body can observe enough of the colon while moving, "
+            "capture or retain usable data, and still pass safely despite orientation, occlusion, "
+            f"power, and retrieval limits. {gap_note}"
+        )
+        suggested_action = (
+            "Build a non-ingestible capsule-size bench mockup and test image or sensor capture "
+            "through a simulated curved wet channel before considering any clinical path."
+        )
+    else:
+        finding = (
+            f"The technical case is not proven yet for {target}. "
+            "The concept needs a small prototype or bench test that exposes the core mechanism, "
+            f"performance threshold, and failure modes. {gap_note}"
+        )
+        suggested_action = (
+            "Run the smallest local prototype or bench test that can falsify the core feasibility claim."
+        )
     return ReviewerCritique(
         id=_critique_id(index),
         reviewer_role="technical",
         claim_id=claim.id if claim else None,
-        finding=(
-            f"The technical case is not proven yet for {target}. "
-            "The current materials need a small local run that demonstrates stable inputs, outputs, "
-            f"and failure behavior before any pipeline integration. {evidence_gap_note}"
-        ),
+        finding=finding,
         severity=severity,
-        suggested_action=(
-            "Run a deterministic local spike against one or two representative ideas and record "
-            "whether imports, object construction, and output validation pass without manual repair."
-        ),
+        suggested_action=suggested_action,
     )
 
 
 def _build_market_critique(
     claims: tuple[Claim, ...],
     missing_claim_ids: set[str],
-    evidence_gap_note: str,
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
     index: int,
 ) -> ReviewerCritique:
-    claim = _select_claim(claims, _MARKET_KEYWORDS, missing_claim_ids)
+    claim = _select_claim_by_gap_category(
+        claims,
+        ("user_adoption", "market"),
+        missing_claim_ids,
+        gap_category_by_claim,
+        _MARKET_KEYWORDS,
+    )
     target = _claim_target_text(claim)
+    gap_note = _claim_gap_note(claim, gap_category_by_claim, domain_profile, fallback="user_adoption")
     severity = _severity_for_claim(claim, missing_claim_ids, default="medium")
+    if domain_profile.id == "capsule_medical_environmental":
+        finding = (
+            f"Adoption is unproven for {target}. A less burdensome capsule story is appealing, "
+            "but it does not show that patients would trust ingestion, clinicians would trust "
+            "diagnostic quality, or payers and screening programs would prefer this pathway over "
+            f"established alternatives. {gap_note}"
+        )
+        suggested_action = (
+            "Run separate non-clinical interviews with one patient-like participant and one care-pathway "
+            "operator to test trust, refusal points, and the decision this concept would change."
+        )
+    else:
+        finding = (
+            f"The demand and usefulness case remains weak for {target}. "
+            "Interest in the idea has not been separated from a repeatable adoption trigger, "
+            f"budget owner, or competing alternative. {gap_note}"
+        )
+        suggested_action = (
+            "Run a lightweight adoption check with the target user and record the current workaround, "
+            "switching trigger, and next decision."
+        )
     return ReviewerCritique(
         id=_critique_id(index),
         reviewer_role="market",
         claim_id=claim.id if claim else None,
-        finding=(
-            f"The demand and usefulness case remains weak for {target}. "
-            "User interest, willingness to repeat the workflow, and decision value have not been "
-            f"separated from enthusiasm for the idea. {evidence_gap_note}"
-        ),
+        finding=finding,
         severity=severity,
-        suggested_action=(
-            "Run a lightweight usefulness check with target users or realistic saved ideas and "
-            "measure whether the report changes the next decision."
-        ),
+        suggested_action=suggested_action,
     )
 
 
@@ -159,10 +214,17 @@ def _build_safety_critique(
     input_data: ResearchCouncilInput,
     claims: tuple[Claim, ...],
     missing_claim_ids: set[str],
-    evidence_gap_note: str,
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
     index: int,
 ) -> ReviewerCritique:
-    claim = _select_claim(claims, _SAFETY_KEYWORDS, missing_claim_ids)
+    claim = _select_claim_by_gap_category(
+        claims,
+        ("safety_regulatory",),
+        missing_claim_ids,
+        gap_category_by_claim,
+        _SAFETY_KEYWORDS,
+    )
     target = _claim_target_text(claim)
     regulated_terms = _matched_terms(_input_text(input_data), _REGULATED_DOMAIN_KEYWORDS)
     regulated_note = (
@@ -170,47 +232,90 @@ def _build_safety_critique(
         if regulated_terms
         else ""
     )
-    severity = "high" if regulated_terms else _severity_for_claim(claim, missing_claim_ids, default="medium")
+    gap_note = _claim_gap_note(
+        claim, gap_category_by_claim, domain_profile, fallback="safety_regulatory"
+    )
+    severity = (
+        "high"
+        if regulated_terms or domain_profile.id in {"capsule_medical_environmental", "medical_device"}
+        else _severity_for_claim(claim, missing_claim_ids, default="medium")
+    )
+    if domain_profile.id == "capsule_medical_environmental":
+        finding = (
+            f"The safety boundary is the highest-impact blocker for {target}. "
+            "The concept involves ingestion, possible retention or obstruction, biocompatibility, "
+            "diagnostic false reassurance, patient discharge, and degradation byproducts entering "
+            f"wastewater. {gap_note}"
+        )
+        suggested_action = (
+            "Create a non-clinical safety table that lists hazards, stop conditions, required "
+            "expert review, and what evidence is mandatory before any human-use experiment."
+        )
+    else:
+        finding = (
+            f"The safety and regulatory boundary is underspecified for {target}."
+            f"{regulated_note} Safety-sensitive use, advice boundaries, data handling, and "
+            f"review requirements need explicit constraints before broader use. {gap_note}"
+        )
+        suggested_action = (
+            "Write a one-page boundary checklist covering sensitive use, required review, "
+            "prohibited claims, and conditions that should pause the idea."
+        )
     return ReviewerCritique(
         id=_critique_id(index),
         reviewer_role="safety_regulatory",
         claim_id=claim.id if claim else None,
-        finding=(
-            f"The safety and regulatory boundary is underspecified for {target}."
-            f"{regulated_note} Data handling, advice boundaries, and compliance assumptions need "
-            f"explicit constraints before the workflow is used beyond a local draft. {evidence_gap_note}"
-        ),
+        finding=finding,
         severity=severity,
-        suggested_action=(
-            "Write a one-page boundary checklist covering data sensitivity, prohibited advice, "
-            "human review requirements, and conditions that should pause the idea."
-        ),
+        suggested_action=suggested_action,
     )
 
 
 def _build_red_team_critique(
     claims: tuple[Claim, ...],
     missing_claim_ids: set[str],
-    evidence_gap_note: str,
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
     index: int,
 ) -> ReviewerCritique:
-    claim = _select_claim(claims, _RED_TEAM_KEYWORDS, missing_claim_ids)
+    claim = _select_claim_by_gap_category(
+        claims,
+        ("prior_art", "environmental"),
+        missing_claim_ids,
+        gap_category_by_claim,
+        _RED_TEAM_KEYWORDS,
+    )
     target = _claim_target_text(claim)
+    gap_note = _claim_gap_note(claim, gap_category_by_claim, domain_profile, fallback="prior_art")
     severity = _severity_for_claim(claim, missing_claim_ids, default="high")
+    if domain_profile.id == "capsule_medical_environmental":
+        finding = (
+            f"The easiest harmful overclaim for {target} is that a biodegradable capsule can be "
+            "treated as a screening substitute before it has evidence on coverage, missed lesions, "
+            "retention, degradation residue, and fit with existing care. The submitted description "
+            f"defines a concept; it does not support those outcome claims. {gap_note}"
+        )
+        suggested_action = (
+            "Rewrite the concept notes so every screening, safety, and environmental statement is "
+            "labeled as user-provided, missing evidence, or a non-clinical experiment target."
+        )
+    else:
+        finding = (
+            f"The easiest failure mode for {target} is false confidence: a polished concept could "
+            "make unsupported claims look researched. The next pass needs deliberate checks for "
+            f"overclaiming and unfalsifiable next steps. {gap_note}"
+        )
+        suggested_action = (
+            "Run an adversarial read where every high-impact statement maps to provided input, "
+            "an explicit missing-evidence entry, or a cheap experiment."
+        )
     return ReviewerCritique(
         id=_critique_id(index),
         reviewer_role="red_team",
         claim_id=claim.id if claim else None,
-        finding=(
-            f"The easiest failure mode for {target} is false confidence: a polished report could "
-            "make unsupported claims look researched. The workflow needs deliberate checks for "
-            f"overclaiming, missing evidence, and unfalsifiable next steps. {evidence_gap_note}"
-        ),
+        finding=finding,
         severity=severity,
-        suggested_action=(
-            "Add a manual adversarial read where every high-impact statement must map to provided "
-            "evidence, an explicit missing-evidence entry, or a cheap experiment."
-        ),
+        suggested_action=suggested_action,
     )
 
 
@@ -235,19 +340,27 @@ def _missing_claim_ids(
     return missing
 
 
-def _evidence_gap_note(
-    claims: tuple[Claim, ...],
-    evidence_entries: tuple[EvidenceEntry, ...],
-    missing_claim_ids: set[str],
+def _gap_category_by_claim(evidence_entries: Iterable[EvidenceEntry]) -> dict[str, str]:
+    categories: dict[str, str] = {}
+    for entry in evidence_entries:
+        category = evidence_gap_category(entry)
+        if category:
+            categories.setdefault(entry.claim_id, category)
+    return categories
+
+
+def _claim_gap_note(
+    claim: Claim | None,
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
+    *,
+    fallback: str,
 ) -> str:
-    if not claims:
-        return "Missing evidence: no structured claims were supplied for review."
-    if not evidence_entries:
-        return "Missing evidence: no evidence ledger entries were supplied."
-    if missing_claim_ids:
-        joined_ids = ", ".join(sorted(missing_claim_ids))
-        return f"Missing evidence is explicit for: {joined_ids}."
-    return "No missing evidence entries were supplied, so this critique is limited to the provided ledger."
+    category = fallback
+    if claim and claim.id in gap_category_by_claim:
+        category = gap_category_by_claim[claim.id]
+    request = evidence_request_for(domain_profile, category)
+    return f"Evidence needed ({category}): {request}"
 
 
 def _select_claim(
@@ -272,6 +385,24 @@ def _select_claim(
         return unsupported_claims[0]
 
     return claims[0] if claims else None
+
+
+def _select_claim_by_gap_category(
+    claims: tuple[Claim, ...],
+    categories: tuple[str, ...],
+    missing_claim_ids: set[str],
+    gap_category_by_claim: dict[str, str],
+    fallback_keywords: tuple[str, ...],
+) -> Claim | None:
+    for category in categories:
+        for claim in claims:
+            if claim.id in missing_claim_ids and gap_category_by_claim.get(claim.id) == category:
+                return claim
+    for category in categories:
+        for claim in claims:
+            if gap_category_by_claim.get(claim.id) == category:
+                return claim
+    return _select_claim(claims, fallback_keywords, missing_claim_ids)
 
 
 def _severity_for_claim(

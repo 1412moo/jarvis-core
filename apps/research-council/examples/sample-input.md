@@ -5,24 +5,26 @@ This example is documentation only. The demo script builds an equivalent
 
 ```text
 raw_idea:
-People who are already collecting notes in scattered tools might adopt a small
-AI-assisted research workflow if it helps them turn vague project ideas into
-testable claims.
+A swallowable biodegradable capsule could screen the colon for early signs of
+colorectal cancer, collect images or sensor data during transit, and then safely
+break down after discharge through wastewater.
 
 goal:
-Validate whether a lightweight Research Council module is useful enough to become
-the first practical Jarvis app.
+Decide whether the capsule colon screening concept has enough grounded promise
+for only non-clinical minimum viable experiments.
 
 context:
-Jarvis Core is an orchestration and records layer. Research Council should stay
-isolated as an app module for now.
+This is a deterministic v0.1 Research Council pass. It should identify claims,
+evidence gaps, reviewer critiques, minimum experiments, and a recommendation
+without doing web search or creating citations.
 
 constraints:
-- No web search in v0.1.
-- No LLM calls in v0.1.
-- Produce a Markdown report.
+- Python standard library only.
+- No web search, network calls, LLM calls, or fake citations.
+- Keep missing evidence explicit.
+- Do not recommend human testing from this local pass.
 
 provided_evidence:
-- User explicitly requested structured claims, an evidence ledger, critiques,
-  experiments, and a Markdown research report.
+- The user supplied the concept of a swallowable capsule for colon screening.
+- The user supplied the desired biodegradable wastewater-discharge behavior.
 ```
