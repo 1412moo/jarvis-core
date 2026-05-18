@@ -34,12 +34,16 @@ from research_council.benchmark_snapshot import (
     compare_benchmark_snapshots,
     export_benchmark_snapshot,
     load_benchmark_snapshot,
+    snapshot_to_json,
 )
 from research_council.benchmark_history import (
     append_benchmark_history,
     benchmark_history_entry_from_json_dict,
     benchmark_history_entry_to_json_dict,
+    build_benchmark_diff_view,
+    build_benchmark_diff_view_from_history,
     compare_latest_to_previous,
+    format_benchmark_diff_view,
     format_benchmark_trend_summary,
     history_to_json,
     load_benchmark_history,
@@ -1359,6 +1363,153 @@ def test_benchmark_history_contract() -> None:
     )
 
 
+def test_benchmark_diff_viewer_contract() -> None:
+    summary = evaluate_golden_cases()
+    artifacts_root = Path(__file__).parent / "artifacts"
+    artifacts_root.mkdir(exist_ok=True)
+    before_path = artifacts_root / f"benchmark-diff-before-{os.getpid()}.json"
+    after_path = artifacts_root / f"benchmark-diff-after-{os.getpid()}.json"
+    history_path = artifacts_root / f"benchmark-diff-history-{os.getpid()}.json"
+
+    before_snapshot = export_benchmark_snapshot(summary, before_path)
+    changed_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
+    changed_payload["failed_invariants"] += 1
+    changed_payload["consistency_failures"] += 1
+    changed_payload["hard_cases"] -= 1
+    changed_payload["realistic_cases"] -= 1
+    changed_payload["augmentation_counts"]["accepted"] += 1
+    changed_payload["augmentation_counts"]["filtered"] += 2
+    changed_payload["augmentation_counts"]["rejected"] += 3
+    changed_payload["version_info"]["benchmark_hash"] = "changed"
+    changed_payload["profiles_covered"] = changed_payload["profiles_covered"][:-1]
+    changed_payload["case_ids"] = changed_payload["case_ids"][:-1]
+    first_case_id = sorted(changed_payload["selected_profiles_by_case"])[0]
+    current_profile = changed_payload["selected_profiles_by_case"][first_case_id]
+    changed_payload["selected_profiles_by_case"][first_case_id] = (
+        "general" if current_profile != "general" else "ai_saas"
+    )
+    changed_payload["cases_by_profile"]["ai_saas"] += 1
+    changed_payload["evidence_gap_distribution"]["ai_saas"] += 2
+    changed_payload["confidence_impact_distribution"]["confidence_blocker"] += 1
+    after_snapshot = benchmark_snapshot_from_json_dict(changed_payload)
+    after_path.write_text(snapshot_to_json(after_snapshot), encoding="utf-8")
+
+    diff_view = build_benchmark_diff_view(before_snapshot, after_snapshot)
+    diff_text = format_benchmark_diff_view(diff_view)
+    _assert(diff_view.changed, "benchmark diff view must report hash changes")
+    _assert(
+        diff_view.regression_count >= 5,
+        "benchmark diff view must surface regression signals",
+    )
+    _assert(
+        diff_view.failed_invariants_delta == 1
+        and diff_view.consistency_failures_delta == 1
+        and diff_view.hard_cases_delta == -1
+        and diff_view.realistic_cases_delta == -1
+        and diff_view.augmentation_accepted_delta == 1
+        and diff_view.augmentation_filtered_delta == 2
+        and diff_view.augmentation_rejected_delta == 3,
+        "benchmark diff view must report core deltas",
+    )
+    _assert(
+        diff_view.profiles_removed
+        and diff_view.case_ids_removed
+        and diff_view.selected_profile_changes,
+        "benchmark diff view must report coverage and selected-profile changes",
+    )
+    _assert(
+        any(
+            profile.profile_id == "ai_saas"
+            and profile.case_count_delta == 1
+            and profile.evidence_gap_delta == 2
+            for profile in diff_view.profile_diffs
+        ),
+        "benchmark diff view must report per-profile case and evidence-gap deltas",
+    )
+    _assert(
+        diff_view.confidence_impact_delta["confidence_blocker"] == 1,
+        "benchmark diff view must report confidence impact deltas",
+    )
+    for expected_fragment in (
+        "Benchmark diff:",
+        "- cases:",
+        "- augmentation:",
+        "- profiles:",
+        "- benchmark_hash_changed:",
+        "- regression_signals:",
+    ):
+        _assert(
+            expected_fragment in diff_text,
+            f"benchmark diff formatter missing {expected_fragment}",
+        )
+    _assert(
+        "C:" not in diff_text and "jarvis-core" not in diff_text,
+        "benchmark diff formatter must not leak local paths",
+    )
+
+    history = append_benchmark_history(before_snapshot, history_path)
+    history = append_benchmark_history(after_snapshot, history_path)
+    history_view = build_benchmark_diff_view_from_history(history)
+    _assert(
+        history_view == diff_view,
+        "history diff view must compare the latest entry to the previous entry",
+    )
+
+    before_after_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_benchmark_diff.py")),
+            "--before",
+            str(before_path),
+            "--after",
+            str(after_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        before_after_cli.returncode == 0,
+        f"run_benchmark_diff --before/--after failed: {before_after_cli.stderr.strip()}",
+    )
+    _assert(
+        "Benchmark diff:" in before_after_cli.stdout
+        and "regressions=" in before_after_cli.stdout,
+        "run_benchmark_diff --before/--after must print concise diff output",
+    )
+    _assert(
+        "C:" not in before_after_cli.stdout and "jarvis-core" not in before_after_cli.stdout,
+        "benchmark diff CLI output must not leak local paths",
+    )
+
+    history_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_benchmark_diff.py")),
+            "--history",
+            str(history_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        history_cli.returncode == 0,
+        f"run_benchmark_diff --history failed: {history_cli.stderr.strip()}",
+    )
+    _assert(
+        "Benchmark diff:" in history_cli.stdout
+        and "regressions=" in history_cli.stdout,
+        "run_benchmark_diff --history must print concise diff output",
+    )
+    _assert(
+        "C:" not in history_cli.stdout and "jarvis-core" not in history_cli.stdout,
+        "benchmark diff history output must not leak local paths",
+    )
+
+
 def test_mutation_test_runner_contract() -> None:
     cases = build_mutation_cases()
     summary = run_mutation_tests(cases)
@@ -1819,6 +1970,7 @@ def main() -> None:
     test_golden_case_evaluation_harness()
     test_benchmark_snapshot_export_contract()
     test_benchmark_history_contract()
+    test_benchmark_diff_viewer_contract()
     test_mutation_test_runner_contract()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()

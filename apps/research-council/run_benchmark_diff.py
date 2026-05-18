@@ -1,0 +1,56 @@
+"""View deterministic Research Council benchmark snapshot diffs."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+
+from research_council.benchmark_history import (
+    build_benchmark_diff_view,
+    build_benchmark_diff_view_from_history,
+    format_benchmark_diff_view,
+    load_benchmark_history,
+)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--history",
+        type=Path,
+        default=None,
+        help="Benchmark history JSON file; compares latest to previous.",
+    )
+    source.add_argument(
+        "--before",
+        type=Path,
+        default=None,
+        help="Earlier benchmark snapshot JSON file.",
+    )
+    parser.add_argument(
+        "--after",
+        type=Path,
+        default=None,
+        help="Later benchmark snapshot JSON file. Required with --before.",
+    )
+    args = parser.parse_args(argv)
+
+    if args.before is not None and args.after is None:
+        parser.error("--after is required with --before")
+    if args.before is None and args.after is not None:
+        parser.error("--before is required with --after")
+    if args.history is not None and args.after is not None:
+        parser.error("--after cannot be used with --history")
+
+    if args.history is not None:
+        view = build_benchmark_diff_view_from_history(load_benchmark_history(args.history))
+    else:
+        view = build_benchmark_diff_view(args.before, args.after)
+    print(format_benchmark_diff_view(view))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

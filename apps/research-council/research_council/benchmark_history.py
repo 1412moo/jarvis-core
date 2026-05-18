@@ -76,6 +76,45 @@ class BenchmarkTrendSummary:
         return len(self.regressions)
 
 
+@dataclass(frozen=True)
+class ProfileDiffView:
+    """Per-profile benchmark deltas for the diff viewer."""
+
+    profile_id: str
+    case_count_delta: int = 0
+    evidence_gap_delta: int = 0
+
+
+@dataclass(frozen=True)
+class BenchmarkDiffView:
+    """Human-readable deterministic diff view between benchmark snapshots."""
+
+    entries: int
+    changed: bool = False
+    regressions: tuple[str, ...] = ()
+    total_cases_delta: int = 0
+    hard_cases_delta: int = 0
+    realistic_cases_delta: int = 0
+    total_invariants_delta: int = 0
+    failed_invariants_delta: int = 0
+    consistency_failures_delta: int = 0
+    augmentation_accepted_delta: int = 0
+    augmentation_filtered_delta: int = 0
+    augmentation_rejected_delta: int = 0
+    profiles_added: tuple[str, ...] = ()
+    profiles_removed: tuple[str, ...] = ()
+    case_ids_added: tuple[str, ...] = ()
+    case_ids_removed: tuple[str, ...] = ()
+    selected_profile_changes: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    profile_diffs: tuple[ProfileDiffView, ...] = ()
+    confidence_impact_delta: Mapping[str, int] = field(default_factory=dict)
+    benchmark_hash_changed: bool = False
+
+    @property
+    def regression_count(self) -> int:
+        return len(self.regressions)
+
+
 def append_benchmark_history(
     snapshot: BenchmarkSnapshot | str | Path | Mapping[str, Any],
     history_path: str | Path,
@@ -89,6 +128,33 @@ def append_benchmark_history(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(history_to_json(updated), encoding="utf-8")
     return updated
+
+
+def build_benchmark_diff_view(
+    before: BenchmarkSnapshot | BenchmarkHistoryEntry | str | Path | Mapping[str, Any],
+    after: BenchmarkSnapshot | BenchmarkHistoryEntry | str | Path | Mapping[str, Any],
+) -> BenchmarkDiffView:
+    """Build a deterministic diff view between two benchmark snapshots."""
+
+    before_entry = _coerce_history_entry(before)
+    after_entry = _coerce_history_entry(after)
+    trend = compare_latest_to_previous((before_entry, after_entry))
+    return _diff_view_from_trend(
+        trend,
+        before_entry=before_entry,
+        after_entry=after_entry,
+    )
+
+
+def build_benchmark_diff_view_from_history(
+    history: Sequence[BenchmarkHistoryEntry],
+) -> BenchmarkDiffView:
+    """Build a deterministic diff view from the latest two history entries."""
+
+    entries = tuple(history)
+    if len(entries) < 2:
+        return BenchmarkDiffView(entries=len(entries))
+    return build_benchmark_diff_view(entries[-2], entries[-1])
 
 
 def load_benchmark_history(path: str | Path) -> tuple[BenchmarkHistoryEntry, ...]:
@@ -199,6 +265,61 @@ def format_benchmark_trend_summary(summary: BenchmarkTrendSummary) -> str:
         f"{summary.augmentation_filtered_delta}/"
         f"{summary.augmentation_rejected_delta}."
     )
+
+
+def format_benchmark_diff_view(view: BenchmarkDiffView) -> str:
+    """Format a concise, deterministic benchmark diff report."""
+
+    lines = [
+        (
+            "Benchmark diff: "
+            f"changed={str(view.changed).lower()}, "
+            f"regressions={view.regression_count}"
+        ),
+        f"- cases: {_signed(view.total_cases_delta)}",
+        f"- hard_cases: {_signed(view.hard_cases_delta)}",
+        f"- realistic_cases: {_signed(view.realistic_cases_delta)}",
+        f"- invariants: {_signed(view.total_invariants_delta)}",
+        f"- failed_invariants: {_signed(view.failed_invariants_delta)}",
+        f"- consistency_failures: {_signed(view.consistency_failures_delta)}",
+        (
+            "- augmentation: "
+            f"accepted={_signed(view.augmentation_accepted_delta)}, "
+            f"filtered={_signed(view.augmentation_filtered_delta)}, "
+            f"rejected={_signed(view.augmentation_rejected_delta)}"
+        ),
+        "- profiles: " + _format_added_removed(view.profiles_added, view.profiles_removed),
+        "- case_ids: " + _format_added_removed(view.case_ids_added, view.case_ids_removed),
+        f"- benchmark_hash_changed: {str(view.benchmark_hash_changed).lower()}",
+    ]
+    if view.profile_diffs:
+        lines.append(
+            "- profile_deltas: "
+            + ", ".join(
+                (
+                    f"{profile.profile_id}(cases={_signed(profile.case_count_delta)}, "
+                    f"evidence_gaps={_signed(profile.evidence_gap_delta)})"
+                )
+                for profile in view.profile_diffs
+            )
+        )
+    if view.confidence_impact_delta:
+        lines.append(
+            "- confidence_impacts: " + _format_count_delta(view.confidence_impact_delta)
+        )
+    if view.selected_profile_changes:
+        lines.append(
+            "- selected_profile_changes: "
+            + ", ".join(
+                f"{case_id}:{before}->{after}"
+                for case_id, (before, after) in sorted(
+                    view.selected_profile_changes.items()
+                )
+            )
+        )
+    if view.regressions:
+        lines.append("- regression_signals: " + ", ".join(view.regressions))
+    return "\n".join(lines)
 
 
 def benchmark_history_entry_from_snapshot(
@@ -326,6 +447,64 @@ def history_to_json(history: Sequence[BenchmarkHistoryEntry]) -> str:
     ) + "\n"
 
 
+def _diff_view_from_trend(
+    trend: BenchmarkTrendSummary,
+    *,
+    before_entry: BenchmarkHistoryEntry,
+    after_entry: BenchmarkHistoryEntry,
+) -> BenchmarkDiffView:
+    return BenchmarkDiffView(
+        entries=trend.entries,
+        changed=trend.changed,
+        regressions=trend.regressions,
+        total_cases_delta=trend.total_cases_delta,
+        hard_cases_delta=trend.hard_cases_delta,
+        realistic_cases_delta=trend.realistic_cases_delta,
+        total_invariants_delta=trend.total_invariants_delta,
+        failed_invariants_delta=trend.failed_invariants_delta,
+        consistency_failures_delta=trend.consistency_failures_delta,
+        augmentation_accepted_delta=trend.augmentation_accepted_delta,
+        augmentation_filtered_delta=trend.augmentation_filtered_delta,
+        augmentation_rejected_delta=trend.augmentation_rejected_delta,
+        profiles_added=trend.profiles_added,
+        profiles_removed=trend.profiles_removed,
+        case_ids_added=trend.case_ids_added,
+        case_ids_removed=trend.case_ids_removed,
+        selected_profile_changes=trend.selected_profile_changes,
+        profile_diffs=_profile_diff_views(before_entry, after_entry),
+        confidence_impact_delta=trend.confidence_impact_delta,
+        benchmark_hash_changed=trend.benchmark_hash_changed,
+    )
+
+
+def _profile_diff_views(
+    before_entry: BenchmarkHistoryEntry,
+    after_entry: BenchmarkHistoryEntry,
+) -> tuple[ProfileDiffView, ...]:
+    case_delta = _mapping_delta(before_entry.cases_by_profile, after_entry.cases_by_profile)
+    evidence_delta = _mapping_delta(
+        before_entry.evidence_gap_distribution,
+        after_entry.evidence_gap_distribution,
+    )
+    profile_ids = sorted(set(case_delta) | set(evidence_delta))
+    return tuple(
+        ProfileDiffView(
+            profile_id=profile_id,
+            case_count_delta=case_delta.get(profile_id, 0),
+            evidence_gap_delta=evidence_delta.get(profile_id, 0),
+        )
+        for profile_id in profile_ids
+    )
+
+
+def _coerce_history_entry(
+    value: BenchmarkSnapshot | BenchmarkHistoryEntry | str | Path | Mapping[str, Any],
+) -> BenchmarkHistoryEntry:
+    if isinstance(value, BenchmarkHistoryEntry):
+        return value
+    return benchmark_history_entry_from_snapshot(_coerce_snapshot(value))
+
+
 def _coerce_snapshot(snapshot: BenchmarkSnapshot | str | Path | Mapping[str, Any]) -> BenchmarkSnapshot:
     if isinstance(snapshot, BenchmarkSnapshot):
         return snapshot
@@ -411,15 +590,37 @@ def _count_value(value: Mapping[str, int], key: str) -> int:
     return int(value.get(key, 0))
 
 
+def _signed(value: int) -> str:
+    return f"{value:+d}"
+
+
+def _format_added_removed(added: Sequence[str], removed: Sequence[str]) -> str:
+    parts: list[str] = []
+    if added:
+        parts.append("added=" + ",".join(added))
+    if removed:
+        parts.append("removed=" + ",".join(removed))
+    return "; ".join(parts) if parts else "no change"
+
+
+def _format_count_delta(value: Mapping[str, int]) -> str:
+    return ", ".join(f"{key}={_signed(value[key])}" for key in sorted(value))
+
+
 __all__ = [
+    "BenchmarkDiffView",
     "BenchmarkHistoryEntry",
+    "ProfileDiffView",
     "BenchmarkTrendSummary",
     "HISTORY_SCHEMA_VERSION",
     "append_benchmark_history",
     "benchmark_history_entry_from_json_dict",
     "benchmark_history_entry_from_snapshot",
     "benchmark_history_entry_to_json_dict",
+    "build_benchmark_diff_view",
+    "build_benchmark_diff_view_from_history",
     "compare_latest_to_previous",
+    "format_benchmark_diff_view",
     "format_benchmark_trend_summary",
     "history_to_json",
     "load_benchmark_history",
