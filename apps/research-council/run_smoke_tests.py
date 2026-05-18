@@ -9,10 +9,13 @@ import subprocess
 import sys
 
 from research_council import (
+    get_profile,
+    list_profiles,
     result_from_json,
     result_to_artifacts_dict,
     result_to_json,
     result_to_json_dict,
+    resolve_domain_profile,
     run_research_council,
 )
 from research_council.claim_extractor import domain_profile_for
@@ -298,11 +301,161 @@ def test_run_demo_custom_cli_input_support() -> None:
     )
 
 
+def test_domain_profile_selection_foundation() -> None:
+    profile_ids = tuple(profile.id for profile in list_profiles())
+    _assert(
+        profile_ids
+        == (
+            "general",
+            "medical_device",
+            "ai_saas",
+            "consumer_app",
+            "hardware_device",
+            "materials_science",
+        ),
+        "domain profile registry must expose the initial profiles in deterministic order",
+    )
+    _assert(
+        get_profile("software").id == "ai_saas",
+        "software alias must resolve to ai_saas",
+    )
+    _assert(
+        get_profile("hardware").id == "hardware_device",
+        "hardware alias must resolve to hardware_device",
+    )
+    _assert(
+        get_profile("capsule_medical_environmental").id == "medical_device",
+        "legacy capsule alias must resolve to medical_device",
+    )
+
+    medical_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "Swallowable capsule medical device for colon screening with "
+                "biocompatibility constraints"
+            ),
+            "goal": "Evaluate patient safety and diagnostic feasibility.",
+            "context": "Clinical workflow and regulatory risk are central.",
+        }
+    )
+    _assert(
+        medical_selection.selected_profile.id == "medical_device",
+        "medical capsule idea must select medical_device",
+    )
+    _assert(
+        medical_selection.selected_by == "deterministic_score",
+        "medical capsule selection must be score-based",
+    )
+    _assert(
+        "capsule" in medical_selection.matched_keywords["medical_device"],
+        "medical capsule selection must explain matched keywords",
+    )
+
+    ai_selection = resolve_domain_profile(
+        {
+            "raw_idea": "AI SaaS patent analysis assistant for solo founders",
+            "goal": "Evaluate differentiation and market viability.",
+            "context": "Bootstrap software workflow before external research.",
+        }
+    )
+    _assert(
+        ai_selection.selected_profile.id == "ai_saas",
+        "AI SaaS / patent assistant idea must select ai_saas",
+    )
+
+    consumer_selection = resolve_domain_profile(
+        {
+            "raw_idea": "Consumer mobile app for daily habit tracking and social accountability",
+            "goal": "Evaluate retention and willingness to pay.",
+            "constraints": ("Privacy-sensitive consumer data must be handled carefully.",),
+        }
+    )
+    _assert(
+        consumer_selection.selected_profile.id == "consumer_app",
+        "consumer app idea must select consumer_app",
+    )
+
+    hardware_selection = resolve_domain_profile(
+        {
+            "raw_idea": "Sensor hardware device with embedded firmware and battery constraints",
+            "goal": "Evaluate prototype feasibility and manufacturing risk.",
+        }
+    )
+    _assert(
+        hardware_selection.selected_profile.id == "hardware_device",
+        "hardware device idea must select hardware_device",
+    )
+
+    materials_selection = resolve_domain_profile(
+        {
+            "raw_idea": "Biodegradable polymer coating with UV degradation and residue testing",
+            "goal": "Evaluate material performance and disposal risk.",
+        }
+    )
+    _assert(
+        materials_selection.selected_profile.id == "materials_science",
+        "materials / degradation idea must select materials_science",
+    )
+
+    medical_materials_selection = resolve_domain_profile(
+        {
+            "raw_idea": "Biodegradable implant material for patient safety testing",
+            "goal": "Evaluate clinical safety and material degradation.",
+        }
+    )
+    _assert(
+        medical_materials_selection.selected_profile.id == "medical_device",
+        "medical safety terms must dominate materials terms when selecting profiles",
+    )
+
+    fallback_selection = resolve_domain_profile(
+        {
+            "raw_idea": "A taxonomy for organizing private reading notes",
+            "goal": "Evaluate clarity.",
+        }
+    )
+    _assert(
+        fallback_selection.selected_profile.id == "general",
+        "unmatched ideas must fall back to general",
+    )
+    _assert(
+        fallback_selection.selected_by == "fallback",
+        "unmatched ideas must report fallback selection",
+    )
+
+    explicit_selection = resolve_domain_profile(
+        {"raw_idea": "A hardware sensor concept", "goal": "Evaluate risk."},
+        explicit_profile_id="software",
+    )
+    _assert(
+        explicit_selection.selected_profile.id == "ai_saas",
+        "explicit aliases must win over deterministic scoring",
+    )
+    _assert(
+        explicit_selection.selected_by == "explicit",
+        "explicit profile selection must report explicit selection",
+    )
+
+    try:
+        resolve_domain_profile(
+            {"raw_idea": "A concept", "goal": "Evaluate risk."},
+            explicit_profile_id="unknown_profile",
+        )
+    except ValueError as exc:
+        _assert(
+            "unknown domain profile" in str(exc),
+            "unknown explicit profile must raise a clear ValueError",
+        )
+    else:
+        raise AssertionError("unknown explicit profile must raise ValueError")
+
+
 def main() -> None:
     test_deterministic_pipeline_contract()
     test_json_export_contract()
     test_run_demo_json_output_support()
     test_run_demo_custom_cli_input_support()
+    test_domain_profile_selection_foundation()
     print("Research Council smoke tests passed")
 
 

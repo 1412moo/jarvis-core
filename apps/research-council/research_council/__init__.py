@@ -1,5 +1,17 @@
 """Research Council app package."""
 
+from .domain_profiles import (
+    ALIASES,
+    ClaimLens,
+    DomainProfile,
+    DomainProfileSelection,
+    EvidenceNeed,
+    ExperimentTemplate,
+    ReviewerLens,
+    get_profile,
+    list_profiles,
+    resolve_domain_profile,
+)
 from .json_export import (
     artifacts_to_json,
     from_json,
@@ -26,22 +38,32 @@ from .schemas import (
 )
 
 __all__ = [
+    "ALIASES",
     "Claim",
+    "ClaimLens",
+    "DomainProfile",
+    "DomainProfileSelection",
     "EvidenceEntry",
+    "EvidenceNeed",
+    "ExperimentTemplate",
     "ExperimentPlan",
     "MarkdownReport",
     "Recommendation",
     "ResearchCouncilInput",
     "ResearchCouncilResult",
     "ReviewerCritique",
+    "ReviewerLens",
     "artifacts_to_json",
     "from_json",
     "from_json_dict",
+    "get_profile",
+    "list_profiles",
     "result_from_json",
     "result_from_json_dict",
     "result_to_artifacts_dict",
     "result_to_json",
     "result_to_json_dict",
+    "resolve_domain_profile",
     "run_research_council",
     "to_json",
     "to_json_dict",
