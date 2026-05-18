@@ -24,6 +24,7 @@ _TEMPLATE_MUTATION_SCENARIO_IDS = (
     "scenario_structural_anchor_developer_tool",
     "scenario_contamination_ai_saas",
     "scenario_confidence_escalation_medical_device",
+    "scenario_ambiguity_developer_tool",
 )
 
 

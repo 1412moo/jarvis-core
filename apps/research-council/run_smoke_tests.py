@@ -1636,7 +1636,7 @@ def test_scenario_template_generation_contract() -> None:
     template_summary_text = format_mutation_summary(template_summary)
     _assert(template_summary.passed, template_summary_text)
     _assert(
-        template_summary.total_cases == 5,
+        template_summary.total_cases == 6,
         "scenario-template mutation subset must stay lightweight",
     )
     _assert(
@@ -1647,6 +1647,7 @@ def test_scenario_template_generation_contract() -> None:
             "contamination_template",
             "structural_anchor_template",
             "confidence_escalation_template",
+            "ambiguity_template",
         },
         "scenario-template subset must convert generated scenarios into mutation checks",
     )
