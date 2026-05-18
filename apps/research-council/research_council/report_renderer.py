@@ -35,6 +35,7 @@ def render_markdown_report(result: Any) -> str:
     reviewer_critiques = _as_list(_field(result, "reviewer_critiques"))
     experiments = _as_list(_field(result, "experiments"))
     recommendation = _field(result, "recommendation")
+    profile = _field(result, "profile")
     warnings = _as_list(_field(result, "warnings"))
 
     input_data = _first_present(
@@ -79,6 +80,7 @@ def render_markdown_report(result: Any) -> str:
             reviewer_critiques=reviewer_critiques,
             experiments=experiments,
             recommendation=recommendation,
+            profile=profile,
             warnings=warnings,
         )
     )
@@ -112,10 +114,12 @@ def _render_executive_summary(
     reviewer_critiques: list[Any],
     experiments: list[Any],
     recommendation: Any,
+    profile: Any,
     warnings: list[Any],
 ) -> list[str]:
     recommendation_summary = _first_text(_field(recommendation, "summary"), default=_MISSING)
     decision = _first_text(_field(recommendation, "decision"), default=_MISSING)
+    profile_summary = _profile_summary(profile)
 
     lines = [
         "## Executive Summary",
@@ -134,6 +138,8 @@ def _render_executive_summary(
         f"- Recommendation decision: {_code(decision)}",
         f"- Recommendation summary: {recommendation_summary}",
     ]
+    if profile_summary:
+        lines.insert(8, f"- Selected profile: {profile_summary}")
     if warnings:
         lines.extend(["", "Warnings:"])
         for warning in warnings:
@@ -419,6 +425,16 @@ def _primary_experiment_from_next_step(next_step: str, experiments: list[Any]) -
         if experiment_id and experiment_id in next_step:
             return experiment
     return None
+
+
+def _profile_summary(profile: Any) -> str:
+    profile_id = _first_text(_field(profile, "profile_id"), default="")
+    selected_by = _first_text(_field(profile, "selected_by"), default="")
+    if not profile_id:
+        return ""
+    if selected_by:
+        return f"{_code(profile_id)} ({selected_by.replace('_', ' ')})"
+    return _code(profile_id)
 
 
 __all__ = ["render_markdown_report"]

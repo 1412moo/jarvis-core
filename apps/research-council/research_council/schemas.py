@@ -7,6 +7,7 @@ report flows.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
@@ -202,6 +203,7 @@ class ResearchCouncilResult:
     recommendation: Recommendation
     markdown_report: MarkdownReport
     warnings: tuple[str, ...] = ()
+    profile: dict[str, Any] | None = None
     result_type: str = "research_council_result"
     version: str = "0.1"
 
@@ -215,6 +217,7 @@ class ResearchCouncilResult:
         object.__setattr__(self, "evidence_ledger", tuple(self.evidence_ledger))
         object.__setattr__(self, "reviewer_critiques", tuple(self.reviewer_critiques))
         object.__setattr__(self, "experiments", tuple(self.experiments))
+        object.__setattr__(self, "profile", _normalize_profile_metadata(self.profile))
         object.__setattr__(self, "warnings", _tuple_of_strings(self.warnings))
         if not self.claims:
             raise ValueError("claims must include at least one item")
@@ -234,3 +237,46 @@ class ResearchCouncilResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _normalize_profile_metadata(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError("profile must be an object")
+    if not value:
+        return {}
+
+    profile_id = str(value.get("profile_id", "")).strip()
+    selected_by = str(value.get("selected_by", "")).strip()
+    matched_keywords = value.get("matched_keywords", {})
+    score_by_profile = value.get("score_by_profile", {})
+    if not profile_id:
+        raise ValueError("profile.profile_id must be non-empty")
+    if not selected_by:
+        raise ValueError("profile.selected_by must be non-empty")
+    if not isinstance(matched_keywords, Mapping):
+        raise ValueError("profile.matched_keywords must be an object")
+    if not isinstance(score_by_profile, Mapping):
+        raise ValueError("profile.score_by_profile must be an object")
+
+    return {
+        "profile_id": profile_id,
+        "selected_by": selected_by,
+        "matched_keywords": {
+            str(profile_key): _tuple_of_strings(_coerce_keyword_sequence(keywords))
+            for profile_key, keywords in matched_keywords.items()
+        },
+        "score_by_profile": {
+            str(profile_key): int(score)
+            for profile_key, score in score_by_profile.items()
+        },
+    }
+
+
+def _coerce_keyword_sequence(value: Any) -> tuple[str, ...] | list[str] | None:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(value)

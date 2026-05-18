@@ -6,7 +6,6 @@ import argparse
 from pathlib import Path
 
 from research_council import ResearchCouncilInput, run_research_council, write_result_json
-from research_council.claim_extractor import domain_profile_for
 
 
 def build_sample_input() -> ResearchCouncilInput:
@@ -77,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python run_demo.py\n"
             "  python run_demo.py --idea \"AI patent analysis assistant for solo founders\" "
             "--goal \"Evaluate differentiation and market viability\"\n"
+            "  python run_demo.py --profile ai_saas\n"
             "\n"
             "This demo is local-only: no web search, network calls, LLM calls, or "
             "citations are performed."
@@ -115,6 +115,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--profile",
+        help=(
+            "Optional deterministic domain profile id or alias. Known ids include "
+            "general, medical_device, ai_saas, consumer_app, hardware_device, and "
+            "materials_science."
+        ),
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         help="Optional path for writing the Markdown report; stdout is always used.",
@@ -135,18 +143,19 @@ def parse_args() -> tuple[argparse.Namespace, argparse.ArgumentParser]:
 def main() -> None:
     args, parser = parse_args()
     input_data = build_runtime_input(args, parser)
-    result = run_research_council(input_data)
+    try:
+        result = run_research_council(input_data, profile=args.profile)
+    except ValueError as exc:
+        if args.profile and "unknown domain profile" in str(exc):
+            parser.error(str(exc))
+        raise
     markdown = result.markdown_report.markdown
     print(markdown, end="")
 
     if args.output:
         args.output.write_text(markdown, encoding="utf-8")
     if args.json_output:
-        write_result_json(
-            result,
-            args.json_output,
-            domain_profile=domain_profile_for(input_data),
-        )
+        write_result_json(result, args.json_output)
 
 
 if __name__ == "__main__":

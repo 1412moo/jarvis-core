@@ -25,13 +25,18 @@ from .schemas import (
 
 
 def result_to_json_dict(
-    result: ResearchCouncilResult, *, domain_profile: Any | None = None
+    result: ResearchCouncilResult,
+    *,
+    profile: Any | None = None,
+    domain_profile: Any | None = None,
 ) -> dict[str, Any]:
     """Return a deterministic, schema-aligned JSON-ready result dictionary."""
 
+    profile_metadata = _profile_metadata(profile or getattr(result, "profile", None))
     payload = {
         "result_type": result.result_type,
         "version": result.version,
+        "profile": profile_metadata,
         "input_summary": result.input_summary,
         "claims": [_to_jsonable(claim) for claim in result.claims],
         "evidence_ledger": [_to_jsonable(entry) for entry in result.evidence_ledger],
@@ -49,16 +54,24 @@ def result_to_json_dict(
 
 
 def result_to_artifacts_dict(
-    result: ResearchCouncilResult, *, domain_profile: Any | None = None
+    result: ResearchCouncilResult,
+    *,
+    profile: Any | None = None,
+    domain_profile: Any | None = None,
 ) -> dict[str, Any]:
     """Return a compact artifact bundle with Markdown as plain text.
 
     This keeps the user-facing artifact names prominent while preserving the
-    Markdown artifact metadata separately. If a caller supplies a domain profile,
-    all of its dataclass fields are carried through unchanged.
+    Markdown artifact metadata separately. Profile-selection metadata is exposed
+    under ``profile``. If a caller supplies a legacy domain profile, all of its
+    dataclass fields are carried through unchanged under ``domain_profile``.
     """
 
-    payload = result_to_json_dict(result, domain_profile=domain_profile)
+    payload = result_to_json_dict(
+        result,
+        profile=profile,
+        domain_profile=domain_profile,
+    )
     markdown_report = payload["markdown_report"]
     payload["markdown_report"] = markdown_report["markdown"]
     payload["markdown_report_artifact"] = {
@@ -71,13 +84,18 @@ def result_to_artifacts_dict(
 def result_to_json(
     result: ResearchCouncilResult,
     *,
+    profile: Any | None = None,
     domain_profile: Any | None = None,
     indent: int = 2,
 ) -> str:
     """Serialize a ResearchCouncilResult to deterministic JSON text."""
 
     return json.dumps(
-        result_to_json_dict(result, domain_profile=domain_profile),
+        result_to_json_dict(
+            result,
+            profile=profile,
+            domain_profile=domain_profile,
+        ),
         ensure_ascii=False,
         indent=indent,
     ) + "\n"
@@ -86,13 +104,18 @@ def result_to_json(
 def artifacts_to_json(
     result: ResearchCouncilResult,
     *,
+    profile: Any | None = None,
     domain_profile: Any | None = None,
     indent: int = 2,
 ) -> str:
     """Serialize compact Research Council artifacts to deterministic JSON text."""
 
     return json.dumps(
-        result_to_artifacts_dict(result, domain_profile=domain_profile),
+        result_to_artifacts_dict(
+            result,
+            profile=profile,
+            domain_profile=domain_profile,
+        ),
         ensure_ascii=False,
         indent=indent,
     ) + "\n"
@@ -102,6 +125,7 @@ def write_result_json(
     result: ResearchCouncilResult,
     output_path: str | Path,
     *,
+    profile: Any | None = None,
     domain_profile: Any | None = None,
     indent: int = 2,
 ) -> Path:
@@ -110,7 +134,12 @@ def write_result_json(
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        result_to_json(result, domain_profile=domain_profile, indent=indent),
+        result_to_json(
+            result,
+            profile=profile,
+            domain_profile=domain_profile,
+            indent=indent,
+        ),
         encoding="utf-8",
     )
     return path
@@ -141,6 +170,7 @@ def result_from_json_dict(payload: Mapping[str, Any]) -> ResearchCouncilResult:
             _require_mapping(payload, "recommendation"), Recommendation
         ),
         markdown_report=markdown_report,
+        profile=_coerce_profile(payload.get("profile", {})),
         warnings=tuple(str(warning) for warning in payload.get("warnings", ())),
         result_type=str(payload.get("result_type", "research_council_result")),
         version=str(payload.get("version", "0.1")),
@@ -205,6 +235,52 @@ def _require_string(payload: Mapping[str, Any], field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
     return value
+
+
+def _coerce_profile(value: Any) -> Mapping[str, Any] | None:
+    if value in (None, {}):
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError("profile must be an object")
+    return value
+
+
+def _profile_metadata(value: Any) -> dict[str, Any]:
+    if value in (None, {}):
+        return {}
+    if isinstance(value, Mapping):
+        return _profile_metadata_from_mapping(value)
+    selected_profile = getattr(value, "selected_profile", None) or getattr(value, "profile", None)
+    if selected_profile is not None:
+        return {
+            "profile_id": str(getattr(selected_profile, "id", "")),
+            "selected_by": str(getattr(value, "selected_by", "")),
+            "matched_keywords": _to_jsonable(getattr(value, "matched_keywords", {})),
+            "score_by_profile": _to_jsonable(getattr(value, "score_by_profile", {})),
+        }
+    return _profile_metadata_from_mapping(_to_jsonable(value))
+
+
+def _profile_metadata_from_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+    if "profile_id" not in value and "selected_profile" in value:
+        selected_profile = value.get("selected_profile")
+        selected_profile_id = (
+            selected_profile.get("id", "")
+            if isinstance(selected_profile, Mapping)
+            else getattr(selected_profile, "id", "")
+        )
+        return {
+            "profile_id": str(selected_profile_id),
+            "selected_by": str(value.get("selected_by", "")),
+            "matched_keywords": _to_jsonable(value.get("matched_keywords", {})),
+            "score_by_profile": _to_jsonable(value.get("score_by_profile", {})),
+        }
+    return {
+        "profile_id": str(value.get("profile_id", "")),
+        "selected_by": str(value.get("selected_by", "")),
+        "matched_keywords": _to_jsonable(value.get("matched_keywords", {})),
+        "score_by_profile": _to_jsonable(value.get("score_by_profile", {})),
+    }
 
 
 def _to_jsonable(value: Any) -> Any:

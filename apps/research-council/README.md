@@ -50,6 +50,16 @@ python -B apps/research-council/run_demo.py `
 Optional local context and repeated constraints can be supplied with
 `--context` and `--constraints`.
 
+Optionally force a deterministic domain profile:
+
+```powershell
+python -B apps/research-council/run_demo.py --profile ai_saas
+```
+
+If `--profile` is omitted, the app resolves one locally from the idea, goal,
+context, and constraints. JSON exports include compact profile-selection
+metadata under `profile`.
+
 Optionally export the structured JSON result while preserving Markdown stdout:
 
 ```powershell

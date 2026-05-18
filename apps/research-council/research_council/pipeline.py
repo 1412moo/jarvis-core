@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .claim_extractor import DomainProfile, domain_profile_for, extract_claims
+from .claim_extractor import extract_claims
+from .domain_profiles import DomainProfile, DomainProfileSelection, resolve_domain_profile
 from .evidence_ledger import build_evidence_ledger, evidence_gap_category, evidence_status
 from .experiments import propose_experiments
 from .report_renderer import render_markdown_report
@@ -54,7 +55,10 @@ class _DecisionBlocker:
     summary: str
 
 
-def run_research_council(input: ResearchCouncilInput) -> ResearchCouncilResult:
+def run_research_council(
+    input: ResearchCouncilInput,
+    profile: str | None = None,
+) -> ResearchCouncilResult:
     """Run the deterministic v0.1 Research Council workflow.
 
     The pipeline is intentionally local and standard-library only. It wires the
@@ -62,6 +66,8 @@ def run_research_council(input: ResearchCouncilInput) -> ResearchCouncilResult:
     calls, or citation generation.
     """
 
+    profile_selection = resolve_domain_profile(input, explicit_profile_id=profile)
+    profile_metadata = _profile_metadata(profile_selection)
     input_summary = _build_input_summary(input)
     claims = tuple(extract_claims(input))
     evidence_ledger = tuple(build_evidence_ledger(input, claims))
@@ -70,11 +76,10 @@ def run_research_council(input: ResearchCouncilInput) -> ResearchCouncilResult:
     reviewer_critiques = tuple(run_reviewers(input, claims, evidence_ledger))
     experiments = tuple(propose_experiments(input, claims, evidence_ledger, reviewer_critiques))
     recommendation = _create_recommendation(
-        input_data=input,
-        claims=claims,
         evidence_ledger=evidence_ledger,
         reviewer_critiques=reviewer_critiques,
         experiments=experiments,
+        domain_profile=profile_selection.profile,
     )
     warnings = _build_warnings(evidence_ledger)
     markdown_report = MarkdownReport(
@@ -84,6 +89,7 @@ def run_research_council(input: ResearchCouncilInput) -> ResearchCouncilResult:
                 "title": "Research Council Report",
                 "input_data": input.to_dict(),
                 "input_summary": input_summary,
+                "profile": profile_metadata,
                 "claims": claims,
                 "evidence_ledger": evidence_ledger,
                 "reviewer_critiques": reviewer_critiques,
@@ -102,6 +108,7 @@ def run_research_council(input: ResearchCouncilInput) -> ResearchCouncilResult:
         experiments=experiments,
         recommendation=recommendation,
         markdown_report=markdown_report,
+        profile=profile_metadata,
         warnings=warnings,
     )
 
@@ -122,13 +129,11 @@ def _validate_evidence_coverage(
 
 def _create_recommendation(
     *,
-    input_data: ResearchCouncilInput,
-    claims: Sequence[Claim],
     evidence_ledger: Sequence[EvidenceEntry],
     reviewer_critiques: Sequence[ReviewerCritique],
     experiments: Sequence[ExperimentPlan],
+    domain_profile: DomainProfile,
 ) -> Recommendation:
-    domain_profile = domain_profile_for(input_data)
     blockers = _rank_decision_blockers(
         evidence_ledger=evidence_ledger,
         reviewer_critiques=reviewer_critiques,
@@ -315,6 +320,18 @@ def _build_warnings(evidence_ledger: Sequence[EvidenceEntry]) -> tuple[str, ...]
             "At least one claim has explicit missing evidence; do not treat the report as validated research."
         )
     return tuple(warnings)
+
+
+def _profile_metadata(selection: DomainProfileSelection) -> dict[str, object]:
+    return {
+        "profile_id": selection.profile.id,
+        "selected_by": selection.selected_by,
+        "matched_keywords": {
+            profile_id: tuple(keywords)
+            for profile_id, keywords in selection.matched_keywords.items()
+        },
+        "score_by_profile": dict(selection.score_by_profile),
+    }
 
 
 __all__ = ["run_research_council"]

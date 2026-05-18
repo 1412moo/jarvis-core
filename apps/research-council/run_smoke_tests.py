@@ -18,7 +18,6 @@ from research_council import (
     resolve_domain_profile,
     run_research_council,
 )
-from research_council.claim_extractor import domain_profile_for
 from run_demo import build_sample_input
 
 
@@ -49,6 +48,11 @@ def test_deterministic_pipeline_contract() -> None:
 
     _assert(result.result_type == "research_council_result", "unexpected result_type")
     _assert(result.version == "0.1", "unexpected version")
+    _assert(result.profile["profile_id"] == "medical_device", "sample profile must resolve")
+    _assert(
+        result.profile["selected_by"] == "deterministic_score",
+        "sample profile must be selected by deterministic scoring",
+    )
     _assert(result.claims, "claims must exist")
     _assert(result.evidence_ledger, "evidence ledger must exist")
     _assert(result.experiments, "experiments must exist")
@@ -109,18 +113,33 @@ def test_deterministic_pipeline_contract() -> None:
 def test_json_export_contract() -> None:
     input_data = build_sample_input()
     result = run_research_council(input_data)
-    domain_profile = domain_profile_for(input_data)
 
-    payload = result_to_json_dict(result, domain_profile=domain_profile)
-    loaded_payload = json.loads(result_to_json(result, domain_profile=domain_profile))
+    payload = result_to_json_dict(result)
+    loaded_payload = json.loads(result_to_json(result))
     _assert(loaded_payload == payload, "JSON payload must round-trip through json.loads")
     _assert(
-        result_from_json(result_to_json(result, domain_profile=domain_profile)) == result,
+        result_from_json(result_to_json(result)) == result,
         "JSON payload must rehydrate to the original result",
     )
 
     _assert(loaded_payload["result_type"] == "research_council_result", "JSON result_type missing")
     _assert(loaded_payload["version"] == "0.1", "JSON version missing")
+    _assert(
+        loaded_payload["profile"]["profile_id"] == "medical_device",
+        "JSON profile id must be preserved",
+    )
+    _assert(
+        loaded_payload["profile"]["selected_by"] == "deterministic_score",
+        "JSON profile selected_by must be preserved",
+    )
+    _assert(
+        "capsule" in loaded_payload["profile"]["matched_keywords"]["medical_device"],
+        "JSON profile matched keywords must be preserved",
+    )
+    _assert(
+        loaded_payload["profile"]["score_by_profile"]["medical_device"] > 0,
+        "JSON profile scores must be preserved",
+    )
     _assert(isinstance(loaded_payload["claims"], list), "JSON claims must be a list")
     _assert(
         isinstance(loaded_payload["evidence_ledger"], list),
@@ -143,16 +162,6 @@ def test_json_export_contract() -> None:
         loaded_payload["markdown_report"]["markdown"] == result.markdown_report.markdown,
         "JSON markdown report content must be unchanged",
     )
-    _assert(loaded_payload["domain_profile"]["id"], "JSON domain profile id must be preserved")
-    _assert(
-        loaded_payload["domain_profile"]["concept_label"],
-        "JSON domain profile concept label must be preserved",
-    )
-    _assert(
-        loaded_payload["domain_profile"]["blocker_order"],
-        "JSON domain profile blocker order must be preserved",
-    )
-
     missing_entries = [
         entry for entry in loaded_payload["evidence_ledger"] if entry["evidence_type"] == "missing"
     ]
@@ -167,10 +176,7 @@ def test_json_export_contract() -> None:
             f"JSON evidence gaps must include category {category}",
         )
 
-    artifact_payload = result_to_artifacts_dict(
-        result,
-        domain_profile=domain_profile,
-    )
+    artifact_payload = result_to_artifacts_dict(result)
     _assert(
         isinstance(artifact_payload["markdown_report"], str),
         "compact artifact JSON must expose markdown_report as text",
@@ -180,12 +186,12 @@ def test_json_export_contract() -> None:
         "compact artifact JSON must preserve markdown artifact metadata",
     )
     _assert(
-        artifact_payload["domain_profile"]["id"],
-        "compact artifact JSON must preserve domain profile fields",
+        artifact_payload["profile"]["profile_id"] == "medical_device",
+        "compact artifact JSON must preserve profile id",
     )
     _assert(
-        artifact_payload["domain_profile"]["evidence_needs"],
-        "compact artifact JSON must preserve domain evidence needs",
+        artifact_payload["profile"]["selected_by"] == "deterministic_score",
+        "compact artifact JSON must preserve profile selected_by",
     )
 
 
@@ -217,8 +223,12 @@ def test_run_demo_json_output_support() -> None:
     exported_json = json_path.read_text(encoding="utf-8")
     exported_payload = json.loads(exported_json)
     _assert(
-        exported_payload["domain_profile"]["evidence_needs"],
-        "run_demo JSON must preserve domain profile evidence needs",
+        exported_payload["profile"]["profile_id"] == "medical_device",
+        "run_demo JSON must preserve selected profile id",
+    )
+    _assert(
+        exported_payload["profile"]["selected_by"] == "deterministic_score",
+        "run_demo JSON must preserve profile selection reason",
     )
     exported_result = result_from_json(exported_json)
     _assert(
@@ -291,13 +301,79 @@ def test_run_demo_custom_cli_input_support() -> None:
     exported_json = json_path.read_text(encoding="utf-8")
     exported_payload = json.loads(exported_json)
     _assert(
-        exported_payload["domain_profile"]["id"] == "software",
-        "custom AI assistant input should use the deterministic software domain profile",
+        exported_payload["profile"]["profile_id"] == "ai_saas",
+        "custom AI assistant input should use the deterministic ai_saas profile",
+    )
+    _assert(
+        exported_payload["profile"]["selected_by"] == "deterministic_score",
+        "custom AI assistant profile should be selected by deterministic scoring",
     )
     exported_result = result_from_json(exported_json)
     _assert(
         exported_result.markdown_report.markdown == completed.stdout,
         "custom run_demo JSON markdown must match stdout markdown",
+    )
+
+
+def test_run_demo_explicit_profile_support() -> None:
+    artifacts_root = Path(__file__).parent / "artifacts"
+    artifacts_root.mkdir(exist_ok=True)
+    json_path = artifacts_root / f"smoke-explicit-profile-{os.getpid()}.json"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_demo.py")),
+            "--profile",
+            "ai_saas",
+            "--json-output",
+            str(json_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_demo explicit --profile failed: {completed.stderr.strip()}",
+    )
+    _assert(
+        "Selected profile: `ai_saas` (explicit)" in completed.stdout,
+        "explicit profile must be reflected concisely in Markdown",
+    )
+    exported_payload = json.loads(json_path.read_text(encoding="utf-8"))
+    _assert(
+        exported_payload["profile"]["profile_id"] == "ai_saas",
+        "explicit --profile must win over deterministic scoring",
+    )
+    _assert(
+        exported_payload["profile"]["selected_by"] == "explicit",
+        "explicit --profile must preserve selected_by",
+    )
+
+
+def test_run_demo_unknown_profile_fails_clearly() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_demo.py")),
+            "--profile",
+            "unknown_profile",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(completed.returncode != 0, "unknown explicit profile must fail")
+    _assert(
+        "unknown domain profile" in completed.stderr,
+        "unknown explicit profile must explain the error",
+    )
+    _assert(
+        "Traceback" not in completed.stderr,
+        "unknown explicit profile must fail without a traceback",
     )
 
 
@@ -455,6 +531,8 @@ def main() -> None:
     test_json_export_contract()
     test_run_demo_json_output_support()
     test_run_demo_custom_cli_input_support()
+    test_run_demo_explicit_profile_support()
+    test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
     print("Research Council smoke tests passed")
 
