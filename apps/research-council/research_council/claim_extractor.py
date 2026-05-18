@@ -190,12 +190,13 @@ def extract_claims(
     focus = _idea_focus(input_view.raw_idea)
     profile_id = _profile_id(domain_profile)
 
-    if profile_id in {"ai_saas", "developer_tool"}:
-        specs = (
-            _developer_tool_claim_specs(input_view, focus)
-            if profile_id == "developer_tool"
-            else _ai_saas_claim_specs(input_view, focus)
-        )
+    if profile_id in {"ai_saas", "developer_tool", "enterprise_b2b"}:
+        if profile_id == "developer_tool":
+            specs = _developer_tool_claim_specs(input_view, focus)
+        elif profile_id == "enterprise_b2b":
+            specs = _enterprise_b2b_claim_specs(input_view, focus)
+        else:
+            specs = _ai_saas_claim_specs(input_view, focus)
         return [
             Claim(
                 id=f"claim-{index:03d}",
@@ -844,6 +845,103 @@ def _developer_tool_claim_specs(input_view: _InputView, focus: str) -> list[_Cla
             rationale=(
                 "Minimum developer-tool experiments can be proposed from the idea structure "
                 "without collecting external evidence."
+            ),
+        ),
+    ]
+
+
+def _enterprise_b2b_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]:
+    return [
+        _concept_claim(input_view, focus),
+        _ClaimSpec(
+            text=(
+                "Enterprise adoption depends on stakeholder alignment across the champion, "
+                "budget owner, economic buyer, IT/security, procurement, and department "
+                "workflow owners."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "The idea implies enterprise workflow value, but no stakeholder map, budget "
+                "owner, or buyer/champion distinction was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Procurement path and ROI proof are unresolved; the product needs evidence "
+                "for buying process, long sales cycle, approval steps, budget timing, and "
+                "measurable ROI before enterprise confidence can rise."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "No procurement interview, budget-owner validation, purchase process, or ROI "
+                "threshold was provided."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Security/compliance requirements are a core blocker: SOC2 expectations, "
+                "security review, SSO, admin controls, audit logs, governance, data access, "
+                "and IT approval must be known before rollout."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "Enterprise deployment depends on compliance and security review, but those "
+                "requirements are not evidenced in the local input."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Integration burden and workflow integration depth are unmeasured; the concept "
+                "must prove enterprise integration requirements, deployment responsibility, "
+                "vendor reliability expectations, and compatibility with current systems."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "The current description does not measure integration work, reliability "
+                "expectations, deployment ownership, or migration effort."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Rollout complexity, onboarding/training burden, and org-wide adoption risk "
+                "remain open; enterprise value depends on repeatable department rollout, "
+                "training cost, and support ownership."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "Rollout and enablement needs are inferred from the enterprise context; no "
+                "rollout simulation, training test, or adoption plan was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Switching cost and vendor trust are unresolved; the product must compare "
+                "against current enterprise systems, internal tools, manual processes, and "
+                "vendor alternatives before claiming durable adoption."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "No substitute map, migration plan, reliability proof, or vendor trust signal "
+                "was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "The idea is experimentable through procurement interviews, security/compliance "
+                "review mapping, stakeholder mapping exercises, rollout simulations, onboarding "
+                "friction tests, ROI validation interviews, and integration pilots."
+            ),
+            source_label="extracted",
+            confidence="medium",
+            rationale=(
+                "Minimum enterprise B2B experiments can be proposed deterministically without "
+                "collecting external evidence."
             ),
         ),
     ]

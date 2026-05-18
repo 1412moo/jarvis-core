@@ -256,6 +256,7 @@ def _require_non_empty(field_name: str, value: str) -> None:
 
 
 ALIASES: dict[str, str] = {
+    "enterprise": "enterprise_b2b",
     "software": "ai_saas",
     "hardware": "hardware_device",
     "capsule_medical_environmental": "medical_device",
@@ -265,6 +266,7 @@ _PROFILE_ORDER: tuple[str, ...] = (
     "general",
     "medical_device",
     "ai_saas",
+    "enterprise_b2b",
     "developer_tool",
     "consumer_app",
     "hardware_device",
@@ -275,6 +277,7 @@ _SAFETY_TIE_BREAKER: tuple[str, ...] = (
     "medical_device",
     "materials_science",
     "hardware_device",
+    "enterprise_b2b",
     "developer_tool",
     "ai_saas",
     "consumer_app",
@@ -762,6 +765,222 @@ _PROFILES: tuple[DomainProfile, ...] = (
             "prioritize workflow interviews when buyer/workflow evidence is weak",
             "prioritize output-quality evaluation when reliability evidence is weak",
             "prioritize differentiation mapping when AI-wrapper risk is unresolved",
+        ),
+    ),
+    DomainProfile(
+        id="enterprise_b2b",
+        label="Enterprise B2B",
+        concept_label="enterprise B2B concept",
+        summary=(
+            "A profile for enterprise workflow platforms, internal tools, procurement, "
+            "security/compliance review, rollout, and multi-stakeholder B2B adoption."
+        ),
+        claim_lenses=(
+            ClaimLens(
+                id="procurement_path",
+                label="Procurement path",
+                focus="Budget owner clarity, procurement friction, long sales cycle, and ROI proof.",
+                keywords=("procurement", "budget owner", "roi", "long sales cycle"),
+            ),
+            ClaimLens(
+                id="stakeholder_alignment",
+                label="Stakeholder alignment",
+                focus="Champion versus buyer distinction, department workflow, and org-wide adoption risk.",
+                keywords=("stakeholder", "champion", "buyer", "department workflow"),
+            ),
+            ClaimLens(
+                id="security_compliance",
+                label="Security and compliance",
+                focus="Security review, compliance requirements, SOC2, SSO, audit logs, governance, and IT approval.",
+                keywords=("security review", "compliance", "soc2", "sso", "audit logs"),
+            ),
+            ClaimLens(
+                id="rollout_integration",
+                label="Rollout and integration",
+                focus="Integration burden, workflow integration depth, training, onboarding, and rollout complexity.",
+                keywords=("enterprise integration", "multi-team rollout", "onboarding", "training"),
+            ),
+        ),
+        evidence_needs=(
+            EvidenceNeed(
+                category="market",
+                request=(
+                    "Identify the budget owner, procurement path, purchase process, "
+                    "ROI proof requirement, long-sales-cycle risk, and whether the "
+                    "economic buyer differs from the product champion."
+                ),
+            ),
+            EvidenceNeed(
+                category="user_adoption",
+                request=(
+                    "Map stakeholder alignment, champion versus buyer distinction, "
+                    "department workflow, onboarding/training burden, and org-wide "
+                    "adoption risk."
+                ),
+            ),
+            EvidenceNeed(
+                category="safety_regulatory",
+                request=(
+                    "Define security/compliance requirements, SOC2 expectations, "
+                    "SSO/admin needs, audit logs, governance, data access, and IT "
+                    "approval boundaries before rollout."
+                ),
+            ),
+            EvidenceNeed(
+                category="technical",
+                request=(
+                    "Measure integration burden, workflow integration depth, deployment "
+                    "responsibility, vendor reliability expectations, and rollout complexity."
+                ),
+            ),
+            EvidenceNeed(
+                category="prior_art",
+                request=(
+                    "Compare against current enterprise systems, internal tools, manual "
+                    "processes, vendor alternatives, switching cost, and migration friction."
+                ),
+            ),
+        ),
+        reviewer_lenses=(
+            ReviewerLens(
+                role="technical",
+                focus="Challenge integration burden, workflow integration depth, deployment responsibility, rollout complexity, and vendor reliability.",
+            ),
+            ReviewerLens(
+                role="market",
+                focus="Challenge procurement friction, budget owner clarity, stakeholder alignment, ROI proof, and long sales cycle.",
+            ),
+            ReviewerLens(
+                role="safety_regulatory",
+                focus="Review compliance, SOC2, security review, SSO, audit logs, governance, data access, and IT approval.",
+                escalation_terms=("compliance", "security review", "soc2", "sso", "audit logs", "governance"),
+            ),
+            ReviewerLens(
+                role="red_team",
+                focus="Look for champion-only enthusiasm, stalled procurement, rollout drag, training cost, and vendor-trust gaps.",
+            ),
+        ),
+        experiment_templates=(
+            ExperimentTemplate(
+                id="procurement-interview",
+                title="Procurement interview",
+                method=(
+                    "Interview the likely budget owner, procurement stakeholder, and "
+                    "product champion about purchase process, approval steps, ROI proof, "
+                    "security review, and long-sales-cycle risk."
+                ),
+                success_metric="The buying path, owner, blockers, and required proof are explicit.",
+                minimum_sample="3 stakeholders across champion, buyer, and procurement roles",
+                risk="Interviews clarify process but do not guarantee approval or budget timing.",
+            ),
+            ExperimentTemplate(
+                id="security-compliance-review-mapping",
+                title="Security/compliance review mapping",
+                method=(
+                    "Map SOC2, SSO, audit logs, data-access, governance, IT approval, "
+                    "and security-review requirements before any enterprise rollout."
+                ),
+                success_metric="Security and compliance blockers are named with owner, evidence, and stop condition.",
+                minimum_sample="One checklist reviewed with a security, IT, or compliance stakeholder",
+                risk="A checklist does not replace formal security or legal review.",
+            ),
+        ),
+        selection_keywords=(
+            ("enterprise b2b", 10),
+            ("enterprise", 9),
+            ("procurement", 9),
+            ("security review", 9),
+            ("enterprise integration", 9),
+            ("multi team rollout", 9),
+            ("compliance", 8),
+            ("soc2", 8),
+            ("soc 2", 8),
+            ("sso", 8),
+            ("audit logs", 8),
+            ("it approval", 8),
+            ("budget owner", 8),
+            ("stakeholder alignment", 8),
+            ("internal tool", 7),
+            ("admin dashboard", 7),
+            ("governance", 7),
+            ("department workflow", 7),
+            ("roi", 7),
+            ("long sales cycle", 7),
+            ("onboarding", 6),
+            ("vendor trust", 6),
+            ("champion", 5),
+            ("rollout", 5),
+            ("training", 5),
+        ),
+        blocker_order=(
+            "market",
+            "safety_regulatory",
+            "user_adoption",
+            "technical",
+            "prior_art",
+        ),
+        council_lenses=(
+            "procurement_path",
+            "stakeholder_alignment",
+            "security_compliance",
+            "rollout_integration",
+        ),
+        reasoning_priorities=(
+            "procurement path and budget owner before enterprise confidence",
+            "security/compliance requirements before rollout optimism",
+            "stakeholder alignment before champion enthusiasm",
+            "integration and onboarding burden before org-wide adoption claims",
+            "ROI proof before long-sales-cycle investment",
+        ),
+        risk_factors=(
+            "procurement friction",
+            "unclear budget owner",
+            "stakeholder alignment risk",
+            "security/compliance review risk",
+            "enterprise integration burden",
+            "rollout complexity",
+            "training and onboarding cost",
+            "switching cost from current systems",
+            "long sales cycle risk",
+            "ROI proof gap",
+            "champion versus buyer mismatch",
+            "org-wide adoption risk",
+            "vendor trust and reliability risk",
+        ),
+        evidence_expectations=(
+            "budget owner and procurement path evidence",
+            "security/compliance, SOC2, SSO, audit-log, and governance requirements",
+            "stakeholder map separating champion, buyer, IT, security, and end users",
+            "integration requirements and deployment responsibility evidence",
+            "rollout, training, and onboarding burden evidence",
+            "ROI proof and long-sales-cycle evidence",
+            "switching-cost and migration-friction evidence",
+        ),
+        decision_heuristics=(
+            "do not upgrade confidence without procurement and security/compliance evidence",
+            "treat champion interest as weak until budget owner and buyer are identified",
+            "penalize enterprise claims that omit rollout, training, and integration burden",
+            "prefer ROI validation before broad platform buildout",
+        ),
+        output_guidance=(
+            "surface procurement, budget owner, stakeholder alignment, ROI, and long-sales-cycle risk",
+            "name security/compliance, SSO, audit-log, governance, and IT-approval gaps explicitly",
+            "separate champion enthusiasm from buyer approval and org-wide adoption",
+            "keep rollout, onboarding, training, integration, switching cost, and vendor reliability visible",
+        ),
+        confidence_policy=(
+            "confidence is capped until procurement path, security/compliance requirements, integration burden, rollout plan, and ROI proof are evidenced",
+            "high confidence requires identified budget owner, security review path, and stakeholder alignment",
+        ),
+        caveat_policy=(
+            "include procurement and long-sales-cycle caveats",
+            "include security/compliance and IT-approval caveats",
+            "include rollout, onboarding, training, switching-cost, and stakeholder-alignment caveats",
+        ),
+        next_step_policy=(
+            "prioritize procurement interviews when budget owner or buying path is unclear",
+            "prioritize security/compliance review mapping when enterprise controls are unknown",
+            "prioritize rollout simulation or integration pilot when adoption depends on workflow depth",
         ),
     ),
     DomainProfile(
@@ -1399,7 +1618,7 @@ def _score_profiles(scoring_text: str) -> tuple[dict[str, int], dict[str, tuple[
             if _keyword_matches(
                 scoring_text,
                 keyword,
-                ignore_negated=profile.id == "developer_tool",
+                ignore_negated=profile.id in {"developer_tool", "enterprise_b2b"},
             ):
                 score += weight
                 matches.append(keyword)
@@ -1460,7 +1679,7 @@ def _flatten_parts(*parts: Any) -> tuple[str, ...]:
     return tuple(flattened)
 
 
-_NEGATED_DEVELOPER_KEYWORD_WINDOW = 8
+_NEGATED_SELECTION_KEYWORD_WINDOW = 8
 _NEGATION_MARKERS = frozenset(("no", "not", "without", "non"))
 
 
@@ -1490,7 +1709,7 @@ def _keyword_match_is_negated(scoring_text: str, match_start: int) -> bool:
     prefix_tokens = scoring_text[:match_start].split()
     if not prefix_tokens:
         return False
-    window = prefix_tokens[-_NEGATED_DEVELOPER_KEYWORD_WINDOW:]
+    window = prefix_tokens[-_NEGATED_SELECTION_KEYWORD_WINDOW:]
     return any(token in _NEGATION_MARKERS for token in window)
 
 

@@ -50,6 +50,11 @@ _TECHNICAL_KEYWORDS = (
     "logs",
     "monitoring",
     "compatibility",
+    "enterprise integration",
+    "deployment responsibility",
+    "workflow integration depth",
+    "rollout",
+    "vendor reliability",
 )
 _MARKET_KEYWORDS = (
     "adopt",
@@ -72,6 +77,16 @@ _MARKET_KEYWORDS = (
     "switching cost",
     "documentation",
     "team adoption",
+    "enterprise",
+    "procurement",
+    "budget owner",
+    "stakeholder",
+    "champion",
+    "buyer",
+    "roi",
+    "rollout",
+    "onboarding",
+    "training",
 )
 _SAFETY_KEYWORDS = (
     "safety",
@@ -91,6 +106,14 @@ _SAFETY_KEYWORDS = (
     "verification",
     "trust",
     "attorney",
+    "security",
+    "security review",
+    "compliance",
+    "soc2",
+    "sso",
+    "audit logs",
+    "governance",
+    "it approval",
 )
 _RED_TEAM_KEYWORDS = (
     "assume",
@@ -113,6 +136,10 @@ _RED_TEAM_KEYWORDS = (
     "integration",
     "documentation",
     "observability",
+    "procurement",
+    "vendor trust",
+    "long sales cycle",
+    "org-wide adoption",
 )
 _REGULATED_DOMAIN_KEYWORDS = (
     "medical",
@@ -134,6 +161,13 @@ _REGULATED_DOMAIN_KEYWORDS = (
     "freedom-to-operate",
     "attorney",
     "intellectual property",
+    "security",
+    "security review",
+    "compliance",
+    "soc2",
+    "sso",
+    "audit logs",
+    "governance",
 )
 
 
@@ -216,6 +250,17 @@ def _build_technical_critique(
             "Run a setup friction test and one integration prototype in a realistic developer "
             "stack before expanding tool surface area."
         )
+    elif domain_profile.id == "enterprise_b2b":
+        finding = (
+            f"The enterprise integration case is not proven for {target}. The concept must "
+            "show integration burden, workflow integration depth, deployment responsibility, "
+            "rollout complexity, and vendor reliability expectations before a company can "
+            f"plan a credible rollout. {gap_note}"
+        )
+        suggested_action = (
+            "Run an integration pilot that records systems touched, deployment owner, "
+            "reliability threshold, rollback path, and rollout dependencies."
+        )
     else:
         finding = (
             f"The technical case is not proven yet for {target}. "
@@ -285,6 +330,17 @@ def _build_market_critique(
             "Interview target developers about their current workflow, existing tools, setup "
             "friction, documentation needs, team rollout blockers, and repeat-use trigger."
         )
+    elif domain_profile.id == "enterprise_b2b":
+        finding = (
+            f"The enterprise buying case remains weak for {target}. Champion enthusiasm is "
+            "not enough: the concept needs evidence for budget owner clarity, procurement "
+            "path, stakeholder alignment, buyer versus champion distinction, ROI proof, "
+            f"long sales cycle, onboarding/training burden, and org-wide adoption risk. {gap_note}"
+        )
+        suggested_action = (
+            "Run procurement and stakeholder interviews that identify champion, buyer, IT/security, "
+            "procurement owner, budget owner, required ROI proof, and rollout blockers."
+        )
     else:
         finding = (
             f"The demand and usefulness case remains weak for {target}. "
@@ -334,6 +390,7 @@ def _build_safety_critique(
         "high"
         if regulated_terms
         or domain_profile.id in {"capsule_medical_environmental", "medical_device"}
+        or domain_profile.id == "enterprise_b2b"
         or (
             domain_profile.id == "ai_saas"
             and claim
@@ -375,6 +432,17 @@ def _build_safety_critique(
         suggested_action = (
             "Write an operational boundary checklist covering secrets, permissions, log exposure, "
             "production data, and safe integration defaults."
+        )
+    elif domain_profile.id == "enterprise_b2b":
+        finding = (
+            f"The enterprise security/compliance boundary is underspecified for {target}.{regulated_note} "
+            "A B2B workflow platform can stall in security review if SOC2 expectations, SSO, "
+            "audit logs, governance, data access, admin controls, and IT approval are not "
+            f"explicit. {gap_note}"
+        )
+        suggested_action = (
+            "Map security/compliance requirements with SOC2, SSO, audit logs, governance, "
+            "data-access owner, IT approval, and stop conditions before rollout."
         )
     else:
         finding = (
@@ -446,6 +514,17 @@ def _build_red_team_critique(
         suggested_action = (
             "Run an existing-tool comparison that marks current substitutes, switching cost, "
             "compatibility boundaries, documentation burden, and repeat-use triggers."
+        )
+    elif domain_profile.id == "enterprise_b2b":
+        finding = (
+            f"The easiest failure mode for {target} is enterprise drag: a champion likes the "
+            "workflow, but procurement, security/compliance review, switching cost, training, "
+            "integration burden, ROI proof, or vendor-trust concerns block org-wide adoption. "
+            f"{gap_note}"
+        )
+        suggested_action = (
+            "Run a stakeholder and switching-cost map that separates champion interest, buyer "
+            "approval, procurement blockers, security review, rollout burden, and vendor trust."
         )
     else:
         finding = (

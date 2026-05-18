@@ -136,6 +136,29 @@ _PROFILE_EXPECTATIONS_BY_CATEGORY = {
             "and operational-risk boundaries"
         ),
     },
+    "enterprise_b2b": {
+        "technical": (
+            "enterprise integration requirements, workflow integration depth, deployment "
+            "responsibility, rollout complexity, vendor reliability expectations, and "
+            "compatibility with current systems"
+        ),
+        "user_adoption": (
+            "stakeholder alignment, champion versus buyer distinction, department workflow, "
+            "onboarding/training burden, and org-wide adoption risk"
+        ),
+        "prior_art": (
+            "comparison against current enterprise systems, internal tools, manual processes, "
+            "vendor alternatives, switching cost, and migration friction"
+        ),
+        "market": (
+            "budget owner, procurement path, purchase process, ROI proof requirement, "
+            "long sales cycle, and approval steps"
+        ),
+        "safety_regulatory": (
+            "security/compliance requirements, SOC2 expectations, SSO, admin controls, "
+            "audit logs, governance, data access, and IT approval"
+        ),
+    },
     "capsule_medical_environmental": {
         "technical": (
             "intended use, target population, data-capture quality, safe transit, "
@@ -229,6 +252,28 @@ _VALIDATION_EXPERIMENT_BY_PROFILE_CATEGORY = {
         "safety_regulatory": (
             "Operational boundary check: define secrets, production data, access scopes, "
             "log exposure, and safe integration boundaries."
+        ),
+    },
+    "enterprise_b2b": {
+        "technical": (
+            "Integration pilot: test one realistic enterprise integration path, deployment "
+            "owner, workflow depth, reliability expectation, and rollout dependency."
+        ),
+        "user_adoption": (
+            "Stakeholder mapping exercise: map champion, buyer, IT/security, procurement, "
+            "department users, onboarding burden, and org-wide adoption risk."
+        ),
+        "prior_art": (
+            "Switching-cost comparison: compare against current enterprise systems, internal "
+            "tools, manual process, vendor alternatives, and migration friction."
+        ),
+        "market": (
+            "Procurement interview: validate budget owner, buying process, approval steps, "
+            "long sales cycle, and ROI proof requirement."
+        ),
+        "safety_regulatory": (
+            "Security/compliance review mapping: define SOC2, SSO, audit logs, governance, "
+            "data access, IT approval, and compliance blockers."
         ),
     },
     "capsule_medical_environmental": {
@@ -379,6 +424,36 @@ _PROFILE_REASONING_TRACE_BY_CATEGORY = {
         "safety_regulatory": (
             "Secrets and access-scope boundary unclear",
             "Production data or log exposure risk unresolved",
+        ),
+    },
+    "enterprise_b2b": {
+        "technical": (
+            "Enterprise integration requirements unmeasured",
+            "Workflow integration depth unsupported",
+            "Deployment responsibility unclear",
+            "Vendor reliability expectation unproven",
+        ),
+        "user_adoption": (
+            "Stakeholder alignment unclear",
+            "Champion versus buyer distinction missing",
+            "Onboarding/training burden unknown",
+            "Org-wide adoption risk unresolved",
+        ),
+        "prior_art": (
+            "Switching cost from current systems unsupported",
+            "Enterprise substitute map missing",
+            "Migration friction unclear",
+        ),
+        "market": (
+            "Budget owner unidentified",
+            "Procurement path unclear",
+            "ROI proof missing",
+            "Long sales cycle risk unresolved",
+        ),
+        "safety_regulatory": (
+            "Security/compliance requirements unknown",
+            "SOC2 or security review path not mapped",
+            "SSO, audit logs, governance, and IT approval unproven",
         ),
     },
     "capsule_medical_environmental": {
@@ -769,6 +844,11 @@ def _provided_reasoning_trace(domain_profile: Any) -> tuple[str, ...]:
             "Supporting evidence: local input frames the developer-tool workflow",
             "Confidence supporting: local input does not validate setup friction or integration burden",
         )
+    if profile_id == "enterprise_b2b":
+        return (
+            "Supporting evidence: local input frames the enterprise B2B workflow",
+            "Confidence supporting: local input does not validate procurement path or security/compliance requirements",
+        )
     if profile_id in {"medical_device", "capsule_medical_environmental"}:
         return (
             "Supporting evidence: local input frames the medical-device concept",
@@ -837,6 +917,10 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "ecosystem compatibility",
             "stack compatibility",
             "switching cost",
+            "current enterprise systems",
+            "internal tools",
+            "vendor alternatives",
+            "migration friction",
         ),
     ):
         return "prior_art"
@@ -844,6 +928,17 @@ def _gap_category_for_claim(claim: Claim) -> str:
         text, ("wastewater", "biodegradable", "degradation", "environment", "discharge")
     ):
         return "environmental"
+    if _contains_any(
+        text,
+        (
+            "procurement path",
+            "roi proof",
+            "long sales cycle",
+            "purchase process",
+            "budget timing",
+        ),
+    ):
+        return "market"
     if _contains_any(
         text,
         (
@@ -867,6 +962,16 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "verification boundaries",
             "professional-review",
             "hallucinated",
+            "security/compliance",
+            "compliance",
+            "security review",
+            "soc2",
+            "sso",
+            "audit logs",
+            "governance",
+            "data access",
+            "it approval",
+            "admin controls",
         ),
     ):
         return "safety_regulatory"
@@ -880,6 +985,12 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "individual versus team adoption",
             "team adoption",
             "repeat usage trigger",
+            "stakeholder alignment",
+            "champion versus buyer",
+            "department workflow",
+            "onboarding/training burden",
+            "onboarding and training burden",
+            "org-wide adoption",
         ),
     ):
         return "user_adoption"
@@ -914,6 +1025,12 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "monitoring",
             "compatibility",
             "documentation",
+            "enterprise integration requirements",
+            "workflow integration depth",
+            "deployment responsibility",
+            "vendor reliability",
+            "rollout complexity",
+            "enterprise integration",
         ),
     ):
         return "technical"
@@ -928,6 +1045,14 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "channel access",
             "market includes",
             "commercial audience",
+            "budget owner",
+            "procurement path",
+            "procurement",
+            "roi proof",
+            "long sales cycle",
+            "approval steps",
+            "budget timing",
+            "purchase process",
         ),
     ):
         return "market"
@@ -953,6 +1078,13 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "developer workflow",
             "existing workflow pain",
             "team adoption",
+            "stakeholder alignment",
+            "champion",
+            "buyer distinction",
+            "onboarding",
+            "training",
+            "org-wide adoption",
+            "department workflow",
         ),
     ):
         return "user_adoption"

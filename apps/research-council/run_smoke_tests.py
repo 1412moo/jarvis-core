@@ -796,12 +796,13 @@ def test_confidence_trace_linkage_and_json_additive_fields() -> None:
 def test_golden_case_evaluation_harness() -> None:
     summary = evaluate_golden_cases()
     case_ids = {evaluation.case_id for evaluation in summary.evaluations}
-    _assert(summary.case_count >= 5, "golden case harness must load the committed cases")
+    _assert(summary.case_count >= 6, "golden case harness must load the committed cases")
     _assert(summary.invariant_count >= 20, "golden case harness must evaluate invariants")
     for expected_case_id in (
         "ai_saas/weak_ai_wrapper",
         "ai_saas/workflow_ai_assistant",
         "developer_tool/cli_debugging_tool",
+        "enterprise_b2b/enterprise_workflow_platform",
         "medical_device/diagnostic_tool",
         "generic/vague_consumer_idea",
     ):
@@ -844,6 +845,7 @@ def test_domain_profile_selection_foundation() -> None:
             "general",
             "medical_device",
             "ai_saas",
+            "enterprise_b2b",
             "developer_tool",
             "consumer_app",
             "hardware_device",
@@ -897,6 +899,40 @@ def test_domain_profile_selection_foundation() -> None:
     _assert(
         ai_selection.selected_profile.id == "ai_saas",
         "AI SaaS / patent assistant idea must select ai_saas",
+    )
+
+    enterprise_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "Enterprise workflow platform for compliance automation with procurement, "
+                "security review, SSO, audit logs, and multi-team rollout"
+            ),
+            "goal": "Evaluate stakeholder alignment, ROI proof, and rollout risk.",
+            "context": "Budget owner, IT approval, and department workflow matter.",
+        }
+    )
+    _assert(
+        enterprise_selection.selected_profile.id == "enterprise_b2b",
+        "enterprise procurement / security / rollout input must select enterprise_b2b",
+    )
+
+    negated_enterprise_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "AI SaaS for legal intake automation. No enterprise rollout, compliance, "
+                "or security workflow is planned."
+            ),
+            "goal": "Evaluate buyer workflow, retention, and willingness to pay.",
+            "context": "This is business software for legal intake teams.",
+        }
+    )
+    _assert(
+        negated_enterprise_selection.selected_profile.id == "ai_saas",
+        "AI SaaS with negated enterprise keywords must remain ai_saas",
+    )
+    _assert(
+        not negated_enterprise_selection.matched_keywords["enterprise_b2b"],
+        "negated enterprise / compliance / security wording must not score enterprise_b2b",
     )
 
     negated_developer_keyword_selection = resolve_domain_profile(

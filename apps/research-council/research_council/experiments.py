@@ -65,6 +65,17 @@ def propose_experiments(
         )
         return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
 
+    if domain_profile.id == "enterprise_b2b":
+        drafts = (
+            _enterprise_procurement_interview_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _enterprise_security_compliance_mapping_experiment(claim_list, critique_list, fallback_ids),
+            _enterprise_stakeholder_mapping_experiment(claim_list, critique_list, fallback_ids),
+            _enterprise_rollout_simulation_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _enterprise_roi_validation_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _enterprise_integration_pilot_experiment(claim_list, critique_list, fallback_ids),
+        )
+        return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
+
     if domain_profile.id == "capsule_medical_environmental":
         drafts = (
             _capsule_safety_boundary_experiment(input_data, claim_list, critique_list, fallback_ids),
@@ -607,6 +618,239 @@ def _developer_existing_tool_comparison_experiment(
             "or stop because switching cost is too high."
         ),
         risk="A comparison map clarifies positioning but does not prove adoption.",
+    )
+
+
+def _enterprise_procurement_interview_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("procurement", "budget owner", "roi proof", "long sales cycle"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Procurement interview",
+        hypothesis=(
+            "The enterprise buying path has a named budget owner, procurement process, "
+            "approval sequence, and ROI proof requirement."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Interview the likely product champion, economic buyer, and procurement or finance "
+            "stakeholder. Record budget owner, approval steps, long-sales-cycle risk, required "
+            f"ROI proof, security review dependency, and stop conditions. Keep the goal in frame: "
+            f"{_short_goal(input_data)}."
+        ),
+        metric=(
+            "The interview notes identify the buyer, budget owner, approval path, required ROI "
+            "proof, and one procurement blocker."
+        ),
+        minimum_sample="3 stakeholders across champion, buyer, and procurement roles.",
+        estimated_time="2-4 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria="Stop if no budget owner or procurement path can be identified.",
+        decision_impact=(
+            "Decide whether the opportunity has a credible buying path or should narrow to "
+            "a different department, buyer, or workflow."
+        ),
+        risk="Procurement interviews do not prove budget approval or contract timing.",
+    )
+
+
+def _enterprise_security_compliance_mapping_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "safety_regulatory") or _select_claim_ids(
+        claims,
+        ("security/compliance", "soc2", "security review", "sso", "audit logs"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Security/compliance review mapping",
+        hypothesis=(
+            "The enterprise deployment can name security, compliance, SSO, audit-log, "
+            "governance, data-access, and IT-approval requirements before rollout."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Create a security/compliance map for SOC2 expectations, SSO, admin controls, "
+            "audit logs, governance, data access, IT approval, and vendor-risk evidence. "
+            "For each item, record owner, required evidence, unresolved blocker, and stop condition."
+        ),
+        metric=(
+            "Every security or compliance requirement has an owner, required evidence, and "
+            "clear pass/block status."
+        ),
+        minimum_sample="One checklist reviewed with an IT, security, or compliance stakeholder.",
+        estimated_time="60-120 minutes",
+        estimated_cost_level="free",
+        stop_criteria="Stop if required controls or approval owners cannot be named.",
+        decision_impact=(
+            "Decide whether enterprise deployment can proceed to a narrow pilot or must pause "
+            "for security/compliance scoping."
+        ),
+        risk="A review map is not a formal compliance audit or security certification.",
+    )
+
+
+def _enterprise_stakeholder_mapping_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("stakeholder alignment", "champion", "buyer", "department workflow"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Stakeholder mapping exercise",
+        hypothesis=(
+            "The champion, buyer, IT/security reviewer, procurement owner, admin, and end "
+            "users can be mapped with distinct incentives and blockers."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Map each enterprise stakeholder, decision right, approval concern, workflow impact, "
+            "training need, and adoption blocker. Mark whether the champion can influence the "
+            "budget owner and whether end users have a repeat workflow."
+        ),
+        metric=(
+            "The map names champion, buyer, procurement, IT/security, admin, and user roles "
+            "with one blocker and one required proof point each."
+        ),
+        minimum_sample="One stakeholder map reviewed with the champion or workflow owner.",
+        estimated_time="60-90 minutes",
+        estimated_cost_level="free",
+        stop_criteria="Stop if the champion cannot name the buyer or approval path.",
+        decision_impact=(
+            "Decide whether stakeholder alignment is strong enough for procurement or pilot work."
+        ),
+        risk="A stakeholder map may miss hidden approvers or political blockers.",
+    )
+
+
+def _enterprise_rollout_simulation_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("rollout complexity", "onboarding", "training", "org-wide adoption"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Rollout simulation",
+        hypothesis=(
+            "A department can roll out the workflow without hidden onboarding, training, "
+            "admin, support, or change-management burden."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Simulate the first department rollout. List admin setup, onboarding steps, training "
+            "materials, user permissions, support owner, migration tasks, and failure points. "
+            f"Constraints considered: {_short_constraints(input_data)}."
+        ),
+        metric=(
+            "The rollout plan names owner, user group, onboarding path, training burden, "
+            "support responsibility, and one stop condition."
+        ),
+        minimum_sample="One department rollout walkthrough with the champion and one end user.",
+        estimated_time="90-120 minutes",
+        estimated_cost_level="free",
+        stop_criteria="Stop if rollout depends on unclear owners, unbounded training, or unsupported admin work.",
+        decision_impact=(
+            "Decide whether org-wide adoption risk is acceptable for a controlled pilot."
+        ),
+        risk="A simulation does not prove full enterprise adoption or production readiness.",
+    )
+
+
+def _enterprise_roi_validation_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("roi proof", "budget owner", "procurement", "long sales cycle"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="ROI validation interview",
+        hypothesis=(
+            "The enterprise buyer can state the ROI threshold, measurement window, and proof "
+            "needed to justify procurement."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Interview the budget owner or buyer about measurable ROI, current cost baseline, "
+            "budget timing, approval threshold, acceptable pilot proof, and what would stop a "
+            f"purchase. Use the goal as the decision frame: {_short_goal(input_data)}."
+        ),
+        metric=(
+            "The buyer names a measurable ROI metric, baseline, proof threshold, and budget timing."
+        ),
+        minimum_sample="1-3 budget owners or economic buyers.",
+        estimated_time="60-120 minutes",
+        estimated_cost_level="free-to-low",
+        stop_criteria="Stop if ROI cannot be measured or tied to a budget owner.",
+        decision_impact=(
+            "Decide whether the enterprise case has enough economic proof to continue."
+        ),
+        risk="A stated ROI threshold does not guarantee procurement approval.",
+    )
+
+
+def _enterprise_integration_pilot_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "technical") or _select_claim_ids(
+        claims,
+        ("enterprise integration", "workflow integration depth", "deployment responsibility"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Integration pilot",
+        hypothesis=(
+            "The product can fit one enterprise workflow with bounded integration work, "
+            "deployment responsibility, and reliability expectations."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Pilot the smallest non-production integration path. Record systems touched, "
+            "data handoffs, admin permissions, deployment owner, reliability expectation, "
+            "rollback path, and workflow depth needed for value."
+        ),
+        metric=(
+            "The pilot defines integration scope, owner, reliability threshold, rollback path, "
+            "and one workflow outcome without unresolved deployment blockers."
+        ),
+        minimum_sample="One representative enterprise workflow or system handoff.",
+        estimated_time="3-6 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria="Stop if value depends on broad system access, unclear ownership, or unsupported reliability.",
+        decision_impact=(
+            "Decide whether integration depth is realistic enough for an enterprise pilot."
+        ),
+        risk="A narrow pilot does not prove full enterprise deployment or procurement readiness.",
     )
 
 

@@ -37,7 +37,14 @@ _ROLE_TO_BLOCKER_CATEGORY = {
 }
 
 _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
-    "safety_regulatory": ("safety", "hazard", "boundary"),
+    "safety_regulatory": (
+        "safety",
+        "hazard",
+        "boundary",
+        "security/compliance",
+        "security",
+        "compliance",
+    ),
     "technical": (
         "output-quality",
         "reliability",
@@ -46,6 +53,7 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
         "technical",
         "setup friction",
         "integration",
+        "integration pilot",
         "sensing",
         "prototype",
         "mockup",
@@ -55,12 +63,23 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
         "workflow interview",
         "developer workflow interview",
         "setup friction",
+        "stakeholder mapping",
+        "rollout simulation",
         "adoption",
         "care-pathway",
         "interview",
         "usefulness",
     ),
-    "market": ("workflow interview", "differentiation", "adoption", "market", "payer", "buyer"),
+    "market": (
+        "workflow interview",
+        "procurement interview",
+        "roi validation",
+        "differentiation",
+        "adoption",
+        "market",
+        "payer",
+        "buyer",
+    ),
     "prior_art": ("differentiation", "prior", "evidence gap", "comparison", "map"),
 }
 
@@ -114,6 +133,49 @@ _DEVELOPER_TOOL_PRIORITY_TERMS = {
     "prior_art": ("existing tools", "switching cost", "sdk", "cli", "api", "monitoring"),
     "market": ("documentation", "support burden", "team rollout"),
     "safety_regulatory": ("secrets", "production data", "access scopes", "logs"),
+}
+
+_ENTERPRISE_B2B_CATEGORY_BONUS = {
+    "market": 20,
+    "safety_regulatory": 18,
+    "user_adoption": 16,
+    "technical": 14,
+    "prior_art": 10,
+}
+
+_ENTERPRISE_B2B_PRIORITY_TERMS = {
+    "market": (
+        "budget owner",
+        "procurement",
+        "roi proof",
+        "long sales cycle",
+        "approval steps",
+    ),
+    "safety_regulatory": (
+        "security/compliance",
+        "security review",
+        "soc2",
+        "sso",
+        "audit logs",
+        "governance",
+        "it approval",
+    ),
+    "user_adoption": (
+        "stakeholder alignment",
+        "champion",
+        "buyer",
+        "onboarding",
+        "training",
+        "org-wide adoption",
+    ),
+    "technical": (
+        "enterprise integration",
+        "workflow integration depth",
+        "deployment responsibility",
+        "rollout complexity",
+        "vendor reliability",
+    ),
+    "prior_art": ("current enterprise systems", "switching cost", "migration friction"),
 }
 
 
@@ -269,6 +331,25 @@ def _create_recommendation(
                 "integration fit, ecosystem compatibility, debugging or observability value, "
                 "documentation clarity, team adoption, switching cost, time-to-value, or repeat usage."
             )
+        elif domain_profile.id == "enterprise_b2b":
+            if primary_blocker.category == "technical":
+                decision = "continue_with_enterprise_integration_pilot"
+            elif primary_blocker.category == "user_adoption":
+                decision = "continue_with_stakeholder_rollout_validation"
+            elif primary_blocker.category == "market":
+                decision = "continue_with_procurement_roi_validation"
+            elif primary_blocker.category == "safety_regulatory":
+                decision = "pause_broad_use_resolve_security_compliance"
+            elif primary_blocker.category == "prior_art":
+                decision = "continue_with_switching_cost_mapping"
+            summary = (
+                f"Primary enterprise B2B blocker: {primary_blocker.category.replace('_', ' ')} "
+                f"evidence for `{primary_blocker.claim_id}`. Treat the submitted description "
+                "as concept input, not proof of budget owner clarity, procurement path, "
+                "security/compliance readiness, stakeholder alignment, integration fit, rollout "
+                "capacity, onboarding/training cost, switching cost, vendor trust, long-sales-cycle "
+                "tolerance, ROI proof, or org-wide adoption."
+            )
         else:
             summary = (
                 f"Primary blocker: {primary_blocker.category.replace('_', ' ')} evidence for "
@@ -308,6 +389,14 @@ def _create_recommendation(
                 "observability value, documentation burden, switching cost, time-to-value, "
                 "and repeat usage because these determine whether developers keep a tool in "
                 "their stack."
+            )
+        if domain_profile.id == "enterprise_b2b":
+            rationale_parts.append(
+                "Enterprise B2B weighting gives extra priority to procurement path, budget "
+                "owner clarity, security/compliance requirements, stakeholder alignment, "
+                "integration burden, rollout complexity, onboarding/training cost, switching "
+                "cost, long sales cycle, ROI proof, and vendor trust because these determine "
+                "whether enterprise adoption survives approval."
             )
         confidence_note = _confidence_policy_note(domain_profile)
         if confidence_note:
@@ -435,10 +524,14 @@ def _profile_priority_bonus(
         bonus += _AI_SAAS_CATEGORY_BONUS.get(category, 0)
     if domain_profile.id == "developer_tool":
         bonus += _DEVELOPER_TOOL_CATEGORY_BONUS.get(category, 0)
+    if domain_profile.id == "enterprise_b2b":
+        bonus += _ENTERPRISE_B2B_CATEGORY_BONUS.get(category, 0)
     lowered = summary.lower()
     terms = _AI_SAAS_PRIORITY_TERMS.get(category, ())
     if domain_profile.id == "developer_tool":
         terms = _DEVELOPER_TOOL_PRIORITY_TERMS.get(category, ())
+    if domain_profile.id == "enterprise_b2b":
+        terms = _ENTERPRISE_B2B_PRIORITY_TERMS.get(category, ())
     if any(term in lowered for term in terms):
         bonus += 6
     profile_terms = _profile_policy_terms(
@@ -591,6 +684,32 @@ def _next_step_policy_note(
                 "Keep secrets, production data, access scopes, log exposure, and safe integration "
                 "boundaries visible."
             )
+    if domain_profile.id == "enterprise_b2b":
+        if category == "market":
+            return (
+                "Capture budget owner, procurement path, approval steps, ROI proof, "
+                "long-sales-cycle risk, and buyer versus champion distinction."
+            )
+        if category == "safety_regulatory":
+            return (
+                "Map security/compliance requirements, SOC2, SSO, audit logs, governance, "
+                "data access, IT approval, and stop conditions."
+            )
+        if category == "user_adoption":
+            return (
+                "Map stakeholders, department workflow, onboarding/training burden, rollout "
+                "owners, and org-wide adoption risk."
+            )
+        if category == "technical":
+            return (
+                "Measure enterprise integration requirements, workflow depth, deployment "
+                "responsibility, reliability expectation, and rollout dependencies."
+            )
+        if category == "prior_art":
+            return (
+                "Compare against current enterprise systems, internal tools, vendor alternatives, "
+                "switching cost, and migration friction."
+            )
     if domain_profile.next_step_policy:
         return domain_profile.next_step_policy[0]
     return ""
@@ -608,6 +727,10 @@ def _profile_caveats(domain_profile: DomainProfile) -> tuple[str, ...]:
     if domain_profile.id == "developer_tool":
         return (
             "Developer-tool profile caveat: DX friction, setup complexity, integration cost, ecosystem compatibility, debugging or observability value, documentation burden, switching cost, time-to-value, and repeat usage remain unvalidated without targeted developer evidence.",
+        )
+    if domain_profile.id == "enterprise_b2b":
+        return (
+            "Enterprise B2B profile caveat: procurement path, budget owner clarity, security/compliance requirements, stakeholder alignment, integration burden, rollout complexity, onboarding/training cost, switching cost, long sales cycle, ROI proof, and vendor trust remain unvalidated without targeted enterprise evidence.",
         )
     if domain_profile.caveat_policy:
         return tuple(f"Profile caveat policy: {caveat}" for caveat in domain_profile.caveat_policy)

@@ -533,6 +533,21 @@ def _expected_caveat_terms(profile_id: str) -> tuple[str, ...]:
             "time to value",
             "repeat usage",
         )
+    if profile_id == "enterprise_b2b":
+        return (
+            "procurement path",
+            "budget owner",
+            "security compliance",
+            "stakeholder alignment",
+            "integration burden",
+            "rollout complexity",
+            "onboarding",
+            "training",
+            "switching cost",
+            "long sales cycle",
+            "roi proof",
+            "vendor trust",
+        )
     return ("local only", "missing evidence", "no citations")
 
 
