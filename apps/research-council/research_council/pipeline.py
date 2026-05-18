@@ -1,7 +1,14 @@
-"""Deterministic placeholder pipeline for Research Council v0.1."""
+"""Deterministic Research Council v0.1 pipeline."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+from .claim_extractor import extract_claims
+from .evidence_ledger import build_evidence_ledger, evidence_status
+from .experiments import propose_experiments
+from .report_renderer import render_markdown_report
+from .reviewers import run_reviewers
 from .schemas import (
     Claim,
     EvidenceEntry,
@@ -14,36 +21,52 @@ from .schemas import (
 )
 
 
-def run_research_council(input: ResearchCouncilInput) -> ResearchCouncilResult:
-    """Run the v0.1 placeholder Research Council workflow.
+_STANDARD_WARNINGS = (
+    "No web search, network calls, LLM calls, or external evidence collection were performed.",
+    "No citations are generated; user-provided evidence is local input only.",
+    "Missing evidence is represented explicitly in the evidence ledger.",
+)
 
-    This function is intentionally deterministic. It performs no web search, no
-    network calls, and no LLM calls. Later passes can replace the placeholder
-    internals while keeping this function shape stable.
+
+def run_research_council(input: ResearchCouncilInput) -> ResearchCouncilResult:
+    """Run the deterministic v0.1 Research Council workflow.
+
+    The pipeline is intentionally local and standard-library only. It wires the
+    completed isolated modules together without web search, network calls, LLM
+    calls, or citation generation.
     """
 
     input_summary = _build_input_summary(input)
-    claims = _build_placeholder_claims(input)
-    evidence_ledger = _build_placeholder_evidence(input, claims)
-    reviewer_critiques = _build_placeholder_critiques()
-    experiments = _build_placeholder_experiments()
-    recommendation = Recommendation(
-        decision="continue_with_minimum_experiment",
-        summary="Continue only through a small local experiment before adding integrations.",
-        next_step="Run one manual Research Council pass with a real idea and inspect whether the report produces useful next actions.",
-        rationale="The current result exposes clear evidence gaps and can be validated without web search or app integrations.",
+    claims = tuple(extract_claims(input))
+    evidence_ledger = tuple(build_evidence_ledger(input, claims))
+    _validate_evidence_coverage(claims, evidence_ledger)
+
+    reviewer_critiques = tuple(run_reviewers(input, claims, evidence_ledger))
+    experiments = tuple(propose_experiments(input, claims, evidence_ledger, reviewer_critiques))
+    recommendation = _create_recommendation(
+        claims=claims,
+        evidence_ledger=evidence_ledger,
+        reviewer_critiques=reviewer_critiques,
+        experiments=experiments,
     )
+    warnings = _build_warnings(evidence_ledger)
     markdown_report = MarkdownReport(
         title="Research Council Report",
-        markdown=_render_markdown_report(
-            input_summary=input_summary,
-            claims=claims,
-            evidence_ledger=evidence_ledger,
-            reviewer_critiques=reviewer_critiques,
-            experiments=experiments,
-            recommendation=recommendation,
+        markdown=render_markdown_report(
+            {
+                "title": "Research Council Report",
+                "input_data": input.to_dict(),
+                "input_summary": input_summary,
+                "claims": claims,
+                "evidence_ledger": evidence_ledger,
+                "reviewer_critiques": reviewer_critiques,
+                "experiments": experiments,
+                "recommendation": recommendation,
+                "warnings": warnings,
+            }
         ),
     )
+
     return ResearchCouncilResult(
         input_summary=input_summary,
         claims=claims,
@@ -52,10 +75,7 @@ def run_research_council(input: ResearchCouncilInput) -> ResearchCouncilResult:
         experiments=experiments,
         recommendation=recommendation,
         markdown_report=markdown_report,
-        warnings=(
-            "No web search, network calls, LLM calls, or external evidence collection were performed.",
-            "Missing evidence is represented explicitly in the evidence ledger.",
-        ),
+        warnings=warnings,
     )
 
 
@@ -63,160 +83,143 @@ def _build_input_summary(input: ResearchCouncilInput) -> str:
     return f"Evaluate whether the idea can support the goal: {input.goal}"
 
 
-def _build_placeholder_claims(input: ResearchCouncilInput) -> tuple[Claim, ...]:
-    return (
-        Claim(
-            id="claim-001",
-            text="The user's raw idea and goal define a research direction worth structuring.",
-            source_label="user_provided",
-            confidence="medium",
-            rationale="The user supplied both an idea and a goal.",
-        ),
-        Claim(
-            id="claim-002",
-            text="The idea can be evaluated through a small local experiment before broader Jarvis integration.",
-            source_label="extracted",
-            confidence="low",
-            rationale="The requested workflow can be checked through a local demo and report review.",
-        ),
-        Claim(
-            id="claim-003",
-            text="There is enough evidence to justify expanding Research Council beyond an isolated app module.",
-            source_label="needs_evidence",
-            confidence="low",
-            rationale="No adoption, usefulness, or quality evidence has been collected in this foundation pass.",
-        ),
+def _validate_evidence_coverage(
+    claims: Sequence[Claim], evidence_ledger: Sequence[EvidenceEntry]
+) -> None:
+    covered_claim_ids = {entry.claim_id for entry in evidence_ledger}
+    missing_claim_ids = [claim.id for claim in claims if claim.id not in covered_claim_ids]
+    if missing_claim_ids:
+        joined_ids = ", ".join(missing_claim_ids)
+        raise ValueError(f"evidence ledger missing coverage for: {joined_ids}")
+
+
+def _create_recommendation(
+    *,
+    claims: Sequence[Claim],
+    evidence_ledger: Sequence[EvidenceEntry],
+    reviewer_critiques: Sequence[ReviewerCritique],
+    experiments: Sequence[ExperimentPlan],
+) -> Recommendation:
+    missing_entries = _entries_with_status(
+        evidence_ledger, {"assumed", "missing", "needs_external_validation"}
+    )
+    externally_unvalidated_entries = _entries_with_status(
+        evidence_ledger, {"needs_external_validation"}
+    )
+    provided_claim_ids = {
+        entry.claim_id for entry in evidence_ledger if entry.evidence_type == "provided"
+    }
+    high_severity_roles = sorted(
+        {
+            critique.reviewer_role
+            for critique in reviewer_critiques
+            if critique.severity == "high"
+        }
+    )
+    first_experiment = _select_next_experiment(
+        experiments=experiments,
+        high_severity_roles=high_severity_roles,
+        has_missing_entries=bool(missing_entries),
     )
 
+    if missing_entries:
+        decision = "continue_with_minimum_experiments"
+        if "safety_regulatory" in high_severity_roles or externally_unvalidated_entries:
+            decision = "pause_broad_use_run_minimum_experiments"
 
-def _build_placeholder_evidence(
-    input: ResearchCouncilInput, claims: tuple[Claim, ...]
-) -> tuple[EvidenceEntry, ...]:
-    first_evidence = (
-        input.provided_evidence[0]
-        if input.provided_evidence
-        else "The user supplied a raw idea, goal, and requested Research Council workflow."
-    )
-    return (
-        EvidenceEntry(
-            id="evidence-001",
-            claim_id=claims[0].id,
-            evidence_type="provided",
-            summary=first_evidence,
-            reference_label="user_input",
-            notes="This is user-provided context, not externally verified evidence.",
-        ),
-        EvidenceEntry(
-            id="evidence-002",
-            claim_id=claims[1].id,
-            evidence_type="missing",
-            summary="No real local trial has been run against a user idea yet.",
-            notes="A manual smoke experiment can fill this gap.",
-        ),
-        EvidenceEntry(
-            id="evidence-003",
-            claim_id=claims[2].id,
-            evidence_type="missing",
-            summary="No external validation, adoption signal, or report quality review exists yet.",
-            notes="Do not treat this claim as supported until evidence is collected.",
-        ),
-    )
-
-
-def _build_placeholder_critiques() -> tuple[ReviewerCritique, ...]:
-    return (
-        ReviewerCritique(
-            id="critique-001",
-            reviewer_role="skeptic",
-            claim_id="claim-003",
-            finding="The expansion claim is unsupported because there is no usefulness or adoption evidence yet.",
-            severity="high",
-            suggested_action="Keep Research Council isolated until a local trial produces useful output.",
-        ),
-        ReviewerCritique(
-            id="critique-002",
-            reviewer_role="operator",
-            claim_id=None,
-            finding="The workflow should stay deterministic and local while the contract is stabilizing.",
-            severity="medium",
-            suggested_action="Use smoke tests and stdout Markdown before adding persistence or adapters.",
-        ),
-    )
-
-
-def _build_placeholder_experiments() -> tuple[ExperimentPlan, ...]:
-    return (
-        ExperimentPlan(
-            id="experiment-001",
-            title="One-idea local report trial",
-            hypothesis_claim_ids=("claim-001", "claim-002"),
-            method="Run the local demo with one real user idea, then inspect whether the report identifies claims, gaps, critiques, and next actions.",
-            success_metric="A human reviewer can name at least one useful next action from the Markdown report.",
-            minimum_sample="One real idea and one manual review session.",
-            risk="A single trial may validate formatting without proving repeated usefulness.",
-        ),
-    )
-
-
-def _render_markdown_report(
-    input_summary: str,
-    claims: tuple[Claim, ...],
-    evidence_ledger: tuple[EvidenceEntry, ...],
-    reviewer_critiques: tuple[ReviewerCritique, ...],
-    experiments: tuple[ExperimentPlan, ...],
-    recommendation: Recommendation,
-) -> str:
-    lines: list[str] = [
-        "# Research Council Report",
-        "",
-        "## Scope Notice",
-        "",
-        "No web search, network calls, LLM calls, or external evidence collection were performed. No citations are generated.",
-        "",
-        "## Input Summary",
-        "",
-        input_summary,
-        "",
-        "## Claims",
-        "",
-    ]
-    for claim in claims:
-        lines.append(f"- `{claim.id}` (`{claim.source_label}`, {claim.confidence}): {claim.text}")
-        lines.append(f"  - Rationale: {claim.rationale}")
-
-    lines.extend(["", "## Evidence Ledger", ""])
-    for entry in evidence_ledger:
-        reference = f", reference `{entry.reference_label}`" if entry.reference_label else ""
-        lines.append(f"- `{entry.id}` for `{entry.claim_id}` (`{entry.evidence_type}`{reference}): {entry.summary}")
-        if entry.notes:
-            lines.append(f"  - Notes: {entry.notes}")
-
-    lines.extend(["", "## Reviewer Critiques", ""])
-    for critique in reviewer_critiques:
-        claim_text = f" for `{critique.claim_id}`" if critique.claim_id else ""
-        lines.append(f"- `{critique.id}` (`{critique.reviewer_role}`, {critique.severity}){claim_text}: {critique.finding}")
-        lines.append(f"  - Suggested action: {critique.suggested_action}")
-
-    lines.extend(["", "## Minimum Viable Experiments", ""])
-    for experiment in experiments:
-        joined_claims = ", ".join(f"`{claim_id}`" for claim_id in experiment.hypothesis_claim_ids)
-        lines.append(f"- `{experiment.id}`: {experiment.title}")
-        lines.append(f"  - Hypothesis claims: {joined_claims}")
-        lines.append(f"  - Method: {experiment.method}")
-        lines.append(f"  - Success metric: {experiment.success_metric}")
-        lines.append(f"  - Minimum sample: {experiment.minimum_sample}")
-        lines.append(f"  - Risk: {experiment.risk}")
-
-    lines.extend(
-        [
-            "",
-            "## Recommendation",
-            "",
-            f"- Decision: `{recommendation.decision}`",
-            f"- Summary: {recommendation.summary}",
-            f"- Next step: {recommendation.next_step}",
-            f"- Rationale: {recommendation.rationale}",
-            "",
+        summary = (
+            f"Proceed only with constrained minimum experiments: "
+            f"{len(missing_entries)} of {len(evidence_ledger)} evidence entries are "
+            "missing, assumed, or require external validation."
+        )
+        next_step = (
+            f"Run `{first_experiment.id}` ({first_experiment.title}) before expanding scope."
+            if first_experiment
+            else "Create one minimum experiment that targets the largest explicit evidence gap."
+        )
+        rationale_parts = [
+            f"{len(claims)} claims were extracted, with provided evidence touching "
+            f"{len(provided_claim_ids)} claim(s).",
+            "The ledger keeps unsupported claims visible instead of treating them as proven.",
         ]
+        if high_severity_roles:
+            rationale_parts.append(
+                "High-severity critiques were raised by: "
+                f"{', '.join(high_severity_roles)}."
+            )
+        return Recommendation(
+            decision=decision,
+            summary=summary,
+            next_step=next_step,
+            rationale=" ".join(rationale_parts),
+        )
+
+    if high_severity_roles:
+        return Recommendation(
+            decision="resolve_high_severity_critiques",
+            summary=(
+                "Evidence entries are present, but high-severity reviewer concerns "
+                "must be resolved before broader use."
+            ),
+            next_step=(
+                f"Address the {high_severity_roles[0]} critique and rerun the local pipeline."
+            ),
+            rationale=(
+                "Reviewer severity is part of the deterministic evidence-aware decision; "
+                "a complete ledger alone is not enough to proceed."
+            ),
+        )
+
+    return Recommendation(
+        decision="continue_with_controlled_next_step",
+        summary="The local pass found no explicit missing evidence entries or high-severity critiques.",
+        next_step=(
+            f"Run `{first_experiment.id}` ({first_experiment.title}) as a controlled next step."
+            if first_experiment
+            else "Run one controlled local validation step."
+        ),
+        rationale=(
+            "All claims have ledger coverage and reviewer risk is below high severity in this "
+            "deterministic local pass."
+        ),
     )
-    return "\n".join(lines)
+
+
+def _entries_with_status(
+    evidence_ledger: Sequence[EvidenceEntry], statuses: set[str]
+) -> tuple[EvidenceEntry, ...]:
+    return tuple(entry for entry in evidence_ledger if evidence_status(entry) in statuses)
+
+
+def _select_next_experiment(
+    *,
+    experiments: Sequence[ExperimentPlan],
+    high_severity_roles: Sequence[str],
+    has_missing_entries: bool,
+) -> ExperimentPlan | None:
+    if not experiments:
+        return None
+
+    preferred_title_fragments: list[str] = []
+    if "safety_regulatory" in high_severity_roles:
+        preferred_title_fragments.append("safety")
+    if has_missing_entries:
+        preferred_title_fragments.append("evidence gap")
+
+    for fragment in preferred_title_fragments:
+        for experiment in experiments:
+            if fragment in experiment.title.lower():
+                return experiment
+    return experiments[0]
+
+
+def _build_warnings(evidence_ledger: Sequence[EvidenceEntry]) -> tuple[str, ...]:
+    warnings: list[str] = list(_STANDARD_WARNINGS)
+    if any(entry.evidence_type == "missing" for entry in evidence_ledger):
+        warnings.append(
+            "At least one claim has explicit missing evidence; do not treat the report as validated research."
+        )
+    return tuple(warnings)
+
+
+__all__ = ["run_research_council"]
