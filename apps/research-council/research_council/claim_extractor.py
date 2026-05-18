@@ -190,8 +190,12 @@ def extract_claims(
     focus = _idea_focus(input_view.raw_idea)
     profile_id = _profile_id(domain_profile)
 
-    if profile_id == "ai_saas":
-        specs = _ai_saas_claim_specs(input_view, focus)
+    if profile_id in {"ai_saas", "developer_tool"}:
+        specs = (
+            _developer_tool_claim_specs(input_view, focus)
+            if profile_id == "developer_tool"
+            else _ai_saas_claim_specs(input_view, focus)
+        )
         return [
             Claim(
                 id=f"claim-{index:03d}",
@@ -745,6 +749,101 @@ def _ai_saas_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]
             rationale=(
                 "Minimum experiments can be proposed from the idea structure without collecting "
                 "external evidence."
+            ),
+        ),
+    ]
+
+
+def _developer_tool_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]:
+    return [
+        _concept_claim(input_view, focus),
+        _ClaimSpec(
+            text=(
+                "Developer adoption depends on a specific target developer segment with "
+                "pain in an existing debugging, observability, CLI, SDK, API, CI/CD, "
+                "or local development workflow."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "The idea implies a developer workflow, but no developer interviews, "
+                "workflow artifacts, or current-workaround evidence were supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Setup complexity and integration burden are core product risks: the "
+                "tool must prove time-to-first-value, configuration effort, permissions, "
+                "and compatibility with the developer's existing stack."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "Developer tools often fail when setup or integration costs exceed the "
+                "first useful debugging or observability payoff."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Debugging or observability value is unproven until the tool shows that "
+                "logs, traces, errors, or workflow state become easier to inspect and act on."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "No before/after debugging task, observability artifact, or failure-analysis "
+                "example was provided."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Ecosystem compatibility and switching cost are unresolved; the tool needs "
+                "comparison against existing IDE, CLI, logging, monitoring, CI/CD, GitHub, "
+                "and manual debugging workflows."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "This local pass does not compare the concept against current developer "
+                "stacks or toolchain substitutes."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Documentation and support burden may block time-to-value if developers "
+                "cannot understand installation, integration, error handling, or team rollout "
+                "without handholding."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "Documentation needs are inferred from setup and integration risk; no docs "
+                "comprehension evidence was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Repeat usage and workflow fit are unproven; durable value depends on "
+                "recurring debugging, observability, monitoring, or development moments, not "
+                "one successful setup session."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "No repeat-use trigger, usage log, or team adoption path was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "The idea is experimentable through developer workflow interviews, setup "
+                "friction tests, integration prototypes, time-to-first-value checks, "
+                "documentation comprehension tests, and existing-tool comparisons."
+            ),
+            source_label="extracted",
+            confidence="medium",
+            rationale=(
+                "Minimum developer-tool experiments can be proposed from the idea structure "
+                "without collecting external evidence."
             ),
         ),
     ]

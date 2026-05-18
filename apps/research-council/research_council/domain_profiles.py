@@ -265,6 +265,7 @@ _PROFILE_ORDER: tuple[str, ...] = (
     "general",
     "medical_device",
     "ai_saas",
+    "developer_tool",
     "consumer_app",
     "hardware_device",
     "materials_science",
@@ -274,6 +275,7 @@ _SAFETY_TIE_BREAKER: tuple[str, ...] = (
     "medical_device",
     "materials_science",
     "hardware_device",
+    "developer_tool",
     "ai_saas",
     "consumer_app",
     "general",
@@ -763,6 +765,213 @@ _PROFILES: tuple[DomainProfile, ...] = (
         ),
     ),
     DomainProfile(
+        id="developer_tool",
+        label="Developer tool",
+        concept_label="developer tool concept",
+        summary=(
+            "A profile for SDKs, APIs, CLIs, debugging, observability, local "
+            "development, CI/CD, and developer workflow tools."
+        ),
+        claim_lenses=(
+            ClaimLens(
+                id="developer_workflow",
+                label="Developer workflow",
+                focus="The target developer segment, existing workflow pain, and workflow fit.",
+                keywords=("developer workflow", "debugging", "local development"),
+            ),
+            ClaimLens(
+                id="setup_integration",
+                label="Setup and integration",
+                focus="Setup complexity, integration cost, ecosystem compatibility, and time-to-value.",
+                keywords=("sdk", "api", "cli", "integration", "setup"),
+            ),
+            ClaimLens(
+                id="debug_observability",
+                label="Debuggability and observability",
+                focus="Logs, monitoring, observability, debugging value, and failure visibility.",
+                keywords=("logs", "monitoring", "observability", "debugging"),
+            ),
+            ClaimLens(
+                id="adoption_path",
+                label="Adoption path",
+                focus="Individual developer adoption, team rollout, documentation burden, and repeat usage.",
+                keywords=("documentation", "team", "repeat usage", "switching cost"),
+            ),
+        ),
+        evidence_needs=(
+            EvidenceNeed(
+                category="user_adoption",
+                request=(
+                    "Identify the target developer segment, existing workflow pain, "
+                    "current workaround, repeat usage trigger, and whether adoption "
+                    "starts with an individual developer or a team process."
+                ),
+            ),
+            EvidenceNeed(
+                category="technical",
+                request=(
+                    "Measure setup complexity, integration burden, time-to-first-value, "
+                    "debugging or observability value, and compatibility with the "
+                    "developer's existing stack."
+                ),
+            ),
+            EvidenceNeed(
+                category="prior_art",
+                request=(
+                    "Compare against existing developer tools, SDKs, CLIs, logs, "
+                    "monitoring systems, CI/CD workflows, and current manual debugging habits."
+                ),
+            ),
+            EvidenceNeed(
+                category="market",
+                request=(
+                    "Clarify switching cost from current tools, team rollout friction, "
+                    "documentation/support burden, and whether the value survives beyond "
+                    "one setup session."
+                ),
+            ),
+            EvidenceNeed(
+                category="safety_regulatory",
+                request=(
+                    "Identify secrets, production data, access scopes, log exposure, "
+                    "and operational-risk boundaries before integration."
+                ),
+            ),
+        ),
+        reviewer_lenses=(
+            ReviewerLens(
+                role="technical",
+                focus="Challenge setup complexity, integration cost, compatibility, observability value, and time-to-value.",
+            ),
+            ReviewerLens(
+                role="market",
+                focus="Challenge developer workflow pain, repeat usage, switching cost, and individual versus team adoption.",
+            ),
+            ReviewerLens(
+                role="safety_regulatory",
+                focus="Review secrets, production data, permissions, logs, and operational blast radius.",
+                escalation_terms=("secrets", "production", "logs", "access token", "credential"),
+            ),
+            ReviewerLens(
+                role="red_team",
+                focus="Look for tool sprawl, unclear workflow fit, brittle integrations, and documentation gaps.",
+            ),
+        ),
+        experiment_templates=(
+            ExperimentTemplate(
+                id="setup-friction-test",
+                title="Setup friction test",
+                method=(
+                    "Ask target developers to install or configure the smallest useful "
+                    "version and record every setup, permission, and integration blocker."
+                ),
+                success_metric="Developers reach first useful output within the target time budget.",
+                minimum_sample="3 target developers using their normal stack",
+                risk="A small setup test may miss enterprise, security, or team rollout constraints.",
+            ),
+            ExperimentTemplate(
+                id="developer-workflow-interview",
+                title="Developer workflow interview",
+                method=(
+                    "Interview developers about their current debugging, observability, "
+                    "or local development workflow, existing tools, switching costs, "
+                    "and repeat-use triggers."
+                ),
+                success_metric="Repeated workflow pain and a concrete adoption trigger are observed.",
+                minimum_sample="5 developers in the target segment",
+                risk="Interview pain may not translate into integration or team adoption.",
+            ),
+        ),
+        selection_keywords=(
+            ("developer tool", 10),
+            ("developer workflow", 9),
+            ("devtool", 9),
+            ("sdk", 8),
+            ("cli", 8),
+            ("debugging", 8),
+            ("observability", 8),
+            ("local development", 8),
+            ("ci cd", 8),
+            ("github integration", 7),
+            ("developer", 5),
+            ("developers", 5),
+            ("api", 5),
+            ("logs", 5),
+            ("logging", 5),
+            ("monitoring", 5),
+            ("integration", 5),
+            ("setup", 5),
+            ("documentation", 4),
+            ("command line", 4),
+        ),
+        blocker_order=(
+            "user_adoption",
+            "technical",
+            "prior_art",
+            "market",
+            "safety_regulatory",
+        ),
+        council_lenses=(
+            "developer_workflow",
+            "setup_integration",
+            "debug_observability",
+            "adoption_path",
+        ),
+        reasoning_priorities=(
+            "developer workflow fit before broad tooling claims",
+            "setup complexity and time-to-value before adoption confidence",
+            "ecosystem compatibility before integration optimism",
+            "debugging and observability value before feature breadth",
+            "repeat usage before one-time setup excitement",
+        ),
+        risk_factors=(
+            "developer experience friction",
+            "setup complexity risk",
+            "integration cost risk",
+            "ecosystem compatibility risk",
+            "debugging value risk",
+            "documentation burden",
+            "switching cost from existing tools",
+            "team adoption friction",
+            "time-to-value risk",
+            "repeat usage risk",
+        ),
+        evidence_expectations=(
+            "target developer segment and workflow pain evidence",
+            "setup friction and time-to-first-value evidence",
+            "integration prototype against an existing stack",
+            "compatibility evidence for SDK, API, CLI, CI/CD, or GitHub workflows",
+            "existing tool comparison and switching-cost evidence",
+            "documentation comprehension and support-burden evidence",
+            "repeat usage trigger or workflow-fit evidence",
+        ),
+        decision_heuristics=(
+            "do not upgrade confidence without setup and integration evidence",
+            "treat developer interest as weak until time-to-value is observed",
+            "prefer compatibility tests before broad ecosystem claims",
+            "penalize tools that add workflow steps without debugging or observability value",
+        ),
+        output_guidance=(
+            "surface DX friction, setup complexity, integration cost, compatibility, and time-to-value",
+            "separate individual developer adoption from team rollout",
+            "name documentation, support, switching cost, and repeat usage gaps explicitly",
+        ),
+        confidence_policy=(
+            "confidence is capped until setup friction, integration burden, ecosystem compatibility, and repeat usage are evidenced",
+            "high confidence requires observed time-to-value in a real developer workflow",
+        ),
+        caveat_policy=(
+            "include developer-workflow and setup-friction caveats",
+            "include integration and ecosystem compatibility caveats",
+            "include documentation, support, and team-adoption caveats",
+        ),
+        next_step_policy=(
+            "prioritize setup friction tests when integration evidence is weak",
+            "prioritize developer workflow interviews when segment pain is unclear",
+            "prioritize documentation comprehension tests when time-to-value depends on docs",
+        ),
+    ),
+    DomainProfile(
         id="consumer_app",
         label="Consumer app",
         concept_label="consumer app concept",
@@ -1187,7 +1396,11 @@ def _score_profiles(scoring_text: str) -> tuple[dict[str, int], dict[str, tuple[
         score = 0
         matches: list[str] = []
         for keyword, weight in profile.selection_keywords:
-            if _keyword_matches(scoring_text, keyword):
+            if _keyword_matches(
+                scoring_text,
+                keyword,
+                ignore_negated=profile.id == "developer_tool",
+            ):
                 score += weight
                 matches.append(keyword)
         score_by_profile[profile.id] = score
@@ -1247,7 +1460,16 @@ def _flatten_parts(*parts: Any) -> tuple[str, ...]:
     return tuple(flattened)
 
 
-def _keyword_matches(scoring_text: str, keyword: str) -> bool:
+_NEGATED_DEVELOPER_KEYWORD_WINDOW = 8
+_NEGATION_MARKERS = frozenset(("no", "not", "without", "non"))
+
+
+def _keyword_matches(
+    scoring_text: str,
+    keyword: str,
+    *,
+    ignore_negated: bool = False,
+) -> bool:
     normalized_keyword = _normalize_scoring_text(keyword)
     if not normalized_keyword:
         return False
@@ -1256,7 +1478,20 @@ def _keyword_matches(scoring_text: str, keyword: str) -> bool:
         + re.escape(normalized_keyword).replace(r"\ ", r"\s+")
         + r"(?![a-z0-9])"
     )
-    return re.search(pattern, scoring_text) is not None
+    matches = tuple(re.finditer(pattern, scoring_text))
+    if not matches:
+        return False
+    if not ignore_negated:
+        return True
+    return any(not _keyword_match_is_negated(scoring_text, match.start()) for match in matches)
+
+
+def _keyword_match_is_negated(scoring_text: str, match_start: int) -> bool:
+    prefix_tokens = scoring_text[:match_start].split()
+    if not prefix_tokens:
+        return False
+    window = prefix_tokens[-_NEGATED_DEVELOPER_KEYWORD_WINDOW:]
+    return any(token in _NEGATION_MARKERS for token in window)
 
 
 def _canonical_profile_id(profile_id: str) -> str:

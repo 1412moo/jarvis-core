@@ -44,6 +44,8 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
         "quality",
         "bench",
         "technical",
+        "setup friction",
+        "integration",
         "sensing",
         "prototype",
         "mockup",
@@ -51,6 +53,8 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
     "environmental": ("degradation", "wastewater", "environment"),
     "user_adoption": (
         "workflow interview",
+        "developer workflow interview",
+        "setup friction",
         "adoption",
         "care-pathway",
         "interview",
@@ -81,6 +85,35 @@ _AI_SAAS_PRIORITY_TERMS = {
     "safety_regulatory": ("trust", "verification", "legal", "patentability", "citation"),
     "prior_art": ("differentiation", "substitute", "prior-art", "generic ai"),
     "market": ("willingness to pay", "pricing", "distribution", "subscription"),
+}
+
+_DEVELOPER_TOOL_CATEGORY_BONUS = {
+    "user_adoption": 18,
+    "technical": 18,
+    "prior_art": 12,
+    "market": 10,
+    "safety_regulatory": 8,
+}
+
+_DEVELOPER_TOOL_PRIORITY_TERMS = {
+    "user_adoption": (
+        "target developer",
+        "developer workflow",
+        "workflow pain",
+        "repeat usage",
+        "team adoption",
+    ),
+    "technical": (
+        "setup",
+        "integration",
+        "time-to-first-value",
+        "compatibility",
+        "debugging",
+        "observability",
+    ),
+    "prior_art": ("existing tools", "switching cost", "sdk", "cli", "api", "monitoring"),
+    "market": ("documentation", "support burden", "team rollout"),
+    "safety_regulatory": ("secrets", "production data", "access scopes", "logs"),
 }
 
 
@@ -222,6 +255,20 @@ def _create_recommendation(
                 "as concept input, not proof of founder adoption, output reliability, workflow "
                 "integration, trust, narrow-wedge differentiation, retention, or willingness to pay."
             )
+        elif domain_profile.id == "developer_tool":
+            if primary_blocker.category == "technical":
+                decision = "continue_with_setup_integration_experiment"
+            elif primary_blocker.category == "user_adoption":
+                decision = "continue_with_developer_workflow_experiment"
+            elif primary_blocker.category == "prior_art":
+                decision = "continue_with_existing_tool_comparison"
+            summary = (
+                f"Primary developer-tool blocker: {primary_blocker.category.replace('_', ' ')} "
+                f"evidence for `{primary_blocker.claim_id}`. Treat the submitted description "
+                "as concept input, not proof of target developer workflow pain, setup simplicity, "
+                "integration fit, ecosystem compatibility, debugging or observability value, "
+                "documentation clarity, team adoption, switching cost, time-to-value, or repeat usage."
+            )
         else:
             summary = (
                 f"Primary blocker: {primary_blocker.category.replace('_', ' ')} evidence for "
@@ -253,6 +300,14 @@ def _create_recommendation(
                 "workflow integration, trust, buyer urgency, AI-wrapper risk, and "
                 "differentiation because these determine whether an AI tooling concept "
                 "becomes a repeatable paid workflow."
+            )
+        if domain_profile.id == "developer_tool":
+            rationale_parts.append(
+                "Developer-tool weighting gives extra priority to developer workflow fit, "
+                "setup friction, integration cost, ecosystem compatibility, debugging or "
+                "observability value, documentation burden, switching cost, time-to-value, "
+                "and repeat usage because these determine whether developers keep a tool in "
+                "their stack."
             )
         confidence_note = _confidence_policy_note(domain_profile)
         if confidence_note:
@@ -378,8 +433,12 @@ def _profile_priority_bonus(
     bonus = 0
     if domain_profile.id == "ai_saas":
         bonus += _AI_SAAS_CATEGORY_BONUS.get(category, 0)
+    if domain_profile.id == "developer_tool":
+        bonus += _DEVELOPER_TOOL_CATEGORY_BONUS.get(category, 0)
     lowered = summary.lower()
     terms = _AI_SAAS_PRIORITY_TERMS.get(category, ())
+    if domain_profile.id == "developer_tool":
+        terms = _DEVELOPER_TOOL_PRIORITY_TERMS.get(category, ())
     if any(term in lowered for term in terms):
         bonus += 6
     profile_terms = _profile_policy_terms(
@@ -511,6 +570,27 @@ def _next_step_policy_note(
             "Keep the next step non-clinical and preserve patient-safety, clinical-validation, "
             "and regulatory boundaries."
         )
+    if domain_profile.id == "developer_tool":
+        if category == "technical":
+            return (
+                "Measure setup steps, integration diff, permissions, compatibility, and "
+                "time-to-first-value in a real developer stack."
+            )
+        if category in {"user_adoption", "market"}:
+            return (
+                "Capture target developer segment, current workflow pain, individual versus "
+                "team adoption path, documentation burden, switching cost, and repeat-use trigger."
+            )
+        if category == "prior_art":
+            return (
+                "Compare against existing SDKs, APIs, CLIs, logs, monitoring, CI/CD, GitHub, "
+                "and manual debugging workflows."
+            )
+        if category == "safety_regulatory":
+            return (
+                "Keep secrets, production data, access scopes, log exposure, and safe integration "
+                "boundaries visible."
+            )
     if domain_profile.next_step_policy:
         return domain_profile.next_step_policy[0]
     return ""
@@ -524,6 +604,10 @@ def _profile_caveats(domain_profile: DomainProfile) -> tuple[str, ...]:
     if domain_profile.id == "ai_saas":
         return (
             "AI SaaS profile caveat: buyer/workflow urgency, repeat usage, differentiation, AI-wrapper risk, operational reliability, and willingness to pay remain unvalidated without targeted evidence.",
+        )
+    if domain_profile.id == "developer_tool":
+        return (
+            "Developer-tool profile caveat: DX friction, setup complexity, integration cost, ecosystem compatibility, debugging or observability value, documentation burden, switching cost, time-to-value, and repeat usage remain unvalidated without targeted developer evidence.",
         )
     if domain_profile.caveat_policy:
         return tuple(f"Profile caveat policy: {caveat}" for caveat in domain_profile.caveat_policy)

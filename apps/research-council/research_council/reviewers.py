@@ -41,6 +41,15 @@ _TECHNICAL_KEYWORDS = (
     "quality",
     "reliability",
     "integration",
+    "setup",
+    "sdk",
+    "api",
+    "cli",
+    "debugging",
+    "observability",
+    "logs",
+    "monitoring",
+    "compatibility",
 )
 _MARKET_KEYWORDS = (
     "adopt",
@@ -58,6 +67,11 @@ _MARKET_KEYWORDS = (
     "subscription",
     "distribution",
     "pricing",
+    "developer",
+    "setup",
+    "switching cost",
+    "documentation",
+    "team adoption",
 )
 _SAFETY_KEYWORDS = (
     "safety",
@@ -94,6 +108,11 @@ _RED_TEAM_KEYWORDS = (
     "substitute",
     "generic ai",
     "retention",
+    "tool sprawl",
+    "setup",
+    "integration",
+    "documentation",
+    "observability",
 )
 _REGULATED_DOMAIN_KEYWORDS = (
     "medical",
@@ -186,6 +205,17 @@ def _build_technical_critique(
             "Score a small set of user-supplied invention briefs and offline reference snippets "
             "with a fixed output-quality rubric before building more SaaS surface area."
         )
+    elif domain_profile.id == "developer_tool":
+        finding = (
+            f"The developer-tool integration case is not proven for {target}. The concept "
+            "must show setup complexity, time-to-first-value, stack compatibility, permissions, "
+            "and debugging or observability value before developers will add it to an SDK, "
+            f"API, CLI, CI/CD, GitHub, or local development workflow. {gap_note}"
+        )
+        suggested_action = (
+            "Run a setup friction test and one integration prototype in a realistic developer "
+            "stack before expanding tool surface area."
+        )
     else:
         finding = (
             f"The technical case is not proven yet for {target}. "
@@ -243,6 +273,17 @@ def _build_market_critique(
         suggested_action = (
             "Interview solo founders around their last invention-screening workflow, current "
             "substitutes, time cost, trust blockers, desired integrations, and payment threshold."
+        )
+    elif domain_profile.id == "developer_tool":
+        finding = (
+            f"The developer adoption case remains weak for {target}. Developer interest is "
+            "not enough: the concept needs evidence for a target developer segment, current "
+            "workflow pain, switching cost from existing tools, setup tolerance, individual "
+            f"versus team adoption path, and repeat usage. {gap_note}"
+        )
+        suggested_action = (
+            "Interview target developers about their current workflow, existing tools, setup "
+            "friction, documentation needs, team rollout blockers, and repeat-use trigger."
         )
     else:
         finding = (
@@ -325,6 +366,16 @@ def _build_safety_critique(
             "Write an output boundary checklist that separates allowed summaries and comparison "
             "tables from blocked legal advice, unsupported citations, and attorney-review triggers."
         )
+    elif domain_profile.id == "developer_tool":
+        finding = (
+            f"The operational boundary is underspecified for {target}.{regulated_note} A developer "
+            "tool can expose secrets, production logs, access scopes, credentials, or deployment "
+            f"state if integration boundaries and safe defaults are not explicit. {gap_note}"
+        )
+        suggested_action = (
+            "Write an operational boundary checklist covering secrets, permissions, log exposure, "
+            "production data, and safe integration defaults."
+        )
     else:
         finding = (
             f"The safety and regulatory boundary is underspecified for {target}."
@@ -384,6 +435,17 @@ def _build_red_team_critique(
         suggested_action = (
             "Run a differentiation and trust red-team pass where every output line is marked as "
             "user-supplied, source-checkable, uncertain, or blocked from legal interpretation."
+        )
+    elif domain_profile.id == "developer_tool":
+        finding = (
+            f"The easiest failure mode for {target} is tool sprawl: another SDK, API, CLI, or "
+            "dashboard that adds setup, documentation, and integration burden without enough "
+            "debugging, observability, or workflow-fit value to beat current tools. "
+            f"{gap_note}"
+        )
+        suggested_action = (
+            "Run an existing-tool comparison that marks current substitutes, switching cost, "
+            "compatibility boundaries, documentation burden, and repeat-use triggers."
         )
     else:
         finding = (

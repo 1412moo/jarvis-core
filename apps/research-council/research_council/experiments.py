@@ -55,6 +55,16 @@ def propose_experiments(
         )
         return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
 
+    if domain_profile.id == "developer_tool":
+        drafts = (
+            _developer_workflow_interview_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _developer_setup_friction_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _developer_integration_prototype_experiment(claim_list, critique_list, fallback_ids),
+            _developer_docs_comprehension_experiment(claim_list, critique_list, fallback_ids),
+            _developer_existing_tool_comparison_experiment(input_data, claim_list, critique_list, fallback_ids),
+        )
+        return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
+
     if domain_profile.id == "capsule_medical_environmental":
         drafts = (
             _capsule_safety_boundary_experiment(input_data, claim_list, critique_list, fallback_ids),
@@ -387,6 +397,216 @@ def _ai_saas_differentiation_mapping_experiment(
         risk=(
             "A map clarifies strategy but does not create external market, patent, or competitive evidence."
         ),
+    )
+
+
+def _developer_workflow_interview_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("target developer", "developer workflow", "workflow pain", "repeat usage"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Developer workflow interview",
+        hypothesis=(
+            "A specific developer segment has recurring workflow pain that this tool can "
+            "reduce without adding more process friction."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Interview target developers about their current debugging, observability, "
+            "local development, SDK, API, CLI, CI/CD, or GitHub workflow. Capture current "
+            "tools, painful steps, switching cost, team versus individual adoption path, "
+            "and repeat-use trigger. Keep the decision goal in frame: "
+            f"{_short_goal(input_data)}."
+        ),
+        metric=(
+            "At least three developers describe the same workflow pain, current workaround, "
+            "and recurring trigger for using the tool."
+        ),
+        minimum_sample="3-5 developers in the target segment.",
+        estimated_time="2-4 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria=(
+            "Stop if developers see the problem as rare, already solved by existing tools, "
+            "or not worth switching workflows."
+        ),
+        decision_impact=(
+            "Decide whether the target segment and workflow are narrow enough for a setup "
+            "or integration prototype."
+        ),
+        risk="Interview enthusiasm does not prove setup success or repeat usage.",
+    )
+
+
+def _developer_setup_friction_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "technical") or _select_claim_ids(
+        claims,
+        ("setup complexity", "integration burden", "time-to-first-value", "sdk", "cli"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Setup friction test",
+        hypothesis=(
+            "A target developer can install, configure, and reach first useful value "
+            "without hidden setup or integration costs."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Ask developers to follow only the current setup path and docs in their normal "
+            "environment. Record installation steps, permissions, tokens, stack conflicts, "
+            "error messages, time-to-first-value, and whether they can produce one useful "
+            f"debugging or workflow result. Constraints considered: {_short_constraints(input_data)}."
+        ),
+        metric=(
+            "Developers reach first useful output within the predefined time budget while "
+            "recording no unresolved setup or compatibility blocker."
+        ),
+        minimum_sample="3 target developers using their normal local stack.",
+        estimated_time="2-3 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria=(
+            "Stop if setup needs handholding, unclear permissions, or unsupported stack assumptions."
+        ),
+        decision_impact=(
+            "Decide whether integration friction is low enough to continue or the product "
+            "must narrow to a simpler setup path."
+        ),
+        risk="A small setup sample may miss team security review and enterprise environments.",
+    )
+
+
+def _developer_integration_prototype_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "technical") or _select_claim_ids(
+        claims,
+        ("integration", "compatibility", "existing stack", "api", "observability"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Integration prototype",
+        hypothesis=(
+            "The tool can connect to one realistic developer stack without breaking existing "
+            "SDK, API, CLI, logging, monitoring, or CI/CD workflows."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Build the smallest local integration against one representative stack. Record "
+            "required code changes, config, permissions, runtime assumptions, logs or traces "
+            "produced, and every incompatibility with existing tools."
+        ),
+        metric=(
+            "The prototype produces one useful debugging or observability result with a bounded "
+            "setup diff and no unresolved compatibility blocker."
+        ),
+        minimum_sample="One representative project or local developer stack.",
+        estimated_time="3-6 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria=(
+            "Stop if integration requires broad rewrites, unsupported permissions, or fragile "
+            "toolchain assumptions."
+        ),
+        decision_impact=(
+            "Decide whether the first supported stack is credible or whether ecosystem scope "
+            "must narrow."
+        ),
+        risk="One stack does not prove broad ecosystem compatibility.",
+    )
+
+
+def _developer_docs_comprehension_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("documentation", "support burden", "time-to-value", "team rollout"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Documentation comprehension test",
+        hypothesis=(
+            "Developers can understand setup, integration, error handling, and next steps "
+            "from concise docs without support handholding."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Give developers the current docs or readme and ask them to explain the setup "
+            "path, integration assumptions, error recovery, and when they would use the tool "
+            "again. Record unclear terms, missing examples, and support questions."
+        ),
+        metric=(
+            "Developers can complete or accurately explain setup and first value with no "
+            "critical documentation gaps."
+        ),
+        minimum_sample="3 developers reading the docs without live coaching.",
+        estimated_time="60-90 minutes",
+        estimated_cost_level="free",
+        stop_criteria="Stop if docs hide prerequisites, permissions, or integration assumptions.",
+        decision_impact=(
+            "Decide whether documentation is good enough for self-serve adoption or must be "
+            "rewritten before broader testing."
+        ),
+        risk="Docs comprehension does not prove production reliability or team approval.",
+    )
+
+
+def _developer_existing_tool_comparison_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "red_team") or _select_claim_ids(
+        claims,
+        ("existing tools", "switching cost", "ecosystem compatibility", "current tools"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Existing tool comparison",
+        hypothesis=(
+            "The tool has a clear reason to be used alongside or instead of existing developer "
+            "tools in the target workflow."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Compare the proposed workflow against current IDE, CLI, SDK, API, logging, "
+            "monitoring, CI/CD, GitHub, and manual debugging alternatives. For each substitute, "
+            "record switching cost, compatibility risk, documentation burden, and repeat-use "
+            f"trigger. Use the goal as the decision frame: {_short_goal(input_data)}."
+        ),
+        metric=(
+            "The comparison identifies one existing-tool gap, one compatibility boundary, "
+            "and one repeat-use trigger that justify continued work."
+        ),
+        minimum_sample="One substitute map reviewed with at least one target developer.",
+        estimated_time="60-120 minutes",
+        estimated_cost_level="free",
+        stop_criteria="Stop if existing tools already solve the workflow with lower friction.",
+        decision_impact=(
+            "Decide whether the product should continue, narrow to a specific integration, "
+            "or stop because switching cost is too high."
+        ),
+        risk="A comparison map clarifies positioning but does not prove adoption.",
     )
 
 

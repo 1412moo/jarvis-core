@@ -521,6 +521,18 @@ def _expected_caveat_terms(profile_id: str) -> tuple[str, ...]:
             "willingness to pay",
             "legal advice",
         )
+    if profile_id == "developer_tool":
+        return (
+            "developer workflow",
+            "setup complexity",
+            "integration cost",
+            "ecosystem compatibility",
+            "observability",
+            "documentation burden",
+            "switching cost",
+            "time to value",
+            "repeat usage",
+        )
     return ("local only", "missing evidence", "no citations")
 
 

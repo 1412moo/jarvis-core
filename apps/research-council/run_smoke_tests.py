@@ -796,11 +796,12 @@ def test_confidence_trace_linkage_and_json_additive_fields() -> None:
 def test_golden_case_evaluation_harness() -> None:
     summary = evaluate_golden_cases()
     case_ids = {evaluation.case_id for evaluation in summary.evaluations}
-    _assert(summary.case_count >= 4, "golden case harness must load the committed cases")
+    _assert(summary.case_count >= 5, "golden case harness must load the committed cases")
     _assert(summary.invariant_count >= 20, "golden case harness must evaluate invariants")
     for expected_case_id in (
         "ai_saas/weak_ai_wrapper",
         "ai_saas/workflow_ai_assistant",
+        "developer_tool/cli_debugging_tool",
         "medical_device/diagnostic_tool",
         "generic/vague_consumer_idea",
     ):
@@ -843,6 +844,7 @@ def test_domain_profile_selection_foundation() -> None:
             "general",
             "medical_device",
             "ai_saas",
+            "developer_tool",
             "consumer_app",
             "hardware_device",
             "materials_science",
@@ -895,6 +897,40 @@ def test_domain_profile_selection_foundation() -> None:
     _assert(
         ai_selection.selected_profile.id == "ai_saas",
         "AI SaaS / patent assistant idea must select ai_saas",
+    )
+
+    negated_developer_keyword_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "AI SaaS for legal intake automation. No SDK, CLI, logs, "
+                "observability, or local development workflow is planned."
+            ),
+            "goal": "Evaluate buyer workflow, retention, and willingness to pay.",
+            "context": "This is business software for legal intake teams.",
+        }
+    )
+    _assert(
+        negated_developer_keyword_selection.selected_profile.id == "ai_saas",
+        "AI SaaS with negated developer keywords must remain ai_saas",
+    )
+    _assert(
+        not negated_developer_keyword_selection.matched_keywords["developer_tool"],
+        "negated SDK / CLI / logs wording must not score developer_tool",
+    )
+
+    developer_tool_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "AI developer tool CLI debugging SDK with observability logs, "
+                "GitHub integration, CI/CD monitoring, and local development workflow"
+            ),
+            "goal": "Evaluate setup complexity, integration cost, and repeat usage.",
+            "context": "Developer workflow fit should dominate generic AI SaaS positioning.",
+        }
+    )
+    _assert(
+        developer_tool_selection.selected_profile.id == "developer_tool",
+        "developer workflow / SDK / CLI / observability input must select developer_tool",
     )
 
     consumer_selection = resolve_domain_profile(

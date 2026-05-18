@@ -113,6 +113,29 @@ _PROFILE_EXPECTATIONS_BY_CATEGORY = {
         "market": "buyer, payer, reimbursement, procurement, and adoption trigger evidence",
         "environmental": _GENERIC_EXPECTATIONS_BY_CATEGORY["environmental"],
     },
+    "developer_tool": {
+        "technical": (
+            "setup complexity, integration burden, time-to-first-value, debugging or "
+            "observability value, documentation clarity, and compatibility with the "
+            "developer's existing stack"
+        ),
+        "user_adoption": (
+            "target developer segment, existing workflow pain, current workaround, "
+            "individual versus team adoption path, and repeat usage trigger"
+        ),
+        "prior_art": (
+            "comparison against existing SDKs, APIs, CLIs, logs, monitoring tools, "
+            "CI/CD workflows, GitHub integrations, and manual debugging habits"
+        ),
+        "market": (
+            "switching cost from current tools, documentation/support burden, team "
+            "rollout friction, and whether value survives beyond one setup session"
+        ),
+        "safety_regulatory": (
+            "secrets handling, production data exposure, access scopes, log leakage, "
+            "and operational-risk boundaries"
+        ),
+    },
     "capsule_medical_environmental": {
         "technical": (
             "intended use, target population, data-capture quality, safe transit, "
@@ -183,6 +206,29 @@ _VALIDATION_EXPERIMENT_BY_PROFILE_CATEGORY = {
         "environmental": (
             "Primary evidence gap closure check: define environmental evidence needed "
             "before any disposal claim."
+        ),
+    },
+    "developer_tool": {
+        "technical": (
+            "Setup friction test: measure installation, configuration, permissions, "
+            "integration burden, compatibility, and time-to-first-value in a real "
+            "developer stack."
+        ),
+        "user_adoption": (
+            "Developer workflow interview: interview target developers about current "
+            "workflow pain, existing tools, switching cost, and repeat usage trigger."
+        ),
+        "prior_art": (
+            "Existing tool comparison: compare against current SDK, CLI, logs, "
+            "monitoring, CI/CD, GitHub, and manual debugging workflows."
+        ),
+        "market": (
+            "Documentation comprehension test: ask developers to complete setup and "
+            "integration from docs while recording support burden and team rollout friction."
+        ),
+        "safety_regulatory": (
+            "Operational boundary check: define secrets, production data, access scopes, "
+            "log exposure, and safe integration boundaries."
         ),
     },
     "capsule_medical_environmental": {
@@ -304,6 +350,35 @@ _PROFILE_REASONING_TRACE_BY_CATEGORY = {
         "environmental": (
             "Environmental disposal evidence missing",
             "Waste-path risk unresolved",
+        ),
+    },
+    "developer_tool": {
+        "technical": (
+            "Setup complexity evidence missing",
+            "Integration burden not measured",
+            "Time-to-first-value unsupported",
+            "Ecosystem compatibility not demonstrated",
+            "Debugging or observability value unproven",
+        ),
+        "user_adoption": (
+            "Target developer segment unclear",
+            "Existing workflow pain unsupported",
+            "Individual versus team adoption path unclear",
+            "Repeat usage trigger unsupported",
+        ),
+        "prior_art": (
+            "Existing developer tool comparison missing",
+            "Switching cost from current tools unsupported",
+            "Stack compatibility alternatives unclear",
+        ),
+        "market": (
+            "Documentation burden unsupported",
+            "Support burden unclear",
+            "Team rollout friction untested",
+        ),
+        "safety_regulatory": (
+            "Secrets and access-scope boundary unclear",
+            "Production data or log exposure risk unresolved",
         ),
     },
     "capsule_medical_environmental": {
@@ -689,6 +764,11 @@ def _provided_reasoning_trace(domain_profile: Any) -> tuple[str, ...]:
             "Supporting evidence: local input frames the AI SaaS workflow",
             "Confidence supporting: local input does not validate buyer workflow",
         )
+    if profile_id == "developer_tool":
+        return (
+            "Supporting evidence: local input frames the developer-tool workflow",
+            "Confidence supporting: local input does not validate setup friction or integration burden",
+        )
     if profile_id in {"medical_device", "capsule_medical_environmental"}:
         return (
             "Supporting evidence: local input frames the medical-device concept",
@@ -751,6 +831,12 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "manual patent search",
             "existing products",
             "substitutes",
+            "existing developer tools",
+            "existing tool comparison",
+            "current tools",
+            "ecosystem compatibility",
+            "stack compatibility",
+            "switching cost",
         ),
     ):
         return "prior_art"
@@ -787,6 +873,19 @@ def _gap_category_for_claim(claim: Claim) -> str:
     if _contains_any(
         text,
         (
+            "target developer segment",
+            "developer adoption",
+            "developer workflow",
+            "workflow pain",
+            "individual versus team adoption",
+            "team adoption",
+            "repeat usage trigger",
+        ),
+    ):
+        return "user_adoption"
+    if _contains_any(
+        text,
+        (
             "technical",
             "feasibility",
             "implementation",
@@ -801,6 +900,20 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "source traceability",
             "error labels",
             "rubric",
+            "setup complexity",
+            "integration burden",
+            "integration cost",
+            "integration prototype",
+            "time-to-first-value",
+            "time-to-first value",
+            "sdk",
+            "api",
+            "debugging",
+            "observability",
+            "logs",
+            "monitoring",
+            "compatibility",
+            "documentation",
         ),
     ):
         return "technical"
@@ -835,6 +948,11 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "current-workaround",
             "solo developers",
             "time savings",
+            "target developer",
+            "developer segment",
+            "developer workflow",
+            "existing workflow pain",
+            "team adoption",
         ),
     ):
         return "user_adoption"
