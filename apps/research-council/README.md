@@ -33,11 +33,22 @@ Out of scope for this pass:
 
 ## Local Usage
 
-Run the placeholder demo:
+Run the default capsule sample:
 
 ```powershell
 python -B apps/research-council/run_demo.py
 ```
+
+Run against a custom local idea and goal:
+
+```powershell
+python -B apps/research-council/run_demo.py `
+  --idea "AI patent analysis assistant for solo founders" `
+  --goal "Evaluate differentiation and market viability"
+```
+
+Optional local context and repeated constraints can be supplied with
+`--context` and `--constraints`.
 
 Optionally export the structured JSON result while preserving Markdown stdout:
 

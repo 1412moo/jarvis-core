@@ -38,8 +38,82 @@ def build_sample_input() -> ResearchCouncilInput:
     )
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the Research Council sample.")
+def build_runtime_input(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> ResearchCouncilInput:
+    has_custom_input = any(
+        (
+            args.idea,
+            args.goal,
+            args.context,
+            args.constraints,
+        )
+    )
+    if not has_custom_input:
+        return build_sample_input()
+
+    if not args.idea:
+        parser.error("--idea is required when providing custom Research Council input.")
+    if not args.goal:
+        parser.error("--goal is required when providing custom Research Council input.")
+
+    return ResearchCouncilInput(
+        raw_idea=args.idea,
+        goal=args.goal,
+        context=args.context,
+        constraints=tuple(args.constraints or ()),
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the deterministic local Research Council against the sample fixture "
+            "or a custom idea and goal."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  python run_demo.py\n"
+            "  python run_demo.py --idea \"AI patent analysis assistant for solo founders\" "
+            "--goal \"Evaluate differentiation and market viability\"\n"
+            "\n"
+            "This demo is local-only: no web search, network calls, LLM calls, or "
+            "citations are performed."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--idea",
+        help=(
+            "Raw idea to evaluate. When custom input is provided, --idea and --goal "
+            "are both required."
+        ),
+    )
+    parser.add_argument(
+        "--goal",
+        help=(
+            "Decision goal for the Research Council pass. Required when using "
+            "custom input."
+        ),
+    )
+    parser.add_argument(
+        "--context",
+        help=(
+            "Optional local context or background for the custom Research Council "
+            "input."
+        ),
+    )
+    parser.add_argument(
+        "--constraints",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help=(
+            "Optional constraint for the custom run. Repeat this flag to provide "
+            "multiple constraints."
+        ),
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -50,12 +124,17 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Optional path for writing the structured Research Council JSON result.",
     )
-    return parser.parse_args()
+    return parser
+
+
+def parse_args() -> tuple[argparse.Namespace, argparse.ArgumentParser]:
+    parser = build_parser()
+    return parser.parse_args(), parser
 
 
 def main() -> None:
-    args = parse_args()
-    input_data = build_sample_input()
+    args, parser = parse_args()
+    input_data = build_runtime_input(args, parser)
     result = run_research_council(input_data)
     markdown = result.markdown_report.markdown
     print(markdown, end="")

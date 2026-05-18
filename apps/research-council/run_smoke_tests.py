@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -188,7 +189,7 @@ def test_json_export_contract() -> None:
 def test_run_demo_json_output_support() -> None:
     artifacts_root = Path(__file__).parent / "artifacts"
     artifacts_root.mkdir(exist_ok=True)
-    json_path = artifacts_root / "smoke-result.json"
+    json_path = artifacts_root / f"smoke-result-{os.getpid()}.json"
     completed = subprocess.run(
         [
             sys.executable,
@@ -223,10 +224,85 @@ def test_run_demo_json_output_support() -> None:
     )
 
 
+def test_run_demo_custom_cli_input_support() -> None:
+    artifacts_root = Path(__file__).parent / "artifacts"
+    artifacts_root.mkdir(exist_ok=True)
+    json_path = artifacts_root / f"smoke-custom-result-{os.getpid()}.json"
+    markdown_path = artifacts_root / f"smoke-custom-result-{os.getpid()}.md"
+
+    idea = "AI patent analysis assistant for solo founders"
+    goal = "Evaluate differentiation and market viability"
+    context = "Focus on a bootstrap SaaS concept before any external research is allowed."
+    constraints = (
+        "No web search, network calls, LLM calls, or fake citations.",
+        "Keep prior-art uncertainty explicit.",
+    )
+    command = [
+        sys.executable,
+        "-B",
+        str(Path(__file__).with_name("run_demo.py")),
+        "--idea",
+        idea,
+        "--goal",
+        goal,
+        "--context",
+        context,
+        "--json-output",
+        str(json_path),
+        "--output",
+        str(markdown_path),
+    ]
+    for constraint in constraints:
+        command.extend(["--constraints", constraint])
+
+    completed = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_demo custom CLI input failed: {completed.stderr.strip()}",
+    )
+    _assert(
+        completed.stdout.startswith("# Research Council Report"),
+        "custom run_demo markdown stdout must start with the report title",
+    )
+    _assert(idea in completed.stdout, "custom idea must be reflected in stdout")
+    _assert(goal in completed.stdout, "custom goal must be reflected in stdout")
+    _assert(context in completed.stdout, "custom context must be reflected in stdout")
+    for constraint in constraints:
+        _assert(constraint in completed.stdout, "custom constraints must be reflected in stdout")
+    _assert(
+        "swallowable biodegradable capsule" not in completed.stdout.lower(),
+        "custom CLI input must not use the capsule fixture",
+    )
+
+    _assert(json_path.exists(), "run_demo custom --json-output must create a JSON file")
+    _assert(markdown_path.exists(), "run_demo custom --output must create a Markdown file")
+    _assert(
+        markdown_path.read_text(encoding="utf-8") == completed.stdout,
+        "custom run_demo Markdown output file must match stdout markdown",
+    )
+    exported_json = json_path.read_text(encoding="utf-8")
+    exported_payload = json.loads(exported_json)
+    _assert(
+        exported_payload["domain_profile"]["id"] == "software",
+        "custom AI assistant input should use the deterministic software domain profile",
+    )
+    exported_result = result_from_json(exported_json)
+    _assert(
+        exported_result.markdown_report.markdown == completed.stdout,
+        "custom run_demo JSON markdown must match stdout markdown",
+    )
+
+
 def main() -> None:
     test_deterministic_pipeline_contract()
     test_json_export_contract()
     test_run_demo_json_output_support()
+    test_run_demo_custom_cli_input_support()
     print("Research Council smoke tests passed")
 
 
