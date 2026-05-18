@@ -35,6 +35,15 @@ from research_council.benchmark_snapshot import (
     export_benchmark_snapshot,
     load_benchmark_snapshot,
 )
+from research_council.benchmark_history import (
+    append_benchmark_history,
+    benchmark_history_entry_from_json_dict,
+    benchmark_history_entry_to_json_dict,
+    compare_latest_to_previous,
+    format_benchmark_trend_summary,
+    history_to_json,
+    load_benchmark_history,
+)
 from research_council.mutation_tests import (
     build_mutation_cases,
     format_mutation_summary,
@@ -1209,6 +1218,147 @@ def test_benchmark_snapshot_export_contract() -> None:
     )
 
 
+def test_benchmark_history_contract() -> None:
+    summary = evaluate_golden_cases()
+    artifacts_root = Path(__file__).parent / "artifacts"
+    artifacts_root.mkdir(exist_ok=True)
+    snapshot_path = artifacts_root / f"benchmark-history-snapshot-{os.getpid()}.json"
+    history_path = artifacts_root / f"benchmark-history-{os.getpid()}.json"
+
+    snapshot = export_benchmark_snapshot(summary, snapshot_path)
+    history = append_benchmark_history(snapshot, history_path)
+    _assert(history_path.exists(), "benchmark history append must create a JSON file")
+    payload = json.loads(history_path.read_text(encoding="utf-8"))
+    loaded_history = load_benchmark_history(history_path)
+    _assert(loaded_history == history, "benchmark history must load back unchanged")
+    _assert(
+        payload["history_schema_version"] == 1,
+        "benchmark history must expose a schema version",
+    )
+    _assert(
+        json.loads(history_to_json(loaded_history)) == payload,
+        "benchmark history JSON must round-trip deterministically",
+    )
+    _assert(
+        benchmark_history_entry_from_json_dict(
+            benchmark_history_entry_to_json_dict(loaded_history[0])
+        )
+        == loaded_history[0],
+        "benchmark history entry mapping must round-trip",
+    )
+
+    first_trend = compare_latest_to_previous(loaded_history)
+    _assert(first_trend.entries == 1, "single-entry history must report one entry")
+    _assert(
+        not first_trend.changed and first_trend.regression_count == 0,
+        "single-entry history must not report change or regressions",
+    )
+
+    repeated_history = append_benchmark_history(snapshot, history_path)
+    repeated_trend = compare_latest_to_previous(repeated_history)
+    _assert(
+        repeated_trend.entries == 2
+        and not repeated_trend.changed
+        and repeated_trend.regression_count == 0,
+        "repeated identical snapshots must compare cleanly",
+    )
+
+    changed_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(snapshot)))
+    changed_payload["failed_invariants"] += 1
+    changed_payload["consistency_failures"] += 1
+    changed_payload["hard_cases"] -= 1
+    changed_payload["realistic_cases"] -= 1
+    changed_payload["augmentation_counts"]["rejected"] += 2
+    changed_payload["version_info"]["benchmark_hash"] = "changed"
+    changed_payload["profiles_covered"] = changed_payload["profiles_covered"][:-1]
+    changed_payload["case_ids"] = changed_payload["case_ids"][:-1]
+    first_case_id = sorted(changed_payload["selected_profiles_by_case"])[0]
+    current_profile = changed_payload["selected_profiles_by_case"][first_case_id]
+    changed_payload["selected_profiles_by_case"][first_case_id] = (
+        "general" if current_profile != "general" else "ai_saas"
+    )
+    changed_payload["confidence_impact_distribution"]["confidence_blocker"] += 1
+    changed_payload["evidence_gap_distribution"]["ai_saas"] += 2
+    changed_snapshot = benchmark_snapshot_from_json_dict(changed_payload)
+    changed_history = append_benchmark_history(changed_snapshot, history_path)
+    changed_trend = compare_latest_to_previous(changed_history)
+    _assert(changed_trend.changed, "changed benchmark hash must mark trend as changed")
+    _assert(
+        changed_trend.failed_invariants_delta == 1
+        and changed_trend.consistency_failures_delta == 1
+        and changed_trend.hard_cases_delta == -1
+        and changed_trend.realistic_cases_delta == -1
+        and changed_trend.augmentation_rejected_delta == 2,
+        "benchmark trend must report core regression deltas",
+    )
+    _assert(
+        changed_trend.profiles_removed
+        and changed_trend.case_ids_removed
+        and changed_trend.selected_profile_changes,
+        "benchmark trend must report coverage and selected-profile changes",
+    )
+    _assert(
+        changed_trend.confidence_impact_delta["confidence_blocker"] == 1
+        and changed_trend.evidence_gap_delta["ai_saas"] == 2,
+        "benchmark trend must report distribution deltas",
+    )
+    for expected_signal in (
+        "failed_invariants increased",
+        "consistency_failures increased",
+        "profiles_covered decreased",
+        "hard_cases decreased",
+        "realistic_cases decreased",
+        "benchmark_hash changed",
+    ):
+        _assert(
+            expected_signal in changed_trend.regressions,
+            f"benchmark trend missing regression signal: {expected_signal}",
+        )
+
+    trend_text = format_benchmark_trend_summary(changed_trend)
+    history_text = history_path.read_text(encoding="utf-8")
+    _assert(
+        "Benchmark history updated:" in trend_text and "regressions=" in trend_text,
+        "benchmark trend formatter must be concise and labeled",
+    )
+    _assert(
+        "C:" not in trend_text
+        and "jarvis-core" not in trend_text
+        and "C:" not in history_text
+        and "jarvis-core" not in history_text,
+        "benchmark history must not leak local filesystem paths",
+    )
+
+    cli_history_path = artifacts_root / f"benchmark-history-cli-{os.getpid()}.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_benchmark_history.py")),
+            "--snapshot",
+            str(snapshot_path),
+            "--history",
+            str(cli_history_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_benchmark_history.py failed: {completed.stderr.strip()}",
+    )
+    _assert(cli_history_path.exists(), "benchmark history CLI must create history JSON")
+    _assert(
+        "Benchmark history updated:" in completed.stdout,
+        "benchmark history CLI must print a concise trend summary",
+    )
+    _assert(
+        "C:" not in completed.stdout and "jarvis-core" not in completed.stdout,
+        "benchmark history CLI output must not leak local filesystem paths",
+    )
+
+
 def test_mutation_test_runner_contract() -> None:
     cases = build_mutation_cases()
     summary = run_mutation_tests(cases)
@@ -1668,6 +1818,7 @@ def main() -> None:
     test_confidence_trace_linkage_and_json_additive_fields()
     test_golden_case_evaluation_harness()
     test_benchmark_snapshot_export_contract()
+    test_benchmark_history_contract()
     test_mutation_test_runner_contract()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
