@@ -35,6 +35,11 @@ from research_council.benchmark_snapshot import (
     export_benchmark_snapshot,
     load_benchmark_snapshot,
 )
+from research_council.mutation_tests import (
+    build_mutation_cases,
+    format_mutation_summary,
+    run_mutation_tests,
+)
 from run_demo import build_sample_input
 
 
@@ -1204,6 +1209,64 @@ def test_benchmark_snapshot_export_contract() -> None:
     )
 
 
+def test_mutation_test_runner_contract() -> None:
+    cases = build_mutation_cases()
+    summary = run_mutation_tests(cases)
+    summary_text = format_mutation_summary(summary)
+    _assert(summary.passed, summary_text)
+    _assert(summary.total_cases >= 15, "mutation suite must cover fixed edge cases")
+    _assert(
+        set(summary.categories_covered)
+        >= {
+            "negation",
+            "weak_keyword",
+            "structural_anchor",
+            "contamination",
+            "unsafe_confidence",
+        },
+        "mutation suite must cover the required robustness categories",
+    )
+    _assert(
+        summary.profile_drift_failures == 0,
+        "passing mutation suite must record zero profile drift failures",
+    )
+    _assert(
+        summary.contamination_failures == 0,
+        "passing mutation suite must record zero contamination failures",
+    )
+    _assert(
+        summary.unsafe_acceptance_failures == 0,
+        "passing mutation suite must record zero unsafe acceptance failures",
+    )
+    _assert(
+        "C:" not in summary_text and "jarvis-core" not in summary_text,
+        "mutation summary must not leak local filesystem paths",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_mutation_tests.py")),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_mutation_tests.py failed: {completed.stderr.strip()}",
+    )
+    _assert(
+        "Mutation tests passed:" in completed.stdout,
+        "run_mutation_tests.py must print a concise pass summary",
+    )
+    _assert(
+        "C:" not in completed.stdout and "jarvis-core" not in completed.stdout,
+        "mutation runner output must not leak local filesystem paths",
+    )
+
+
 def test_run_demo_unknown_profile_fails_clearly() -> None:
     completed = subprocess.run(
         [
@@ -1605,6 +1668,7 @@ def main() -> None:
     test_confidence_trace_linkage_and_json_additive_fields()
     test_golden_case_evaluation_harness()
     test_benchmark_snapshot_export_contract()
+    test_mutation_test_runner_contract()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
     print("Research Council smoke tests passed")
