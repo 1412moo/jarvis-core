@@ -44,6 +44,15 @@ def _assert(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def _combined_reasoning_trace(entries: list[dict[str, object]]) -> str:
+    trace_parts: list[str] = []
+    for entry in entries:
+        traces = entry.get("reasoning_trace", ())
+        if isinstance(traces, list):
+            trace_parts.extend(str(trace) for trace in traces)
+    return " ".join(trace_parts).lower()
+
+
 def test_deterministic_pipeline_contract() -> None:
     result = run_research_council(build_sample_input())
 
@@ -667,6 +676,122 @@ def test_medical_device_evidence_gap_engine_preserves_conservative_confidence() 
     )
 
 
+def test_ai_saas_reasoning_trace_explainability() -> None:
+    result = run_research_council(
+        ResearchCouncilInput(
+            raw_idea="AI SaaS patent analysis assistant for solo founders",
+            goal="Evaluate buyer workflow, willingness to pay, retention, and differentiation.",
+            context="Focus on repeated workflow, generic LLM wrapper risk, and purchase intent.",
+        )
+    )
+    payload = result_to_json_dict(result)
+    entries = payload["evidence_ledger"]
+    trace_text = _combined_reasoning_trace(entries)
+
+    _assert(result.profile["profile_id"] == "ai_saas", "AI SaaS profile must be active")
+    for expected in (
+        "no buyer",
+        "workflow",
+        "differentiation beyond generic ai wrapper unclear",
+        "retention trigger unsupported",
+    ):
+        _assert(
+            expected in trace_text,
+            f"AI SaaS reasoning trace must include {expected}",
+        )
+    _assert(
+        "reasoning_trace" in entries[0],
+        "JSON evidence entries must expose additive reasoning_trace",
+    )
+    _assert(
+        "trace_category" in entries[0] and "trace_severity" in entries[0],
+        "JSON evidence entries must expose additive trace metadata",
+    )
+    _assert(
+        "quality_signals" in payload,
+        "explainability metadata must preserve existing quality_signals",
+    )
+
+
+def test_medical_device_reasoning_trace_explainability() -> None:
+    result = run_research_council(build_sample_input())
+    payload = result_to_json_dict(result)
+    missing_entries = [
+        entry for entry in payload["evidence_ledger"] if entry["evidence_type"] == "missing"
+    ]
+    trace_text = _combined_reasoning_trace(missing_entries)
+
+    _assert(result.profile["profile_id"] == "medical_device", "sample must remain medical_device")
+    for expected in (
+        "patient safety risk unresolved",
+        "regulatory pathway unclear",
+        "clinical validation evidence missing",
+        "intended use not bounded",
+    ):
+        _assert(
+            expected in trace_text,
+            f"medical_device reasoning trace must include {expected}",
+        )
+
+    safety_entries = [
+        entry
+        for entry in missing_entries
+        if entry["trace_category"] == "safety_regulatory"
+    ]
+    _assert(safety_entries, "medical_device trace must preserve safety/regulatory category")
+    _assert(
+        all(entry["trace_severity"] == "high" for entry in safety_entries),
+        "medical_device safety/regulatory trace must preserve high severity",
+    )
+
+
+def test_confidence_trace_linkage_and_json_additive_fields() -> None:
+    result = run_research_council(build_sample_input())
+    payload = result_to_json_dict(result)
+    entries = payload["evidence_ledger"]
+    blocker_entries = [
+        entry for entry in entries if entry["confidence_impact"] == "confidence_blocker"
+    ]
+    supporting_entries = [
+        entry for entry in entries if entry["confidence_impact"] == "confidence_supporting"
+    ]
+    limiter_entries = [
+        entry for entry in entries if entry["confidence_impact"] == "confidence_limiter"
+    ]
+
+    _assert(blocker_entries, "fixture must include confidence_blocker entries")
+    _assert(supporting_entries, "fixture must include confidence_supporting entries")
+
+    for entry in entries:
+        traces = entry.get("reasoning_trace")
+        _assert(isinstance(traces, list), "JSON reasoning_trace must be a list")
+        _assert(bool(traces), "JSON reasoning_trace must be non-empty")
+        _assert(entry.get("trace_category"), "JSON trace_category must be non-empty")
+        _assert(
+            entry.get("trace_severity") in {"low", "medium", "high"},
+            "JSON trace_severity must use deterministic severity labels",
+        )
+
+    for entry in blocker_entries:
+        trace_text = " ".join(entry["reasoning_trace"]).lower()
+        _assert(
+            "confidence blocker" in trace_text,
+            "confidence_blocker entries must contain blocker rationale",
+        )
+    for entry in supporting_entries:
+        trace_text = " ".join(entry["reasoning_trace"]).lower()
+        _assert(
+            "supporting" in trace_text,
+            "confidence_supporting entries must contain supporting rationale",
+        )
+    for entry in limiter_entries:
+        trace_text = " ".join(entry["reasoning_trace"]).lower()
+        _assert(
+            "confidence limiter" in trace_text or "limits confidence" in trace_text,
+            "confidence_limiter entries must contain limiter rationale",
+        )
+
+
 def test_run_demo_unknown_profile_fails_clearly() -> None:
     completed = subprocess.run(
         [
@@ -851,6 +976,9 @@ def main() -> None:
     test_medical_device_policy_regression_preserves_conservative_behavior()
     test_ai_saas_evidence_gap_engine_links_experiments()
     test_medical_device_evidence_gap_engine_preserves_conservative_confidence()
+    test_ai_saas_reasoning_trace_explainability()
+    test_medical_device_reasoning_trace_explainability()
+    test_confidence_trace_linkage_and_json_additive_fields()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
     print("Research Council smoke tests passed")

@@ -217,6 +217,9 @@ def _render_evidence_ledger(evidence_ledger: list[Any]) -> list[str]:
                 f"- {_code(entry_id)} -> {_code(claim_id)}: "
                 f"{_clean_text(_field(entry, 'summary'))}"
             )
+            rationale = _first_reasoning_trace(entry)
+            if rationale:
+                lines.append(f"  Evidence rationale: {rationale}")
         lines.append("")
 
     if missing_entries:
@@ -230,6 +233,9 @@ def _render_evidence_ledger(evidence_ledger: list[Any]) -> list[str]:
                 f"- {_code(entry_id)}{category_text} for {_code(claim_id)}: "
                 f"{_clean_text(_field(entry, 'summary'))}"
             )
+            rationale = _confidence_reasoning_trace(entry)
+            if rationale:
+                lines.append(f"  Confidence rationale: {rationale}")
         lines.append("")
         return lines
 
@@ -417,6 +423,29 @@ def _entries_by_gap_category(entries: list[Any]) -> dict[str, list[Any]]:
     for entry in entries:
         grouped.setdefault(_gap_category(entry) or "uncategorized", []).append(entry)
     return grouped
+
+
+def _first_reasoning_trace(entry: Any) -> str:
+    traces = _as_list(_field(entry, "reasoning_trace"))
+    for trace in traces:
+        text = _clean_text(trace, "")
+        if text:
+            return text
+    return ""
+
+
+def _confidence_reasoning_trace(entry: Any) -> str:
+    traces = _as_list(_field(entry, "reasoning_trace"))
+    fallback = ""
+    for trace in traces:
+        text = _clean_text(trace, "")
+        if not text:
+            continue
+        if not fallback:
+            fallback = text
+        if "confidence " in text.lower():
+            return text
+    return fallback
 
 
 def _primary_experiment_from_next_step(next_step: str, experiments: list[Any]) -> Any | None:

@@ -97,6 +97,9 @@ class EvidenceEntry:
     missing_evidence: str = ""
     validation_experiment: str = ""
     confidence_impact: str = ""
+    reasoning_trace: tuple[str, ...] = ()
+    trace_category: str = ""
+    trace_severity: str = ""
 
     def __post_init__(self) -> None:
         _require_non_empty("id", self.id)
@@ -119,6 +122,11 @@ class EvidenceEntry:
             and self.confidence_impact not in EVIDENCE_CONFIDENCE_IMPACTS
         ):
             raise ValueError(f"invalid evidence confidence_impact: {self.confidence_impact}")
+        object.__setattr__(self, "reasoning_trace", _tuple_of_strings(self.reasoning_trace))
+        object.__setattr__(self, "trace_category", str(self.trace_category or "").strip())
+        object.__setattr__(self, "trace_severity", str(self.trace_severity or "").strip())
+        if self.trace_severity and self.trace_severity not in SEVERITY_LEVELS:
+            raise ValueError(f"invalid evidence trace_severity: {self.trace_severity}")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

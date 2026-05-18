@@ -220,6 +220,129 @@ _GENERIC_VALIDATION_EXPERIMENT_BY_CATEGORY = {
     "market": "Decision usefulness readout: identify buyer, budget owner, and willingness-to-pay evidence.",
 }
 
+_GENERIC_REASONING_TRACE_BY_CATEGORY = {
+    "technical": (
+        "Mechanism threshold unsupported",
+        "Prototype evidence missing",
+    ),
+    "user_adoption": (
+        "Target user unclear",
+        "Problem severity unsupported",
+        "Adoption evidence missing",
+    ),
+    "prior_art": (
+        "Substitute comparison missing",
+        "Prior-art position unsupported",
+    ),
+    "safety_regulatory": (
+        "Safety boundary unclear",
+        "Review condition unsupported",
+    ),
+    "environmental": (
+        "Environmental measurement missing",
+        "Lifecycle risk unresolved",
+    ),
+    "market": (
+        "Buyer unclear",
+        "Willingness-to-pay evidence missing",
+    ),
+}
+
+_PROFILE_REASONING_TRACE_BY_CATEGORY = {
+    "ai_saas": {
+        "technical": (
+            "Output reliability evidence missing",
+            "Source traceability not demonstrated",
+            "Failure handling unsupported",
+        ),
+        "user_adoption": (
+            "No buyer/workflow owner identified",
+            "No repeated workflow evidence detected",
+            "Retention trigger unsupported",
+            "Workflow interview required before medium confidence",
+        ),
+        "prior_art": (
+            "Differentiation beyond generic AI wrapper unclear",
+            "Narrow workflow wedge unsupported",
+            "Substitute map missing",
+        ),
+        "safety_regulatory": (
+            "Legal-output boundary unsupported",
+            "Professional-review trigger not defined",
+            "Unsupported citation risk unresolved",
+        ),
+        "market": (
+            "No buyer identified",
+            "Willingness-to-pay evidence missing",
+            "Retention trigger unsupported",
+        ),
+    },
+    "medical_device": {
+        "technical": (
+            "Intended use not bounded",
+            "Performance threshold unsupported",
+            "Non-clinical validation evidence missing",
+        ),
+        "user_adoption": (
+            "Clinical workflow fit unsupported",
+            "Patient and clinician adoption evidence missing",
+        ),
+        "prior_art": (
+            "Clinical comparator missing",
+            "Care-pathway alternative unclear",
+        ),
+        "safety_regulatory": (
+            "Intended use not bounded",
+            "Clinical validation evidence missing",
+            "Regulatory pathway unclear",
+            "Patient safety risk unresolved",
+        ),
+        "market": (
+            "Payer or buyer unclear",
+            "Reimbursement path unsupported",
+        ),
+        "environmental": (
+            "Environmental disposal evidence missing",
+            "Waste-path risk unresolved",
+        ),
+    },
+    "capsule_medical_environmental": {
+        "technical": (
+            "Intended use not bounded",
+            "Capsule sensing evidence missing",
+            "Safe transit evidence missing",
+        ),
+        "user_adoption": (
+            "Care-pathway workflow fit unsupported",
+            "Patient and clinician adoption evidence missing",
+        ),
+        "prior_art": (
+            "Clinical comparator missing",
+            "Capsule-device alternative unclear",
+        ),
+        "safety_regulatory": (
+            "Intended use not bounded",
+            "Clinical validation evidence missing",
+            "Regulatory pathway unclear",
+            "Patient safety risk unresolved",
+        ),
+        "environmental": (
+            "Degradation timing unsupported",
+            "Wastewater byproduct risk unresolved",
+        ),
+        "market": (
+            "Payer or buyer unclear",
+            "Screening adoption trigger unsupported",
+        ),
+    },
+}
+
+_TRACE_SEVERITY_BY_CONFIDENCE_IMPACT = {
+    "confidence_blocker": "high",
+    "confidence_limiter": "medium",
+    "confidence_supporting": "low",
+}
+
 
 def build_evidence_ledger(
     input_data: Any,
@@ -263,6 +386,13 @@ def build_evidence_ledger(
             status,
             gap_category,
         )
+        reasoning_trace = _reasoning_trace_for_entry(
+            domain_profile,
+            claim,
+            status,
+            gap_category,
+            confidence_impact,
+        )
         entries.append(
             _primary_entry_for_claim(
                 sequence_number=len(entries) + 1,
@@ -275,6 +405,9 @@ def build_evidence_ledger(
                 missing_evidence=missing_evidence,
                 validation_experiment=validation_experiment,
                 confidence_impact=confidence_impact,
+                reasoning_trace=reasoning_trace,
+                trace_category=_trace_category_for_entry(status, gap_category),
+                trace_severity=_trace_severity_for_impact(confidence_impact),
             )
         )
 
@@ -300,6 +433,9 @@ def build_evidence_ledger(
                 missing_evidence="",
                 validation_experiment="",
                 confidence_impact="confidence_supporting",
+                reasoning_trace=_provided_reasoning_trace(domain_profile),
+                trace_category="local_support",
+                trace_severity="low",
             )
         )
 
@@ -346,6 +482,9 @@ def _primary_entry_for_claim(
     missing_evidence: str,
     validation_experiment: str,
     confidence_impact: str,
+    reasoning_trace: tuple[str, ...],
+    trace_category: str,
+    trace_severity: str,
 ) -> EvidenceEntry:
     if status == "provided":
         return EvidenceEntry(
@@ -366,6 +505,9 @@ def _primary_entry_for_claim(
             missing_evidence="",
             validation_experiment="",
             confidence_impact="confidence_supporting",
+            reasoning_trace=reasoning_trace,
+            trace_category=trace_category,
+            trace_severity=trace_severity,
         )
 
     if status == "assumed":
@@ -388,6 +530,9 @@ def _primary_entry_for_claim(
             missing_evidence=missing_evidence,
             validation_experiment=validation_experiment,
             confidence_impact=confidence_impact,
+            reasoning_trace=reasoning_trace,
+            trace_category=trace_category,
+            trace_severity=trace_severity,
         )
 
     if status == "needs_external_validation":
@@ -410,6 +555,9 @@ def _primary_entry_for_claim(
             missing_evidence=missing_evidence,
             validation_experiment=validation_experiment,
             confidence_impact=confidence_impact,
+            reasoning_trace=reasoning_trace,
+            trace_category=trace_category,
+            trace_severity=trace_severity,
         )
 
     return EvidenceEntry(
@@ -431,6 +579,9 @@ def _primary_entry_for_claim(
         missing_evidence=missing_evidence,
         validation_experiment=validation_experiment,
         confidence_impact=confidence_impact,
+        reasoning_trace=reasoning_trace,
+        trace_category=trace_category,
+        trace_severity=trace_severity,
     )
 
 
@@ -507,6 +658,84 @@ def _confidence_impact_for_gap(
     if claim.confidence == "low":
         return "confidence_limiter"
     return "confidence_limiter"
+
+
+def _reasoning_trace_for_entry(
+    domain_profile: Any,
+    claim: Claim,
+    status: str,
+    gap_category: str,
+    confidence_impact: str,
+) -> tuple[str, ...]:
+    if status == "provided":
+        return _provided_reasoning_trace(domain_profile)
+
+    trace: list[str] = []
+    profile_id = _profile_id(domain_profile)
+    profile_traces = _PROFILE_REASONING_TRACE_BY_CATEGORY.get(profile_id, {})
+    trace.extend(profile_traces.get(gap_category, ()))
+    trace.extend(_GENERIC_REASONING_TRACE_BY_CATEGORY.get(gap_category, ()))
+    trace.append(_status_reasoning_trace(status))
+    trace.append(_confidence_reasoning_trace(confidence_impact, gap_category))
+    if claim.confidence == "low" and confidence_impact != "confidence_blocker":
+        trace.append("Low claim confidence limits confidence upgrade")
+    return _dedupe_trace(trace)
+
+
+def _provided_reasoning_trace(domain_profile: Any) -> tuple[str, ...]:
+    profile_id = _profile_id(domain_profile)
+    if profile_id == "ai_saas":
+        return (
+            "Supporting evidence: local input frames the AI SaaS workflow",
+            "Confidence supporting: local input does not validate buyer workflow",
+        )
+    if profile_id in {"medical_device", "capsule_medical_environmental"}:
+        return (
+            "Supporting evidence: local input frames the medical-device concept",
+            "Confidence supporting: local input does not validate patient safety",
+        )
+    return (
+        "Supporting evidence: local input defines the concept",
+        "Confidence supporting: local input does not validate external claims",
+    )
+
+
+def _status_reasoning_trace(status: str) -> str:
+    if status == "assumed":
+        return "Assumption requires evidence before confidence upgrade"
+    if status == "needs_external_validation":
+        return "External validation required before confidence upgrade"
+    return "Missing evidence requires validation before confidence upgrade"
+
+
+def _confidence_reasoning_trace(confidence_impact: str, gap_category: str) -> str:
+    category = gap_category.replace("_", " ")
+    if confidence_impact == "confidence_blocker":
+        return f"Confidence blocker: unresolved {category} evidence blocks upgrade"
+    if confidence_impact == "confidence_limiter":
+        return f"Confidence limiter: unresolved {category} evidence caps confidence"
+    return f"Confidence supporting: {category} evidence supports local framing"
+
+
+def _trace_category_for_entry(status: str, gap_category: str) -> str:
+    if status == "provided":
+        return "local_support"
+    return gap_category
+
+
+def _trace_severity_for_impact(confidence_impact: str) -> str:
+    return _TRACE_SEVERITY_BY_CONFIDENCE_IMPACT.get(confidence_impact, "medium")
+
+
+def _dedupe_trace(values: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        cleaned = re.sub(r"\s+", " ", str(value)).strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            deduped.append(cleaned)
+    return tuple(deduped)
 
 
 def _gap_category_for_claim(claim: Claim) -> str:
