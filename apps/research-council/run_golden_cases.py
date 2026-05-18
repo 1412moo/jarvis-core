@@ -12,6 +12,7 @@ from research_council.evaluation import (
     format_benchmark_analytics,
     format_regression_summary,
 )
+from research_council.benchmark_snapshot import export_benchmark_snapshot
 from research_council.llm_advisor import LLMAugmentationMode
 
 
@@ -34,6 +35,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print deterministic benchmark analytics after the regression summary.",
     )
+    parser.add_argument(
+        "--export-snapshot",
+        type=Path,
+        default=None,
+        help="Write a deterministic benchmark snapshot JSON file.",
+    )
     args = parser.parse_args(argv)
 
     summary = evaluate_golden_cases(
@@ -43,6 +50,13 @@ def main(argv: list[str] | None = None) -> int:
     print(format_regression_summary(summary))
     if args.show_analytics:
         print(format_benchmark_analytics(build_benchmark_analytics(summary)))
+    if args.export_snapshot is not None:
+        export_benchmark_snapshot(
+            summary,
+            args.export_snapshot,
+            augmentation_mode=args.llm_augmentation_mode,
+        )
+        print(f"Benchmark snapshot exported: {args.export_snapshot}")
     return 0 if summary.passed else 1
 
 

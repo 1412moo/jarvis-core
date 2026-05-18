@@ -28,6 +28,13 @@ from research_council.evaluation import (
     format_benchmark_analytics,
     format_regression_summary,
 )
+from research_council.benchmark_snapshot import (
+    benchmark_snapshot_from_json_dict,
+    benchmark_snapshot_to_json_dict,
+    compare_benchmark_snapshots,
+    export_benchmark_snapshot,
+    load_benchmark_snapshot,
+)
 from run_demo import build_sample_input
 
 
@@ -1054,6 +1061,149 @@ def test_golden_case_evaluation_harness() -> None:
     )
 
 
+def test_benchmark_snapshot_export_contract() -> None:
+    summary = evaluate_golden_cases()
+    analytics = build_benchmark_analytics(summary)
+    artifacts_root = Path(__file__).parent / "artifacts"
+    artifacts_root.mkdir(exist_ok=True)
+    snapshot_path = artifacts_root / f"benchmark-snapshot-{os.getpid()}.json"
+
+    snapshot = export_benchmark_snapshot(
+        summary,
+        snapshot_path,
+        augmentation_mode=LLMAugmentationMode.OFF.value,
+    )
+    _assert(snapshot_path.exists(), "benchmark snapshot export must create a JSON file")
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    loaded = load_benchmark_snapshot(snapshot_path)
+    _assert(loaded == snapshot, "benchmark snapshot must load back to the exported object")
+    _assert(
+        benchmark_snapshot_to_json_dict(loaded) == payload,
+        "benchmark snapshot JSON structure must round-trip deterministically",
+    )
+    _assert(
+        benchmark_snapshot_from_json_dict(payload) == loaded,
+        "benchmark snapshot mapping loader must round-trip",
+    )
+
+    _assert(payload["total_cases"] == summary.case_count, "snapshot case count mismatch")
+    _assert(
+        payload["total_invariants"] == summary.invariant_count,
+        "snapshot invariant count mismatch",
+    )
+    _assert(
+        payload["failed_invariants"] == 0,
+        "passing snapshot must record zero failed invariants",
+    )
+    _assert(
+        payload["consistency_failures"] == 0,
+        "passing snapshot must record zero consistency failures",
+    )
+    _assert(
+        payload["hard_cases"] == summary.hard_case_count,
+        "snapshot hard case count must match summary",
+    )
+    _assert(
+        payload["realistic_cases"] == summary.realistic_case_count,
+        "snapshot realistic case count must match summary",
+    )
+    _assert(
+        payload["overlap_cases"] == summary.overlap_case_count,
+        "snapshot overlap case count must match summary",
+    )
+    _assert(
+        payload["version_info"]["fixture_count"] == summary.case_count,
+        "snapshot fixture count must match evaluated cases",
+    )
+    _assert(
+        payload["run_metadata"]["augmentation_mode"] == "off",
+        "snapshot must record augmentation mode",
+    )
+    _assert(
+        payload["augmentation_counts"] == {"accepted": 0, "filtered": 0, "rejected": 0},
+        "OFF snapshot must record zero augmentation counts",
+    )
+    _assert(
+        payload["cases_by_profile"] == dict(analytics.cases_by_profile),
+        "snapshot cases_by_profile must match analytics",
+    )
+    _assert(
+        payload["confidence_impact_distribution"]
+        == dict(analytics.confidence_impact_distribution),
+        "snapshot confidence impact distribution must match analytics",
+    )
+    _assert(
+        payload["evidence_gap_distribution"] == dict(analytics.evidence_gaps_by_profile),
+        "snapshot evidence gap distribution must match analytics",
+    )
+    snapshot_text = snapshot_path.read_text(encoding="utf-8")
+    _assert(
+        "C:" not in snapshot_text and "jarvis-core" not in snapshot_text,
+        "benchmark snapshot must not leak local filesystem paths",
+    )
+    _assert(
+        snapshot.version_info.benchmark_hash,
+        "benchmark snapshot must include a deterministic benchmark hash",
+    )
+
+    same_diff = compare_benchmark_snapshots(loaded, loaded)
+    _assert(
+        same_diff.total_cases_delta == 0
+        and same_diff.total_invariants_delta == 0
+        and same_diff.failed_invariants_delta == 0
+        and same_diff.consistency_failures_delta == 0
+        and same_diff.augmentation_rejected_delta == 0
+        and not same_diff.profiles_added
+        and not same_diff.profiles_removed
+        and not same_diff.benchmark_hash_changed,
+        "identical benchmark snapshots must compare with zero deltas",
+    )
+
+    changed_payload = dict(payload)
+    changed_payload["total_invariants"] = int(payload["total_invariants"]) + 2
+    changed_payload["consistency_failures"] = int(payload["consistency_failures"]) + 1
+    changed_payload["augmentation_counts"] = dict(payload["augmentation_counts"])
+    changed_payload["augmentation_counts"]["rejected"] += 3
+    changed_payload["version_info"] = dict(payload["version_info"])
+    changed_payload["version_info"]["benchmark_hash"] = "changed"
+    changed_snapshot = benchmark_snapshot_from_json_dict(changed_payload)
+    changed_diff = compare_benchmark_snapshots(loaded, changed_snapshot)
+    _assert(
+        changed_diff.total_invariants_delta == 2
+        and changed_diff.consistency_failures_delta == 1
+        and changed_diff.augmentation_rejected_delta == 3
+        and changed_diff.benchmark_hash_changed,
+        "benchmark snapshot comparison must report compact deltas",
+    )
+
+    cli_snapshot_path = artifacts_root / f"benchmark-cli-snapshot-{os.getpid()}.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_golden_cases.py")),
+            "--export-snapshot",
+            str(cli_snapshot_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_golden_cases --export-snapshot failed: {completed.stderr.strip()}",
+    )
+    _assert(
+        cli_snapshot_path.exists(),
+        "run_golden_cases --export-snapshot must create a snapshot file",
+    )
+    _assert(
+        "Golden cases passed:" in completed.stdout
+        and "Benchmark snapshot exported:" in completed.stdout,
+        "run_golden_cases --export-snapshot must preserve summary output and report export",
+    )
+
+
 def test_run_demo_unknown_profile_fails_clearly() -> None:
     completed = subprocess.run(
         [
@@ -1454,6 +1604,7 @@ def main() -> None:
     test_medical_device_reasoning_trace_explainability()
     test_confidence_trace_linkage_and_json_additive_fields()
     test_golden_case_evaluation_harness()
+    test_benchmark_snapshot_export_contract()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
     print("Research Council smoke tests passed")
