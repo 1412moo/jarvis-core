@@ -50,8 +50,17 @@ from research_council.benchmark_history import (
 )
 from research_council.mutation_tests import (
     build_mutation_cases,
+    build_template_mutation_cases,
     format_mutation_summary,
     run_mutation_tests,
+)
+from research_council.scenario_templates import (
+    CATEGORY_ORDER,
+    PROFILE_ORDER,
+    build_scenario_summary,
+    format_scenario_summary,
+    generate_scenarios,
+    scenarios_to_json,
 )
 from run_demo import build_sample_input
 
@@ -1568,6 +1577,149 @@ def test_mutation_test_runner_contract() -> None:
     )
 
 
+def test_scenario_template_generation_contract() -> None:
+    scenarios = generate_scenarios()
+    repeated_scenarios = generate_scenarios()
+    summary = build_scenario_summary(scenarios)
+    summary_text = format_scenario_summary(summary)
+    serialized = scenarios_to_json(summary)
+    payload = json.loads(serialized)
+
+    _assert(scenarios == repeated_scenarios, "scenario generation must be deterministic")
+    _assert(summary.total_scenarios == 42, "scenario templates must generate fixed coverage")
+    _assert(
+        summary.categories_covered == tuple(sorted(CATEGORY_ORDER)),
+        "scenario templates must cover all required categories",
+    )
+    _assert(
+        summary.profiles_covered == PROFILE_ORDER,
+        "scenario templates must cover benchmark profile ids",
+    )
+    _assert(
+        set(summary.cases_by_category.values()) == {len(PROFILE_ORDER)},
+        "each scenario template category must cover all profiles",
+    )
+    _assert(
+        set(summary.cases_by_profile.values()) == {len(CATEGORY_ORDER)},
+        "each profile must receive one scenario per template category",
+    )
+    _assert(
+        summary_text.startswith("Scenario templates generated:")
+        and "42 scenarios" in summary_text
+        and "6 categories" in summary_text
+        and "7 profiles" in summary_text,
+        "scenario template summary must stay concise",
+    )
+    _assert(
+        payload["total_scenarios"] == summary.total_scenarios
+        and len(payload["scenarios"]) == summary.total_scenarios,
+        "scenario template JSON must preserve scenario count",
+    )
+    _assert(
+        payload == json.loads(scenarios_to_json(summary)),
+        "scenario template JSON serialization must be stable",
+    )
+    for forbidden_text in ("C:", "jarvis-core", "timestamp", "uuid", "current time"):
+        _assert(
+            forbidden_text not in serialized and forbidden_text not in summary_text,
+            f"scenario templates must not leak nondeterministic metadata: {forbidden_text}",
+        )
+
+    negation_summary = build_scenario_summary(generate_scenarios(category="negation_template"))
+    _assert(
+        negation_summary.total_scenarios == len(PROFILE_ORDER),
+        "scenario category filtering must keep deterministic profile coverage",
+    )
+
+    template_cases = build_template_mutation_cases()
+    template_summary = run_mutation_tests(template_cases)
+    template_summary_text = format_mutation_summary(template_summary)
+    _assert(template_summary.passed, template_summary_text)
+    _assert(
+        template_summary.total_cases == 5,
+        "scenario-template mutation subset must stay lightweight",
+    )
+    _assert(
+        set(template_summary.categories_covered)
+        >= {
+            "negation_template",
+            "weak_keyword_template",
+            "contamination_template",
+            "structural_anchor_template",
+            "confidence_escalation_template",
+        },
+        "scenario-template subset must convert generated scenarios into mutation checks",
+    )
+
+    text_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_scenario_templates.py")),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        text_cli.returncode == 0,
+        f"run_scenario_templates.py failed: {text_cli.stderr.strip()}",
+    )
+    _assert(
+        len(text_cli.stdout.strip().splitlines()) == 1
+        and "Scenario templates generated:" in text_cli.stdout
+        and "42 scenarios" in text_cli.stdout,
+        "run_scenario_templates.py must print the concise scenario summary by default",
+    )
+
+    json_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_scenario_templates.py")),
+            "--json",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        json_cli.returncode == 0,
+        f"run_scenario_templates.py --json failed: {json_cli.stderr.strip()}",
+    )
+    _assert(
+        json.loads(json_cli.stdout)["total_scenarios"] == summary.total_scenarios,
+        "run_scenario_templates.py --json must emit parseable deterministic JSON",
+    )
+    _assert(
+        "C:" not in json_cli.stdout and "jarvis-core" not in json_cli.stdout,
+        "scenario template JSON output must not leak local filesystem paths",
+    )
+
+    category_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_scenario_templates.py")),
+            "--category",
+            "weak_keyword_template",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        category_cli.returncode == 0,
+        f"run_scenario_templates.py --category failed: {category_cli.stderr.strip()}",
+    )
+    _assert(
+        "7 scenarios" in category_cli.stdout
+        and "1 category" in category_cli.stdout
+        and "7 profiles" in category_cli.stdout,
+        "scenario template category filter must report bounded generated coverage",
+    )
+
+
 def test_run_demo_unknown_profile_fails_clearly() -> None:
     completed = subprocess.run(
         [
@@ -1972,6 +2124,7 @@ def main() -> None:
     test_benchmark_history_contract()
     test_benchmark_diff_viewer_contract()
     test_mutation_test_runner_contract()
+    test_scenario_template_generation_contract()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
     print("Research Council smoke tests passed")

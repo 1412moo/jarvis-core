@@ -13,9 +13,18 @@ from .json_export import result_to_json_dict
 from .llm_advisor import LLMAugmentationMode
 from .pipeline import run_research_council
 from .schemas import ResearchCouncilInput
+from .scenario_templates import GeneratedScenario, generate_scenarios
 
 
 _MUTATION_GOAL = "Evaluate deterministic mutation robustness for this concept."
+
+_TEMPLATE_MUTATION_SCENARIO_IDS = (
+    "scenario_negation_creator_tools",
+    "scenario_weak_keyword_marketplace",
+    "scenario_structural_anchor_developer_tool",
+    "scenario_contamination_ai_saas",
+    "scenario_confidence_escalation_medical_device",
+)
 
 
 @dataclass(frozen=True)
@@ -309,6 +318,24 @@ def build_mutation_cases() -> tuple[MutationCase, ...]:
     )
 
 
+def build_template_mutation_cases(
+    scenario_ids: Sequence[str] | None = None,
+) -> tuple[MutationCase, ...]:
+    """Convert a small stable scenario-template subset into mutation cases."""
+
+    selected_ids = tuple(scenario_ids or _TEMPLATE_MUTATION_SCENARIO_IDS)
+    scenarios_by_id = {scenario.scenario_id: scenario for scenario in generate_scenarios()}
+    missing = tuple(
+        scenario_id for scenario_id in selected_ids if scenario_id not in scenarios_by_id
+    )
+    if missing:
+        raise ValueError("unknown generated scenario id: " + ", ".join(sorted(missing)))
+    return tuple(
+        _mutation_case_from_generated_scenario(scenarios_by_id[scenario_id])
+        for scenario_id in selected_ids
+    )
+
+
 def run_mutation_tests(
     cases: Sequence[MutationCase] | None = None,
 ) -> MutationSummary:
@@ -461,6 +488,21 @@ def _case(
     )
 
 
+def _mutation_case_from_generated_scenario(scenario: GeneratedScenario) -> MutationCase:
+    return MutationCase(
+        case_id=scenario.scenario_id,
+        category=scenario.category,
+        input_data=ResearchCouncilInput(raw_idea=scenario.raw_idea, goal=scenario.goal),
+        expected_profile=scenario.expected_profile,
+        forbidden_profiles=scenario.forbidden_profiles,
+        zero_score_profiles=scenario.zero_score_profiles,
+        require_consistency_pass=scenario.require_consistency_pass,
+        llm_augmentation_mode=scenario.llm_augmentation_mode,
+        expected_rejection_reasons=scenario.expected_rejection_reasons,
+        forbidden_accepted_terms=scenario.forbidden_accepted_terms,
+    )
+
+
 def _failure_count(results: Sequence[MutationResult], kind: str) -> int:
     counter: Counter[str] = Counter()
     for result in results:
@@ -520,6 +562,7 @@ __all__ = [
     "MutationResult",
     "MutationSummary",
     "build_mutation_cases",
+    "build_template_mutation_cases",
     "format_mutation_summary",
     "run_mutation_tests",
 ]
