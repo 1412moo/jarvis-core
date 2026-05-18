@@ -44,6 +44,7 @@ class BenchmarkHistoryEntry:
     evidence_gap_distribution: Mapping[str, int]
     case_ids: tuple[str, ...]
     selected_profiles_by_case: Mapping[str, str]
+    scenario_template_coverage: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,8 @@ class BenchmarkTrendSummary:
     selected_profile_changes: Mapping[str, tuple[str, str]] = field(default_factory=dict)
     confidence_impact_delta: Mapping[str, int] = field(default_factory=dict)
     evidence_gap_delta: Mapping[str, int] = field(default_factory=dict)
+    scenario_template_coverage_delta: Mapping[str, int] = field(default_factory=dict)
+    scenario_template_coverage_changed: bool = False
     benchmark_hash_changed: bool = False
 
     @property
@@ -108,6 +111,8 @@ class BenchmarkDiffView:
     selected_profile_changes: Mapping[str, tuple[str, str]] = field(default_factory=dict)
     profile_diffs: tuple[ProfileDiffView, ...] = ()
     confidence_impact_delta: Mapping[str, int] = field(default_factory=dict)
+    scenario_template_coverage_delta: Mapping[str, int] = field(default_factory=dict)
+    scenario_template_coverage_changed: bool = False
     benchmark_hash_changed: bool = False
 
     @property
@@ -204,6 +209,14 @@ def compare_latest_to_previous(
         previous.evidence_gap_distribution,
         latest.evidence_gap_distribution,
     )
+    scenario_template_coverage_delta = _scenario_template_coverage_delta(
+        previous.scenario_template_coverage,
+        latest.scenario_template_coverage,
+    )
+    scenario_template_coverage_changed = (
+        _scenario_template_coverage_mapping(previous.scenario_template_coverage)
+        != _scenario_template_coverage_mapping(latest.scenario_template_coverage)
+    )
 
     trend = BenchmarkTrendSummary(
         entries=len(entries),
@@ -235,6 +248,8 @@ def compare_latest_to_previous(
         selected_profile_changes=selected_profile_changes,
         confidence_impact_delta=confidence_impact_delta,
         evidence_gap_delta=evidence_gap_delta,
+        scenario_template_coverage_delta=scenario_template_coverage_delta,
+        scenario_template_coverage_changed=scenario_template_coverage_changed,
         benchmark_hash_changed=(previous.benchmark_hash != latest.benchmark_hash),
     )
     return BenchmarkTrendSummary(
@@ -287,6 +302,14 @@ def format_benchmark_diff_view(view: BenchmarkDiffView) -> str:
             f"accepted={_signed(view.augmentation_accepted_delta)}, "
             f"filtered={_signed(view.augmentation_filtered_delta)}, "
             f"rejected={_signed(view.augmentation_rejected_delta)}"
+        ),
+        (
+            "- scenario_templates: "
+            f"changed={str(view.scenario_template_coverage_changed).lower()}, "
+            f"scenarios={_signed(_count_value(view.scenario_template_coverage_delta, 'scenarios'))}, "
+            f"categories={_signed(_count_value(view.scenario_template_coverage_delta, 'categories'))}, "
+            f"profiles={_signed(_count_value(view.scenario_template_coverage_delta, 'profiles'))}, "
+            f"subset={_signed(_count_value(view.scenario_template_coverage_delta, 'subset'))}"
         ),
         "- profiles: " + _format_added_removed(view.profiles_added, view.profiles_removed),
         "- case_ids: " + _format_added_removed(view.case_ids_added, view.case_ids_removed),
@@ -357,6 +380,9 @@ def benchmark_history_entry_from_snapshot(
             str(key): str(value)
             for key, value in _mapping(payload.get("selected_profiles_by_case")).items()
         },
+        scenario_template_coverage=_scenario_template_coverage_mapping(
+            payload.get("scenario_template_coverage")
+        ),
     )
 
 
@@ -394,6 +420,9 @@ def benchmark_history_entry_to_json_dict(
             key: entry.selected_profiles_by_case[key]
             for key in sorted(entry.selected_profiles_by_case)
         },
+        "scenario_template_coverage": _scenario_template_coverage_mapping(
+            entry.scenario_template_coverage
+        ),
     }
 
 
@@ -429,6 +458,9 @@ def benchmark_history_entry_from_json_dict(
             str(key): str(value)
             for key, value in _mapping(payload.get("selected_profiles_by_case")).items()
         },
+        scenario_template_coverage=_scenario_template_coverage_mapping(
+            payload.get("scenario_template_coverage")
+        ),
     )
 
 
@@ -473,6 +505,8 @@ def _diff_view_from_trend(
         selected_profile_changes=trend.selected_profile_changes,
         profile_diffs=_profile_diff_views(before_entry, after_entry),
         confidence_impact_delta=trend.confidence_impact_delta,
+        scenario_template_coverage_delta=trend.scenario_template_coverage_delta,
+        scenario_template_coverage_changed=trend.scenario_template_coverage_changed,
         benchmark_hash_changed=trend.benchmark_hash_changed,
     )
 
@@ -563,6 +597,46 @@ def _mapping_delta(
         for key in keys
         if _count_value(latest, key) - _count_value(previous, key)
     }
+
+
+def _scenario_template_coverage_delta(
+    previous: Mapping[str, Any],
+    latest: Mapping[str, Any],
+) -> dict[str, int]:
+    previous_coverage = _scenario_template_coverage_mapping(previous)
+    latest_coverage = _scenario_template_coverage_mapping(latest)
+    fields = {
+        "scenarios": "total_scenarios",
+        "categories": "categories_count",
+        "profiles": "profiles_count",
+        "subset": "template_mutation_subset_count",
+    }
+    return {
+        label: _int_value(latest_coverage.get(field)) - _int_value(previous_coverage.get(field))
+        for label, field in fields.items()
+        if _int_value(latest_coverage.get(field)) - _int_value(previous_coverage.get(field))
+    }
+
+
+def _scenario_template_coverage_mapping(value: Any) -> dict[str, Any]:
+    mapping = _mapping(value)
+    return {
+        "coverage_type": str(mapping.get("coverage_type", "")),
+        "total_scenarios": _int_value(mapping.get("total_scenarios")),
+        "categories_count": _int_value(mapping.get("categories_count")),
+        "profiles_count": _int_value(mapping.get("profiles_count")),
+        "template_mutation_subset_count": _int_value(
+            mapping.get("template_mutation_subset_count")
+        ),
+        "categories_covered": _string_list(mapping.get("categories_covered")),
+        "profiles_covered": _string_list(mapping.get("profiles_covered")),
+    }
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item) for item in value]
 
 
 def _sorted_count_mapping(value: Mapping[str, int]) -> dict[str, int]:

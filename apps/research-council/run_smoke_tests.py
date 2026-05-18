@@ -96,6 +96,50 @@ def _combined_reasoning_trace(entries: list[dict[str, object]]) -> str:
     return " ".join(trace_parts).lower()
 
 
+def _assert_scenario_template_coverage(coverage: dict[str, object]) -> None:
+    _assert(
+        coverage.get("coverage_type") == "generated_metadata",
+        "scenario template coverage must be labeled as generated metadata",
+    )
+    _assert(
+        coverage.get("total_scenarios") == 42,
+        "scenario template coverage must record generated scenario count",
+    )
+    _assert(
+        coverage.get("categories_count") == 6,
+        "scenario template coverage must record category count",
+    )
+    _assert(
+        coverage.get("profiles_count") == 7,
+        "scenario template coverage must record profile count",
+    )
+    _assert(
+        coverage.get("template_mutation_subset_count") == 6,
+        "scenario template coverage must record lightweight mutation subset count",
+    )
+    _assert(
+        set(coverage.get("categories_covered", ())) == set(CATEGORY_ORDER),
+        "scenario template coverage must record covered categories",
+    )
+    _assert(
+        tuple(coverage.get("profiles_covered", ())) == PROFILE_ORDER,
+        "scenario template coverage must record covered profiles",
+    )
+    serialized = json.dumps(coverage, sort_keys=True)
+    for forbidden_text in (
+        "C:",
+        "jarvis-core",
+        "raw_idea",
+        "goal",
+        "input_data",
+        "scenario_id",
+    ):
+        _assert(
+            forbidden_text not in serialized,
+            f"scenario template coverage must not store raw scenario data: {forbidden_text}",
+        )
+
+
 def test_deterministic_pipeline_contract() -> None:
     result = run_research_council(build_sample_input())
 
@@ -1150,6 +1194,7 @@ def test_benchmark_snapshot_export_contract() -> None:
         payload["augmentation_counts"] == {"accepted": 0, "filtered": 0, "rejected": 0},
         "OFF snapshot must record zero augmentation counts",
     )
+    _assert_scenario_template_coverage(payload["scenario_template_coverage"])
     _assert(
         payload["cases_by_profile"] == dict(analytics.cases_by_profile),
         "snapshot cases_by_profile must match analytics",
@@ -1171,6 +1216,17 @@ def test_benchmark_snapshot_export_contract() -> None:
     _assert(
         snapshot.version_info.benchmark_hash,
         "benchmark snapshot must include a deterministic benchmark hash",
+    )
+    old_snapshot_payload = dict(payload)
+    old_snapshot_payload.pop("scenario_template_coverage", None)
+    old_snapshot = benchmark_snapshot_from_json_dict(old_snapshot_payload)
+    old_snapshot_coverage = benchmark_snapshot_to_json_dict(old_snapshot)[
+        "scenario_template_coverage"
+    ]
+    _assert(
+        old_snapshot_coverage["coverage_type"] == ""
+        and old_snapshot_coverage["total_scenarios"] == 0,
+        "old snapshots without scenario template coverage must load tolerantly",
     )
 
     same_diff = compare_benchmark_snapshots(loaded, loaded)
@@ -1259,6 +1315,12 @@ def test_benchmark_history_contract() -> None:
         == loaded_history[0],
         "benchmark history entry mapping must round-trip",
     )
+    _assert_scenario_template_coverage(payload["entries"][0]["scenario_template_coverage"])
+    _assert(
+        loaded_history[0].scenario_template_coverage
+        == snapshot.scenario_template_coverage,
+        "benchmark history must preserve scenario template coverage metadata",
+    )
 
     first_trend = compare_latest_to_previous(loaded_history)
     _assert(first_trend.entries == 1, "single-entry history must report one entry")
@@ -1274,6 +1336,11 @@ def test_benchmark_history_contract() -> None:
         and not repeated_trend.changed
         and repeated_trend.regression_count == 0,
         "repeated identical snapshots must compare cleanly",
+    )
+    _assert(
+        not repeated_trend.scenario_template_coverage_changed
+        and not repeated_trend.scenario_template_coverage_delta,
+        "repeated identical snapshots must keep scenario template telemetry stable",
     )
 
     changed_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(snapshot)))
@@ -1314,6 +1381,11 @@ def test_benchmark_history_contract() -> None:
         changed_trend.confidence_impact_delta["confidence_blocker"] == 1
         and changed_trend.evidence_gap_delta["ai_saas"] == 2,
         "benchmark trend must report distribution deltas",
+    )
+    _assert(
+        not changed_trend.scenario_template_coverage_changed
+        and not changed_trend.scenario_template_coverage_delta,
+        "unchanged scenario template metadata must not create trend noise",
     )
     for expected_signal in (
         "failed_invariants increased",
@@ -1443,6 +1515,7 @@ def test_benchmark_diff_viewer_contract() -> None:
         "Benchmark diff:",
         "- cases:",
         "- augmentation:",
+        "- scenario_templates:",
         "- profiles:",
         "- benchmark_hash_changed:",
         "- regression_signals:",
@@ -1454,6 +1527,11 @@ def test_benchmark_diff_viewer_contract() -> None:
     _assert(
         "C:" not in diff_text and "jarvis-core" not in diff_text,
         "benchmark diff formatter must not leak local paths",
+    )
+    _assert(
+        "scenario_templates: changed=false, scenarios=+0, categories=+0, profiles=+0, subset=+0"
+        in diff_text,
+        "benchmark diff formatter must include concise scenario template telemetry",
     )
 
     history = append_benchmark_history(before_snapshot, history_path)

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 from .evaluation import RegressionSummary, build_benchmark_analytics
+from .scenario_templates import build_scenario_summary, generate_scenarios
 
 
 SNAPSHOT_SCHEMA_VERSION = 1
@@ -60,6 +61,7 @@ class BenchmarkSnapshot:
     forbidden_contamination_by_profile: Mapping[str, int]
     case_ids: tuple[str, ...]
     selected_profiles_by_case: Mapping[str, str]
+    scenario_template_coverage: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -174,6 +176,9 @@ def benchmark_snapshot_to_json_dict(snapshot: BenchmarkSnapshot) -> dict[str, An
             key: snapshot.selected_profiles_by_case[key]
             for key in sorted(snapshot.selected_profiles_by_case)
         },
+        "scenario_template_coverage": _scenario_template_coverage_mapping(
+            snapshot.scenario_template_coverage
+        ),
     }
 
 
@@ -226,6 +231,9 @@ def benchmark_snapshot_from_json_dict(payload: Mapping[str, Any]) -> BenchmarkSn
             str(key): str(value)
             for key, value in _mapping(payload.get("selected_profiles_by_case")).items()
         },
+        scenario_template_coverage=_scenario_template_coverage_mapping(
+            payload.get("scenario_template_coverage")
+        ),
     )
 
 
@@ -322,6 +330,7 @@ def _build_benchmark_snapshot_with_hash(
             evaluation.case_id: evaluation.profile_id
             for evaluation in sorted(summary.evaluations, key=lambda item: item.case_id)
         },
+        scenario_template_coverage=_scenario_template_coverage_metadata(),
     )
 
 
@@ -338,6 +347,44 @@ def _count_mapping(value: Any) -> dict[str, int]:
     if not isinstance(value, Mapping):
         return {}
     return {str(key): _int_value(item) for key, item in sorted(value.items())}
+
+
+def _scenario_template_coverage_metadata() -> dict[str, Any]:
+    summary = build_scenario_summary(generate_scenarios())
+    from .mutation_tests import build_template_mutation_cases
+
+    return _scenario_template_coverage_mapping(
+        {
+            "coverage_type": "generated_metadata",
+            "total_scenarios": summary.total_scenarios,
+            "categories_count": len(summary.categories_covered),
+            "profiles_count": len(summary.profiles_covered),
+            "template_mutation_subset_count": len(build_template_mutation_cases()),
+            "categories_covered": summary.categories_covered,
+            "profiles_covered": summary.profiles_covered,
+        }
+    )
+
+
+def _scenario_template_coverage_mapping(value: Any) -> dict[str, Any]:
+    mapping = _mapping(value)
+    return {
+        "coverage_type": str(mapping.get("coverage_type", "")),
+        "total_scenarios": _int_value(mapping.get("total_scenarios")),
+        "categories_count": _int_value(mapping.get("categories_count")),
+        "profiles_count": _int_value(mapping.get("profiles_count")),
+        "template_mutation_subset_count": _int_value(
+            mapping.get("template_mutation_subset_count")
+        ),
+        "categories_covered": _string_list(mapping.get("categories_covered")),
+        "profiles_covered": _string_list(mapping.get("profiles_covered")),
+    }
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item) for item in value]
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:
