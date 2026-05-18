@@ -266,6 +266,7 @@ _PROFILE_ORDER: tuple[str, ...] = (
     "general",
     "medical_device",
     "ai_saas",
+    "marketplace",
     "enterprise_b2b",
     "developer_tool",
     "consumer_app",
@@ -277,6 +278,7 @@ _SAFETY_TIE_BREAKER: tuple[str, ...] = (
     "medical_device",
     "materials_science",
     "hardware_device",
+    "marketplace",
     "enterprise_b2b",
     "developer_tool",
     "ai_saas",
@@ -765,6 +767,222 @@ _PROFILES: tuple[DomainProfile, ...] = (
             "prioritize workflow interviews when buyer/workflow evidence is weak",
             "prioritize output-quality evaluation when reliability evidence is weak",
             "prioritize differentiation mapping when AI-wrapper risk is unresolved",
+        ),
+    ),
+    DomainProfile(
+        id="marketplace",
+        label="Marketplace",
+        concept_label="marketplace concept",
+        summary=(
+            "A profile for two-sided marketplaces, listings, booking, matching, "
+            "transactions, liquidity, trust/safety, and take-rate monetization."
+        ),
+        claim_lenses=(
+            ClaimLens(
+                id="liquidity_cold_start",
+                label="Liquidity and cold start",
+                focus="Liquidity threshold, chicken-and-egg dynamics, cold start strategy, and local or niche density.",
+                keywords=("liquidity", "cold start", "local density", "two-sided market"),
+            ),
+            ClaimLens(
+                id="supply_demand_acquisition",
+                label="Supply and demand acquisition",
+                focus="Supply-side acquisition, demand-side acquisition, and retention by side.",
+                keywords=("supply", "demand", "sellers", "buyers", "providers", "customers"),
+            ),
+            ClaimLens(
+                id="matching_transaction",
+                label="Matching and transactions",
+                focus="Matching efficiency, booking/listing workflow, transaction frequency, take rate, and disintermediation risk.",
+                keywords=("matching", "booking", "listings", "transaction", "take rate"),
+            ),
+            ClaimLens(
+                id="trust_quality_control",
+                label="Trust and quality control",
+                focus="Trust and safety, moderation burden, reputation system, reviews, escrow, and quality control.",
+                keywords=("trust and safety", "moderation", "reputation", "reviews", "escrow"),
+            ),
+        ),
+        evidence_needs=(
+            EvidenceNeed(
+                category="user_adoption",
+                request=(
+                    "Show supply-side acquisition, demand-side acquisition, liquidity "
+                    "threshold, local or niche density, matching frequency, retention by "
+                    "side, and cold-start strategy."
+                ),
+            ),
+            EvidenceNeed(
+                category="market",
+                request=(
+                    "Validate transaction frequency, take-rate or monetization model, "
+                    "repeat purchase behavior, disintermediation risk, and whether the "
+                    "market can support durable liquidity."
+                ),
+            ),
+            EvidenceNeed(
+                category="technical",
+                request=(
+                    "Define matching efficiency, booking/listing workflow, quality-control "
+                    "mechanism, reputation system behavior, and marketplace operations."
+                ),
+            ),
+            EvidenceNeed(
+                category="safety_regulatory",
+                request=(
+                    "Identify trust/safety risk, moderation burden, fraud or abuse cases, "
+                    "escrow or payment dispute boundaries, review abuse, and stop conditions."
+                ),
+            ),
+            EvidenceNeed(
+                category="prior_art",
+                request=(
+                    "Compare against existing marketplaces, direct off-platform alternatives, "
+                    "manual brokers, search/listing sites, and substitute channels."
+                ),
+            ),
+        ),
+        reviewer_lenses=(
+            ReviewerLens(
+                role="technical",
+                focus="Challenge matching efficiency, listing quality, booking workflow, quality control, and reputation-system mechanics.",
+            ),
+            ReviewerLens(
+                role="market",
+                focus="Challenge liquidity, cold start, supply-side acquisition, demand-side acquisition, take rate, and transaction frequency.",
+            ),
+            ReviewerLens(
+                role="safety_regulatory",
+                focus="Review trust/safety, moderation burden, fraud, abuse, escrow, disputes, and review/reputation abuse.",
+                escalation_terms=("trust and safety", "moderation", "escrow", "fraud", "abuse", "reviews"),
+            ),
+            ReviewerLens(
+                role="red_team",
+                focus="Look for chicken-and-egg stalls, retention asymmetry, disintermediation, weak local density, and quality-control gaps.",
+            ),
+        ),
+        experiment_templates=(
+            ExperimentTemplate(
+                id="liquidity-threshold-test",
+                title="Liquidity threshold test",
+                method=(
+                    "Define the smallest geography or niche and test how many supply and "
+                    "demand participants are needed before matching feels reliable."
+                ),
+                success_metric="The concept names a density threshold and a cold-start path for both sides.",
+                minimum_sample="5 supply-side and 5 demand-side participants in one niche or locality",
+                risk="Early interviews may overstate marketplace liquidity or repeat transaction behavior.",
+            ),
+            ExperimentTemplate(
+                id="concierge-matching-test",
+                title="Concierge matching test",
+                method=(
+                    "Manually match a small set of supply and demand participants, record "
+                    "matching speed, transaction quality, trust blockers, and disintermediation signals."
+                ),
+                success_metric="Matches complete with clear trust boundaries and a plausible repeat-use trigger.",
+                minimum_sample="5 attempted matches in one constrained marketplace wedge",
+                risk="Manual matching may hide automation, moderation, and quality-control burden.",
+            ),
+        ),
+        selection_keywords=(
+            ("marketplace", 10),
+            ("two sided market", 10),
+            ("two-sided market", 10),
+            ("supply and demand", 9),
+            ("sellers and buyers", 9),
+            ("providers and customers", 9),
+            ("local density", 8),
+            ("liquidity", 8),
+            ("cold start", 8),
+            ("trust and safety", 8),
+            ("disintermediation", 8),
+            ("take rate", 7),
+            ("escrow", 7),
+            ("reputation", 7),
+            ("moderation", 7),
+            ("matching", 6),
+            ("booking", 6),
+            ("listings", 6),
+            ("transaction", 6),
+            ("reviews", 5),
+            ("sellers", 5),
+            ("buyers", 5),
+            ("providers", 4),
+            ("customers", 4),
+        ),
+        blocker_order=(
+            "user_adoption",
+            "market",
+            "safety_regulatory",
+            "technical",
+            "prior_art",
+        ),
+        council_lenses=(
+            "liquidity_cold_start",
+            "supply_demand_acquisition",
+            "matching_transaction",
+            "trust_quality_control",
+        ),
+        reasoning_priorities=(
+            "liquidity and cold-start strategy before marketplace confidence",
+            "supply-side and demand-side acquisition before scale optimism",
+            "local or niche density before broad expansion",
+            "matching efficiency and transaction frequency before take-rate confidence",
+            "trust/safety and moderation burden before marketplace growth claims",
+        ),
+        risk_factors=(
+            "liquidity problem",
+            "chicken-and-egg dynamics",
+            "supply-side acquisition risk",
+            "demand-side acquisition risk",
+            "local density requirement",
+            "trust and safety risk",
+            "moderation burden",
+            "transaction frequency risk",
+            "retention asymmetry",
+            "take-rate monetization risk",
+            "disintermediation risk",
+            "quality control risk",
+            "reputation system risk",
+            "matching efficiency risk",
+        ),
+        evidence_expectations=(
+            "supply-side acquisition evidence",
+            "demand-side acquisition evidence",
+            "liquidity threshold and cold-start evidence",
+            "local or niche density evidence",
+            "matching and transaction frequency evidence",
+            "retention by side and repeat-usage evidence",
+            "trust/safety, moderation, quality-control, and reputation-system evidence",
+            "take-rate, monetization, and disintermediation-risk evidence",
+        ),
+        decision_heuristics=(
+            "do not upgrade confidence without liquidity, supply-side, and demand-side evidence",
+            "treat one-sided demand as insufficient for marketplace viability",
+            "penalize broad marketplaces that lack local density or a focused cold-start wedge",
+            "prefer concierge matching before building marketplace automation",
+            "keep disintermediation and moderation risk visible before take-rate optimism",
+        ),
+        output_guidance=(
+            "surface liquidity, cold-start, supply/demand, density, matching, and transaction-frequency risk",
+            "name trust/safety, moderation, reputation, escrow, and quality-control gaps explicitly",
+            "separate supply-side and demand-side adoption instead of treating users as one group",
+            "keep take-rate, monetization, retention asymmetry, and disintermediation visible",
+        ),
+        confidence_policy=(
+            "confidence is capped until liquidity threshold, supply acquisition, demand acquisition, transaction frequency, and trust/safety evidence are supplied",
+            "high confidence requires observed matching and repeat transaction behavior on both sides of the market",
+        ),
+        caveat_policy=(
+            "include liquidity and cold-start caveats",
+            "include supply/demand acquisition and local-density caveats",
+            "include trust/safety, moderation, take-rate, and disintermediation caveats",
+        ),
+        next_step_policy=(
+            "prioritize supply-side and demand-side interviews when liquidity evidence is weak",
+            "prioritize concierge matching or liquidity threshold tests when matching assumptions are unproven",
+            "prioritize trust/safety and take-rate tests before broad marketplace buildout",
         ),
     ),
     DomainProfile(
@@ -1612,19 +1830,71 @@ def _score_profiles(scoring_text: str) -> tuple[dict[str, int], dict[str, tuple[
     score_by_profile: dict[str, int] = {}
     matched_keywords: dict[str, tuple[str, ...]] = {}
     for profile in list_profiles():
+        marketplace_has_anchor = profile.id == "marketplace" and _has_marketplace_structural_anchor(
+            scoring_text
+        )
         score = 0
         matches: list[str] = []
         for keyword, weight in profile.selection_keywords:
+            if (
+                profile.id == "marketplace"
+                and keyword in _MARKETPLACE_WEAK_KEYWORDS
+                and not marketplace_has_anchor
+            ):
+                continue
             if _keyword_matches(
                 scoring_text,
                 keyword,
-                ignore_negated=profile.id in {"developer_tool", "enterprise_b2b"},
+                ignore_negated=profile.id in {"developer_tool", "enterprise_b2b", "marketplace"},
             ):
                 score += weight
                 matches.append(keyword)
         score_by_profile[profile.id] = score
         matched_keywords[profile.id] = tuple(matches)
     return score_by_profile, matched_keywords
+
+
+_MARKETPLACE_STRUCTURAL_ANCHORS = frozenset(
+    (
+        "marketplace",
+        "two sided market",
+        "supply and demand",
+        "sellers and buyers",
+        "providers and customers",
+        "liquidity",
+        "local density",
+        "cold start",
+        "trust and safety",
+        "take rate",
+        "disintermediation",
+        "supply side",
+        "demand side",
+        "matching supply with demand",
+    )
+)
+
+_MARKETPLACE_WEAK_KEYWORDS = frozenset(
+    (
+        "booking",
+        "transaction",
+        "reviews",
+        "listings",
+        "matching",
+        "escrow",
+        "reputation",
+        "sellers",
+        "buyers",
+        "providers",
+        "customers",
+    )
+)
+
+
+def _has_marketplace_structural_anchor(scoring_text: str) -> bool:
+    return any(
+        _keyword_matches(scoring_text, anchor, ignore_negated=True)
+        for anchor in _MARKETPLACE_STRUCTURAL_ANCHORS
+    )
 
 
 def _scoring_text_for(input_data: Any) -> str:

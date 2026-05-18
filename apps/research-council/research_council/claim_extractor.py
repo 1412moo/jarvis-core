@@ -190,11 +190,13 @@ def extract_claims(
     focus = _idea_focus(input_view.raw_idea)
     profile_id = _profile_id(domain_profile)
 
-    if profile_id in {"ai_saas", "developer_tool", "enterprise_b2b"}:
+    if profile_id in {"ai_saas", "marketplace", "developer_tool", "enterprise_b2b"}:
         if profile_id == "developer_tool":
             specs = _developer_tool_claim_specs(input_view, focus)
         elif profile_id == "enterprise_b2b":
             specs = _enterprise_b2b_claim_specs(input_view, focus)
+        elif profile_id == "marketplace":
+            specs = _marketplace_claim_specs(input_view, focus)
         else:
             specs = _ai_saas_claim_specs(input_view, focus)
         return [
@@ -845,6 +847,91 @@ def _developer_tool_claim_specs(input_view: _InputView, focus: str) -> list[_Cla
             rationale=(
                 "Minimum developer-tool experiments can be proposed from the idea structure "
                 "without collecting external evidence."
+            ),
+        ),
+    ]
+
+
+def _marketplace_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]:
+    return [
+        _concept_claim(input_view, focus),
+        _ClaimSpec(
+            text=(
+                "Marketplace viability depends on solving the liquidity problem with a "
+                "specific cold-start wedge, local or niche density threshold, and clear "
+                "chicken-and-egg strategy."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "The concept implies a two-sided market, but no liquidity threshold, density "
+                "target, or cold-start evidence was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Supply-side acquisition and demand-side acquisition must be proven separately; "
+                "seller/provider onboarding, buyer/customer demand, and retention by side cannot "
+                "be treated as one generic user-adoption signal."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "No supply-side interviews, demand-side interviews, channel evidence, or "
+                "side-specific retention signal was provided."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Matching efficiency is unproven until listings, booking flow, response time, "
+                "quality control, and matching frequency show that the marketplace can create "
+                "reliable transactions."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "The local input does not include concierge matches, completed bookings, "
+                "matching latency, transaction frequency, or quality-control evidence."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Trust and safety, moderation burden, reputation system behavior, escrow or "
+                "payment dispute boundaries, review abuse, fraud, and quality-control failure "
+                "modes are unresolved marketplace blockers."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "Marketplaces depend on trust mechanisms, but no trust/safety review, "
+                "moderation plan, dispute boundary, or reputation-system evidence was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Take-rate monetization, transaction frequency, repeat transactions, and "
+                "disintermediation risk are unproven; the marketplace must show why both sides "
+                "continue transacting through the platform instead of going direct."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "No pricing test, take-rate evidence, repeat transaction cohort, or "
+                "off-platform substitution evidence was provided."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "The idea is experimentable through supply-side interviews, demand-side "
+                "interviews, concierge matching tests, liquidity threshold tests, cold-start "
+                "landing pages, trust/safety risk reviews, pricing/take-rate tests, and repeat "
+                "transaction cohort checks."
+            ),
+            source_label="extracted",
+            confidence="medium",
+            rationale=(
+                "The marketplace structure can be decomposed into deterministic acquisition, "
+                "matching, trust, monetization, and repeat-use validation steps."
             ),
         ),
     ]

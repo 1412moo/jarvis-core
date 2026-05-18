@@ -55,6 +55,18 @@ def propose_experiments(
         )
         return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
 
+    if domain_profile.id == "marketplace":
+        drafts = (
+            _marketplace_supply_interview_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _marketplace_demand_interview_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _marketplace_concierge_matching_experiment(claim_list, critique_list, fallback_ids),
+            _marketplace_liquidity_threshold_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _marketplace_trust_safety_review_experiment(claim_list, critique_list, fallback_ids),
+            _marketplace_pricing_take_rate_experiment(claim_list, critique_list, fallback_ids),
+            _marketplace_repeat_transaction_cohort_experiment(claim_list, critique_list, fallback_ids),
+        )
+        return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
+
     if domain_profile.id == "developer_tool":
         drafts = (
             _developer_workflow_interview_experiment(input_data, claim_list, critique_list, fallback_ids),
@@ -408,6 +420,234 @@ def _ai_saas_differentiation_mapping_experiment(
         risk=(
             "A map clarifies strategy but does not create external market, patent, or competitive evidence."
         ),
+    )
+
+
+def _marketplace_supply_interview_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("supply-side acquisition", "seller", "provider", "liquidity"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Supply-side interview",
+        hypothesis=(
+            "A specific supply-side segment has enough pain, incentive, and trust in the "
+            "marketplace to join before demand-side liquidity is fully proven."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Interview likely sellers or providers using the submitted marketplace wedge "
+            f"and goal `{_short_goal(input_data)}`. Record current channels, onboarding "
+            "friction, quality-control concerns, and willingness to accept marketplace rules."
+        ),
+        metric="At least 3 supply-side participants state a concrete join trigger and current alternative.",
+        minimum_sample="5 likely sellers or providers in one niche or locality",
+        estimated_time="1 day",
+        estimated_cost_level="low",
+        stop_criteria="Stop if supply-side participants cannot name a repeated acquisition channel or join trigger.",
+        decision_impact="Validates whether the supply side can be seeded without assuming instant liquidity.",
+        risk="Interview interest does not prove marketplace liquidity or completed transactions.",
+    )
+
+
+def _marketplace_demand_interview_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("demand-side acquisition", "buyer", "customer", "matching frequency"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Demand-side interview",
+        hypothesis=(
+            "A specific demand-side segment has a frequent enough search or booking problem "
+            "to try the marketplace instead of current alternatives."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Interview likely buyers or customers about the last matching or booking attempt, "
+            "current substitutes, trust blockers, expected response time, and repeat-use trigger."
+        ),
+        metric="At least 3 demand-side participants describe a recent transaction attempt and a switching trigger.",
+        minimum_sample="5 likely buyers or customers in the same niche or locality",
+        estimated_time="1 day",
+        estimated_cost_level="low",
+        stop_criteria="Stop if demand-side pain is infrequent or not tied to a transaction moment.",
+        decision_impact="Validates whether demand can pull liquidity rather than only expressing casual interest.",
+        risk="Demand interviews can overstate willingness to transact when supply is absent.",
+    )
+
+
+def _marketplace_concierge_matching_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "technical") or _select_claim_ids(
+        claims,
+        ("matching efficiency", "listings", "booking", "quality control"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Concierge matching test",
+        hypothesis=(
+            "Manual matching can produce reliable transactions with visible quality-control "
+            "and trust boundaries before automated marketplace buildout."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Manually match a small batch of supply and demand participants, tracking match "
+            "time, response rate, booking friction, quality issues, and completion outcome."
+        ),
+        metric="At least 3 attempted matches produce a clear completion, refusal, or quality-control reason.",
+        minimum_sample="5 attempted matches in one focused marketplace wedge",
+        estimated_time="2 days",
+        estimated_cost_level="low",
+        stop_criteria="Stop if matching requires too much manual intervention or trust repair.",
+        decision_impact="Tests matching efficiency and workflow fit without adding marketplace automation.",
+        risk="Concierge matching may hide automation, operations, and moderation cost.",
+    )
+
+
+def _marketplace_liquidity_threshold_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("liquidity", "cold-start", "cold start", "local density"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Liquidity threshold test",
+        hypothesis=(
+            "The marketplace can name the minimum supply, demand, geography or niche density, "
+            "and cold-start sequence needed for useful matches."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Define one constrained density wedge from the submitted concept and estimate the "
+            "minimum supply count, demand count, match frequency, and cold-start sequence."
+        ),
+        metric="The team can state a falsifiable liquidity threshold and first-side acquisition target.",
+        minimum_sample="One tightly defined locality or niche with supply and demand estimates",
+        estimated_time="0.5 day",
+        estimated_cost_level="low",
+        stop_criteria="Stop if the concept cannot constrain geography, niche, or first-side seeding.",
+        decision_impact="Prevents broad marketplace buildout before liquidity and density assumptions are bounded.",
+        risk="A threshold estimate still needs observed acquisition and transaction evidence.",
+    )
+
+
+def _marketplace_trust_safety_review_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "safety_regulatory") or _select_claim_ids(
+        claims,
+        ("trust and safety", "moderation", "escrow", "reputation", "fraud"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Trust/safety risk review",
+        hypothesis=(
+            "The marketplace can define moderation, reputation, escrow or dispute, fraud, "
+            "and abuse boundaries before increasing transaction volume."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "List likely bad interactions across both sides, then mark prevention, detection, "
+            "moderation owner, dispute path, and stop condition for each risk."
+        ),
+        metric="Every high-risk interaction has an owner, prevention check, and stop condition.",
+        minimum_sample="One risk table covering both marketplace sides",
+        estimated_time="0.5 day",
+        estimated_cost_level="low",
+        stop_criteria="Stop if trust/safety or moderation ownership cannot be named.",
+        decision_impact="Keeps growth claims bounded by trust, quality, moderation, and dispute risk.",
+        risk="A tabletop review does not prove real-world safety or moderation performance.",
+    )
+
+
+def _marketplace_pricing_take_rate_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("take-rate", "take rate", "monetization", "transaction frequency"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Pricing/take-rate test",
+        hypothesis=(
+            "A realistic take rate can be charged without pushing either side to transact "
+            "off-platform or reducing transaction frequency."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Present a simple transaction scenario with marketplace fee, escrow or payment "
+            "rules, and value delivered; record fee acceptance and off-platform intent."
+        ),
+        metric="At least 3 participants accept the fee logic without preferring direct transaction.",
+        minimum_sample="5 likely supply-side or demand-side participants",
+        estimated_time="1 day",
+        estimated_cost_level="low",
+        stop_criteria="Stop if participants reject the fee or intend to bypass the marketplace.",
+        decision_impact="Validates monetization and disintermediation risk before take-rate optimism.",
+        risk="Stated fee acceptance may not survive real transaction context.",
+    )
+
+
+def _marketplace_repeat_transaction_cohort_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("repeat transactions", "transaction frequency", "retention by side", "repeat"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Repeat transaction cohort check",
+        hypothesis=(
+            "Both sides have a repeat transaction trigger strong enough to support retention, "
+            "liquidity, and durable marketplace value."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Track a small cohort's expected repeat transaction moments, side-specific "
+            "retention trigger, and reason they would return to the marketplace."
+        ),
+        metric="Both sides can name a credible repeat-use trigger and next transaction condition.",
+        minimum_sample="3 supply-side and 3 demand-side participants",
+        estimated_time="1 day",
+        estimated_cost_level="low",
+        stop_criteria="Stop if one side is mostly one-time or has no reason to return.",
+        decision_impact="Tests retention asymmetry before interpreting first transactions as durable liquidity.",
+        risk="Cohort expectations need follow-up behavioral evidence.",
     )
 
 

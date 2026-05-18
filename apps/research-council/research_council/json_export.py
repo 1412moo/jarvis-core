@@ -533,6 +533,20 @@ def _expected_caveat_terms(profile_id: str) -> tuple[str, ...]:
             "time to value",
             "repeat usage",
         )
+    if profile_id == "marketplace":
+        return (
+            "liquidity",
+            "cold start",
+            "supply-side acquisition",
+            "demand-side acquisition",
+            "local density",
+            "matching efficiency",
+            "trust safety",
+            "moderation burden",
+            "transaction frequency",
+            "take rate",
+            "disintermediation",
+        )
     if profile_id == "enterprise_b2b":
         return (
             "procurement path",

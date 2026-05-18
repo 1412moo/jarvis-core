@@ -55,6 +55,11 @@ _TECHNICAL_KEYWORDS = (
     "workflow integration depth",
     "rollout",
     "vendor reliability",
+    "matching",
+    "listings",
+    "booking",
+    "quality control",
+    "reputation system",
 )
 _MARKET_KEYWORDS = (
     "adopt",
@@ -87,6 +92,18 @@ _MARKET_KEYWORDS = (
     "rollout",
     "onboarding",
     "training",
+    "marketplace",
+    "liquidity",
+    "cold start",
+    "supply-side",
+    "demand-side",
+    "sellers",
+    "buyers",
+    "providers",
+    "customers",
+    "transaction",
+    "take rate",
+    "disintermediation",
 )
 _SAFETY_KEYWORDS = (
     "safety",
@@ -114,6 +131,13 @@ _SAFETY_KEYWORDS = (
     "audit logs",
     "governance",
     "it approval",
+    "trust and safety",
+    "moderation",
+    "escrow",
+    "fraud",
+    "abuse",
+    "reputation",
+    "reviews",
 )
 _RED_TEAM_KEYWORDS = (
     "assume",
@@ -140,6 +164,14 @@ _RED_TEAM_KEYWORDS = (
     "vendor trust",
     "long sales cycle",
     "org-wide adoption",
+    "chicken-and-egg",
+    "cold start",
+    "liquidity",
+    "local density",
+    "retention asymmetry",
+    "disintermediation",
+    "moderation",
+    "quality control",
 )
 _REGULATED_DOMAIN_KEYWORDS = (
     "medical",
@@ -250,6 +282,17 @@ def _build_technical_critique(
             "Run a setup friction test and one integration prototype in a realistic developer "
             "stack before expanding tool surface area."
         )
+    elif domain_profile.id == "marketplace":
+        finding = (
+            f"The marketplace matching case is not proven for {target}. The concept must show "
+            "matching efficiency, booking/listing workflow, response time, quality control, "
+            "and reputation-system mechanics before relying on automated marketplace liquidity. "
+            f"{gap_note}"
+        )
+        suggested_action = (
+            "Run a concierge matching test that records match time, listing quality, booking "
+            "friction, quality-control failures, and completion outcome."
+        )
     elif domain_profile.id == "enterprise_b2b":
         finding = (
             f"The enterprise integration case is not proven for {target}. The concept must "
@@ -329,6 +372,17 @@ def _build_market_critique(
         suggested_action = (
             "Interview target developers about their current workflow, existing tools, setup "
             "friction, documentation needs, team rollout blockers, and repeat-use trigger."
+        )
+    elif domain_profile.id == "marketplace":
+        finding = (
+            f"The marketplace liquidity case remains weak for {target}. One-sided interest is "
+            "not enough: the concept needs separate supply-side acquisition, demand-side "
+            "acquisition, local or niche density, cold-start strategy, transaction frequency, "
+            f"and retention by side. {gap_note}"
+        )
+        suggested_action = (
+            "Run supply-side and demand-side interviews in one constrained wedge, then define "
+            "the smallest liquidity threshold and cold-start sequence."
         )
     elif domain_profile.id == "enterprise_b2b":
         finding = (
@@ -433,6 +487,17 @@ def _build_safety_critique(
             "Write an operational boundary checklist covering secrets, permissions, log exposure, "
             "production data, and safe integration defaults."
         )
+    elif domain_profile.id == "marketplace":
+        finding = (
+            f"The marketplace trust/safety boundary is underspecified for {target}.{regulated_note} "
+            "A marketplace can fail through fraud, abuse, review manipulation, disputes, unsafe "
+            "matches, or moderation overload if trust, escrow, reputation, and quality-control "
+            f"boundaries are not explicit. {gap_note}"
+        )
+        suggested_action = (
+            "Write a trust/safety risk review covering moderation owner, escrow or dispute path, "
+            "fraud and abuse cases, reputation abuse, quality-control failures, and stop conditions."
+        )
     elif domain_profile.id == "enterprise_b2b":
         finding = (
             f"The enterprise security/compliance boundary is underspecified for {target}.{regulated_note} "
@@ -514,6 +579,16 @@ def _build_red_team_critique(
         suggested_action = (
             "Run an existing-tool comparison that marks current substitutes, switching cost, "
             "compatibility boundaries, documentation burden, and repeat-use triggers."
+        )
+    elif domain_profile.id == "marketplace":
+        finding = (
+            f"The easiest failure mode for {target} is marketplace stall: supply and demand "
+            "never reach liquidity, local density is too thin, trust/safety work grows faster "
+            "than transactions, or both sides disintermediate after the first match. {gap_note}"
+        )
+        suggested_action = (
+            "Run a marketplace red-team pass that marks liquidity threshold, cold-start path, "
+            "side-specific retention, moderation burden, disintermediation, and substitute channels."
         )
     elif domain_profile.id == "enterprise_b2b":
         finding = (

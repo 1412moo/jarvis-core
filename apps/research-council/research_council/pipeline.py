@@ -65,6 +65,10 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
         "setup friction",
         "stakeholder mapping",
         "rollout simulation",
+        "liquidity threshold",
+        "concierge matching",
+        "supply-side interview",
+        "demand-side interview",
         "adoption",
         "care-pathway",
         "interview",
@@ -74,6 +78,9 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
         "workflow interview",
         "procurement interview",
         "roi validation",
+        "pricing/take-rate",
+        "repeat transaction",
+        "liquidity",
         "differentiation",
         "adoption",
         "market",
@@ -104,6 +111,44 @@ _AI_SAAS_PRIORITY_TERMS = {
     "safety_regulatory": ("trust", "verification", "legal", "patentability", "citation"),
     "prior_art": ("differentiation", "substitute", "prior-art", "generic ai"),
     "market": ("willingness to pay", "pricing", "distribution", "subscription"),
+}
+
+_MARKETPLACE_CATEGORY_BONUS = {
+    "user_adoption": 20,
+    "market": 18,
+    "safety_regulatory": 14,
+    "technical": 12,
+    "prior_art": 10,
+}
+
+_MARKETPLACE_PRIORITY_TERMS = {
+    "user_adoption": (
+        "liquidity",
+        "cold-start",
+        "cold start",
+        "supply-side acquisition",
+        "demand-side acquisition",
+        "local density",
+        "retention by side",
+    ),
+    "market": (
+        "transaction frequency",
+        "take-rate",
+        "take rate",
+        "monetization",
+        "disintermediation",
+        "repeat transaction",
+    ),
+    "safety_regulatory": (
+        "trust/safety",
+        "trust and safety",
+        "moderation",
+        "escrow",
+        "reputation",
+        "fraud",
+    ),
+    "technical": ("matching efficiency", "booking", "listings", "quality-control", "quality control"),
+    "prior_art": ("existing marketplaces", "direct off-platform", "manual brokers", "substitute"),
 }
 
 _DEVELOPER_TOOL_CATEGORY_BONUS = {
@@ -331,6 +376,25 @@ def _create_recommendation(
                 "integration fit, ecosystem compatibility, debugging or observability value, "
                 "documentation clarity, team adoption, switching cost, time-to-value, or repeat usage."
             )
+        elif domain_profile.id == "marketplace":
+            if primary_blocker.category == "technical":
+                decision = "continue_with_concierge_matching_test"
+            elif primary_blocker.category == "user_adoption":
+                decision = "continue_with_liquidity_cold_start_test"
+            elif primary_blocker.category == "market":
+                decision = "continue_with_take_rate_transaction_test"
+            elif primary_blocker.category == "safety_regulatory":
+                decision = "pause_broad_use_resolve_trust_safety"
+            elif primary_blocker.category == "prior_art":
+                decision = "continue_with_disintermediation_substitute_mapping"
+            summary = (
+                f"Primary marketplace blocker: {primary_blocker.category.replace('_', ' ')} "
+                f"evidence for `{primary_blocker.claim_id}`. Treat the submitted description "
+                "as concept input, not proof of liquidity, cold-start strategy, supply-side "
+                "acquisition, demand-side acquisition, local density, matching efficiency, "
+                "transaction frequency, retention by side, take-rate monetization, "
+                "trust/safety readiness, moderation capacity, or disintermediation control."
+            )
         elif domain_profile.id == "enterprise_b2b":
             if primary_blocker.category == "technical":
                 decision = "continue_with_enterprise_integration_pilot"
@@ -389,6 +453,14 @@ def _create_recommendation(
                 "observability value, documentation burden, switching cost, time-to-value, "
                 "and repeat usage because these determine whether developers keep a tool in "
                 "their stack."
+            )
+        if domain_profile.id == "marketplace":
+            rationale_parts.append(
+                "Marketplace weighting gives extra priority to liquidity, cold-start strategy, "
+                "supply-side and demand-side acquisition, local density, matching efficiency, "
+                "trust/safety, moderation burden, transaction frequency, take-rate, retention "
+                "by side, and disintermediation because these determine whether both sides keep "
+                "transacting through the platform."
             )
         if domain_profile.id == "enterprise_b2b":
             rationale_parts.append(
@@ -524,12 +596,16 @@ def _profile_priority_bonus(
         bonus += _AI_SAAS_CATEGORY_BONUS.get(category, 0)
     if domain_profile.id == "developer_tool":
         bonus += _DEVELOPER_TOOL_CATEGORY_BONUS.get(category, 0)
+    if domain_profile.id == "marketplace":
+        bonus += _MARKETPLACE_CATEGORY_BONUS.get(category, 0)
     if domain_profile.id == "enterprise_b2b":
         bonus += _ENTERPRISE_B2B_CATEGORY_BONUS.get(category, 0)
     lowered = summary.lower()
     terms = _AI_SAAS_PRIORITY_TERMS.get(category, ())
     if domain_profile.id == "developer_tool":
         terms = _DEVELOPER_TOOL_PRIORITY_TERMS.get(category, ())
+    if domain_profile.id == "marketplace":
+        terms = _MARKETPLACE_PRIORITY_TERMS.get(category, ())
     if domain_profile.id == "enterprise_b2b":
         terms = _ENTERPRISE_B2B_PRIORITY_TERMS.get(category, ())
     if any(term in lowered for term in terms):
@@ -684,6 +760,32 @@ def _next_step_policy_note(
                 "Keep secrets, production data, access scopes, log exposure, and safe integration "
                 "boundaries visible."
             )
+    if domain_profile.id == "marketplace":
+        if category == "user_adoption":
+            return (
+                "Capture supply-side acquisition, demand-side acquisition, liquidity threshold, "
+                "cold-start path, local or niche density, and retention by side."
+            )
+        if category == "market":
+            return (
+                "Validate transaction frequency, repeat transactions, take-rate acceptance, "
+                "monetization logic, and disintermediation risk."
+            )
+        if category == "safety_regulatory":
+            return (
+                "Map trust/safety risk, moderation owner, escrow or dispute boundaries, fraud, "
+                "review abuse, and stop conditions."
+            )
+        if category == "technical":
+            return (
+                "Test matching efficiency, booking/listing workflow, quality control, and "
+                "reputation-system behavior with concierge matching."
+            )
+        if category == "prior_art":
+            return (
+                "Compare against existing marketplaces, direct off-platform alternatives, "
+                "manual brokers, listing sites, and substitute channels."
+            )
     if domain_profile.id == "enterprise_b2b":
         if category == "market":
             return (
@@ -727,6 +829,10 @@ def _profile_caveats(domain_profile: DomainProfile) -> tuple[str, ...]:
     if domain_profile.id == "developer_tool":
         return (
             "Developer-tool profile caveat: DX friction, setup complexity, integration cost, ecosystem compatibility, debugging or observability value, documentation burden, switching cost, time-to-value, and repeat usage remain unvalidated without targeted developer evidence.",
+        )
+    if domain_profile.id == "marketplace":
+        return (
+            "Marketplace profile caveat: liquidity, cold-start strategy, supply-side acquisition, demand-side acquisition, local density, matching efficiency, trust/safety, moderation burden, transaction frequency, take-rate, retention by side, and disintermediation remain unvalidated without targeted marketplace evidence.",
         )
     if domain_profile.id == "enterprise_b2b":
         return (

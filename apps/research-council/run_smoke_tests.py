@@ -796,13 +796,14 @@ def test_confidence_trace_linkage_and_json_additive_fields() -> None:
 def test_golden_case_evaluation_harness() -> None:
     summary = evaluate_golden_cases()
     case_ids = {evaluation.case_id for evaluation in summary.evaluations}
-    _assert(summary.case_count >= 6, "golden case harness must load the committed cases")
+    _assert(summary.case_count >= 7, "golden case harness must load the committed cases")
     _assert(summary.invariant_count >= 20, "golden case harness must evaluate invariants")
     for expected_case_id in (
         "ai_saas/weak_ai_wrapper",
         "ai_saas/workflow_ai_assistant",
         "developer_tool/cli_debugging_tool",
         "enterprise_b2b/enterprise_workflow_platform",
+        "marketplace/local_service_marketplace",
         "medical_device/diagnostic_tool",
         "generic/vague_consumer_idea",
     ):
@@ -845,6 +846,7 @@ def test_domain_profile_selection_foundation() -> None:
             "general",
             "medical_device",
             "ai_saas",
+            "marketplace",
             "enterprise_b2b",
             "developer_tool",
             "consumer_app",
@@ -916,6 +918,51 @@ def test_domain_profile_selection_foundation() -> None:
         "enterprise procurement / security / rollout input must select enterprise_b2b",
     )
 
+    marketplace_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "Local service marketplace connecting providers and customers with listings, "
+                "booking, reviews, escrow, liquidity, local density, take rate, and trust and safety moderation"
+            ),
+            "goal": "Evaluate supply and demand acquisition, cold start, matching, and transaction frequency.",
+            "context": "Marketplace structure should dominate generic SaaS or enterprise software framing.",
+        }
+    )
+    _assert(
+        marketplace_selection.selected_profile.id == "marketplace",
+        "marketplace liquidity / supply-demand / transaction input must select marketplace",
+    )
+
+    weak_marketplace_keyword_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "Booking and reviews management app for small service businesses with "
+                "transaction history."
+            ),
+            "goal": "Evaluate SaaS workflow value and retention.",
+            "context": "This is SaaS software for service operations, not a two-sided marketplace.",
+        }
+    )
+    _assert(
+        weak_marketplace_keyword_selection.selected_profile.id != "marketplace",
+        "weak booking / reviews / transaction wording alone must not select marketplace",
+    )
+
+    structural_marketplace_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "Two-sided marketplace matching local service providers and customers "
+                "with liquidity and trust-and-safety challenges."
+            ),
+            "goal": "Evaluate supply and demand, cold start, local density, and transaction frequency.",
+            "context": "Marketplace structure should dominate generic software framing.",
+        }
+    )
+    _assert(
+        structural_marketplace_selection.selected_profile.id == "marketplace",
+        "structural two-sided marketplace anchor must select marketplace",
+    )
+
     negated_enterprise_selection = resolve_domain_profile(
         {
             "raw_idea": (
@@ -952,6 +999,25 @@ def test_domain_profile_selection_foundation() -> None:
     _assert(
         not negated_developer_keyword_selection.matched_keywords["developer_tool"],
         "negated SDK / CLI / logs wording must not score developer_tool",
+    )
+
+    negated_marketplace_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "AI SaaS for legal intake automation. No marketplace, sellers, buyers, "
+                "listings, or transaction workflow is planned."
+            ),
+            "goal": "Evaluate buyer workflow, retention, and willingness to pay.",
+            "context": "This is business software for legal intake teams.",
+        }
+    )
+    _assert(
+        negated_marketplace_selection.selected_profile.id == "ai_saas",
+        "AI SaaS with negated marketplace keywords must remain ai_saas",
+    )
+    _assert(
+        not negated_marketplace_selection.matched_keywords["marketplace"],
+        "negated marketplace / sellers / buyers / listings / transaction wording must not score marketplace",
     )
 
     developer_tool_selection = resolve_domain_profile(

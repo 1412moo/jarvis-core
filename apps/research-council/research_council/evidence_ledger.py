@@ -113,6 +113,28 @@ _PROFILE_EXPECTATIONS_BY_CATEGORY = {
         "market": "buyer, payer, reimbursement, procurement, and adoption trigger evidence",
         "environmental": _GENERIC_EXPECTATIONS_BY_CATEGORY["environmental"],
     },
+    "marketplace": {
+        "technical": (
+            "matching efficiency, booking/listing workflow, quality-control mechanism, "
+            "reputation-system behavior, and marketplace operations evidence"
+        ),
+        "user_adoption": (
+            "supply-side acquisition, demand-side acquisition, liquidity threshold, local "
+            "or niche density, cold-start strategy, matching frequency, and retention by side"
+        ),
+        "prior_art": (
+            "comparison against existing marketplaces, direct off-platform alternatives, "
+            "manual brokers, search/listing sites, and substitute channels"
+        ),
+        "market": (
+            "transaction frequency, repeat transaction behavior, take-rate or monetization "
+            "model, disintermediation risk, and durable liquidity evidence"
+        ),
+        "safety_regulatory": (
+            "trust/safety risk, moderation burden, fraud or abuse cases, escrow or payment "
+            "dispute boundaries, review abuse, and stop conditions"
+        ),
+    },
     "developer_tool": {
         "technical": (
             "setup complexity, integration burden, time-to-first-value, debugging or "
@@ -229,6 +251,28 @@ _VALIDATION_EXPERIMENT_BY_PROFILE_CATEGORY = {
         "environmental": (
             "Primary evidence gap closure check: define environmental evidence needed "
             "before any disposal claim."
+        ),
+    },
+    "marketplace": {
+        "technical": (
+            "Concierge matching test: manually match supply and demand, then record matching "
+            "speed, booking/listing friction, quality-control failures, and completion rate."
+        ),
+        "user_adoption": (
+            "Supply-side and demand-side interviews: validate acquisition channels, cold-start "
+            "wedge, liquidity threshold, local or niche density, and retention by side."
+        ),
+        "prior_art": (
+            "Existing marketplace and off-platform comparison: compare marketplace alternatives, "
+            "manual brokers, listing sites, direct transactions, substitutes, and switching triggers."
+        ),
+        "market": (
+            "Pricing/take-rate test: validate transaction frequency, repeat transactions, "
+            "monetization, and disintermediation risk."
+        ),
+        "safety_regulatory": (
+            "Trust/safety risk review: map moderation burden, escrow or dispute boundaries, "
+            "fraud or abuse cases, review abuse, and stop conditions."
         ),
     },
     "developer_tool": {
@@ -395,6 +439,38 @@ _PROFILE_REASONING_TRACE_BY_CATEGORY = {
         "environmental": (
             "Environmental disposal evidence missing",
             "Waste-path risk unresolved",
+        ),
+    },
+    "marketplace": {
+        "technical": (
+            "Matching efficiency evidence missing",
+            "Booking/listing workflow untested",
+            "Quality-control mechanism unsupported",
+            "Reputation system behavior unproven",
+        ),
+        "user_adoption": (
+            "Liquidity threshold unsupported",
+            "Cold-start strategy unclear",
+            "Supply-side acquisition evidence missing",
+            "Demand-side acquisition evidence missing",
+            "Retention by side unsupported",
+        ),
+        "prior_art": (
+            "Marketplace substitute map missing",
+            "Direct off-platform alternative unclear",
+            "Existing marketplace comparison unsupported",
+        ),
+        "market": (
+            "Transaction frequency evidence missing",
+            "Take-rate monetization unproven",
+            "Disintermediation risk unresolved",
+            "Repeat transaction behavior unsupported",
+        ),
+        "safety_regulatory": (
+            "Trust/safety risk unresolved",
+            "Moderation burden unknown",
+            "Escrow or dispute boundary unclear",
+            "Review or reputation abuse risk unsupported",
         ),
     },
     "developer_tool": {
@@ -844,6 +920,11 @@ def _provided_reasoning_trace(domain_profile: Any) -> tuple[str, ...]:
             "Supporting evidence: local input frames the developer-tool workflow",
             "Confidence supporting: local input does not validate setup friction or integration burden",
         )
+    if profile_id == "marketplace":
+        return (
+            "Supporting evidence: local input frames the marketplace structure",
+            "Confidence supporting: local input does not validate liquidity, supply, demand, or trust/safety",
+        )
     if profile_id == "enterprise_b2b":
         return (
             "Supporting evidence: local input frames the enterprise B2B workflow",
@@ -921,6 +1002,10 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "internal tools",
             "vendor alternatives",
             "migration friction",
+            "existing marketplaces",
+            "manual brokers",
+            "search/listing sites",
+            "substitute channels",
         ),
     ):
         return "prior_art"
@@ -959,6 +1044,15 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "freedom-to-operate",
             "legal strategy",
             "trust",
+            "trust and safety",
+            "trust/safety",
+            "moderation",
+            "escrow",
+            "payment dispute",
+            "fraud",
+            "abuse",
+            "review abuse",
+            "reputation system",
             "verification boundaries",
             "professional-review",
             "hallucinated",
@@ -991,6 +1085,16 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "onboarding/training burden",
             "onboarding and training burden",
             "org-wide adoption",
+            "liquidity",
+            "cold-start",
+            "cold start",
+            "chicken-and-egg",
+            "supply-side acquisition",
+            "demand-side acquisition",
+            "local density",
+            "niche density",
+            "matching frequency",
+            "retention by side",
         ),
     ):
         return "user_adoption"
@@ -1031,6 +1135,14 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "vendor reliability",
             "rollout complexity",
             "enterprise integration",
+            "matching efficiency",
+            "booking flow",
+            "listing workflow",
+            "listings",
+            "booking/listing workflow",
+            "quality-control",
+            "quality control",
+            "marketplace operations",
         ),
     ):
         return "technical"
@@ -1053,6 +1165,12 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "approval steps",
             "budget timing",
             "purchase process",
+            "transaction frequency",
+            "take-rate",
+            "take rate",
+            "monetization",
+            "disintermediation",
+            "repeat transactions",
         ),
     ):
         return "market"
@@ -1085,6 +1203,18 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "training",
             "org-wide adoption",
             "department workflow",
+            "supply-side",
+            "demand-side",
+            "supply and demand",
+            "sellers",
+            "providers",
+            "customers",
+            "marketplace liquidity",
+            "cold-start",
+            "cold start",
+            "local density",
+            "niche density",
+            "retention by side",
         ),
     ):
         return "user_adoption"
