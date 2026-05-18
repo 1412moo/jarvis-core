@@ -190,13 +190,21 @@ def extract_claims(
     focus = _idea_focus(input_view.raw_idea)
     profile_id = _profile_id(domain_profile)
 
-    if profile_id in {"ai_saas", "marketplace", "developer_tool", "enterprise_b2b"}:
+    if profile_id in {
+        "ai_saas",
+        "marketplace",
+        "developer_tool",
+        "enterprise_b2b",
+        "creator_tools",
+    }:
         if profile_id == "developer_tool":
             specs = _developer_tool_claim_specs(input_view, focus)
         elif profile_id == "enterprise_b2b":
             specs = _enterprise_b2b_claim_specs(input_view, focus)
         elif profile_id == "marketplace":
             specs = _marketplace_claim_specs(input_view, focus)
+        elif profile_id == "creator_tools":
+            specs = _creator_tools_claim_specs(input_view, focus)
         else:
             specs = _ai_saas_claim_specs(input_view, focus)
         return [
@@ -752,6 +760,104 @@ def _ai_saas_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]
             rationale=(
                 "Minimum experiments can be proposed from the idea structure without collecting "
                 "external evidence."
+            ),
+        ),
+    ]
+
+
+def _creator_tools_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]:
+    return [
+        _concept_claim(input_view, focus),
+        _ClaimSpec(
+            text=(
+                "Creator retention depends on a specific target creator segment with a "
+                "frequent content production workflow, clear creator workflow pain, and a "
+                "reason to keep using the tool across publishing cycles."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "The idea implies creator workflow value, but no creator interviews, diary "
+                "study, production cadence, or retention evidence were supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Content production frequency is unproven; the product must show that "
+                "planning, creation, content repurposing, collaboration workflow, and "
+                "publishing handoffs occur often enough to justify a dedicated creator tool."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "No production diary, current workflow artifact, or repeated publishing "
+                "moment was provided."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Audience growth loop and fan/community engagement are unresolved; durable "
+                "creator value depends on helping creators reach, engage, and learn from an "
+                "audience rather than only producing more content."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "No audience growth metric, fan community signal, engagement loop, or "
+                "distribution feedback evidence was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Monetization model and willingness to pay by creator segment are unproven; "
+                "the concept needs evidence for sponsorship, paid community, productized "
+                "services, or another creator revenue path before market confidence can rise."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "Creator willingness to pay is segment-specific, and no pricing, revenue, "
+                "or purchase-intent evidence was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Platform dependency, distribution channel dependency, audience lock-in, and "
+                "creator churn risk remain open; the tool must show how creators avoid being "
+                "trapped by one platform or losing access to their audience."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "Creator tools often depend on social platforms, newsletters, communities, "
+                "or algorithms, but no portability or dependency mitigation was supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Creator onboarding and differentiation are unresolved; the product must beat "
+                "generic AI/content tools, spreadsheets, schedulers, community tools, and "
+                "editing workflows with a creator-specific workflow fit."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "No onboarding test, substitute map, or creator differentiation evidence was "
+                "provided."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "The idea is experimentable through creator workflow interviews, content "
+                "production diary studies, audience growth loop tests, creator onboarding "
+                "tests, monetization willingness-to-pay interviews, content repurposing "
+                "prototypes, retention trigger tests, and platform dependency risk reviews."
+            ),
+            source_label="extracted",
+            confidence="medium",
+            rationale=(
+                "Minimum creator-tool experiments can be proposed deterministically without "
+                "collecting external evidence."
             ),
         ),
     ]

@@ -135,6 +135,29 @@ _PROFILE_EXPECTATIONS_BY_CATEGORY = {
             "dispute boundaries, review abuse, and stop conditions"
         ),
     },
+    "creator_tools": {
+        "technical": (
+            "content repurposing value, collaboration workflow, production workflow "
+            "integration, import/export needs, and platform dependency constraints"
+        ),
+        "user_adoption": (
+            "target creator segment, content production frequency, creator workflow pain, "
+            "creator onboarding friction, creator retention trigger, and publishing cadence"
+        ),
+        "prior_art": (
+            "comparison against generic AI/content tools, existing creator platforms, "
+            "content calendars, community tools, editing workflows, and distribution "
+            "channel substitutes"
+        ),
+        "market": (
+            "monetization model, sponsorship or paid community path, audience growth or "
+            "engagement loop, willingness to pay by creator segment, and churn risk"
+        ),
+        "safety_regulatory": (
+            "platform policy dependency, audience data ownership, privacy, brand safety, "
+            "sponsorship disclosure, fan/community moderation, and stop conditions"
+        ),
+    },
     "developer_tool": {
         "technical": (
             "setup complexity, integration burden, time-to-first-value, debugging or "
@@ -273,6 +296,29 @@ _VALIDATION_EXPERIMENT_BY_PROFILE_CATEGORY = {
         "safety_regulatory": (
             "Trust/safety risk review: map moderation burden, escrow or dispute boundaries, "
             "fraud or abuse cases, review abuse, and stop conditions."
+        ),
+    },
+    "creator_tools": {
+        "technical": (
+            "Content repurposing prototype: test one creator workflow for repurposing, "
+            "collaboration handoffs, import/export needs, and platform constraints."
+        ),
+        "user_adoption": (
+            "Creator workflow interview: interview creators about production cadence, "
+            "workflow pain, onboarding friction, and retention trigger."
+        ),
+        "prior_art": (
+            "Creator differentiation mapping: compare against generic AI/content tools, "
+            "creator platforms, content calendars, community tools, editing workflows, "
+            "and distribution channel substitutes."
+        ),
+        "market": (
+            "Monetization willingness-to-pay interview: validate monetization path, "
+            "audience growth loop, and WTP by creator segment."
+        ),
+        "safety_regulatory": (
+            "Platform dependency risk review: map platform policy dependency, audience "
+            "data ownership, disclosure, moderation, and audience lock-in risks."
         ),
     },
     "developer_tool": {
@@ -471,6 +517,38 @@ _PROFILE_REASONING_TRACE_BY_CATEGORY = {
             "Moderation burden unknown",
             "Escrow or dispute boundary unclear",
             "Review or reputation abuse risk unsupported",
+        ),
+    },
+    "creator_tools": {
+        "technical": (
+            "Content repurposing value unproven",
+            "Collaboration workflow untested",
+            "Platform dependency constraints unsupported",
+        ),
+        "user_adoption": (
+            "Target creator segment unclear",
+            "Content production frequency evidence missing",
+            "Creator workflow pain unsupported",
+            "Creator retention trigger unsupported",
+            "Creator onboarding friction untested",
+        ),
+        "prior_art": (
+            "Creator differentiation from generic AI/content tools unclear",
+            "Creator platform substitute map missing",
+            "Distribution channel alternative unclear",
+        ),
+        "market": (
+            "Monetization model unproven",
+            "Audience growth loop unsupported",
+            "Fan/community engagement evidence missing",
+            "Willingness to pay by creator segment missing",
+            "Creator churn risk unresolved",
+        ),
+        "safety_regulatory": (
+            "Platform policy dependency unresolved",
+            "Audience data ownership unclear",
+            "Fan/community moderation boundary unsupported",
+            "Brand safety or sponsorship disclosure risk unresolved",
         ),
     },
     "developer_tool": {
@@ -925,6 +1003,11 @@ def _provided_reasoning_trace(domain_profile: Any) -> tuple[str, ...]:
             "Supporting evidence: local input frames the marketplace structure",
             "Confidence supporting: local input does not validate liquidity, supply, demand, or trust/safety",
         )
+    if profile_id == "creator_tools":
+        return (
+            "Supporting evidence: local input frames the creator-tool workflow",
+            "Confidence supporting: local input does not validate creator retention, audience growth, or monetization",
+        )
     if profile_id == "enterprise_b2b":
         return (
             "Supporting evidence: local input frames the enterprise B2B workflow",
@@ -1006,6 +1089,14 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "manual brokers",
             "search/listing sites",
             "substitute channels",
+            "generic ai/content tools",
+            "generic content tools",
+            "existing creator platforms",
+            "creator platforms",
+            "content calendars",
+            "community tools",
+            "editing workflows",
+            "distribution channel substitutes",
         ),
     ):
         return "prior_art"
@@ -1066,6 +1157,12 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "data access",
             "it approval",
             "admin controls",
+            "platform policy",
+            "platform dependency",
+            "audience data",
+            "brand safety",
+            "sponsorship disclosure",
+            "fan/community moderation",
         ),
     ):
         return "safety_regulatory"
@@ -1095,6 +1192,17 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "niche density",
             "matching frequency",
             "retention by side",
+            "target creator segment",
+            "creator retention",
+            "content production frequency",
+            "creator workflow pain",
+            "creator workflow",
+            "publishing cadence",
+            "audience growth loop",
+            "fan/community engagement",
+            "fan community",
+            "creator onboarding",
+            "creator churn",
         ),
     ):
         return "user_adoption"
@@ -1143,6 +1251,10 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "quality-control",
             "quality control",
             "marketplace operations",
+            "content repurposing",
+            "collaboration workflow",
+            "production workflow integration",
+            "import/export",
         ),
     ):
         return "technical"
@@ -1171,6 +1283,13 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "monetization",
             "disintermediation",
             "repeat transactions",
+            "monetization model",
+            "sponsorship",
+            "paid community",
+            "creator revenue",
+            "creator segment",
+            "creator-segment",
+            "willingness to pay by creator",
         ),
     ):
         return "market"
@@ -1215,6 +1334,13 @@ def _gap_category_for_claim(claim: Claim) -> str:
             "local density",
             "niche density",
             "retention by side",
+            "creator retention",
+            "content production frequency",
+            "creator workflow",
+            "audience growth",
+            "fan engagement",
+            "community engagement",
+            "creator onboarding",
         ),
     ):
         return "user_adoption"

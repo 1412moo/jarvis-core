@@ -55,6 +55,18 @@ def propose_experiments(
         )
         return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
 
+    if domain_profile.id == "creator_tools":
+        drafts = (
+            _creator_workflow_interview_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _creator_content_production_diary_experiment(claim_list, critique_list, fallback_ids),
+            _creator_audience_growth_loop_experiment(claim_list, critique_list, fallback_ids),
+            _creator_onboarding_experiment(claim_list, critique_list, fallback_ids),
+            _creator_monetization_wtp_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _creator_content_repurposing_experiment(claim_list, critique_list, fallback_ids),
+            _creator_platform_dependency_review_experiment(claim_list, critique_list, fallback_ids),
+        )
+        return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
+
     if domain_profile.id == "marketplace":
         drafts = (
             _marketplace_supply_interview_experiment(input_data, claim_list, critique_list, fallback_ids),
@@ -420,6 +432,263 @@ def _ai_saas_differentiation_mapping_experiment(
         risk=(
             "A map clarifies strategy but does not create external market, patent, or competitive evidence."
         ),
+    )
+
+
+def _creator_workflow_interview_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("creator retention", "creator workflow", "content production frequency", "workflow pain"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Creator workflow interview",
+        hypothesis=(
+            "Creators in one segment have a frequent production workflow pain and a clear "
+            "retention trigger for a dedicated creator tool."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Interview creators about their last publishing cycle, production cadence, "
+            "current workaround, audience growth loop, fan/community engagement, monetization "
+            "path, onboarding friction, and what would make them keep using the tool. "
+            f"Keep the decision goal in frame: {_short_goal(input_data)}."
+        ),
+        metric=(
+            "At least three creators name the same repeated workflow pain, production frequency, "
+            "and retention trigger."
+        ),
+        minimum_sample="3-5 creators in one creator segment.",
+        estimated_time="2-4 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria=(
+            "Stop if creators describe the workflow as rare, already solved, or not tied to "
+            "audience growth, engagement, or revenue."
+        ),
+        decision_impact=(
+            "Decide whether creator workflow fit and retention are strong enough for a prototype."
+        ),
+        risk="Interview interest does not prove creator retention or creator-segment WTP.",
+    )
+
+
+def _creator_content_production_diary_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("content production frequency", "publishing cycles", "production cadence"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Content production diary study",
+        hypothesis=(
+            "A creator's real production cycle exposes repeated steps where the tool can save "
+            "time, improve output reuse, or increase publishing consistency."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Ask creators to log one production cycle: idea capture, drafting, editing, "
+            "content repurposing, collaboration, publishing, distribution channel, audience "
+            "feedback, and follow-up work."
+        ),
+        metric=(
+            "The diary shows a repeated production bottleneck with a measurable time, quality, "
+            "or cadence improvement opportunity."
+        ),
+        minimum_sample="3 creators over one week or one publishing cycle.",
+        estimated_time="1 week",
+        estimated_cost_level="free-to-low",
+        stop_criteria="Stop if production is too infrequent or idiosyncratic to support retention.",
+        decision_impact=(
+            "Decide whether content production frequency can support a repeat-use creator workflow."
+        ),
+        risk="Diary studies can find workflow pain without proving audience growth or revenue.",
+    )
+
+
+def _creator_audience_growth_loop_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("audience growth", "fan/community engagement", "fan community", "engagement loop"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Audience growth loop test",
+        hypothesis=(
+            "The creator tool can improve one audience growth or fan/community engagement loop "
+            "without relying only on more content volume."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Define one loop from content idea to distribution, audience response, fan/community "
+            "engagement, learning, and next content decision. Run the tool manually or as a "
+            "prototype through one cycle."
+        ),
+        metric=(
+            "The loop produces a visible audience insight, engagement action, or next content "
+            "decision that the creator would repeat."
+        ),
+        minimum_sample="One creator segment and one publishing channel.",
+        estimated_time="2-5 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria="Stop if the tool cannot affect audience growth, fan engagement, or the next content decision.",
+        decision_impact="Decide whether audience growth logic is real enough for product work.",
+        risk="A single loop test may not predict durable audience growth.",
+    )
+
+
+def _creator_onboarding_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _select_claim_ids(
+        claims,
+        ("creator onboarding", "workflow fit", "creator workflow", "onboarding friction"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Creator onboarding test",
+        hypothesis=(
+            "Creators can reach first useful value quickly enough that onboarding friction does "
+            "not block retention."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Ask creators to connect or simulate their current content workflow, import an "
+            "existing content asset, choose a distribution channel, and complete one useful output."
+        ),
+        metric="Creators reach first useful output without unclear setup, channel, or workflow steps.",
+        minimum_sample="3 creators in one segment.",
+        estimated_time="2-3 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria="Stop if creators cannot reach value without heavy handholding.",
+        decision_impact="Decide whether onboarding must be narrowed before testing retention.",
+        risk="Fast onboarding does not prove repeated use or monetization.",
+    )
+
+
+def _creator_monetization_wtp_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _select_claim_ids(
+        claims,
+        ("monetization", "willingness to pay", "creator segment", "sponsorship", "paid community"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Monetization willingness-to-pay interview",
+        hypothesis=(
+            "A specific creator segment can connect the tool to revenue, sponsorship, paid "
+            "community, or another monetization path strongly enough to pay."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Interview creators about current revenue model, audience size, sponsor or paid "
+            "community workflow, pricing threshold, churn risk, and purchase trigger. "
+            f"Use the goal as the decision frame: {_short_goal(input_data)}."
+        ),
+        metric=(
+            "Creators name a monetization path, a pricing threshold, and the proof needed "
+            "before paying."
+        ),
+        minimum_sample="3-5 creators with an active monetization path.",
+        estimated_time="2-4 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria="Stop if the segment cannot connect the workflow to revenue or savings.",
+        decision_impact="Decide whether creator-segment WTP is strong enough to continue.",
+        risk="Stated willingness to pay can overstate actual conversion.",
+    )
+
+
+def _creator_content_repurposing_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "technical") or _select_claim_ids(
+        claims,
+        ("content repurposing", "collaboration workflow", "production workflow"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Content repurposing prototype",
+        hypothesis=(
+            "A small prototype or concierge flow can repurpose one content asset into useful "
+            "channel-specific outputs with less creator effort."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Use one creator-owned content asset and produce channel-specific variants, "
+            "collaboration notes, distribution metadata, and reuse prompts. Record manual edits, "
+            "creator approval, and channel constraints."
+        ),
+        metric=(
+            "The creator accepts at least one repurposed output and names why it saves time or "
+            "improves distribution."
+        ),
+        minimum_sample="3 content assets from one creator segment.",
+        estimated_time="2-5 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria="Stop if outputs require as much effort as the current workflow.",
+        decision_impact="Decide whether repurposing value deserves deeper product work.",
+        risk="A prototype can overfit to one creator's style or channel.",
+    )
+
+
+def _creator_platform_dependency_review_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "safety_regulatory") or _select_claim_ids(
+        claims,
+        ("platform dependency", "distribution channel dependency", "audience lock-in", "audience data"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Platform dependency risk review",
+        hypothesis=(
+            "The creator tool can identify platform dependency, audience lock-in, data access, "
+            "policy, and distribution risks before creators rely on it."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Map each distribution channel, account dependency, audience data access, policy "
+            "risk, export path, moderation concern, sponsorship disclosure need, and lock-in "
+            "mitigation."
+        ),
+        metric="Every dependency has an owner, failure mode, mitigation, or explicit stop condition.",
+        minimum_sample="One platform dependency map for the target creator workflow.",
+        estimated_time="60-90 minutes",
+        estimated_cost_level="free",
+        stop_criteria="Stop if the product depends on an unbounded channel or inaccessible audience data.",
+        decision_impact=(
+            "Decide whether platform dependency is acceptable or the workflow must narrow."
+        ),
+        risk="A dependency review does not guarantee platform policy stability.",
     )
 
 

@@ -60,6 +60,10 @@ _TECHNICAL_KEYWORDS = (
     "booking",
     "quality control",
     "reputation system",
+    "content repurposing",
+    "collaboration workflow",
+    "platform dependency",
+    "production workflow",
 )
 _MARKET_KEYWORDS = (
     "adopt",
@@ -104,6 +108,16 @@ _MARKET_KEYWORDS = (
     "transaction",
     "take rate",
     "disintermediation",
+    "creator",
+    "content production",
+    "audience growth",
+    "fan community",
+    "community engagement",
+    "monetization",
+    "sponsorship",
+    "paid community",
+    "creator retention",
+    "creator onboarding",
 )
 _SAFETY_KEYWORDS = (
     "safety",
@@ -138,6 +152,12 @@ _SAFETY_KEYWORDS = (
     "abuse",
     "reputation",
     "reviews",
+    "platform policy",
+    "platform dependency",
+    "audience data",
+    "brand safety",
+    "sponsorship disclosure",
+    "fan community",
 )
 _RED_TEAM_KEYWORDS = (
     "assume",
@@ -172,6 +192,12 @@ _RED_TEAM_KEYWORDS = (
     "disintermediation",
     "moderation",
     "quality control",
+    "creator churn",
+    "audience lock-in",
+    "audience lock in",
+    "platform dependency",
+    "generic content",
+    "creator differentiation",
 )
 _REGULATED_DOMAIN_KEYWORDS = (
     "medical",
@@ -293,6 +319,17 @@ def _build_technical_critique(
             "Run a concierge matching test that records match time, listing quality, booking "
             "friction, quality-control failures, and completion outcome."
         )
+    elif domain_profile.id == "creator_tools":
+        finding = (
+            f"The creator-tool workflow case is not proven for {target}. The concept must "
+            "show content repurposing value, collaboration workflow, production workflow "
+            "integration, import/export needs, and platform dependency constraints before "
+            f"claiming creator workflow fit. {gap_note}"
+        )
+        suggested_action = (
+            "Run a content repurposing prototype or production workflow test that records "
+            "handoffs, platform constraints, and repeated creator work."
+        )
     elif domain_profile.id == "enterprise_b2b":
         finding = (
             f"The enterprise integration case is not proven for {target}. The concept must "
@@ -383,6 +420,17 @@ def _build_market_critique(
         suggested_action = (
             "Run supply-side and demand-side interviews in one constrained wedge, then define "
             "the smallest liquidity threshold and cold-start sequence."
+        )
+    elif domain_profile.id == "creator_tools":
+        finding = (
+            f"The creator retention and monetization case remains weak for {target}. Creator "
+            "interest is not enough: the concept needs evidence for target creator segment, "
+            "content production frequency, audience growth loop, fan/community engagement, "
+            f"monetization path, creator-segment willingness to pay, and churn risk. {gap_note}"
+        )
+        suggested_action = (
+            "Interview creators in one segment about production cadence, workflow pain, "
+            "audience growth loop, monetization path, onboarding friction, and retention trigger."
         )
     elif domain_profile.id == "enterprise_b2b":
         finding = (
@@ -498,6 +546,17 @@ def _build_safety_critique(
             "Write a trust/safety risk review covering moderation owner, escrow or dispute path, "
             "fraud and abuse cases, reputation abuse, quality-control failures, and stop conditions."
         )
+    elif domain_profile.id == "creator_tools":
+        finding = (
+            f"The creator platform dependency boundary is underspecified for {target}.{regulated_note} "
+            "A creator tool can fail if platform policies, audience data ownership, sponsorship "
+            "disclosure, brand safety, audience lock-in, or fan/community moderation boundaries "
+            f"are not explicit. {gap_note}"
+        )
+        suggested_action = (
+            "Write a platform dependency risk review covering policy changes, audience data, "
+            "distribution channel dependency, sponsorship disclosure, moderation, and lock-in."
+        )
     elif domain_profile.id == "enterprise_b2b":
         finding = (
             f"The enterprise security/compliance boundary is underspecified for {target}.{regulated_note} "
@@ -589,6 +648,17 @@ def _build_red_team_critique(
         suggested_action = (
             "Run a marketplace red-team pass that marks liquidity threshold, cold-start path, "
             "side-specific retention, moderation burden, disintermediation, and substitute channels."
+        )
+    elif domain_profile.id == "creator_tools":
+        finding = (
+            f"The easiest failure mode for {target} is creator churn: creators try the tool "
+            "once, then return to generic AI/content tools, native platform features, or manual "
+            "workflow because audience growth, fan engagement, monetization, and retention "
+            f"triggers are weak. {gap_note}"
+        )
+        suggested_action = (
+            "Run a creator differentiation and churn red-team pass that marks generic tool "
+            "substitutes, platform dependency, audience lock-in, and missing retention triggers."
         )
     elif domain_profile.id == "enterprise_b2b":
         finding = (

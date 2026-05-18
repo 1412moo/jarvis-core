@@ -1,0 +1,78 @@
+{
+  "case_id": "creator_tools/hard_marketplace_noise_creator_workflow",
+  "tags": [
+    "hard_case",
+    "profile_boundary",
+    "contamination_prone"
+  ],
+  "input": {
+    "raw_idea": "Creator tool for newsletter creators and streamers with content production workflow, audience growth loop, fan community engagement, sponsorship monetization, content repurposing, and platform dependency tracking; not a two-sided marketplace.",
+    "goal": "Evaluate creator retention, content production frequency, creator workflow fit, monetization, audience lock-in, and distribution channel dependency.",
+    "context": "Marketplace and SaaS language are noisy; creator workflow and audience ownership should dominate."
+  },
+  "expected": {
+    "profile_id": "creator_tools",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "creator discipline dominates noisy marketplace wording",
+        "scope": "analysis_text",
+        "all": [
+          "creator workflow",
+          "content production frequency",
+          "creator retention",
+          "audience growth",
+          "monetization",
+          "platform dependency"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no marketplace enterprise developer medical drift",
+        "scope": "analysis_text",
+        "terms": [
+          "liquidity threshold",
+          "marketplace blocker",
+          "supply-side acquisition",
+          "demand-side acquisition",
+          "enterprise B2B blocker",
+          "developer-tool blocker",
+          "patient safety"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "creator retention gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "creator monetization gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "market",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "case_id": "enterprise_b2b/hard_buzzword_procurement_gap",
+  "tags": [
+    "hard_case",
+    "profile_boundary",
+    "contamination_prone",
+    "low_evidence"
+  ],
+  "input": {
+    "raw_idea": "Enterprise workflow platform for cross-department compliance operations with security review, SSO, audit logs, rollout planning, stakeholder approvals, and ROI dashboard, but no developer SDK or CLI workflow.",
+    "goal": "Evaluate procurement path, budget owner clarity, stakeholder alignment, security/compliance, rollout complexity, and ROI proof.",
+    "context": "Buzzwords are noisy; the hard question is whether enterprise buying and rollout can survive approval."
+  },
+  "expected": {
+    "profile_id": "enterprise_b2b",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "enterprise buying discipline",
+        "scope": "analysis_text",
+        "all": [
+          "procurement path",
+          "budget owner",
+          "stakeholder alignment",
+          "security/compliance requirements",
+          "rollout complexity",
+          "ROI proof"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no developer marketplace creator medical drift",
+        "scope": "analysis_text",
+        "terms": [
+          "developer-tool blocker",
+          "time-to-first-value",
+          "DX friction",
+          "liquidity threshold",
+          "marketplace blocker",
+          "creator-tools blocker",
+          "patient safety"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "procurement gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "market",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "security gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "safety_regulatory",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

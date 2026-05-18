@@ -6,7 +6,13 @@ import argparse
 from pathlib import Path
 import sys
 
-from research_council.evaluation import evaluate_golden_cases, format_regression_summary
+from research_council.evaluation import (
+    build_benchmark_analytics,
+    evaluate_golden_cases,
+    format_benchmark_analytics,
+    format_regression_summary,
+)
+from research_council.llm_advisor import LLMAugmentationMode
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -17,10 +23,26 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Optional golden case root. Defaults to apps/research-council/golden_cases.",
     )
+    parser.add_argument(
+        "--llm-augmentation-mode",
+        choices=[mode.value for mode in LLMAugmentationMode],
+        default=LLMAugmentationMode.OFF.value,
+        help="Optional deterministic LLM augmentation sandbox mode. Defaults to off.",
+    )
+    parser.add_argument(
+        "--show-analytics",
+        action="store_true",
+        help="Print deterministic benchmark analytics after the regression summary.",
+    )
     args = parser.parse_args(argv)
 
-    summary = evaluate_golden_cases(args.root)
+    summary = evaluate_golden_cases(
+        args.root,
+        llm_advisor_config=args.llm_augmentation_mode,
+    )
     print(format_regression_summary(summary))
+    if args.show_analytics:
+        print(format_benchmark_analytics(build_benchmark_analytics(summary)))
     return 0 if summary.passed else 1
 
 

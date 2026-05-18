@@ -1,0 +1,157 @@
+{
+  "case_id": "creator_tools/creator_content_studio",
+  "input": {
+    "raw_idea": "Creator content studio for newsletter creators and YouTubers that turns long-form posts into short clips, content calendar drafts, fan community prompts, and sponsorship-ready updates",
+    "goal": "Evaluate creator workflow fit, audience growth loop, monetization, platform dependency, and retention.",
+    "context": "Focus on creator retention, content production frequency, audience lock-in, distribution channel dependency, and willingness to pay by creator segment."
+  },
+  "expected": {
+    "profile_id": "creator_tools",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "creator workflow and production reasoning",
+        "scope": "analysis_text",
+        "all": [
+          "creator workflow",
+          "content production frequency"
+        ]
+      },
+      {
+        "name": "audience growth and fan community reasoning",
+        "scope": "analysis_text",
+        "all": [
+          "audience growth",
+          "fan/community engagement"
+        ]
+      },
+      {
+        "name": "creator monetization reasoning",
+        "scope": "analysis_text",
+        "all": [
+          "monetization",
+          "willingness to pay by creator segment"
+        ]
+      },
+      {
+        "name": "platform dependency and audience lock-in concern",
+        "scope": "analysis_text",
+        "all": [
+          "platform dependency",
+          "audience lock-in"
+        ]
+      },
+      {
+        "name": "creator evidence gaps",
+        "scope": "evidence_ledger",
+        "all": [
+          "target creator segment",
+          "content production frequency",
+          "creator workflow pain",
+          "creator retention trigger",
+          "monetization model",
+          "platform policy dependency"
+        ]
+      },
+      {
+        "name": "creator-tool experiments",
+        "scope": "experiments",
+        "all": [
+          "Creator workflow interview",
+          "Content production diary study",
+          "Audience growth loop test",
+          "Creator onboarding test",
+          "Monetization willingness-to-pay interview",
+          "Content repurposing prototype",
+          "Platform dependency risk review"
+        ]
+      },
+      {
+        "name": "creator-tool recommendation",
+        "scope": "recommendation",
+        "all": [
+          "creator-tools blocker",
+          "creator retention",
+          "content production frequency",
+          "willingness to pay by creator segment"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no marketplace liquidity drift",
+        "scope": "analysis_text",
+        "terms": [
+          "liquidity threshold",
+          "supply-side acquisition",
+          "demand-side acquisition",
+          "marketplace blocker"
+        ]
+      },
+      {
+        "name": "no enterprise procurement/security drift",
+        "scope": "analysis_text",
+        "terms": [
+          "procurement path",
+          "security/compliance requirements",
+          "enterprise B2B blocker"
+        ]
+      },
+      {
+        "name": "no developer-tool setup/DX drift",
+        "scope": "analysis_text",
+        "terms": [
+          "setup complexity",
+          "time-to-first-value",
+          "developer-tool blocker",
+          "DX friction"
+        ]
+      },
+      {
+        "name": "no medical safety drift",
+        "scope": "analysis_text",
+        "terms": [
+          "patient safety",
+          "clinical validation",
+          "regulatory pathway"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "creator retention gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "creator monetization gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "market",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "confidence rationale exists",
+        "type": "confidence_rationale_present"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

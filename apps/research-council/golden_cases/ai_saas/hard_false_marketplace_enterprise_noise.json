@@ -1,0 +1,108 @@
+{
+  "case_id": "ai_saas/hard_false_marketplace_enterprise_noise",
+  "tags": [
+    "hard_case",
+    "profile_boundary",
+    "contamination_prone",
+    "augmentation_stress"
+  ],
+  "input": {
+    "raw_idea": "AI SaaS workflow automation assistant for customer success teams with marketplace-style provider directory wording and enterprise security notes, but no sellers, no buyers, no listings, no transactions, and no procurement process.",
+    "goal": "Evaluate buyer workflow, retention, reliability, differentiation, and willingness to pay.",
+    "context": "The market language is noisy; this should be judged as workflow SaaS, not a marketplace or enterprise procurement product."
+  },
+  "expected": {
+    "profile_id": "ai_saas",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "AI SaaS workflow remains primary",
+        "scope": "analysis_text",
+        "all": [
+          "buyer",
+          "workflow",
+          "retention",
+          "differentiation"
+        ]
+      },
+      {
+        "name": "AI SaaS reliability remains visible",
+        "scope": "analysis_text",
+        "any": [
+          "operational reliability",
+          "output reliability",
+          "output quality"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no marketplace or enterprise drift",
+        "scope": "analysis_text",
+        "terms": [
+          "liquidity threshold",
+          "marketplace blocker",
+          "procurement path",
+          "enterprise B2B blocker",
+          "creator-tools blocker",
+          "patient safety"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "workflow adoption gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "TEST_SAFE accepts bounded augments",
+        "type": "llm_augmentation_summary",
+        "modes": [
+          "test_safe"
+        ],
+        "min_accepted": 1,
+        "max_filtered": 0,
+        "max_rejected": 0,
+        "require_allowed_scopes": true
+      },
+      {
+        "name": "TEST_NOISY filters and rejects unsafe augments",
+        "type": "llm_augmentation_summary",
+        "modes": [
+          "test_noisy"
+        ],
+        "min_accepted": 1,
+        "min_filtered": 1,
+        "min_rejected": 3,
+        "rejection_reasons": [
+          "duplicate reasoning",
+          "raw input echo",
+          "unsupported confidence escalation",
+          "unsupported augmentation scope",
+          "profile contamination"
+        ],
+        "require_no_rejected_text": true,
+        "require_allowed_scopes": true
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

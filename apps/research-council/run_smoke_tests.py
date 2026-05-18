@@ -9,6 +9,9 @@ import subprocess
 import sys
 
 from research_council import (
+    ALLOWED_AUGMENTATION_CATEGORIES,
+    LLMAdvisorConfig,
+    LLMAugmentationMode,
     ResearchCouncilInput,
     get_profile,
     list_profiles,
@@ -19,7 +22,12 @@ from research_council import (
     resolve_domain_profile,
     run_research_council,
 )
-from research_council.evaluation import evaluate_golden_cases, format_regression_summary
+from research_council.evaluation import (
+    build_benchmark_analytics,
+    evaluate_golden_cases,
+    format_benchmark_analytics,
+    format_regression_summary,
+)
 from run_demo import build_sample_input
 
 
@@ -246,6 +254,128 @@ def test_json_export_contract() -> None:
     _assert(
         artifact_payload["profile"]["selected_by"] == "deterministic_score",
         "compact artifact JSON must preserve profile selected_by",
+    )
+
+
+def test_optional_llm_augmentation_sandbox() -> None:
+    input_data = ResearchCouncilInput(
+        raw_idea="AI SaaS patent analysis assistant for solo founders",
+        goal="Evaluate buyer workflow, willingness to pay, retention, and differentiation.",
+        context="Focus on repeated workflow, generic LLM wrapper risk, and purchase intent.",
+    )
+    off_result = run_research_council(input_data)
+    off_payload = result_to_json_dict(off_result)
+    off_augments = off_payload["optional_llm_augments"]
+    _assert(off_augments["mode"] == "off", "LLM augmentation must default to off")
+    _assert(not off_augments["enabled"], "OFF augmentation must be disabled")
+    _assert(off_augments["accepted_count"] == 0, "OFF augmentation must accept nothing")
+
+    safe_result = run_research_council(
+        input_data,
+        llm_advisor_config=LLMAdvisorConfig(mode=LLMAugmentationMode.TEST_SAFE),
+    )
+    safe_payload = result_to_json_dict(safe_result)
+    safe_augments = safe_payload["optional_llm_augments"]
+    _assert(
+        safe_result.claims == off_result.claims
+        and safe_result.evidence_ledger == off_result.evidence_ledger
+        and safe_result.reviewer_critiques == off_result.reviewer_critiques
+        and safe_result.experiments == off_result.experiments
+        and safe_result.recommendation == off_result.recommendation,
+        "LLM augmentation must not overwrite deterministic pipeline outputs",
+    )
+    _assert(safe_augments["mode"] == "test_safe", "TEST_SAFE mode must be reported")
+    _assert(safe_augments["accepted_count"] > 0, "TEST_SAFE must accept safe augments")
+    _assert(safe_augments["filtered_count"] == 0, "TEST_SAFE should not filter safe augments")
+    _assert(safe_augments["rejected_count"] == 0, "TEST_SAFE should not reject safe augments")
+    _assert(
+        set(safe_augments["validated_augments"]) <= ALLOWED_AUGMENTATION_CATEGORIES,
+        "LLM augments must stay inside allowed additive scopes",
+    )
+    accepted_text = " ".join(
+        item["text"]
+        for items in safe_augments["validated_augments"].values()
+        for item in items
+    ).lower()
+    _assert(
+        "high confidence" not in accepted_text and "replace" not in accepted_text,
+        "accepted augments must not escalate confidence or replace deterministic output",
+    )
+
+    noisy_result = run_research_council(
+        input_data,
+        llm_advisor_config=LLMAdvisorConfig(mode=LLMAugmentationMode.TEST_NOISY),
+    )
+    noisy_payload = result_to_json_dict(noisy_result)
+    noisy_augments = noisy_payload["optional_llm_augments"]
+    noisy_reasons = {
+        item["rejection_reason"]
+        for item in noisy_augments["rejected_augments_summary"]
+    }
+    _assert(noisy_augments["accepted_count"] > 0, "TEST_NOISY keeps valid safe augments")
+    _assert(noisy_augments["filtered_count"] > 0, "TEST_NOISY must filter duplicates")
+    _assert(noisy_augments["rejected_count"] > 0, "TEST_NOISY must reject unsafe augments")
+    for expected_reason in (
+        "duplicate reasoning",
+        "raw input echo",
+        "unsupported confidence escalation",
+        "unsupported augmentation scope",
+    ):
+        _assert(
+            expected_reason in noisy_reasons,
+            f"TEST_NOISY missing rejection/filter path: {expected_reason}",
+        )
+    _assert(
+        any(reason.startswith("profile contamination") for reason in noisy_reasons),
+        "TEST_NOISY must reject profile contamination",
+    )
+    _assert(
+        all(
+            "text" not in item or not item["text"]
+            for item in noisy_augments["rejected_augments_summary"]
+        ),
+        "rejected augment summaries must not expose rejected raw text",
+    )
+    _assert(
+        noisy_result.recommendation == off_result.recommendation,
+        "TEST_NOISY must not replace the deterministic recommendation",
+    )
+
+    medical_noisy = run_research_council(
+        build_sample_input(),
+        llm_advisor_config=LLMAdvisorConfig(mode=LLMAugmentationMode.TEST_NOISY),
+    )
+    medical_reasons = {
+        item["rejection_reason"]
+        for item in result_to_json_dict(medical_noisy)["optional_llm_augments"][
+            "rejected_augments_summary"
+        ]
+    }
+    _assert(
+        "unsafe medical claim" in medical_reasons,
+        "medical TEST_NOISY must reject unsafe medical claims",
+    )
+
+    safe_summary = evaluate_golden_cases(llm_advisor_config=LLMAugmentationMode.TEST_SAFE)
+    _assert(safe_summary.passed, format_regression_summary(safe_summary))
+    safe_analytics = build_benchmark_analytics(safe_summary)
+    _assert(
+        safe_analytics.augmentation_accepted > 0,
+        "TEST_SAFE analytics must count accepted augmentation candidates",
+    )
+    _assert(
+        safe_analytics.failed_invariants == 0
+        and safe_analytics.consistency_failures == 0,
+        "TEST_SAFE analytics must preserve passing invariants and consistency",
+    )
+    noisy_summary = evaluate_golden_cases(llm_advisor_config=LLMAugmentationMode.TEST_NOISY)
+    _assert(noisy_summary.passed, format_regression_summary(noisy_summary))
+    noisy_analytics = build_benchmark_analytics(noisy_summary)
+    _assert(
+        noisy_analytics.augmentation_accepted > 0
+        and noisy_analytics.augmentation_filtered > 0
+        and noisy_analytics.augmentation_rejected > 0,
+        "TEST_NOISY analytics must count accepted, filtered, and rejected paths",
     )
 
 
@@ -796,22 +926,104 @@ def test_confidence_trace_linkage_and_json_additive_fields() -> None:
 def test_golden_case_evaluation_harness() -> None:
     summary = evaluate_golden_cases()
     case_ids = {evaluation.case_id for evaluation in summary.evaluations}
-    _assert(summary.case_count >= 7, "golden case harness must load the committed cases")
+    analytics = build_benchmark_analytics(summary)
+    _assert(summary.case_count >= 15, "golden case harness must load the committed cases")
     _assert(summary.invariant_count >= 20, "golden case harness must evaluate invariants")
+    _assert(summary.profile_coverage_count >= 7, "golden case harness must cover selected profiles")
+    _assert(summary.hard_case_count >= 7, "golden case harness must include hard cases")
+    _assert(
+        summary.augmentation_stress_count >= 2,
+        "golden case harness must include augmentation stress cases",
+    )
     for expected_case_id in (
+        "ai_saas/hard_false_marketplace_enterprise_noise",
         "ai_saas/weak_ai_wrapper",
         "ai_saas/workflow_ai_assistant",
+        "creator_tools/creator_content_studio",
+        "creator_tools/hard_marketplace_noise_creator_workflow",
         "developer_tool/cli_debugging_tool",
+        "developer_tool/hard_observability_not_generic_saas",
         "enterprise_b2b/enterprise_workflow_platform",
+        "enterprise_b2b/hard_buzzword_procurement_gap",
+        "generic/hard_vague_profile_ambiguity",
+        "generic/vague_consumer_idea",
+        "marketplace/hard_creator_community_marketplace_overlap",
         "marketplace/local_service_marketplace",
         "medical_device/diagnostic_tool",
-        "generic/vague_consumer_idea",
+        "medical_device/hard_optimistic_validation_claim",
     ):
         _assert(
             expected_case_id in case_ids,
             f"golden case harness missing {expected_case_id}",
         )
     _assert(summary.passed, format_regression_summary(summary))
+    _assert(analytics.total_cases == summary.case_count, "analytics case count must match summary")
+    _assert(
+        analytics.total_invariants == summary.invariant_count,
+        "analytics invariant count must match summary",
+    )
+    _assert(analytics.failed_invariants == 0, "passing suite must have zero failed invariants")
+    _assert(
+        analytics.consistency_checks == summary.consistency_check_count,
+        "analytics consistency check count must match summary",
+    )
+    _assert(
+        analytics.consistency_failures == 0,
+        "passing suite must have zero consistency failures",
+    )
+    _assert(
+        analytics.hard_cases == summary.hard_case_count,
+        "analytics hard case count must match fixture tags",
+    )
+    _assert(
+        analytics.augmentation_accepted == 0
+        and analytics.augmentation_filtered == 0
+        and analytics.augmentation_rejected == 0,
+        "OFF mode analytics must keep augmentation counts at zero",
+    )
+    for profile_id in (
+        "ai_saas",
+        "creator_tools",
+        "developer_tool",
+        "enterprise_b2b",
+        "general",
+        "marketplace",
+        "medical_device",
+    ):
+        _assert(
+            profile_id in analytics.profiles_covered,
+            f"analytics profile coverage missing {profile_id}",
+        )
+    formatted_analytics = format_benchmark_analytics(analytics)
+    _assert(
+        "Benchmark analytics:" in formatted_analytics,
+        "analytics formatter must identify benchmark analytics output",
+    )
+    _assert(
+        "failed_invariants=0" in formatted_analytics,
+        "analytics formatter must expose failed invariant count",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_golden_cases.py")),
+            "--show-analytics",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_golden_cases --show-analytics failed: {completed.stderr.strip()}",
+    )
+    _assert(
+        "Golden cases passed:" in completed.stdout
+        and "Benchmark analytics:" in completed.stdout,
+        "run_golden_cases --show-analytics must print summary and analytics",
+    )
 
 
 def test_run_demo_unknown_profile_fails_clearly() -> None:
@@ -846,6 +1058,7 @@ def test_domain_profile_selection_foundation() -> None:
             "general",
             "medical_device",
             "ai_saas",
+            "creator_tools",
             "marketplace",
             "enterprise_b2b",
             "developer_tool",
@@ -858,6 +1071,10 @@ def test_domain_profile_selection_foundation() -> None:
     _assert(
         get_profile("software").id == "ai_saas",
         "software alias must resolve to ai_saas",
+    )
+    _assert(
+        get_profile("creator").id == "creator_tools",
+        "creator alias must resolve to creator_tools",
     )
     _assert(
         get_profile("hardware").id == "hardware_device",
@@ -901,6 +1118,26 @@ def test_domain_profile_selection_foundation() -> None:
     _assert(
         ai_selection.selected_profile.id == "ai_saas",
         "AI SaaS / patent assistant idea must select ai_saas",
+    )
+
+    creator_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "Creator content studio for newsletter creators and YouTubers with "
+                "content production workflow, fan community prompts, audience growth, "
+                "content repurposing, sponsorship monetization, platform dependency, "
+                "and creator retention tracking"
+            ),
+            "goal": (
+                "Evaluate creator workflow fit, audience growth loop, monetization, "
+                "distribution channel dependency, and willingness to pay by creator segment."
+            ),
+            "context": "Creator workflow and audience lock-in should dominate generic SaaS framing.",
+        }
+    )
+    _assert(
+        creator_selection.selected_profile.id == "creator_tools",
+        "creator workflow / audience / monetization input must select creator_tools",
     )
 
     enterprise_selection = resolve_domain_profile(
@@ -1020,6 +1257,57 @@ def test_domain_profile_selection_foundation() -> None:
         "negated marketplace / sellers / buyers / listings / transaction wording must not score marketplace",
     )
 
+    negated_creator_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "AI SaaS for marketing operations. No creator platform, no fan community, "
+                "and no monetization workflow is planned."
+            ),
+            "goal": "Evaluate buyer workflow, retention, and willingness to pay.",
+            "context": "This is business software for content marketing teams.",
+        }
+    )
+    _assert(
+        negated_creator_selection.selected_profile.id == "ai_saas",
+        "negated creator keywords must not override AI SaaS selection",
+    )
+    _assert(
+        not negated_creator_selection.matched_keywords["creator_tools"],
+        "negated creator / fan community / monetization wording must not score creator_tools",
+    )
+
+    long_negated_creator_selection = resolve_domain_profile(
+        {
+            "raw_idea": (
+                "AI SaaS for marketing operations. No creator platform, fan community, "
+                "content calendar, distribution channel, platform dependency, or "
+                "monetization workflow is planned."
+            ),
+            "goal": "Evaluate buyer workflow, retention, and willingness to pay.",
+            "context": "This is business software for content marketing teams.",
+        }
+    )
+    _assert(
+        long_negated_creator_selection.selected_profile.id == "ai_saas",
+        "long negated creator keyword list must not override AI SaaS selection",
+    )
+    _assert(
+        not long_negated_creator_selection.matched_keywords["creator_tools"],
+        "long negated creator keyword list must not score creator_tools",
+    )
+
+    weak_creator_keyword_selection = resolve_domain_profile(
+        {
+            "raw_idea": "Content marketing calendar for internal brand campaigns and blog approvals.",
+            "goal": "Evaluate marketing workflow value and campaign operations.",
+            "context": "No creator workflow, fan community, or creator monetization path is planned.",
+        }
+    )
+    _assert(
+        weak_creator_keyword_selection.selected_profile.id != "creator_tools",
+        "weak generic content / marketing wording alone must not select creator_tools",
+    )
+
     developer_tool_selection = resolve_domain_profile(
         {
             "raw_idea": (
@@ -1125,6 +1413,7 @@ def test_domain_profile_selection_foundation() -> None:
 def main() -> None:
     test_deterministic_pipeline_contract()
     test_json_export_contract()
+    test_optional_llm_augmentation_sandbox()
     test_run_demo_json_output_support()
     test_run_demo_custom_cli_input_support()
     test_run_demo_explicit_profile_support()

@@ -232,6 +232,7 @@ class ResearchCouncilResult:
     markdown_report: MarkdownReport
     warnings: tuple[str, ...] = ()
     profile: dict[str, Any] | None = None
+    optional_llm_augments: dict[str, Any] | None = None
     result_type: str = "research_council_result"
     version: str = "0.1"
 
@@ -246,6 +247,11 @@ class ResearchCouncilResult:
         object.__setattr__(self, "reviewer_critiques", tuple(self.reviewer_critiques))
         object.__setattr__(self, "experiments", tuple(self.experiments))
         object.__setattr__(self, "profile", _normalize_profile_metadata(self.profile))
+        object.__setattr__(
+            self,
+            "optional_llm_augments",
+            _normalize_optional_llm_augments(self.optional_llm_augments),
+        )
         object.__setattr__(self, "warnings", _tuple_of_strings(self.warnings))
         if not self.claims:
             raise ValueError("claims must include at least one item")
@@ -307,6 +313,90 @@ def _normalize_profile_metadata(value: Mapping[str, Any] | None) -> dict[str, An
             for policy_key, policy_values in reasoning_policy.items()
         },
     }
+
+
+def _normalize_optional_llm_augments(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    if value in (None, {}):
+        return _off_llm_augments()
+    if not isinstance(value, Mapping):
+        raise ValueError("optional_llm_augments must be an object")
+
+    mode = str(value.get("mode", "off")).strip() or "off"
+    enabled = bool(value.get("enabled", mode != "off"))
+    source = str(value.get("source", "")).strip()
+    profile_id = str(value.get("profile_id", "")).strip()
+    validated_augments = value.get("validated_augments", {})
+    rejected_augments_summary = value.get("rejected_augments_summary", ())
+    allowed_scopes = value.get("allowed_scopes", ())
+
+    if not isinstance(validated_augments, Mapping):
+        raise ValueError("optional_llm_augments.validated_augments must be an object")
+    if isinstance(rejected_augments_summary, (str, bytes)) or not isinstance(
+        rejected_augments_summary, (tuple, list)
+    ):
+        raise ValueError(
+            "optional_llm_augments.rejected_augments_summary must be a list"
+        )
+
+    return {
+        "mode": mode,
+        "enabled": enabled,
+        "source": source,
+        "profile_id": profile_id,
+        "validated_augments": {
+            str(category): _normalize_metadata_items(items)
+            for category, items in validated_augments.items()
+        },
+        "rejected_augments_summary": _normalize_metadata_items(rejected_augments_summary),
+        "accepted_count": int(value.get("accepted_count", 0)),
+        "filtered_count": int(value.get("filtered_count", 0)),
+        "rejected_count": int(value.get("rejected_count", 0)),
+        "deterministic_source_of_truth": bool(
+            value.get("deterministic_source_of_truth", True)
+        ),
+        "allowed_scopes": _tuple_of_strings(_coerce_keyword_sequence(allowed_scopes)),
+    }
+
+
+def _off_llm_augments() -> dict[str, Any]:
+    return {
+        "mode": "off",
+        "enabled": False,
+        "source": "deterministic_fake_advisor",
+        "profile_id": "",
+        "validated_augments": {},
+        "rejected_augments_summary": (),
+        "accepted_count": 0,
+        "filtered_count": 0,
+        "rejected_count": 0,
+        "deterministic_source_of_truth": True,
+        "allowed_scopes": (),
+    }
+
+
+def _normalize_metadata_items(value: Any) -> tuple[dict[str, Any], ...]:
+    if value is None:
+        return ()
+    if isinstance(value, Mapping):
+        value = (value,)
+    if isinstance(value, (str, bytes)) or not isinstance(value, (tuple, list)):
+        raise ValueError("optional LLM augmentation metadata items must be a list")
+    normalized_items: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ValueError("optional LLM augmentation metadata item must be an object")
+        normalized_items.append({str(key): _normalize_metadata_value(item_value) for key, item_value in item.items()})
+    return tuple(normalized_items)
+
+
+def _normalize_metadata_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _normalize_metadata_value(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return tuple(_normalize_metadata_value(item) for item in value)
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    return str(value)
 
 
 def _coerce_keyword_sequence(value: Any) -> tuple[str, ...] | list[str] | None:

@@ -47,6 +47,7 @@ def result_to_json_dict(
         ],
         "experiments": [_to_jsonable(experiment) for experiment in result.experiments],
         "recommendation": _to_jsonable(result.recommendation),
+        "optional_llm_augments": _to_jsonable(result.optional_llm_augments),
         "quality_signals": _build_quality_signals(result, profile_metadata),
         "markdown_report": _to_jsonable(result.markdown_report),
         "warnings": list(result.warnings),
@@ -174,6 +175,9 @@ def result_from_json_dict(payload: Mapping[str, Any]) -> ResearchCouncilResult:
         ),
         markdown_report=markdown_report,
         profile=_coerce_profile(payload.get("profile", {})),
+        optional_llm_augments=_coerce_optional_llm_augments(
+            payload.get("optional_llm_augments", {})
+        ),
         warnings=tuple(str(warning) for warning in payload.get("warnings", ())),
         result_type=str(payload.get("result_type", "research_council_result")),
         version=str(payload.get("version", "0.1")),
@@ -245,6 +249,14 @@ def _coerce_profile(value: Any) -> Mapping[str, Any] | None:
         return {}
     if not isinstance(value, Mapping):
         raise ValueError("profile must be an object")
+    return value
+
+
+def _coerce_optional_llm_augments(value: Any) -> Mapping[str, Any] | None:
+    if value in (None, {}):
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError("optional_llm_augments must be an object")
     return value
 
 
@@ -546,6 +558,21 @@ def _expected_caveat_terms(profile_id: str) -> tuple[str, ...]:
             "transaction frequency",
             "take rate",
             "disintermediation",
+        )
+    if profile_id == "creator_tools":
+        return (
+            "creator retention",
+            "content production frequency",
+            "creator workflow fit",
+            "audience growth loop",
+            "fan community engagement",
+            "monetization model",
+            "willingness to pay",
+            "platform dependency",
+            "audience lock in",
+            "churn risk",
+            "content repurposing",
+            "distribution channel dependency",
         )
     if profile_id == "enterprise_b2b":
         return (

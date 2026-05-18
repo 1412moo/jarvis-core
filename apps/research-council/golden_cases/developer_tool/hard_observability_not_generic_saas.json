@@ -1,0 +1,85 @@
+{
+  "case_id": "developer_tool/hard_observability_not_generic_saas",
+  "tags": [
+    "hard_case",
+    "profile_boundary",
+    "weak_signal_guard"
+  ],
+  "input": {
+    "raw_idea": "Developer observability CLI for local debugging with logs, traces, SDK hooks, GitHub issues, CI monitoring, and dashboard reviews; not an enterprise procurement platform.",
+    "goal": "Evaluate developer workflow, setup complexity, integration burden, compatibility, time-to-value, and repeat usage.",
+    "context": "Logs and reviews should not flatten this into generic SaaS or enterprise security reasoning."
+  },
+  "expected": {
+    "profile_id": "developer_tool",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "developer workflow and setup discipline",
+        "scope": "analysis_text",
+        "all": [
+          "developer workflow",
+          "setup complexity",
+          "integration burden",
+          "time-to-first-value",
+          "ecosystem compatibility"
+        ]
+      },
+      {
+        "name": "observability value stays developer-specific",
+        "scope": "analysis_text",
+        "any": [
+          "debugging or observability value",
+          "observability value"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no enterprise marketplace medical drift",
+        "scope": "analysis_text",
+        "terms": [
+          "enterprise B2B blocker",
+          "procurement path",
+          "liquidity threshold",
+          "marketplace blocker",
+          "patient safety",
+          "clinical validation",
+          "creator-tools blocker"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "developer workflow gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "integration gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "technical",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

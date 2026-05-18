@@ -1,0 +1,78 @@
+{
+  "case_id": "marketplace/hard_creator_community_marketplace_overlap",
+  "tags": [
+    "hard_case",
+    "profile_boundary",
+    "contamination_prone"
+  ],
+  "input": {
+    "raw_idea": "Marketplace for creator event venues connecting venue hosts and event organizers with listings, booking, escrow payments, reviews, supply-side onboarding, demand-side acquisition, trust and safety, and repeat transaction tracking.",
+    "goal": "Evaluate liquidity, cold start, supply and demand acquisition, transaction frequency, take rate, trust/safety, and disintermediation risk.",
+    "context": "Creator and community wording is incidental; two-sided supply and demand transaction structure should dominate."
+  },
+  "expected": {
+    "profile_id": "marketplace",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "marketplace structure dominates creator wording",
+        "scope": "analysis_text",
+        "all": [
+          "liquidity",
+          "cold-start",
+          "supply-side acquisition",
+          "demand-side acquisition",
+          "transaction frequency",
+          "trust and safety"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no creator enterprise developer medical drift",
+        "scope": "analysis_text",
+        "terms": [
+          "creator-tools blocker",
+          "creator retention",
+          "content production frequency",
+          "enterprise B2B blocker",
+          "procurement path",
+          "developer-tool blocker",
+          "patient safety"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "liquidity gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "transaction gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "market",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

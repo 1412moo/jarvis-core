@@ -256,6 +256,7 @@ def _require_non_empty(field_name: str, value: str) -> None:
 
 
 ALIASES: dict[str, str] = {
+    "creator": "creator_tools",
     "enterprise": "enterprise_b2b",
     "software": "ai_saas",
     "hardware": "hardware_device",
@@ -266,6 +267,7 @@ _PROFILE_ORDER: tuple[str, ...] = (
     "general",
     "medical_device",
     "ai_saas",
+    "creator_tools",
     "marketplace",
     "enterprise_b2b",
     "developer_tool",
@@ -278,6 +280,7 @@ _SAFETY_TIE_BREAKER: tuple[str, ...] = (
     "medical_device",
     "materials_science",
     "hardware_device",
+    "creator_tools",
     "marketplace",
     "enterprise_b2b",
     "developer_tool",
@@ -767,6 +770,230 @@ _PROFILES: tuple[DomainProfile, ...] = (
             "prioritize workflow interviews when buyer/workflow evidence is weak",
             "prioritize output-quality evaluation when reliability evidence is weak",
             "prioritize differentiation mapping when AI-wrapper risk is unresolved",
+        ),
+    ),
+    DomainProfile(
+        id="creator_tools",
+        label="Creator tools",
+        concept_label="creator tool concept",
+        summary=(
+            "A profile for tools, studios, platforms, and workflows used by creators "
+            "to produce content, grow audiences, engage fans, monetize, and reduce "
+            "platform-dependency risk."
+        ),
+        claim_lenses=(
+            ClaimLens(
+                id="creator_workflow",
+                label="Creator workflow",
+                focus="Creator segment, content production frequency, workflow fit, and onboarding friction.",
+                keywords=("creator workflow", "content production", "content calendar", "onboarding"),
+            ),
+            ClaimLens(
+                id="audience_growth",
+                label="Audience growth",
+                focus="Audience growth loop, fan or community engagement, distribution channel dependency, and audience lock-in.",
+                keywords=("audience growth", "fan community", "community engagement", "distribution channel"),
+            ),
+            ClaimLens(
+                id="creator_monetization",
+                label="Creator monetization",
+                focus="Monetization model, sponsorship, paid community, creator segment WTP, and retention trigger.",
+                keywords=("monetization", "sponsorship", "paid community", "willingness to pay"),
+            ),
+            ClaimLens(
+                id="creator_differentiation",
+                label="Creator differentiation",
+                focus="Differentiation from generic AI/content tools, content repurposing value, and collaboration workflow.",
+                keywords=("differentiation", "generic content tools", "content repurposing", "collaboration workflow"),
+            ),
+        ),
+        evidence_needs=(
+            EvidenceNeed(
+                category="user_adoption",
+                request=(
+                    "Identify the target creator segment, content production frequency, "
+                    "creator workflow pain, onboarding friction, creator retention trigger, "
+                    "and whether the tool fits the creator's existing publishing cadence."
+                ),
+            ),
+            EvidenceNeed(
+                category="market",
+                request=(
+                    "Validate monetization model, sponsorship or paid community path, "
+                    "willingness to pay by creator segment, audience growth or engagement "
+                    "loop, and whether the value survives creator churn risk."
+                ),
+            ),
+            EvidenceNeed(
+                category="technical",
+                request=(
+                    "Show content repurposing value, collaboration workflow, production "
+                    "workflow integration, import/export needs, and platform dependency "
+                    "or distribution channel constraints."
+                ),
+            ),
+            EvidenceNeed(
+                category="prior_art",
+                request=(
+                    "Compare against generic AI/content tools, existing creator platforms, "
+                    "content calendars, community tools, editing workflows, and distribution "
+                    "channel substitutes."
+                ),
+            ),
+            EvidenceNeed(
+                category="safety_regulatory",
+                request=(
+                    "Identify platform policy dependency, audience data ownership, privacy, "
+                    "brand safety, sponsorship disclosure, and fan/community moderation boundaries."
+                ),
+            ),
+        ),
+        reviewer_lenses=(
+            ReviewerLens(
+                role="technical",
+                focus="Challenge workflow integration, content repurposing value, collaboration fit, and platform dependency.",
+            ),
+            ReviewerLens(
+                role="market",
+                focus="Challenge creator retention, content production frequency, audience growth loop, monetization, and creator-segment WTP.",
+            ),
+            ReviewerLens(
+                role="safety_regulatory",
+                focus="Review platform policy dependency, audience data, sponsorship disclosure, moderation, and brand-safety boundaries.",
+                escalation_terms=("audience data", "sponsorship", "paid community", "moderation", "platform policy"),
+            ),
+            ReviewerLens(
+                role="red_team",
+                focus="Look for creator churn, generic content-tool substitution, channel lock-in, weak fan engagement, and fragile monetization.",
+            ),
+        ),
+        experiment_templates=(
+            ExperimentTemplate(
+                id="creator-workflow-interview",
+                title="Creator workflow interview",
+                method=(
+                    "Interview creators about production cadence, current workflow pain, "
+                    "audience growth loop, monetization path, onboarding friction, and "
+                    "retention trigger."
+                ),
+                success_metric="Creators name a frequent workflow pain and a concrete reason to keep using the tool.",
+                minimum_sample="5 creators in one segment",
+                risk="Interview interest may not translate into retained creator behavior or willingness to pay.",
+            ),
+            ExperimentTemplate(
+                id="content-production-diary-study",
+                title="Content production diary study",
+                method=(
+                    "Track one production cycle and record content frequency, repurposing "
+                    "steps, collaboration handoffs, distribution channels, and audience "
+                    "engagement outcomes."
+                ),
+                success_metric="The study identifies one repeated production bottleneck with measurable improvement potential.",
+                minimum_sample="3 creators across one week or one publishing cycle",
+                risk="A diary study can reveal workflow pain without proving monetization or audience growth.",
+            ),
+        ),
+        selection_keywords=(
+            ("creator tool", 10),
+            ("creator tools", 10),
+            ("creator platform", 9),
+            ("content creator", 9),
+            ("creator workflow", 9),
+            ("content production", 8),
+            ("creator retention", 8),
+            ("fan community", 8),
+            ("audience growth", 8),
+            ("newsletter creator", 8),
+            ("youtuber", 8),
+            ("streamer", 8),
+            ("influencer", 8),
+            ("paid community", 8),
+            ("creator segment", 7),
+            ("creator onboarding", 7),
+            ("fan engagement", 7),
+            ("community engagement", 7),
+            ("audience lock in", 7),
+            ("audience lock-in", 7),
+            ("content repurposing", 7),
+            ("collaboration workflow", 6),
+            ("content calendar", 6),
+            ("sponsorship", 6),
+            ("platform dependency", 6),
+            ("distribution channel", 5),
+            ("monetization", 5),
+        ),
+        blocker_order=(
+            "user_adoption",
+            "market",
+            "prior_art",
+            "technical",
+            "safety_regulatory",
+        ),
+        council_lenses=(
+            "creator_workflow",
+            "audience_growth",
+            "creator_monetization",
+            "creator_differentiation",
+        ),
+        reasoning_priorities=(
+            "creator workflow fit before broad creator platform claims",
+            "content production frequency before retention optimism",
+            "audience growth loop and fan/community engagement before distribution confidence",
+            "monetization model and willingness to pay by creator segment before market optimism",
+            "platform dependency and audience lock-in before scale claims",
+        ),
+        risk_factors=(
+            "creator retention risk",
+            "content production frequency risk",
+            "creator workflow fit risk",
+            "audience growth loop risk",
+            "fan/community engagement risk",
+            "monetization model risk",
+            "platform dependency risk",
+            "audience lock-in risk",
+            "creator churn risk",
+            "creator onboarding friction",
+            "creator differentiation risk",
+            "distribution channel dependency",
+            "content repurposing value risk",
+            "collaboration workflow risk",
+            "willingness to pay by creator segment risk",
+        ),
+        evidence_expectations=(
+            "target creator segment and creator workflow pain evidence",
+            "content production frequency and creator retention trigger evidence",
+            "audience growth or fan/community engagement loop evidence",
+            "monetization model and willingness-to-pay evidence by creator segment",
+            "platform dependency, distribution channel dependency, and audience lock-in evidence",
+            "creator onboarding friction and churn-risk evidence",
+            "differentiation from generic AI/content tools and creator platform substitutes",
+        ),
+        decision_heuristics=(
+            "do not upgrade confidence without creator retention and production-frequency evidence",
+            "treat broad creator interest as weak until audience growth or fan engagement is observed",
+            "penalize creator tools that depend on one platform without a lock-in or portability plan",
+            "prefer creator workflow interviews and diary studies before broad platform buildout",
+            "do not treat monetization claims as proven without creator-segment willingness-to-pay evidence",
+        ),
+        output_guidance=(
+            "surface creator retention, content production frequency, creator workflow fit, and onboarding friction",
+            "name audience growth, fan/community engagement, platform dependency, and audience lock-in gaps explicitly",
+            "keep monetization model, creator-segment WTP, content repurposing, distribution channel, and differentiation visible",
+        ),
+        confidence_policy=(
+            "confidence is capped until creator workflow fit, production frequency, audience growth, monetization, and platform-dependency evidence are supplied",
+            "high confidence requires observed retention trigger and willingness to pay by creator segment, not creator interest alone",
+        ),
+        caveat_policy=(
+            "include creator retention and production-frequency caveats",
+            "include audience growth, fan/community engagement, and platform-dependency caveats",
+            "include monetization, creator-segment WTP, churn, and differentiation caveats",
+        ),
+        next_step_policy=(
+            "prioritize creator workflow interviews when segment pain or retention evidence is weak",
+            "prioritize content production diary studies when production frequency is unproven",
+            "prioritize monetization WTP interviews when creator-segment pricing is unclear",
+            "prioritize platform dependency risk review when distribution channel dependency is high",
         ),
     ),
     DomainProfile(
@@ -1833,6 +2060,9 @@ def _score_profiles(scoring_text: str) -> tuple[dict[str, int], dict[str, tuple[
         marketplace_has_anchor = profile.id == "marketplace" and _has_marketplace_structural_anchor(
             scoring_text
         )
+        creator_tools_has_anchor = profile.id == "creator_tools" and _has_creator_tools_anchor(
+            scoring_text
+        )
         score = 0
         matches: list[str] = []
         for keyword, weight in profile.selection_keywords:
@@ -1842,10 +2072,17 @@ def _score_profiles(scoring_text: str) -> tuple[dict[str, int], dict[str, tuple[
                 and not marketplace_has_anchor
             ):
                 continue
+            if (
+                profile.id == "creator_tools"
+                and keyword in _CREATOR_TOOLS_WEAK_KEYWORDS
+                and not creator_tools_has_anchor
+            ):
+                continue
             if _keyword_matches(
                 scoring_text,
                 keyword,
-                ignore_negated=profile.id in {"developer_tool", "enterprise_b2b", "marketplace"},
+                ignore_negated=profile.id
+                in {"developer_tool", "enterprise_b2b", "marketplace", "creator_tools"},
             ):
                 score += weight
                 matches.append(keyword)
@@ -1890,10 +2127,54 @@ _MARKETPLACE_WEAK_KEYWORDS = frozenset(
 )
 
 
+_CREATOR_TOOLS_STRUCTURAL_ANCHORS = frozenset(
+    (
+        "creator tool",
+        "creator platform",
+        "content creator",
+        "creator workflow",
+        "content production",
+        "creator retention",
+        "fan community",
+        "audience growth",
+        "newsletter creator",
+        "youtuber",
+        "streamer",
+        "influencer",
+        "paid community",
+        "creator segment",
+        "fan engagement",
+        "community engagement",
+        "audience lock in",
+        "audience lock-in",
+    )
+)
+
+
+_CREATOR_TOOLS_WEAK_KEYWORDS = frozenset(
+    (
+        "content calendar",
+        "content repurposing",
+        "collaboration workflow",
+        "sponsorship",
+        "platform dependency",
+        "distribution channel",
+        "monetization",
+    )
+)
+
+
 def _has_marketplace_structural_anchor(scoring_text: str) -> bool:
     return any(
         _keyword_matches(scoring_text, anchor, ignore_negated=True)
         for anchor in _MARKETPLACE_STRUCTURAL_ANCHORS
+    )
+
+
+def _has_creator_tools_anchor(scoring_text: str) -> bool:
+    return any(
+        _keyword_matches(scoring_text, anchor, ignore_negated=True)
+        for anchor in _CREATOR_TOOLS_STRUCTURAL_ANCHORS
     )
 
 
@@ -1949,7 +2230,7 @@ def _flatten_parts(*parts: Any) -> tuple[str, ...]:
     return tuple(flattened)
 
 
-_NEGATED_SELECTION_KEYWORD_WINDOW = 8
+_NEGATED_SELECTION_KEYWORD_WINDOW = 20
 _NEGATION_MARKERS = frozenset(("no", "not", "without", "non"))
 
 

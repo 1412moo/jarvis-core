@@ -9,6 +9,12 @@ from .claim_extractor import extract_claims
 from .domain_profiles import DomainProfile, DomainProfileSelection, resolve_domain_profile
 from .evidence_ledger import build_evidence_ledger, evidence_gap_category, evidence_status
 from .experiments import propose_experiments
+from .llm_advisor import (
+    LLMAdvisorConfig,
+    LLMAugmentationMode,
+    build_llm_augmentation,
+    merge_validated_llm_suggestions,
+)
 from .report_renderer import render_markdown_report
 from .reviewers import run_reviewers
 from .schemas import (
@@ -44,6 +50,7 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
         "security/compliance",
         "security",
         "compliance",
+        "platform dependency",
     ),
     "technical": (
         "output-quality",
@@ -57,6 +64,7 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
         "sensing",
         "prototype",
         "mockup",
+        "content repurposing",
     ),
     "environmental": ("degradation", "wastewater", "environment"),
     "user_adoption": (
@@ -69,6 +77,10 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
         "concierge matching",
         "supply-side interview",
         "demand-side interview",
+        "creator workflow",
+        "content production diary",
+        "audience growth",
+        "creator onboarding",
         "adoption",
         "care-pathway",
         "interview",
@@ -80,6 +92,7 @@ _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
         "roi validation",
         "pricing/take-rate",
         "repeat transaction",
+        "monetization",
         "liquidity",
         "differentiation",
         "adoption",
@@ -149,6 +162,56 @@ _MARKETPLACE_PRIORITY_TERMS = {
     ),
     "technical": ("matching efficiency", "booking", "listings", "quality-control", "quality control"),
     "prior_art": ("existing marketplaces", "direct off-platform", "manual brokers", "substitute"),
+}
+
+_CREATOR_TOOLS_CATEGORY_BONUS = {
+    "user_adoption": 20,
+    "market": 18,
+    "prior_art": 14,
+    "technical": 12,
+    "safety_regulatory": 10,
+}
+
+_CREATOR_TOOLS_PRIORITY_TERMS = {
+    "user_adoption": (
+        "target creator",
+        "creator workflow",
+        "content production frequency",
+        "creator retention",
+        "creator onboarding",
+        "publishing cadence",
+    ),
+    "market": (
+        "audience growth",
+        "fan/community engagement",
+        "monetization",
+        "willingness to pay by creator segment",
+        "creator churn",
+        "paid community",
+        "sponsorship",
+    ),
+    "prior_art": (
+        "generic ai/content tools",
+        "generic content tools",
+        "creator platform",
+        "distribution channel",
+        "differentiation",
+    ),
+    "technical": (
+        "content repurposing",
+        "collaboration workflow",
+        "production workflow",
+        "import/export",
+        "platform dependency",
+    ),
+    "safety_regulatory": (
+        "platform policy",
+        "audience data",
+        "brand safety",
+        "sponsorship disclosure",
+        "moderation",
+        "audience lock-in",
+    ),
 }
 
 _DEVELOPER_TOOL_CATEGORY_BONUS = {
@@ -236,6 +299,7 @@ class _DecisionBlocker:
 def run_research_council(
     input: ResearchCouncilInput,
     profile: str | None = None,
+    llm_advisor_config: LLMAdvisorConfig | LLMAugmentationMode | str | None = None,
 ) -> ResearchCouncilResult:
     """Run the deterministic v0.1 Research Council workflow.
 
@@ -244,6 +308,7 @@ def run_research_council(
     calls, or citation generation.
     """
 
+    advisor_config = LLMAdvisorConfig.from_value(llm_advisor_config)
     profile_selection = resolve_domain_profile(input, explicit_profile_id=profile)
     profile_metadata = _profile_metadata(profile_selection)
     input_summary = _build_input_summary(input)
@@ -295,7 +360,7 @@ def run_research_council(
         ),
     )
 
-    return ResearchCouncilResult(
+    deterministic_result = ResearchCouncilResult(
         input_summary=input_summary,
         claims=claims,
         evidence_ledger=evidence_ledger,
@@ -306,6 +371,13 @@ def run_research_council(
         profile=profile_metadata,
         warnings=warnings,
     )
+    augmentation_result = build_llm_augmentation(
+        deterministic_result,
+        input_data=input,
+        domain_profile=profile_selection.profile,
+        config=advisor_config,
+    )
+    return merge_validated_llm_suggestions(deterministic_result, augmentation_result)
 
 
 def _build_input_summary(input: ResearchCouncilInput) -> str:
@@ -395,6 +467,26 @@ def _create_recommendation(
                 "transaction frequency, retention by side, take-rate monetization, "
                 "trust/safety readiness, moderation capacity, or disintermediation control."
             )
+        elif domain_profile.id == "creator_tools":
+            if primary_blocker.category == "technical":
+                decision = "continue_with_content_repurposing_prototype"
+            elif primary_blocker.category == "user_adoption":
+                decision = "continue_with_creator_workflow_retention_test"
+            elif primary_blocker.category == "market":
+                decision = "continue_with_creator_monetization_wtp_test"
+            elif primary_blocker.category == "safety_regulatory":
+                decision = "pause_broad_use_resolve_platform_dependency"
+            elif primary_blocker.category == "prior_art":
+                decision = "continue_with_creator_differentiation_mapping"
+            summary = (
+                f"Primary creator-tools blocker: {primary_blocker.category.replace('_', ' ')} "
+                f"evidence for `{primary_blocker.claim_id}`. Treat the submitted description "
+                "as concept input, not proof of creator retention, content production frequency, "
+                "creator workflow fit, audience growth loop, fan/community engagement, "
+                "monetization model, willingness to pay by creator segment, platform dependency "
+                "control, audience lock-in mitigation, creator onboarding, differentiation, "
+                "or distribution channel resilience."
+            )
         elif domain_profile.id == "enterprise_b2b":
             if primary_blocker.category == "technical":
                 decision = "continue_with_enterprise_integration_pilot"
@@ -461,6 +553,15 @@ def _create_recommendation(
                 "trust/safety, moderation burden, transaction frequency, take-rate, retention "
                 "by side, and disintermediation because these determine whether both sides keep "
                 "transacting through the platform."
+            )
+        if domain_profile.id == "creator_tools":
+            rationale_parts.append(
+                "Creator-tools weighting gives extra priority to creator retention, content "
+                "production frequency, creator workflow fit, audience growth loops, "
+                "fan/community engagement, monetization model, creator-segment willingness "
+                "to pay, platform dependency, audience lock-in, creator onboarding, churn "
+                "risk, content repurposing value, collaboration workflow, and distribution "
+                "channel dependency because these determine whether creators keep using the tool."
             )
         if domain_profile.id == "enterprise_b2b":
             rationale_parts.append(
@@ -598,6 +699,8 @@ def _profile_priority_bonus(
         bonus += _DEVELOPER_TOOL_CATEGORY_BONUS.get(category, 0)
     if domain_profile.id == "marketplace":
         bonus += _MARKETPLACE_CATEGORY_BONUS.get(category, 0)
+    if domain_profile.id == "creator_tools":
+        bonus += _CREATOR_TOOLS_CATEGORY_BONUS.get(category, 0)
     if domain_profile.id == "enterprise_b2b":
         bonus += _ENTERPRISE_B2B_CATEGORY_BONUS.get(category, 0)
     lowered = summary.lower()
@@ -606,6 +709,8 @@ def _profile_priority_bonus(
         terms = _DEVELOPER_TOOL_PRIORITY_TERMS.get(category, ())
     if domain_profile.id == "marketplace":
         terms = _MARKETPLACE_PRIORITY_TERMS.get(category, ())
+    if domain_profile.id == "creator_tools":
+        terms = _CREATOR_TOOLS_PRIORITY_TERMS.get(category, ())
     if domain_profile.id == "enterprise_b2b":
         terms = _ENTERPRISE_B2B_PRIORITY_TERMS.get(category, ())
     if any(term in lowered for term in terms):
@@ -786,6 +891,32 @@ def _next_step_policy_note(
                 "Compare against existing marketplaces, direct off-platform alternatives, "
                 "manual brokers, listing sites, and substitute channels."
             )
+    if domain_profile.id == "creator_tools":
+        if category == "user_adoption":
+            return (
+                "Capture target creator segment, production cadence, creator workflow pain, "
+                "onboarding friction, and retention trigger."
+            )
+        if category == "market":
+            return (
+                "Validate audience growth loop, fan/community engagement, monetization model, "
+                "creator-segment willingness to pay, and churn risk."
+            )
+        if category == "technical":
+            return (
+                "Test content repurposing value, collaboration workflow, production workflow "
+                "integration, import/export needs, and platform constraints."
+            )
+        if category == "safety_regulatory":
+            return (
+                "Map platform policy dependency, audience data ownership, distribution channel "
+                "dependency, sponsorship disclosure, moderation, and audience lock-in risk."
+            )
+        if category == "prior_art":
+            return (
+                "Compare against generic AI/content tools, creator platforms, content calendars, "
+                "community tools, editing workflows, and distribution substitutes."
+            )
     if domain_profile.id == "enterprise_b2b":
         if category == "market":
             return (
@@ -833,6 +964,10 @@ def _profile_caveats(domain_profile: DomainProfile) -> tuple[str, ...]:
     if domain_profile.id == "marketplace":
         return (
             "Marketplace profile caveat: liquidity, cold-start strategy, supply-side acquisition, demand-side acquisition, local density, matching efficiency, trust/safety, moderation burden, transaction frequency, take-rate, retention by side, and disintermediation remain unvalidated without targeted marketplace evidence.",
+        )
+    if domain_profile.id == "creator_tools":
+        return (
+            "Creator-tools profile caveat: creator retention, content production frequency, creator workflow fit, audience growth loop, fan/community engagement, monetization model, creator-segment willingness to pay, platform dependency, audience lock-in, churn risk, onboarding, differentiation, content repurposing value, collaboration workflow, and distribution channel dependency remain unvalidated without targeted creator evidence.",
         )
     if domain_profile.id == "enterprise_b2b":
         return (

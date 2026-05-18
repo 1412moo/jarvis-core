@@ -118,8 +118,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile",
         help=(
             "Optional deterministic domain profile id or alias. Known ids include "
-            "general, medical_device, ai_saas, marketplace, enterprise_b2b, developer_tool, "
-            "consumer_app, hardware_device, and materials_science."
+            "general, medical_device, ai_saas, creator_tools, marketplace, enterprise_b2b, "
+            "developer_tool, consumer_app, hardware_device, and materials_science."
         ),
     )
     parser.add_argument(

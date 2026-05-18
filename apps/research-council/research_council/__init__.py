@@ -26,9 +26,18 @@ from .json_export import (
     write_result_json,
 )
 from .llm_advisor import (
+    ALLOWED_AUGMENTATION_CATEGORIES,
+    LLMAdvisorConfig,
+    LLMAugmentationCandidate,
+    LLMAugmentationMode,
+    LLMAugmentationResult,
     LLMInsightBundle,
     LLMResearchAdvisor,
+    ValidatedLLMSuggestion,
+    build_llm_augmentation,
+    merge_validated_llm_suggestions,
     validate_llm_insight_bundle,
+    validate_llm_suggestions,
 )
 from .pipeline import run_research_council
 from .schemas import (
@@ -52,6 +61,11 @@ __all__ = [
     "EvidenceNeed",
     "ExperimentTemplate",
     "ExperimentPlan",
+    "ALLOWED_AUGMENTATION_CATEGORIES",
+    "LLMAdvisorConfig",
+    "LLMAugmentationCandidate",
+    "LLMAugmentationMode",
+    "LLMAugmentationResult",
     "LLMInsightBundle",
     "LLMResearchAdvisor",
     "MarkdownReport",
@@ -60,11 +74,14 @@ __all__ = [
     "ResearchCouncilResult",
     "ReviewerCritique",
     "ReviewerLens",
+    "ValidatedLLMSuggestion",
     "artifacts_to_json",
+    "build_llm_augmentation",
     "from_json",
     "from_json_dict",
     "get_profile",
     "list_profiles",
+    "merge_validated_llm_suggestions",
     "result_from_json",
     "result_from_json_dict",
     "result_to_artifacts_dict",
@@ -75,5 +92,6 @@ __all__ = [
     "to_json",
     "to_json_dict",
     "validate_llm_insight_bundle",
+    "validate_llm_suggestions",
     "write_result_json",
 ]
