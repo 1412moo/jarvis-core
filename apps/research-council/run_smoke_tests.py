@@ -193,6 +193,23 @@ def test_json_export_contract() -> None:
         entry for entry in loaded_payload["evidence_ledger"] if entry["evidence_type"] == "missing"
     ]
     _assert(missing_entries, "JSON must preserve explicit missing evidence")
+    for entry in missing_entries:
+        for field_name in (
+            "required_evidence",
+            "missing_evidence",
+            "validation_experiment",
+            "confidence_impact",
+        ):
+            _assert(
+                field_name in entry,
+                f"JSON missing evidence must include {field_name}",
+            )
+            _assert(entry[field_name], f"JSON missing evidence {field_name} must be non-empty")
+        _assert(
+            entry["confidence_impact"]
+            in {"confidence_supporting", "confidence_limiter", "confidence_blocker"},
+            "JSON evidence confidence impact must use deterministic labels",
+        )
     _assert(
         all(entry["reference_label"] is None for entry in missing_entries),
         "JSON missing evidence must not gain reference labels",
@@ -566,6 +583,90 @@ def test_medical_device_policy_regression_preserves_conservative_behavior() -> N
     )
 
 
+def test_ai_saas_evidence_gap_engine_links_experiments() -> None:
+    result = run_research_council(
+        ResearchCouncilInput(
+            raw_idea="AI SaaS patent analysis assistant for solo founders",
+            goal="Evaluate buyer workflow, willingness to pay, retention, and differentiation.",
+            context="Focus on repeated workflow, generic LLM wrapper risk, and purchase intent.",
+        )
+    )
+    payload = result_to_json_dict(result)
+    missing_entries = [
+        entry for entry in payload["evidence_ledger"] if entry["evidence_type"] == "missing"
+    ]
+    evidence_text = " ".join(
+        f"{entry['required_evidence']} {entry['missing_evidence']} {entry['validation_experiment']}"
+        for entry in missing_entries
+    ).lower()
+    experiment_titles = {experiment.title for experiment in result.experiments}
+
+    for expected in (
+        "buyer",
+        "workflow",
+        "willingness to pay",
+        "differentiation",
+        "generic llm wrapper",
+        "retention trigger",
+        "reliability",
+    ):
+        _assert(expected in evidence_text, f"AI SaaS evidence gaps must include {expected}")
+
+    _assert(
+        any(
+            "Workflow interview" in entry["validation_experiment"]
+            and "willingness-to-pay" in entry["validation_experiment"]
+            for entry in missing_entries
+        ),
+        "AI SaaS willingness-to-pay gap must map to a workflow/pricing validation experiment",
+    )
+    for entry in missing_entries:
+        experiment_title = entry["validation_experiment"].split(":", 1)[0]
+        _assert(
+            experiment_title in experiment_titles,
+            f"missing evidence must map to an existing experiment title: {experiment_title}",
+        )
+
+
+def test_medical_device_evidence_gap_engine_preserves_conservative_confidence() -> None:
+    result = run_research_council(build_sample_input())
+    payload = result_to_json_dict(result)
+    missing_entries = [
+        entry for entry in payload["evidence_ledger"] if entry["evidence_type"] == "missing"
+    ]
+    evidence_text = " ".join(
+        f"{entry['required_evidence']} {entry['missing_evidence']} {entry['validation_experiment']}"
+        for entry in missing_entries
+    ).lower()
+
+    for expected in (
+        "patient safety risk",
+        "regulatory pathway",
+        "clinical validation",
+        "intended use",
+        "target population",
+    ):
+        _assert(
+            expected in evidence_text,
+            f"medical_device evidence gaps must include {expected}",
+        )
+
+    safety_entries = [
+        entry
+        for entry in missing_entries
+        if "gap_category=safety_regulatory" in entry["notes"]
+    ]
+    _assert(safety_entries, "medical_device must keep safety/regulatory evidence gaps")
+    _assert(
+        all(entry["confidence_impact"] == "confidence_blocker" for entry in safety_entries),
+        "medical_device safety/regulatory gaps must remain confidence blockers",
+    )
+    _assert(
+        any("Non-clinical capsule safety boundary table" in entry["validation_experiment"] for entry in safety_entries),
+        "medical_device safety gaps must map to the non-clinical safety validation experiment",
+    )
+
+
 def test_run_demo_unknown_profile_fails_clearly() -> None:
     completed = subprocess.run(
         [
@@ -748,6 +849,8 @@ def main() -> None:
     test_ai_saas_profile_reasoning()
     test_ai_saas_policy_regression_signals()
     test_medical_device_policy_regression_preserves_conservative_behavior()
+    test_ai_saas_evidence_gap_engine_links_experiments()
+    test_medical_device_evidence_gap_engine_preserves_conservative_confidence()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
     print("Research Council smoke tests passed")

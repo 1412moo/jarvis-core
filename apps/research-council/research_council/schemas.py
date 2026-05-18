@@ -16,6 +16,9 @@ CLAIM_SOURCE_LABELS = frozenset({"user_provided", "extracted", "assumed", "needs
 EVIDENCE_TYPES = frozenset({"provided", "missing"})
 SEVERITY_LEVELS = frozenset({"low", "medium", "high"})
 CONFIDENCE_LEVELS = frozenset({"low", "medium", "high"})
+EVIDENCE_CONFIDENCE_IMPACTS = frozenset(
+    {"confidence_supporting", "confidence_limiter", "confidence_blocker"}
+)
 
 ClaimSourceLabel = Literal["user_provided", "extracted", "assumed", "needs_evidence"]
 EvidenceType = Literal["provided", "missing"]
@@ -90,6 +93,10 @@ class EvidenceEntry:
     summary: str
     reference_label: str | None = None
     notes: str = ""
+    required_evidence: str = ""
+    missing_evidence: str = ""
+    validation_experiment: str = ""
+    confidence_impact: str = ""
 
     def __post_init__(self) -> None:
         _require_non_empty("id", self.id)
@@ -99,6 +106,19 @@ class EvidenceEntry:
             raise ValueError(f"invalid evidence_type: {self.evidence_type}")
         if self.evidence_type == "missing" and self.reference_label:
             raise ValueError("missing evidence entries must not include a reference_label")
+        object.__setattr__(self, "required_evidence", str(self.required_evidence or "").strip())
+        object.__setattr__(self, "missing_evidence", str(self.missing_evidence or "").strip())
+        object.__setattr__(
+            self,
+            "validation_experiment",
+            str(self.validation_experiment or "").strip(),
+        )
+        object.__setattr__(self, "confidence_impact", str(self.confidence_impact or "").strip())
+        if (
+            self.confidence_impact
+            and self.confidence_impact not in EVIDENCE_CONFIDENCE_IMPACTS
+        ):
+            raise ValueError(f"invalid evidence confidence_impact: {self.confidence_impact}")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

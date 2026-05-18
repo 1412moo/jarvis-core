@@ -61,6 +61,165 @@ _STOPWORDS = frozenset(
     }
 )
 
+_GENERIC_EXPECTATIONS_BY_CATEGORY = {
+    "technical": "feasibility evidence with a measurable threshold and failure-mode result",
+    "user_adoption": "target user, problem severity, current workaround, and adoption trigger",
+    "prior_art": "existing alternatives, substitute comparison, and prior-art position",
+    "safety_regulatory": "safety-sensitive uses, review boundaries, and stop conditions",
+    "environmental": "measured environmental behavior and whether risk shifts elsewhere",
+    "market": "buyer, budget owner, willingness-to-pay signal, and adoption barrier",
+}
+
+_PROFILE_EXPECTATIONS_BY_CATEGORY = {
+    "ai_saas": {
+        "technical": (
+            "reliability requirement: output-quality rubric, source traceability, "
+            "failure handling, privacy controls, and operational reliability threshold"
+        ),
+        "user_adoption": (
+            "target user and buyer clarity, repeated workflow frequency, current "
+            "workaround, switching cost, and repeat-use trigger"
+        ),
+        "prior_art": (
+            "differentiation beyond a generic LLM wrapper, substitute map, and narrow "
+            "workflow wedge"
+        ),
+        "safety_regulatory": (
+            "trust boundary, legal-output limits, source-check behavior, and escalation "
+            "to professional review"
+        ),
+        "market": (
+            "buyer urgency, willingness to pay, pricing threshold, distribution path, "
+            "switching trigger, and retention trigger"
+        ),
+    },
+    "medical_device": {
+        "technical": (
+            "intended use, target population, measured performance threshold, reliability, "
+            "and non-clinical validation evidence"
+        ),
+        "user_adoption": (
+            "clinician, patient, and institution workflow fit without treating interest "
+            "as clinical validation"
+        ),
+        "prior_art": (
+            "clinical comparator, existing device or care-pathway alternative, and "
+            "evidence boundary"
+        ),
+        "safety_regulatory": (
+            "patient safety risk, clinical validation evidence, regulatory pathway, "
+            "intended use, target population, and stop conditions"
+        ),
+        "market": "buyer, payer, reimbursement, procurement, and adoption trigger evidence",
+        "environmental": _GENERIC_EXPECTATIONS_BY_CATEGORY["environmental"],
+    },
+    "capsule_medical_environmental": {
+        "technical": (
+            "intended use, target population, data-capture quality, safe transit, "
+            "retention behavior, and non-clinical validation evidence"
+        ),
+        "user_adoption": (
+            "patient, clinician, payer, and screening-program workflow evidence compared "
+            "with existing colorectal screening pathways"
+        ),
+        "prior_art": (
+            "clinical comparator against colonoscopy, stool tests, capsule endoscopy, "
+            "and biodegradable ingestible-device alternatives"
+        ),
+        "safety_regulatory": (
+            "patient safety risk, ingestion and obstruction hazards, biocompatibility, "
+            "clinical validation evidence, regulatory pathway, intended use, target "
+            "population, and stop conditions"
+        ),
+        "environmental": (
+            "degradation timing, byproducts, wastewater compatibility, and post-discharge "
+            "risk evidence"
+        ),
+        "market": "payer, buyer, reimbursement, procurement, and screening adoption trigger evidence",
+    },
+}
+
+_VALIDATION_EXPERIMENT_BY_PROFILE_CATEGORY = {
+    "ai_saas": {
+        "technical": (
+            "Output-quality evaluation: score outputs against reliability, source "
+            "traceability, failure handling, and operational reliability rubric."
+        ),
+        "user_adoption": (
+            "Workflow interview: interview buyer/workflow owners about current workaround, "
+            "repeated workflow, switching cost, and repeat-use trigger."
+        ),
+        "prior_art": (
+            "Differentiation mapping: map generic AI wrapper, manual workflow, and "
+            "software substitutes against the narrow wedge."
+        ),
+        "safety_regulatory": (
+            "Trust and verification boundary check: separate allowed summaries from "
+            "legal advice, unsupported citations, and professional-review triggers."
+        ),
+        "market": (
+            "Workflow interview: run pricing or purchase-intent interviews with target "
+            "buyers for willingness-to-pay evidence."
+        ),
+    },
+    "medical_device": {
+        "technical": (
+            "Primary evidence gap closure check: define intended use, target population, "
+            "performance threshold, and non-clinical validation evidence."
+        ),
+        "user_adoption": (
+            "Decision usefulness readout: test clinician, patient, and institution workflow "
+            "requirements without implying clinical validation."
+        ),
+        "prior_art": (
+            "Primary evidence gap closure check: compare the concept with clinical "
+            "comparators, existing devices, and care pathways."
+        ),
+        "safety_regulatory": (
+            "Safety and misuse tabletop: define patient safety risk, regulatory pathway, "
+            "clinical validation boundary, and stop conditions."
+        ),
+        "market": "Decision usefulness readout: identify payer, buyer, and procurement evidence.",
+        "environmental": (
+            "Primary evidence gap closure check: define environmental evidence needed "
+            "before any disposal claim."
+        ),
+    },
+    "capsule_medical_environmental": {
+        "technical": (
+            "Bench capsule sensing and transit mockup: test data capture, orientation, "
+            "occlusion, transit, and safe-passage assumptions."
+        ),
+        "user_adoption": (
+            "Care-pathway adoption check: compare patient, clinician, payer, and screening "
+            "program requirements."
+        ),
+        "prior_art": (
+            "Primary evidence gap closure check: compare against clinical comparators, "
+            "capsule endoscopy, colorectal screening workflows, and biodegradable devices."
+        ),
+        "safety_regulatory": (
+            "Non-clinical capsule safety boundary table: define intended use, target "
+            "population, patient safety risk, regulatory pathway, and clinical validation "
+            "boundary."
+        ),
+        "environmental": (
+            "Wastewater degradation screen: measure degradation timing, byproducts, "
+            "fragments, and wastewater compatibility."
+        ),
+        "market": "Care-pathway adoption check: identify payer, buyer, reimbursement, and adoption triggers.",
+    },
+}
+
+_GENERIC_VALIDATION_EXPERIMENT_BY_CATEGORY = {
+    "technical": "Primary evidence gap closure check: define the smallest feasible validation result.",
+    "user_adoption": "Decision usefulness readout: test target user, problem severity, and adoption trigger.",
+    "prior_art": "Primary evidence gap closure check: compare existing alternatives and substitutes.",
+    "safety_regulatory": "Safety and misuse tabletop: define review boundaries and stop conditions.",
+    "environmental": "Primary evidence gap closure check: define measurable environmental evidence.",
+    "market": "Decision usefulness readout: identify buyer, budget owner, and willingness-to-pay evidence.",
+}
+
 
 def build_evidence_ledger(
     input_data: Any,
@@ -82,6 +241,28 @@ def build_evidence_ledger(
 
     for claim in claim_list:
         status = _STATUS_BY_SOURCE_LABEL.get(claim.source_label, "missing")
+        gap_category = _gap_category_for_claim(claim)
+        required_evidence = _required_evidence_for_claim(
+            domain_profile,
+            claim,
+            gap_category,
+        )
+        missing_evidence = _missing_evidence_for_claim(
+            claim,
+            status,
+            gap_category,
+            required_evidence,
+        )
+        validation_experiment = _validation_experiment_for_gap(
+            domain_profile,
+            gap_category,
+        )
+        confidence_impact = _confidence_impact_for_gap(
+            domain_profile,
+            claim,
+            status,
+            gap_category,
+        )
         entries.append(
             _primary_entry_for_claim(
                 sequence_number=len(entries) + 1,
@@ -89,9 +270,11 @@ def build_evidence_ledger(
                 status=status,
                 raw_idea=input_view.raw_idea,
                 goal=input_view.goal,
-                evidence_request=evidence_request_for(
-                    domain_profile, _gap_category_for_claim(claim)
-                ),
+                gap_category=gap_category,
+                required_evidence=required_evidence,
+                missing_evidence=missing_evidence,
+                validation_experiment=validation_experiment,
+                confidence_impact=confidence_impact,
             )
         )
 
@@ -113,6 +296,10 @@ def build_evidence_ledger(
                     "status=provided; source=user_supplied; support_scope=local_input_only; "
                     "this may clarify the submitted concept but is not external validation."
                 ),
+                required_evidence="User-provided local evidence tied to the closest claim.",
+                missing_evidence="",
+                validation_experiment="",
+                confidence_impact="confidence_supporting",
             )
         )
 
@@ -137,13 +324,28 @@ def evidence_gap_category(entry: EvidenceEntry) -> str | None:
     return None
 
 
+def evidence_confidence_impact(entry: EvidenceEntry) -> str:
+    """Return the deterministic confidence impact for an evidence entry."""
+
+    if entry.confidence_impact:
+        return entry.confidence_impact
+    match = re.search(r"\bconfidence_impact=([a-z_]+)\b", entry.notes)
+    if match:
+        return match.group(1)
+    return "confidence_supporting" if entry.evidence_type == "provided" else "confidence_limiter"
+
+
 def _primary_entry_for_claim(
     sequence_number: int,
     claim: Claim,
     status: str,
     raw_idea: str,
     goal: str,
-    evidence_request: str,
+    gap_category: str,
+    required_evidence: str,
+    missing_evidence: str,
+    validation_experiment: str,
+    confidence_impact: str,
 ) -> EvidenceEntry:
     if status == "provided":
         return EvidenceEntry(
@@ -160,9 +362,12 @@ def _primary_entry_for_claim(
                 "this does not validate feasibility, adoption, safety, environmental, "
                 "prior-art, or market claims."
             ),
+            required_evidence="User-provided concept and goal text.",
+            missing_evidence="",
+            validation_experiment="",
+            confidence_impact="confidence_supporting",
         )
 
-    gap_category = _gap_category_for_claim(claim)
     if status == "assumed":
         return EvidenceEntry(
             id=f"evidence-{sequence_number:03d}",
@@ -170,12 +375,19 @@ def _primary_entry_for_claim(
             evidence_type="missing",
             summary=(
                 f"Assumption needs {gap_category.replace('_', ' ')} evidence: "
-                f"{evidence_request}"
+                f"{required_evidence} Validation experiment: {validation_experiment}. "
+                f"Confidence impact: {confidence_impact}."
             ),
             notes=(
                 f"status=assumed; gap_category={gap_category}; "
-                f"missing_evidence={evidence_request}"
+                f"missing_evidence={missing_evidence}; "
+                f"validation_experiment={validation_experiment}; "
+                f"confidence_impact={confidence_impact}"
             ),
+            required_evidence=required_evidence,
+            missing_evidence=missing_evidence,
+            validation_experiment=validation_experiment,
+            confidence_impact=confidence_impact,
         )
 
     if status == "needs_external_validation":
@@ -185,12 +397,19 @@ def _primary_entry_for_claim(
             evidence_type="missing",
             summary=(
                 f"Needs {gap_category.replace('_', ' ')} evidence before support: "
-                f"{evidence_request}"
+                f"{required_evidence} Validation experiment: {validation_experiment}. "
+                f"Confidence impact: {confidence_impact}."
             ),
             notes=(
                 f"status=needs_external_validation; gap_category={gap_category}; "
-                f"missing_evidence={evidence_request}"
+                f"missing_evidence={missing_evidence}; "
+                f"validation_experiment={validation_experiment}; "
+                f"confidence_impact={confidence_impact}"
             ),
+            required_evidence=required_evidence,
+            missing_evidence=missing_evidence,
+            validation_experiment=validation_experiment,
+            confidence_impact=confidence_impact,
         )
 
     return EvidenceEntry(
@@ -198,13 +417,96 @@ def _primary_entry_for_claim(
         claim_id=claim.id,
         evidence_type="missing",
         summary=(
-            f"Missing {gap_category.replace('_', ' ')} evidence: {evidence_request}"
+            f"Missing {gap_category.replace('_', ' ')} evidence: {required_evidence} "
+            f"Validation experiment: {validation_experiment}. "
+            f"Confidence impact: {confidence_impact}."
         ),
         notes=(
             f"status=missing; gap_category={gap_category}; "
-            f"missing_evidence={evidence_request}"
+            f"missing_evidence={missing_evidence}; "
+            f"validation_experiment={validation_experiment}; "
+            f"confidence_impact={confidence_impact}"
         ),
+        required_evidence=required_evidence,
+        missing_evidence=missing_evidence,
+        validation_experiment=validation_experiment,
+        confidence_impact=confidence_impact,
     )
+
+
+def _required_evidence_for_claim(
+    domain_profile: Any,
+    claim: Claim,
+    gap_category: str,
+) -> str:
+    base_request = evidence_request_for(domain_profile, gap_category)
+    expectation = _profile_expectation_for_gap(domain_profile, gap_category)
+    if expectation and expectation.lower() not in base_request.lower():
+        return f"{base_request} Profile expectation: {expectation}."
+    return base_request
+
+
+def _missing_evidence_for_claim(
+    claim: Claim,
+    status: str,
+    gap_category: str,
+    required_evidence: str,
+) -> str:
+    if status == "provided":
+        return ""
+    if status == "assumed":
+        prefix = "Assumption is not yet supported by supplied evidence"
+    elif status == "needs_external_validation":
+        prefix = "External validation is required before support"
+    else:
+        prefix = "Missing support for the claim"
+    return (
+        f"{prefix}: {required_evidence} "
+        f"Claim `{claim.id}` remains a {gap_category.replace('_', ' ')} evidence gap."
+    )
+
+
+def _profile_expectation_for_gap(domain_profile: Any, gap_category: str) -> str:
+    profile_id = _profile_id(domain_profile)
+    profile_expectations = _PROFILE_EXPECTATIONS_BY_CATEGORY.get(profile_id, {})
+    if gap_category in profile_expectations:
+        return profile_expectations[gap_category]
+    return _GENERIC_EXPECTATIONS_BY_CATEGORY.get(gap_category, "")
+
+
+def _validation_experiment_for_gap(domain_profile: Any, gap_category: str) -> str:
+    profile_id = _profile_id(domain_profile)
+    profile_experiments = _VALIDATION_EXPERIMENT_BY_PROFILE_CATEGORY.get(profile_id, {})
+    if gap_category in profile_experiments:
+        return profile_experiments[gap_category]
+    return _GENERIC_VALIDATION_EXPERIMENT_BY_CATEGORY.get(
+        gap_category,
+        "Primary evidence gap closure check: define one falsifiable validation step.",
+    )
+
+
+def _confidence_impact_for_gap(
+    domain_profile: Any,
+    claim: Claim,
+    status: str,
+    gap_category: str,
+) -> str:
+    if status == "provided":
+        return "confidence_supporting"
+    profile_id = _profile_id(domain_profile)
+    if profile_id in {"medical_device", "capsule_medical_environmental"} and gap_category in {
+        "safety_regulatory",
+        "technical",
+    }:
+        return "confidence_blocker"
+    if status == "needs_external_validation":
+        return "confidence_blocker"
+    blocker_order = tuple(getattr(domain_profile, "blocker_order", ()))
+    if gap_category in blocker_order[:2]:
+        return "confidence_blocker"
+    if claim.confidence == "low":
+        return "confidence_limiter"
+    return "confidence_limiter"
 
 
 def _gap_category_for_claim(claim: Claim) -> str:

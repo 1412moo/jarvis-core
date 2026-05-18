@@ -136,7 +136,8 @@ def _evidence_gap_experiment(
         method=(
             "List each missing or low-confidence claim, write the smallest acceptable evidence "
             "that would support it, and mark whether that evidence can be gathered locally without "
-            "web search or network calls."
+            "web search or network calls. Record whether the gap is a confidence limiter or "
+            "confidence blocker before choosing the next step."
         ),
         metric=(
             "Every selected unsupported claim is either paired with a concrete evidence request, "
@@ -227,7 +228,8 @@ def _ai_saas_workflow_interview_experiment(
         method=(
             "Interview target founders about their last invention-screening or prior-art search "
             "attempt. Capture current workaround, time spent, trigger event, trust blockers, "
-            "integration needs, willingness to pay, and what would make them repeat the workflow. "
+            "integration needs, purchase-intent or willingness-to-pay threshold, and what would "
+            "make them repeat the workflow. "
             f"Keep the decision goal in frame: {_short_goal(input_data)}."
         ),
         metric=(
