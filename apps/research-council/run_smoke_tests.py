@@ -927,30 +927,45 @@ def test_golden_case_evaluation_harness() -> None:
     summary = evaluate_golden_cases()
     case_ids = {evaluation.case_id for evaluation in summary.evaluations}
     analytics = build_benchmark_analytics(summary)
-    _assert(summary.case_count >= 15, "golden case harness must load the committed cases")
+    _assert(summary.case_count >= 22, "golden case harness must load the committed cases")
     _assert(summary.invariant_count >= 20, "golden case harness must evaluate invariants")
     _assert(summary.profile_coverage_count >= 7, "golden case harness must cover selected profiles")
     _assert(summary.hard_case_count >= 7, "golden case harness must include hard cases")
+    _assert(
+        summary.realistic_case_count >= 7,
+        "golden case harness must include realistic benchmark cases",
+    )
+    _assert(
+        summary.overlap_case_count >= 6,
+        "golden case harness must include realistic overlap stress cases",
+    )
     _assert(
         summary.augmentation_stress_count >= 2,
         "golden case harness must include augmentation stress cases",
     )
     for expected_case_id in (
         "ai_saas/hard_false_marketplace_enterprise_noise",
+        "ai_saas/real_workflow_assistant_pitch",
         "ai_saas/weak_ai_wrapper",
         "ai_saas/workflow_ai_assistant",
         "creator_tools/creator_content_studio",
         "creator_tools/hard_marketplace_noise_creator_workflow",
+        "creator_tools/real_creator_growth_pitch",
         "developer_tool/cli_debugging_tool",
         "developer_tool/hard_observability_not_generic_saas",
+        "developer_tool/real_devtool_readme",
         "enterprise_b2b/enterprise_workflow_platform",
         "enterprise_b2b/hard_buzzword_procurement_gap",
+        "enterprise_b2b/real_enterprise_ops_pitch",
         "generic/hard_vague_profile_ambiguity",
+        "generic/real_vague_business_pitch",
         "generic/vague_consumer_idea",
         "marketplace/hard_creator_community_marketplace_overlap",
         "marketplace/local_service_marketplace",
+        "marketplace/real_local_services_pitch",
         "medical_device/diagnostic_tool",
         "medical_device/hard_optimistic_validation_claim",
+        "medical_device/real_remote_monitoring_pitch",
     ):
         _assert(
             expected_case_id in case_ids,
@@ -974,6 +989,14 @@ def test_golden_case_evaluation_harness() -> None:
     _assert(
         analytics.hard_cases == summary.hard_case_count,
         "analytics hard case count must match fixture tags",
+    )
+    _assert(
+        analytics.realistic_cases == summary.realistic_case_count,
+        "analytics realistic case count must match fixture tags",
+    )
+    _assert(
+        analytics.overlap_cases == summary.overlap_case_count,
+        "analytics overlap case count must match fixture tags",
     )
     _assert(
         analytics.augmentation_accepted == 0
@@ -1002,6 +1025,11 @@ def test_golden_case_evaluation_harness() -> None:
     _assert(
         "failed_invariants=0" in formatted_analytics,
         "analytics formatter must expose failed invariant count",
+    )
+    _assert(
+        "realistic_cases=" in formatted_analytics
+        and "overlap_cases=" in formatted_analytics,
+        "analytics formatter must expose realistic benchmark counts",
     )
 
     completed = subprocess.run(

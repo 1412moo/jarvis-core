@@ -1,0 +1,77 @@
+{
+  "case_id": "ai_saas/real_workflow_assistant_pitch",
+  "tags": [
+    "realistic_case",
+    "overlap_case",
+    "contamination_prone"
+  ],
+  "input": {
+    "raw_idea": "Landing-page draft for an AI workflow assistant for small revenue teams. It promises to summarize account notes, draft follow-up tasks, flag stale opportunities, sync updates into the CRM, and reduce weekly admin work. The page mentions SOC 2 readiness, team approvals, and a partner directory, but there are no sellers, buyers, listings, transactions, or enterprise procurement motion.",
+    "goal": "Evaluate buyer workflow, retention, reliability, differentiation, and willingness to pay for a realistic AI SaaS pitch.",
+    "context": "Marketing copy is polished but evidence is thin; security and directory wording should not pull this into enterprise or marketplace reasoning."
+  },
+  "expected": {
+    "profile_id": "ai_saas",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "real AI SaaS workflow discipline",
+        "scope": "profile_consistency_text",
+        "all": [
+          "buyer",
+          "workflow",
+          "retention",
+          "differentiation"
+        ]
+      },
+      {
+        "name": "real AI SaaS reliability concern",
+        "scope": "profile_consistency_text",
+        "any": [
+          "operational reliability",
+          "output reliability",
+          "output quality"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no marketplace enterprise creator medical drift",
+        "scope": "profile_consistency_text",
+        "terms": [
+          "liquidity threshold",
+          "marketplace blocker",
+          "procurement path",
+          "enterprise B2B blocker",
+          "creator-tools blocker",
+          "patient safety"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "workflow evidence still blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

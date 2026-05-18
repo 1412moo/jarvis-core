@@ -1,0 +1,78 @@
+{
+  "case_id": "creator_tools/real_creator_growth_pitch",
+  "tags": [
+    "realistic_case",
+    "overlap_case",
+    "contamination_prone"
+  ],
+  "input": {
+    "raw_idea": "Startup pitch for a creator growth studio used by newsletter writers, video educators, and streamers to plan a content calendar, repurpose long-form clips, track audience growth, manage fan community prompts, and package sponsorship offers. The deck mentions a creator marketplace someday, but there are no supply-side sellers, demand-side buyers, escrow, or transaction frequency metrics yet.",
+    "goal": "Evaluate creator retention, content production frequency, creator workflow fit, audience growth, monetization, platform dependency, and willingness to pay by creator segment.",
+    "context": "Community and marketplace language is realistic noise; creator workflow and audience ownership should remain primary."
+  },
+  "expected": {
+    "profile_id": "creator_tools",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "real creator-tool discipline",
+        "scope": "profile_consistency_text",
+        "all": [
+          "creator workflow",
+          "content production frequency",
+          "creator retention",
+          "audience growth",
+          "monetization",
+          "platform dependency"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no marketplace enterprise developer medical drift",
+        "scope": "profile_consistency_text",
+        "terms": [
+          "liquidity threshold",
+          "marketplace blocker",
+          "supply-side acquisition",
+          "demand-side acquisition",
+          "enterprise B2B blocker",
+          "developer-tool blocker",
+          "patient safety"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "creator retention evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "creator monetization evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "market",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

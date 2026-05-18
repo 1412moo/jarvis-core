@@ -1,0 +1,69 @@
+{
+  "case_id": "generic/real_vague_business_pitch",
+  "tags": [
+    "realistic_case",
+    "weak_signal_guard",
+    "false_positive_prevention"
+  ],
+  "input": {
+    "raw_idea": "Short founder pitch for a workspace that helps teams collect messy ideas, organize notes, compare options, and decide what to try next. It mentions smart templates, dashboards, shared examples, and possible integrations, but it does not name a specific user segment, a two-sided exchange loop, a technical setup path, an enterprise approval motion, or medical use.",
+    "goal": "Evaluate target user, problem severity, alternatives, and adoption evidence without forcing a specialized profile.",
+    "context": "This realistic pitch is intentionally broad and vague; weak overlapping buzzwords should not select a specialized profile."
+  },
+  "expected": {
+    "profile_id": "general",
+    "selected_by": "fallback",
+    "contains": [
+      {
+        "name": "real vague pitch stays general",
+        "scope": "profile_consistency_text",
+        "all": [
+          "target user",
+          "problem severity",
+          "alternatives",
+          "adoption evidence"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no specialized profile forced",
+        "scope": "profile_consistency_text",
+        "terms": [
+          "AI-wrapper risk",
+          "marketplace blocker",
+          "enterprise B2B blocker",
+          "developer-tool blocker",
+          "creator-tools blocker",
+          "patient safety risk unresolved",
+          "clinical validation evidence missing"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "adoption evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

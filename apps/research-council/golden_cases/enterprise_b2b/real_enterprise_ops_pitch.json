@@ -1,0 +1,79 @@
+{
+  "case_id": "enterprise_b2b/real_enterprise_ops_pitch",
+  "tags": [
+    "realistic_case",
+    "overlap_case",
+    "contamination_prone",
+    "low_evidence"
+  ],
+  "input": {
+    "raw_idea": "Sales memo for an enterprise operations workspace that routes policy exceptions, audit tasks, support escalations, and regional approvals across finance, legal, and customer operations. It mentions observability logs, workflow AI, SSO, audit trails, rollout playbooks, stakeholder dashboards, and ROI reporting, but no SDK or developer CLI is the primary product.",
+    "goal": "Evaluate procurement path, budget owner clarity, stakeholder alignment, security/compliance, rollout complexity, and ROI proof.",
+    "context": "The pitch sounds like enterprise software with devtool buzzwords mixed in; buying committee and rollout discipline should dominate."
+  },
+  "expected": {
+    "profile_id": "enterprise_b2b",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "real enterprise buying discipline",
+        "scope": "profile_consistency_text",
+        "all": [
+          "procurement path",
+          "budget owner",
+          "stakeholder alignment",
+          "security/compliance requirements",
+          "rollout complexity",
+          "ROI proof"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no developer marketplace creator medical drift",
+        "scope": "profile_consistency_text",
+        "terms": [
+          "developer-tool blocker",
+          "time-to-first-value",
+          "DX friction",
+          "liquidity threshold",
+          "marketplace blocker",
+          "creator-tools blocker",
+          "patient safety"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "procurement evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "market",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "security evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "safety_regulatory",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

@@ -377,6 +377,14 @@ class RegressionSummary:
         )
 
     @property
+    def realistic_case_count(self) -> int:
+        return sum(1 for evaluation in self.evaluations if "realistic_case" in evaluation.tags)
+
+    @property
+    def overlap_case_count(self) -> int:
+        return sum(1 for evaluation in self.evaluations if "overlap_case" in evaluation.tags)
+
+    @property
     def check_count(self) -> int:
         return self.invariant_count + self.consistency_check_count
 
@@ -427,6 +435,9 @@ class BenchmarkAnalytics:
 
     total_cases: int
     hard_cases: int
+    realistic_cases: int
+    synthetic_cases: int
+    overlap_cases: int
     profiles_covered: tuple[str, ...]
     total_invariants: int
     failed_invariants: int
@@ -640,6 +651,9 @@ def build_benchmark_analytics(summary: RegressionSummary) -> BenchmarkAnalytics:
     return BenchmarkAnalytics(
         total_cases=summary.case_count,
         hard_cases=summary.hard_case_count,
+        realistic_cases=summary.realistic_case_count,
+        synthetic_cases=summary.case_count - summary.realistic_case_count,
+        overlap_cases=summary.overlap_case_count,
         profiles_covered=profile_ids,
         total_invariants=summary.invariant_count,
         failed_invariants=sum(
@@ -682,6 +696,9 @@ def format_benchmark_analytics(analytics: BenchmarkAnalytics) -> str:
         (
             "- totals: "
             f"cases={analytics.total_cases}, hard_cases={analytics.hard_cases}, "
+            f"realistic_cases={analytics.realistic_cases}, "
+            f"synthetic_cases={analytics.synthetic_cases}, "
+            f"overlap_cases={analytics.overlap_cases}, "
             f"profiles_covered={analytics.profiles_covered_count}, "
             f"invariants={analytics.total_invariants}, "
             f"failed_invariants={analytics.failed_invariants}"

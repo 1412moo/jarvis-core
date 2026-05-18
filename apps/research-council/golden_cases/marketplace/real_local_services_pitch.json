@@ -1,0 +1,77 @@
+{
+  "case_id": "marketplace/real_local_services_pitch",
+  "tags": [
+    "realistic_case",
+    "overlap_case",
+    "contamination_prone"
+  ],
+  "input": {
+    "raw_idea": "App-store style description for a local services marketplace that helps neighborhood event planners find vetted setup crews, compare availability, book time slots, pay through escrow, and leave reviews. The copy also says teams get a lightweight workflow dashboard and AI scheduling reminders, but the core loop is supply onboarding, demand acquisition, listings, bookings, payments, and repeat transactions.",
+    "goal": "Evaluate liquidity, cold start, supply and demand acquisition, transaction frequency, take rate, trust/safety, and disintermediation risk.",
+    "context": "SaaS workflow wording is present, but the realistic app description should remain a marketplace case."
+  },
+  "expected": {
+    "profile_id": "marketplace",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "real marketplace structure dominates SaaS wording",
+        "scope": "profile_consistency_text",
+        "all": [
+          "liquidity",
+          "cold-start",
+          "supply-side acquisition",
+          "demand-side acquisition",
+          "transaction frequency",
+          "trust and safety"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no SaaS enterprise creator medical drift",
+        "scope": "profile_consistency_text",
+        "terms": [
+          "buyer/workflow integration",
+          "enterprise B2B blocker",
+          "procurement path",
+          "creator-tools blocker",
+          "creator retention",
+          "patient safety"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "liquidity evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "transaction evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "market",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}
