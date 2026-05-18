@@ -35,6 +35,12 @@ _TECHNICAL_KEYWORDS = (
     "data",
     "manufacturing",
     "transit",
+    "automation",
+    "model",
+    "output",
+    "quality",
+    "reliability",
+    "integration",
 )
 _MARKET_KEYWORDS = (
     "adopt",
@@ -46,6 +52,12 @@ _MARKET_KEYWORDS = (
     "demand",
     "useful",
     "value",
+    "founder",
+    "workflow",
+    "retention",
+    "subscription",
+    "distribution",
+    "pricing",
 )
 _SAFETY_KEYWORDS = (
     "safety",
@@ -58,6 +70,13 @@ _SAFETY_KEYWORDS = (
     "financial",
     "data",
     "risk",
+    "patent",
+    "patentability",
+    "infringement",
+    "hallucination",
+    "verification",
+    "trust",
+    "attorney",
 )
 _RED_TEAM_KEYWORDS = (
     "assume",
@@ -70,6 +89,11 @@ _RED_TEAM_KEYWORDS = (
     "screen",
     "diagnostic",
     "safety",
+    "hallucination",
+    "differentiation",
+    "substitute",
+    "generic ai",
+    "retention",
 )
 _REGULATED_DOMAIN_KEYWORDS = (
     "medical",
@@ -85,6 +109,12 @@ _REGULATED_DOMAIN_KEYWORDS = (
     "insurance",
     "privacy",
     "personal data",
+    "patent",
+    "patentability",
+    "infringement",
+    "freedom-to-operate",
+    "attorney",
+    "intellectual property",
 )
 
 
@@ -92,12 +122,14 @@ def run_reviewers(
     input_data: ResearchCouncilInput,
     claims: Sequence[Claim],
     evidence_entries: Sequence[EvidenceEntry],
+    *,
+    domain_profile: DomainProfile | None = None,
 ) -> list[ReviewerCritique]:
     """Return deterministic critiques from all Research Council reviewer roles."""
 
     claim_list = tuple(claims)
     evidence_list = tuple(evidence_entries)
-    domain_profile = domain_profile_for(input_data)
+    domain_profile = _reasoning_profile_for(input_data, domain_profile)
     evidence_by_claim = _evidence_by_claim(evidence_list)
     missing_claim_ids = _missing_claim_ids(claim_list, evidence_by_claim)
     gap_category_by_claim = _gap_category_by_claim(evidence_list)
@@ -142,6 +174,17 @@ def _build_technical_critique(
         suggested_action = (
             "Build a non-ingestible capsule-size bench mockup and test image or sensor capture "
             "through a simulated curved wet channel before considering any clinical path."
+        )
+    elif domain_profile.id == "ai_saas":
+        finding = (
+            f"The product reliability case is not proven for {target}. An AI patent-analysis "
+            "tool has to show repeatable output quality, source traceability, useful prior-art "
+            "comparison structure, clear uncertainty labels, and failure handling for missing "
+            f"or conflicting inputs before it can be trusted in a founder workflow. {gap_note}"
+        )
+        suggested_action = (
+            "Score a small set of user-supplied invention briefs and offline reference snippets "
+            "with a fixed output-quality rubric before building more SaaS surface area."
         )
     else:
         finding = (
@@ -190,6 +233,17 @@ def _build_market_critique(
             "Run separate non-clinical interviews with one patient-like participant and one care-pathway "
             "operator to test trust, refusal points, and the decision this concept would change."
         )
+    elif domain_profile.id == "ai_saas":
+        finding = (
+            f"The SaaS adoption case remains weak for {target}. Founder interest is not enough: "
+            "the concept needs evidence that patent triage is painful and frequent, that users "
+            "will switch from manual search, generic AI, spreadsheets, or attorney intake, and "
+            f"that repeat usage and willingness to pay can support retention. {gap_note}"
+        )
+        suggested_action = (
+            "Interview solo founders around their last invention-screening workflow, current "
+            "substitutes, time cost, trust blockers, desired integrations, and payment threshold."
+        )
     else:
         finding = (
             f"The demand and usefulness case remains weak for {target}. "
@@ -237,7 +291,16 @@ def _build_safety_critique(
     )
     severity = (
         "high"
-        if regulated_terms or domain_profile.id in {"capsule_medical_environmental", "medical_device"}
+        if regulated_terms
+        or domain_profile.id in {"capsule_medical_environmental", "medical_device"}
+        or (
+            domain_profile.id == "ai_saas"
+            and claim
+            and _contains_keyword(
+                claim.text,
+                ("legal", "patent", "trust", "verification", "hallucinated"),
+            )
+        )
         else _severity_for_claim(claim, missing_claim_ids, default="medium")
     )
     if domain_profile.id == "capsule_medical_environmental":
@@ -250,6 +313,17 @@ def _build_safety_critique(
         suggested_action = (
             "Create a non-clinical safety table that lists hazards, stop conditions, required "
             "expert review, and what evidence is mandatory before any human-use experiment."
+        )
+    elif domain_profile.id == "ai_saas":
+        finding = (
+            f"The trust boundary is underspecified for {target}.{regulated_note} A patent-analysis "
+            "assistant can mislead users if it hallucinates citations, treats generated summaries "
+            "as legal conclusions, or hides uncertainty around patentability, infringement, "
+            f"freedom-to-operate, and filing decisions. {gap_note}"
+        )
+        suggested_action = (
+            "Write an output boundary checklist that separates allowed summaries and comparison "
+            "tables from blocked legal advice, unsupported citations, and attorney-review triggers."
         )
     else:
         finding = (
@@ -298,6 +372,18 @@ def _build_red_team_critique(
         suggested_action = (
             "Rewrite the concept notes so every screening, safety, and environmental statement is "
             "labeled as user-provided, missing evidence, or a non-clinical experiment target."
+        )
+    elif domain_profile.id == "ai_saas":
+        finding = (
+            f"The easiest failure mode for {target} is a polished AI report that feels authoritative "
+            "while relying on weak differentiation, unresolved AI-wrapper risk, unverified "
+            "prior-art coverage, hidden generic-AI substitution, or hallucinated legal "
+            "interpretation. The concept must prove where human verification starts and "
+            f"where automation stops. {gap_note}"
+        )
+        suggested_action = (
+            "Run a differentiation and trust red-team pass where every output line is marked as "
+            "user-supplied, source-checkable, uncertain, or blocked from legal interpretation."
         )
     else:
         finding = (
@@ -471,3 +557,13 @@ def _matched_terms(text: str, keywords: tuple[str, ...]) -> tuple[str, ...]:
 
 def _critique_id(index: int) -> str:
     return f"critique-{index:03d}"
+
+
+def _reasoning_profile_for(input_data: ResearchCouncilInput, domain_profile: DomainProfile | None) -> DomainProfile:
+    if domain_profile is None:
+        return domain_profile_for(input_data)
+    if getattr(domain_profile, "id", "") == "medical_device":
+        legacy_profile = domain_profile_for(input_data)
+        if legacy_profile.id == "capsule_medical_environmental":
+            return legacy_profile
+    return domain_profile

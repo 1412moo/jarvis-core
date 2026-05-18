@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from textwrap import shorten
+from typing import Any
 
 from .claim_extractor import domain_profile_for
 from .schemas import Claim, EvidenceEntry, ExperimentPlan, ResearchCouncilInput, ReviewerCritique
@@ -34,6 +35,8 @@ def propose_experiments(
     claims: Sequence[Claim],
     evidence_entries: Sequence[EvidenceEntry],
     critiques: Sequence[ReviewerCritique],
+    *,
+    domain_profile: Any = None,
 ) -> list[ExperimentPlan]:
     """Return deterministic, minimum viable experiment plans."""
 
@@ -41,7 +44,16 @@ def propose_experiments(
     evidence_list = tuple(evidence_entries)
     critique_list = tuple(critiques)
     fallback_ids = _fallback_claim_ids(claim_list)
-    domain_profile = domain_profile_for(input_data)
+    domain_profile = _reasoning_profile_for(input_data, domain_profile)
+
+    if domain_profile.id == "ai_saas":
+        drafts = (
+            _ai_saas_workflow_interview_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _ai_saas_output_quality_experiment(claim_list, critique_list, fallback_ids),
+            _ai_saas_trust_boundary_experiment(input_data, claim_list, critique_list, fallback_ids),
+            _ai_saas_differentiation_mapping_experiment(input_data, claim_list, critique_list, fallback_ids),
+        )
+        return [_to_experiment_plan(index, draft) for index, draft in enumerate(drafts, start=1)]
 
     if domain_profile.id == "capsule_medical_environmental":
         drafts = (
@@ -189,6 +201,189 @@ def _safety_tabletop_experiment(
         risk=(
             "A tabletop can miss domain-specific obligations and should not be treated as legal, "
             "medical, or compliance advice."
+        ),
+    )
+
+
+def _ai_saas_workflow_interview_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
+        claims,
+        ("founder workflow", "workflow integration", "repeat usage", "retention", "willingness"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Workflow interview",
+        hypothesis=(
+            "Solo founders have a frequent, painful patent-analysis workflow where a trusted "
+            "automation tool could change the next decision."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Interview target founders about their last invention-screening or prior-art search "
+            "attempt. Capture current workaround, time spent, trigger event, trust blockers, "
+            "integration needs, willingness to pay, and what would make them repeat the workflow. "
+            f"Keep the decision goal in frame: {_short_goal(input_data)}."
+        ),
+        metric=(
+            "At least three interviews identify the same painful workflow step, current substitute, "
+            "and concrete repeat-use trigger."
+        ),
+        minimum_sample="3-5 solo founders or founder-like builders with recent invention-screening needs.",
+        estimated_time="2-4 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria=(
+            "Stop if participants describe patent analysis as rare, fully delegated, or not worth "
+            "a paid workflow change."
+        ),
+        decision_impact=(
+            "Decide whether adoption is strong enough to justify a prototype, or whether the "
+            "target workflow, segment, or pricing logic must change."
+        ),
+        risk=(
+            "Interview pain does not prove subscription retention or legal-output trust."
+        ),
+    )
+
+
+def _ai_saas_output_quality_experiment(
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "technical") or _select_claim_ids(
+        claims,
+        ("output reliability", "automation", "source traceability", "quality", "rubric"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Output-quality evaluation",
+        hypothesis=(
+            "A local prototype or manual concierge flow can produce useful patent-analysis outputs "
+            "without unsupported claims, fake citations, or hidden uncertainty."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Use only user-supplied invention briefs, saved prior-art notes, or offline reference "
+            "snippets. Score each output for source traceability, claim-element coverage, uncertainty "
+            "labels, missing-evidence flags, hallucinated citation risk, and actionability. If no "
+            "local source material exists, stop at the rubric and request source material instead "
+            "of inventing examples."
+        ),
+        metric=(
+            "Every tested output links material statements to supplied inputs or marks them as "
+            "missing evidence, with zero unsupported legal conclusions."
+        ),
+        minimum_sample="5 founder tasks or invention briefs with user-supplied offline reference material.",
+        estimated_time="3-6 hours",
+        estimated_cost_level="free-to-low",
+        stop_criteria=(
+            "Stop if outputs cannot separate source-backed summaries from uncertain analysis or "
+            "if any legal conclusion appears without a verification boundary."
+        ),
+        decision_impact=(
+            "Decide whether reliability deserves more product work before distribution or pricing tests."
+        ),
+        risk=(
+            "A small local task set may miss production edge cases, search coverage gaps, and user data variation."
+        ),
+    )
+
+
+def _ai_saas_trust_boundary_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "safety_regulatory") or _select_claim_ids(
+        claims,
+        ("legal interpretation", "trust", "verification", "professional-review", "patentability"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Trust and verification boundary check",
+        hypothesis=(
+            "The product can define boundaries that let founders use automation for triage "
+            "without mistaking it for legal advice or verified prior-art coverage."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Create an allowed/blocked output checklist for summaries, comparison tables, novelty "
+            "signals, patentability language, infringement language, filing suggestions, and attorney "
+            "review triggers. Red-team the current concept against hallucinated citations, hidden "
+            "uncertainty, and overconfident legal interpretation. Constraints considered: "
+            f"{_short_constraints(input_data)}."
+        ),
+        metric=(
+            "Every high-risk output type is either blocked, downgraded to uncertainty language, "
+            "or paired with a visible verification step and escalation trigger."
+        ),
+        minimum_sample="One boundary checklist applied to the current concept and two representative outputs.",
+        estimated_time="60-90 minutes",
+        estimated_cost_level="free",
+        stop_criteria=(
+            "Stop if the concept cannot prevent unverified legal advice, fake citations, or source-free claims."
+        ),
+        decision_impact=(
+            "Proceed only if trust boundaries are explicit enough for a controlled prototype test."
+        ),
+        risk=(
+            "A boundary checklist is not legal advice and does not validate compliance or patent accuracy."
+        ),
+    )
+
+
+def _ai_saas_differentiation_mapping_experiment(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    critiques: tuple[ReviewerCritique, ...],
+    fallback_ids: tuple[str, ...],
+) -> _ExperimentDraft:
+    claim_ids = _critique_claim_ids(critiques, "red_team") or _select_claim_ids(
+        claims,
+        ("differentiated", "substitutes", "generic ai", "distribution", "manual patent search"),
+        fallback_ids,
+        limit=2,
+    )
+    return _ExperimentDraft(
+        title="Differentiation mapping",
+        hypothesis=(
+            "The concept can identify a defensible wedge against competing workflow substitutes "
+            "and a plausible distribution path for the chosen founder segment."
+        ),
+        claim_ids=claim_ids,
+        method=(
+            "Map the proposed workflow against manual patent search, patent-office databases, "
+            "generic AI assistants, spreadsheets, attorney intake, and doing nothing. For each "
+            "substitute, record the user's switching trigger, switching cost, integration path, "
+            "trust advantage, pricing pressure, AI-wrapper risk, and distribution channel. "
+            "Use the goal as the decision frame: "
+            f"{_short_goal(input_data)}."
+        ),
+        metric=(
+            "The map identifies one narrow differentiated workflow wedge, one reachable "
+            "distribution path, and one substitute that should be treated as the main competitor."
+        ),
+        minimum_sample="One completed substitute map reviewed with at least one target founder.",
+        estimated_time="60-120 minutes",
+        estimated_cost_level="free",
+        stop_criteria=(
+            "Stop if the concept cannot name a differentiated narrow wedge beyond a generic AI wrapper."
+        ),
+        decision_impact=(
+            "Decide whether the SaaS concept has a credible positioning path or should narrow to a "
+            "more specific workflow."
+        ),
+        risk=(
+            "A map clarifies strategy but does not create external market, patent, or competitive evidence."
         ),
     )
 
@@ -469,3 +664,13 @@ def _get_sequence_field(input_data: ResearchCouncilInput, field_name: str) -> tu
     if isinstance(value, str):
         return (value,)
     return tuple(str(item) for item in value if str(item).strip())
+
+
+def _reasoning_profile_for(input_data: ResearchCouncilInput, domain_profile: Any) -> Any:
+    if domain_profile is None:
+        return domain_profile_for(input_data)
+    if getattr(domain_profile, "id", "") == "medical_device":
+        legacy_profile = domain_profile_for(input_data)
+        if legacy_profile.id == "capsule_medical_environmental":
+            return legacy_profile
+    return domain_profile

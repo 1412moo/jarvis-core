@@ -174,7 +174,9 @@ class DomainProfile:
     blocker_order: tuple[str, ...]
 
 
-def extract_claims(input_data: Any, goal: Any = None) -> list[Claim]:
+def extract_claims(
+    input_data: Any, goal: Any = None, *, domain_profile: Any = None
+) -> list[Claim]:
     """Extract deterministic structured claims from a ResearchCouncilInput-like value.
 
     Accepted inputs include a ResearchCouncilInput instance, an object with
@@ -186,6 +188,20 @@ def extract_claims(input_data: Any, goal: Any = None) -> list[Claim]:
     input_view = _coerce_input(input_data, goal_override=goal)
     signals = _detect_signals(input_view)
     focus = _idea_focus(input_view.raw_idea)
+    profile_id = _profile_id(domain_profile)
+
+    if profile_id == "ai_saas":
+        specs = _ai_saas_claim_specs(input_view, focus)
+        return [
+            Claim(
+                id=f"claim-{index:03d}",
+                text=spec.text,
+                source_label=spec.source_label,  # type: ignore[arg-type]
+                confidence=spec.confidence,  # type: ignore[arg-type]
+                rationale=spec.rationale,
+            )
+            for index, spec in enumerate(_dedupe_specs(specs), start=1)
+        ]
 
     specs: list[_ClaimSpec] = [
         _concept_claim(input_view, focus),
@@ -225,6 +241,11 @@ def domain_profile_for(input_data: Any) -> DomainProfile:
 
 def evidence_request_for(profile: DomainProfile, category: str) -> str:
     """Return the most specific evidence request for a category in a profile."""
+
+    if _profile_id(profile) == "ai_saas":
+        request = _AI_SAAS_EVIDENCE_REQUESTS.get(category)
+        if request:
+            return request
 
     for need in profile.evidence_needs:
         if need.category == category:
@@ -364,6 +385,32 @@ _GENERIC_EVIDENCE_REQUESTS: dict[str, str] = {
     ),
 }
 
+_AI_SAAS_EVIDENCE_REQUESTS: dict[str, str] = {
+    "technical": (
+        "Define input sources, output-quality rubric, source traceability, failure handling, "
+        "hallucination checks, privacy controls, and operational reliability thresholds."
+    ),
+    "user_adoption": (
+        "Interview target founders about the current prior-art search workflow, buyer/workflow "
+        "owner, pain frequency, time cost, switching cost, trust blockers, integration needs, "
+        "and repeat usage triggers."
+    ),
+    "prior_art": (
+        "Map differentiation and AI wrapper risk against manual patent search, patent-office "
+        "databases, generic AI assistants, spreadsheets, attorney intake, and user-supplied "
+        "offline references."
+    ),
+    "safety_regulatory": (
+        "Define trust and verification boundaries: no unsupported legal interpretation, no fake "
+        "citations, visible source checks, and clear escalation to professional review."
+    ),
+    "market": (
+        "Test buyer urgency, willingness to pay, packaging, distribution channel, switching "
+        "cost, competing workflow substitute, and whether repeat patent-analysis moments can "
+        "support SaaS retention."
+    ),
+}
+
 
 def _domain_profile_from_signals(signals: dict[str, bool]) -> DomainProfile:
     if signals["capsule"] and signals["medical"] and signals["environmental"]:
@@ -498,12 +545,12 @@ def _domain_profile_from_signals(signals: dict[str, bool]) -> DomainProfile:
 
     if signals["software"]:
         return DomainProfile(
-            id="software",
-            label="Software",
-            concept_label="software concept",
+            id="ai_saas",
+            label="AI SaaS",
+            concept_label="AI SaaS concept",
             evidence_needs=tuple(
                 EvidenceNeed(category, request)
-                for category, request in _GENERIC_EVIDENCE_REQUESTS.items()
+                for category, request in _AI_SAAS_EVIDENCE_REQUESTS.items()
             ),
             blocker_order=(
                 "user_adoption",
@@ -538,6 +585,10 @@ def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
     return any(keyword.lower() in text for keyword in keywords)
 
 
+def _profile_id(profile: Any) -> str:
+    return _clean_text(getattr(profile, "id", "")).lower()
+
+
 def _idea_focus(raw_idea: str) -> str:
     first_sentence = re.split(r"(?<=[.!?。！？])\s+", raw_idea, maxsplit=1)[0]
     text = _clean_text(first_sentence)
@@ -557,6 +608,146 @@ def _concept_claim(input_view: _InputView, focus: str) -> _ClaimSpec:
             f"concept itself: {goal}"
         ),
     )
+
+
+def _ai_saas_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]:
+    return [
+        _concept_claim(input_view, focus),
+        _ClaimSpec(
+            text=(
+                "The SaaS value depends on a painful, repeated founder workflow: solo "
+                "developers must decide whether an invention idea deserves patent-analysis "
+                "time, tool setup, or professional budget."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "The target user and decision goal imply workflow pain, but no founder "
+                "interviews, usage logs, or current-workaround evidence were supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Automation creates value only if it shortens prior-art triage while keeping "
+                "the user's invention description, claim elements, comparison logic, and "
+                "verification steps visible."
+            ),
+            source_label="extracted",
+            confidence="low",
+            rationale=(
+                "The idea is framed as an automatic analysis tool, but the local input does "
+                "not show a working workflow, time savings, or quality threshold."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Prior-art position is unresolved; the product must be differentiated from "
+                "manual patent search, patent-office databases, generic AI assistants, "
+                "spreadsheets, attorney intake workflows, and other analysis substitutes. "
+                "If the narrow wedge is only a generic AI wrapper, defensibility and "
+                "switching motivation are weak."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "This local pass does not perform web search, patent search, market research, "
+                "or citation gathering."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Output reliability is a core product risk: summaries, claim charts, novelty "
+                "flags, and comparison tables need a deterministic rubric, source traceability, "
+                "error labels, and repeatable quality checks."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "No output samples, evaluation set, accuracy rubric, or failure analysis were "
+                "provided."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "The tool risks hallucinated or overconfident legal interpretation if it "
+                "presents patentability, infringement, freedom-to-operate, filing, or legal "
+                "strategy conclusions without verification and professional-review boundaries."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "Patent analysis touches legal interpretation risk, but the current concept "
+                "does not define allowed output boundaries or review requirements."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Trust depends on verification boundaries: users need to see which outputs are "
+                "grounded in supplied text, which are uncertain, which require source checks, "
+                "and which must be escalated to a qualified professional."
+            ),
+            source_label="needs_evidence",
+            confidence="low",
+            rationale=(
+                "The idea promises analysis, but trust and verification behavior are not yet "
+                "specified."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Buyer/workflow integration is unproven; adoption likely depends on importing "
+                "an invention disclosure, saving search notes, exporting comparison tables, "
+                "absorbing switching cost, and handing off reviewed outputs to founder, team, "
+                "or attorney workflows."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "Integration needs are inferred from the patent-analysis workflow; no target "
+                "user workflow artifacts were supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "SaaS retention depends on repeat usage triggers such as new invention ideas, "
+                "competitor monitoring, disclosure reviews, investor diligence, office-action "
+                "preparation, or portfolio refreshes; a one-time report may not support a "
+                "subscription."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "Recurring use is a SaaS requirement, but the local input does not provide "
+                "retention data or repeated job frequency."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "Willingness to pay and distribution are unproven; the concept needs evidence "
+                "for founder budget, pricing threshold, channel access, and why users would pay "
+                "instead of using generic AI, manual search, or professional services."
+            ),
+            source_label="assumed",
+            confidence="low",
+            rationale=(
+                "Marketability and differentiation are decision goals, but no buyer evidence, "
+                "pricing tests, or distribution signal were supplied."
+            ),
+        ),
+        _ClaimSpec(
+            text=(
+                "The idea is experimentable through workflow interviews, output-quality "
+                "evaluation, trust and verification boundary checks, and differentiation "
+                "mapping before any production SaaS build."
+            ),
+            source_label="extracted",
+            confidence="medium",
+            rationale=(
+                "Minimum experiments can be proposed from the idea structure without collecting "
+                "external evidence."
+            ),
+        ),
+    ]
 
 
 def _technical_feasibility_claim(signals: dict[str, bool]) -> _ClaimSpec:

@@ -38,11 +38,49 @@ _ROLE_TO_BLOCKER_CATEGORY = {
 
 _EXPERIMENT_FRAGMENTS_BY_CATEGORY = {
     "safety_regulatory": ("safety", "hazard", "boundary"),
-    "technical": ("bench", "technical", "sensing", "prototype", "mockup"),
+    "technical": (
+        "output-quality",
+        "reliability",
+        "quality",
+        "bench",
+        "technical",
+        "sensing",
+        "prototype",
+        "mockup",
+    ),
     "environmental": ("degradation", "wastewater", "environment"),
-    "user_adoption": ("adoption", "care-pathway", "interview", "usefulness"),
-    "market": ("adoption", "market", "payer", "buyer"),
-    "prior_art": ("prior", "evidence gap", "comparison", "map"),
+    "user_adoption": (
+        "workflow interview",
+        "adoption",
+        "care-pathway",
+        "interview",
+        "usefulness",
+    ),
+    "market": ("workflow interview", "differentiation", "adoption", "market", "payer", "buyer"),
+    "prior_art": ("differentiation", "prior", "evidence gap", "comparison", "map"),
+}
+
+_AI_SAAS_CATEGORY_BONUS = {
+    "user_adoption": 18,
+    "technical": 16,
+    "safety_regulatory": 14,
+    "prior_art": 12,
+    "market": 10,
+}
+
+_AI_SAAS_PRIORITY_TERMS = {
+    "user_adoption": (
+        "workflow",
+        "founder",
+        "adoption",
+        "integration",
+        "retention",
+        "repeat usage",
+    ),
+    "technical": ("reliability", "quality", "traceability", "hallucination", "automation"),
+    "safety_regulatory": ("trust", "verification", "legal", "patentability", "citation"),
+    "prior_art": ("differentiation", "substitute", "prior-art", "generic ai"),
+    "market": ("willingness to pay", "pricing", "distribution", "subscription"),
 }
 
 
@@ -69,19 +107,36 @@ def run_research_council(
     profile_selection = resolve_domain_profile(input, explicit_profile_id=profile)
     profile_metadata = _profile_metadata(profile_selection)
     input_summary = _build_input_summary(input)
-    claims = tuple(extract_claims(input))
-    evidence_ledger = tuple(build_evidence_ledger(input, claims))
+    claims = tuple(extract_claims(input, domain_profile=profile_selection.profile))
+    evidence_ledger = tuple(
+        build_evidence_ledger(input, claims, domain_profile=profile_selection.profile)
+    )
     _validate_evidence_coverage(claims, evidence_ledger)
 
-    reviewer_critiques = tuple(run_reviewers(input, claims, evidence_ledger))
-    experiments = tuple(propose_experiments(input, claims, evidence_ledger, reviewer_critiques))
+    reviewer_critiques = tuple(
+        run_reviewers(
+            input,
+            claims,
+            evidence_ledger,
+            domain_profile=profile_selection.profile,
+        )
+    )
+    experiments = tuple(
+        propose_experiments(
+            input,
+            claims,
+            evidence_ledger,
+            reviewer_critiques,
+            domain_profile=profile_selection.profile,
+        )
+    )
     recommendation = _create_recommendation(
         evidence_ledger=evidence_ledger,
         reviewer_critiques=reviewer_critiques,
         experiments=experiments,
         domain_profile=profile_selection.profile,
     )
-    warnings = _build_warnings(evidence_ledger)
+    warnings = _build_warnings(evidence_ledger, profile_selection.profile)
     markdown_report = MarkdownReport(
         title="Research Council Report",
         markdown=render_markdown_report(
@@ -154,11 +209,25 @@ def _create_recommendation(
         if primary_blocker.category == "safety_regulatory":
             decision = "pause_broad_use_resolve_safety_blocker"
 
-        summary = (
-            f"Primary blocker: {primary_blocker.category.replace('_', ' ')} evidence for "
-            f"`{primary_blocker.claim_id}`. Treat the submitted description as concept input, "
-            "not proof of feasibility, safety, adoption, environmental performance, or market demand."
-        )
+        if domain_profile.id == "ai_saas":
+            if primary_blocker.category == "safety_regulatory":
+                decision = "pause_broad_use_resolve_trust_boundary"
+            elif primary_blocker.category == "technical":
+                decision = "continue_with_output_quality_experiment"
+            elif primary_blocker.category == "user_adoption":
+                decision = "continue_with_workflow_adoption_experiment"
+            summary = (
+                f"Primary AI SaaS blocker: {primary_blocker.category.replace('_', ' ')} "
+                f"evidence for `{primary_blocker.claim_id}`. Treat the submitted description "
+                "as concept input, not proof of founder adoption, output reliability, workflow "
+                "integration, trust, narrow-wedge differentiation, retention, or willingness to pay."
+            )
+        else:
+            summary = (
+                f"Primary blocker: {primary_blocker.category.replace('_', ' ')} evidence for "
+                f"`{primary_blocker.claim_id}`. Treat the submitted description as concept input, "
+                "not proof of feasibility, safety, adoption, environmental performance, or market demand."
+            )
         next_step = (
             f"Run `{first_experiment.id}` ({first_experiment.title}) as the primary next experiment."
             if first_experiment
@@ -167,6 +236,9 @@ def _create_recommendation(
                 f"{primary_blocker.category.replace('_', ' ')} blocker."
             )
         )
+        next_step_policy_note = _next_step_policy_note(domain_profile, primary_blocker)
+        if next_step_policy_note:
+            next_step = f"{next_step} {next_step_policy_note}"
         rationale_parts = [
             "Blockers ranked by decision impact: "
             f"{_format_blocker_ranking(blockers)}.",
@@ -175,6 +247,16 @@ def _create_recommendation(
                 "requires the missing evidence named in the ledger."
             ),
         ]
+        if domain_profile.id == "ai_saas":
+            rationale_parts.append(
+                "AI SaaS weighting gives extra priority to user adoption, reliability, "
+                "workflow integration, trust, buyer urgency, AI-wrapper risk, and "
+                "differentiation because these determine whether an AI tooling concept "
+                "becomes a repeatable paid workflow."
+            )
+        confidence_note = _confidence_policy_note(domain_profile)
+        if confidence_note:
+            rationale_parts.append(confidence_note)
         if high_severity_roles:
             rationale_parts.append(
                 "High-severity critiques were raised by: "
@@ -188,6 +270,7 @@ def _create_recommendation(
         )
 
     if high_severity_roles:
+        confidence_note = _confidence_policy_note(domain_profile)
         return Recommendation(
             decision="resolve_high_severity_critiques",
             summary=(
@@ -200,9 +283,11 @@ def _create_recommendation(
             rationale=(
                 "Reviewer severity is part of the deterministic evidence-aware decision; "
                 "a complete ledger alone is not enough to proceed."
+                + (f" {confidence_note}" if confidence_note else "")
             ),
         )
 
+    confidence_note = _confidence_policy_note(domain_profile)
     return Recommendation(
         decision="continue_with_controlled_next_step",
         summary="The local pass found no explicit missing evidence entries or high-severity critiques.",
@@ -214,6 +299,7 @@ def _create_recommendation(
         rationale=(
             "All claims have ledger coverage and reviewer risk is below high severity in this "
             "deterministic local pass."
+            + (f" {confidence_note}" if confidence_note else "")
         ),
     )
 
@@ -255,6 +341,7 @@ def _rank_decision_blockers(
             continue
         seen.add(key)
         impact_score = category_rank.get(category, 0) * 10
+        impact_score += _profile_priority_bonus(domain_profile, category, entry.summary)
         if status == "needs_external_validation":
             impact_score += 6
         if entry.claim_id in high_severity_claim_ids:
@@ -285,6 +372,27 @@ def _rank_decision_blockers(
     )
 
 
+def _profile_priority_bonus(
+    domain_profile: DomainProfile, category: str, summary: str
+) -> int:
+    bonus = 0
+    if domain_profile.id == "ai_saas":
+        bonus += _AI_SAAS_CATEGORY_BONUS.get(category, 0)
+    lowered = summary.lower()
+    terms = _AI_SAAS_PRIORITY_TERMS.get(category, ())
+    if any(term in lowered for term in terms):
+        bonus += 6
+    profile_terms = _profile_policy_terms(
+        domain_profile,
+        "reasoning_priorities",
+        "risk_factors",
+        "decision_heuristics",
+    )
+    if any(term in lowered for term in profile_terms):
+        bonus += 4
+    return bonus
+
+
 def _format_blocker_ranking(blockers: Sequence[_DecisionBlocker], *, limit: int = 4) -> str:
     if not blockers:
         return "none"
@@ -313,12 +421,16 @@ def _select_next_experiment(
     return experiments[0]
 
 
-def _build_warnings(evidence_ledger: Sequence[EvidenceEntry]) -> tuple[str, ...]:
+def _build_warnings(
+    evidence_ledger: Sequence[EvidenceEntry],
+    domain_profile: DomainProfile,
+) -> tuple[str, ...]:
     warnings: list[str] = list(_STANDARD_WARNINGS)
     if any(entry.evidence_type == "missing" for entry in evidence_ledger):
         warnings.append(
             "At least one claim has explicit missing evidence; do not treat the report as validated research."
         )
+    warnings.extend(_profile_caveats(domain_profile))
     return tuple(warnings)
 
 
@@ -331,7 +443,91 @@ def _profile_metadata(selection: DomainProfileSelection) -> dict[str, object]:
             for profile_id, keywords in selection.matched_keywords.items()
         },
         "score_by_profile": dict(selection.score_by_profile),
+        "reasoning_policy": _profile_policy_metadata(selection.profile),
     }
+
+
+def _profile_policy_metadata(domain_profile: DomainProfile) -> dict[str, tuple[str, ...]]:
+    return {
+        "council_lenses": tuple(domain_profile.council_lenses),
+        "reasoning_priorities": tuple(domain_profile.reasoning_priorities),
+        "risk_factors": tuple(domain_profile.risk_factors),
+        "evidence_expectations": tuple(domain_profile.evidence_expectations),
+        "decision_heuristics": tuple(domain_profile.decision_heuristics),
+        "output_guidance": tuple(domain_profile.output_guidance),
+        "confidence_policy": tuple(domain_profile.confidence_policy),
+        "caveat_policy": tuple(domain_profile.caveat_policy),
+        "next_step_policy": tuple(domain_profile.next_step_policy),
+    }
+
+
+def _profile_policy_terms(
+    domain_profile: DomainProfile,
+    *field_names: str,
+) -> tuple[str, ...]:
+    terms: list[str] = []
+    for field_name in field_names:
+        for value in getattr(domain_profile, field_name, ()):
+            normalized = str(value).lower().strip()
+            if normalized:
+                terms.append(normalized)
+    return tuple(terms)
+
+
+def _confidence_policy_note(domain_profile: DomainProfile) -> str:
+    if not domain_profile.confidence_policy:
+        return ""
+    return "Profile confidence policy: " + " ".join(domain_profile.confidence_policy[:2])
+
+
+def _next_step_policy_note(
+    domain_profile: DomainProfile,
+    primary_blocker: _DecisionBlocker | None,
+) -> str:
+    category = primary_blocker.category if primary_blocker else ""
+    if domain_profile.id == "ai_saas":
+        if category in {"user_adoption", "market"}:
+            return (
+                "Capture buyer/workflow owner, current substitute, switching cost, "
+                "repeat-use trigger, and willingness-to-pay threshold."
+            )
+        if category == "technical":
+            return (
+                "Use a fixed rubric for output quality, source traceability, failure "
+                "handling, and operational reliability."
+            )
+        if category == "prior_art":
+            return (
+                "Map the narrow wedge against generic AI, manual workflow, and existing "
+                "software substitutes."
+            )
+        if category == "safety_regulatory":
+            return (
+                "Keep legal-output boundaries, uncertainty labels, and professional-review "
+                "triggers visible."
+            )
+    if domain_profile.id == "medical_device":
+        return (
+            "Keep the next step non-clinical and preserve patient-safety, clinical-validation, "
+            "and regulatory boundaries."
+        )
+    if domain_profile.next_step_policy:
+        return domain_profile.next_step_policy[0]
+    return ""
+
+
+def _profile_caveats(domain_profile: DomainProfile) -> tuple[str, ...]:
+    if domain_profile.id == "medical_device":
+        return (
+            "Medical-device profile caveat: this deterministic pass does not establish patient safety, clinical efficacy, diagnostic performance, or regulatory clearance.",
+        )
+    if domain_profile.id == "ai_saas":
+        return (
+            "AI SaaS profile caveat: buyer/workflow urgency, repeat usage, differentiation, AI-wrapper risk, operational reliability, and willingness to pay remain unvalidated without targeted evidence.",
+        )
+    if domain_profile.caveat_policy:
+        return tuple(f"Profile caveat policy: {caveat}" for caveat in domain_profile.caveat_policy)
+    return ()
 
 
 __all__ = ["run_research_council"]

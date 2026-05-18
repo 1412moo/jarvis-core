@@ -25,6 +25,11 @@ from .json_export import (
     to_json_dict,
     write_result_json,
 )
+from .llm_advisor import (
+    LLMInsightBundle,
+    LLMResearchAdvisor,
+    validate_llm_insight_bundle,
+)
 from .pipeline import run_research_council
 from .schemas import (
     Claim,
@@ -47,6 +52,8 @@ __all__ = [
     "EvidenceNeed",
     "ExperimentTemplate",
     "ExperimentPlan",
+    "LLMInsightBundle",
+    "LLMResearchAdvisor",
     "MarkdownReport",
     "Recommendation",
     "ResearchCouncilInput",
@@ -67,5 +74,6 @@ __all__ = [
     "run_research_council",
     "to_json",
     "to_json_dict",
+    "validate_llm_insight_bundle",
     "write_result_json",
 ]

@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 from research_council import (
+    ResearchCouncilInput,
     get_profile,
     list_profiles,
     result_from_json,
@@ -139,6 +140,32 @@ def test_json_export_contract() -> None:
     _assert(
         loaded_payload["profile"]["score_by_profile"]["medical_device"] > 0,
         "JSON profile scores must be preserved",
+    )
+    _assert(
+        "reasoning_policy" in loaded_payload["profile"],
+        "JSON profile metadata must include deterministic reasoning policy",
+    )
+    quality_signals = loaded_payload.get("quality_signals")
+    _assert(isinstance(quality_signals, dict), "JSON quality_signals must be an object")
+    for signal_name in (
+        "profile_adherence",
+        "evidence_coverage",
+        "risk_specificity",
+        "next_step_actionability",
+        "caveat_appropriateness",
+    ):
+        _assert(signal_name in quality_signals, f"quality_signals missing {signal_name}")
+        _assert(
+            quality_signals[signal_name]["status"] in {"strong", "partial", "weak"},
+            f"quality signal {signal_name} must expose deterministic status",
+        )
+    _assert(
+        quality_signals["evidence_coverage"]["status"] == "strong",
+        "quality_signals must report deterministic evidence coverage",
+    )
+    _assert(
+        "patient safety" in quality_signals["caveat_appropriateness"]["matched_terms"],
+        "medical quality signals must preserve patient-safety caveat matching",
     )
     _assert(isinstance(loaded_payload["claims"], list), "JSON claims must be a list")
     _assert(
@@ -353,6 +380,192 @@ def test_run_demo_explicit_profile_support() -> None:
     )
 
 
+def test_ai_saas_profile_reasoning() -> None:
+    result = run_research_council(
+        ResearchCouncilInput(
+            raw_idea="Automated patent analysis tool for solo software founders",
+            goal="Evaluate marketability and differentiation potential.",
+            context=(
+                "Assess as an AI SaaS workflow concept before web research, external "
+                "patent search, or LLM calls are allowed."
+            ),
+            constraints=(
+                "No web search, network calls, LLM calls, or fake citations.",
+                "Keep legal interpretation risk explicit.",
+            ),
+        ),
+        profile="ai_saas",
+    )
+
+    markdown = result.markdown_report.markdown.lower()
+    claim_text = " ".join(claim.text.lower() for claim in result.claims)
+    evidence_text = " ".join(entry.summary.lower() for entry in result.evidence_ledger)
+    critique_text = " ".join(
+        f"{critique.finding} {critique.suggested_action}".lower()
+        for critique in result.reviewer_critiques
+    )
+    experiment_titles = {experiment.title for experiment in result.experiments}
+    recommendation_text = (
+        f"{result.recommendation.summary} {result.recommendation.rationale}".lower()
+    )
+
+    _assert(result.profile["profile_id"] == "ai_saas", "AI SaaS profile must be active")
+    for expected in (
+        "founder workflow",
+        "automation",
+        "prior-art",
+        "generic ai wrapper",
+        "narrow wedge",
+        "output reliability",
+        "hallucinated",
+        "verification boundaries",
+        "buyer/workflow integration",
+        "retention",
+        "willingness to pay",
+        "distribution",
+    ):
+        _assert(expected in claim_text, f"AI SaaS claims must mention {expected}")
+
+    for expected in (
+        "current prior-art search workflow",
+        "ai wrapper risk",
+        "hallucination checks",
+        "competing workflow substitute",
+        "professional review",
+    ):
+        _assert(expected in evidence_text, f"AI SaaS evidence gaps must mention {expected}")
+
+    for expected in (
+        "ai patent-analysis tool",
+        "repeatable output quality",
+        "founder workflow",
+        "hallucinates citations",
+        "ai-wrapper risk",
+        "generic-ai substitution",
+    ):
+        _assert(expected in critique_text, f"AI SaaS critiques must mention {expected}")
+
+    _assert(
+        {
+            "Workflow interview",
+            "Output-quality evaluation",
+            "Trust and verification boundary check",
+            "Differentiation mapping",
+        }
+        <= experiment_titles,
+        "AI SaaS experiments must include workflow, quality, trust, and differentiation checks",
+    )
+    for expected in (
+        "user adoption",
+        "reliability",
+        "workflow integration",
+        "trust",
+        "buyer urgency",
+        "ai-wrapper risk",
+        "differentiation",
+    ):
+        _assert(
+            expected in recommendation_text,
+            f"AI SaaS recommendation must weight {expected}",
+        )
+    _assert(
+        "generic ai" in markdown and "legal advice" in markdown,
+        "AI SaaS Markdown must expose substitutes and legal-output boundaries",
+    )
+
+
+def test_ai_saas_policy_regression_signals() -> None:
+    input_data = ResearchCouncilInput(
+        raw_idea=(
+            "AI SaaS workflow assistant that wraps an LLM to generate patent analysis "
+            "reports for solo founders"
+        ),
+        goal="Evaluate buyer urgency, narrow wedge, differentiation, and GTM risk.",
+        context="Focus on repeat usage, switching cost, and workflow integration.",
+    )
+    selection = resolve_domain_profile(input_data)
+    _assert(
+        selection.selected_profile.id == "ai_saas",
+        "AI SaaS workflow input must select ai_saas deterministically",
+    )
+
+    result = run_research_council(input_data)
+    combined_text = " ".join(
+        (
+            result.recommendation.summary,
+            result.recommendation.rationale,
+            " ".join(result.warnings),
+            " ".join(critique.finding for critique in result.reviewer_critiques),
+            " ".join(experiment.method for experiment in result.experiments),
+        )
+    ).lower()
+    _assert(
+        "ai-wrapper risk" in combined_text,
+        "AI SaaS output must warn about AI-wrapper differentiation risk",
+    )
+    _assert(
+        "buyer/workflow" in combined_text or "buyer workflow" in combined_text,
+        "AI SaaS output must preserve buyer/workflow reasoning",
+    )
+    _assert(
+        "narrow wedge" in combined_text or "narrow-wedge" in combined_text,
+        "AI SaaS output must preserve narrow-wedge reasoning",
+    )
+    _assert(
+        "switching cost" in combined_text,
+        "AI SaaS output must preserve switching-cost reasoning",
+    )
+
+    payload = result_to_json_dict(result)
+    _assert(
+        payload["quality_signals"]["risk_specificity"]["status"] in {"strong", "partial"},
+        "AI SaaS quality signals must detect profile-specific risk language",
+    )
+
+
+def test_medical_device_policy_regression_preserves_conservative_behavior() -> None:
+    result = run_research_council(build_sample_input())
+    combined_text = " ".join(
+        (
+            " ".join(result.warnings),
+            result.recommendation.summary,
+            result.recommendation.rationale,
+            result.recommendation.next_step,
+            " ".join(critique.finding for critique in result.reviewer_critiques),
+        )
+    ).lower()
+
+    _assert(result.profile["profile_id"] == "medical_device", "sample must remain medical_device")
+    _assert(
+        result.recommendation.decision == "pause_broad_use_resolve_safety_blocker",
+        "medical_device must keep conservative safety-first decision",
+    )
+    for expected in ("patient safety", "regulatory", "clinical", "validation"):
+        _assert(
+            expected in combined_text,
+            f"medical_device output must preserve {expected} language",
+        )
+    _assert(
+        "non-clinical" in combined_text,
+        "medical_device next step must remain non-clinical",
+    )
+    _assert(
+        "profile confidence policy" in combined_text and "conservative" in combined_text,
+        "medical_device must preserve conservative confidence behavior",
+    )
+    _assert(
+        any(
+            critique.reviewer_role == "safety_regulatory" and critique.severity == "high"
+            for critique in result.reviewer_critiques
+        ),
+        "medical_device safety reviewer must remain high severity",
+    )
+    _assert(
+        "ai-wrapper risk" not in combined_text,
+        "AI SaaS policy language must not leak into medical_device regression output",
+    )
+
+
 def test_run_demo_unknown_profile_fails_clearly() -> None:
     completed = subprocess.run(
         [
@@ -532,6 +745,9 @@ def main() -> None:
     test_run_demo_json_output_support()
     test_run_demo_custom_cli_input_support()
     test_run_demo_explicit_profile_support()
+    test_ai_saas_profile_reasoning()
+    test_ai_saas_policy_regression_signals()
+    test_medical_device_policy_regression_preserves_conservative_behavior()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
     print("Research Council smoke tests passed")

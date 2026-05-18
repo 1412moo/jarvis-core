@@ -98,6 +98,15 @@ class DomainProfile:
     experiment_templates: tuple[ExperimentTemplate, ...]
     selection_keywords: tuple[WeightedKeyword, ...]
     blocker_order: tuple[str, ...]
+    council_lenses: tuple[str, ...] = ()
+    reasoning_priorities: tuple[str, ...] = ()
+    risk_factors: tuple[str, ...] = ()
+    evidence_expectations: tuple[str, ...] = ()
+    decision_heuristics: tuple[str, ...] = ()
+    output_guidance: tuple[str, ...] = ()
+    confidence_policy: tuple[str, ...] = ()
+    caveat_policy: tuple[str, ...] = ()
+    next_step_policy: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_non_empty("DomainProfile.id", self.id)
@@ -120,6 +129,48 @@ class DomainProfile:
             _normalize_weighted_keywords(self.selection_keywords),
         )
         object.__setattr__(self, "blocker_order", _tuple_of_strings(self.blocker_order))
+        object.__setattr__(
+            self,
+            "council_lenses",
+            _tuple_of_strings(self.council_lenses)
+            or tuple(lens.id for lens in self.claim_lenses),
+        )
+        object.__setattr__(
+            self,
+            "reasoning_priorities",
+            _tuple_of_strings(self.reasoning_priorities),
+        )
+        object.__setattr__(self, "risk_factors", _tuple_of_strings(self.risk_factors))
+        object.__setattr__(
+            self,
+            "evidence_expectations",
+            _tuple_of_strings(self.evidence_expectations),
+        )
+        object.__setattr__(
+            self,
+            "decision_heuristics",
+            _tuple_of_strings(self.decision_heuristics),
+        )
+        object.__setattr__(
+            self,
+            "output_guidance",
+            _tuple_of_strings(self.output_guidance),
+        )
+        object.__setattr__(
+            self,
+            "confidence_policy",
+            _tuple_of_strings(self.confidence_policy),
+        )
+        object.__setattr__(
+            self,
+            "caveat_policy",
+            _tuple_of_strings(self.caveat_policy),
+        )
+        object.__setattr__(
+            self,
+            "next_step_policy",
+            _tuple_of_strings(self.next_step_policy),
+        )
         if not self.claim_lenses:
             raise ValueError("DomainProfile.claim_lenses must not be empty")
         if not self.evidence_needs:
@@ -469,6 +520,54 @@ _PROFILES: tuple[DomainProfile, ...] = (
             "prior_art",
             "market",
         ),
+        council_lenses=(
+            "clinical_use",
+            "device_safety",
+            "performance_quality",
+            "regulatory_path",
+        ),
+        reasoning_priorities=(
+            "patient safety before adoption or market upside",
+            "clinical validation before diagnostic or human-use claims",
+            "regulatory boundary before broad use",
+            "non-clinical prototype evidence before confidence upgrades",
+        ),
+        risk_factors=(
+            "patient harm",
+            "clinical false reassurance",
+            "diagnostic-quality failure",
+            "biocompatibility or retention risk",
+            "regulatory approval uncertainty",
+        ),
+        evidence_expectations=(
+            "non-clinical safety evidence",
+            "measured reliability and performance thresholds",
+            "clinical workflow and oversight evidence",
+            "regulatory classification and approval-boundary evidence",
+        ),
+        decision_heuristics=(
+            "pause broad use when safety_regulatory evidence is missing",
+            "treat clinician or patient interest as adoption signal only, not validation",
+            "do not treat bench evidence as clinical safety or efficacy",
+        ),
+        output_guidance=(
+            "use conservative medical-device language",
+            "separate concept plausibility from clinical validation",
+            "name patient-safety and regulatory caveats explicitly",
+        ),
+        confidence_policy=(
+            "confidence remains conservative until safety, clinical validation, and regulatory boundaries are evidenced",
+            "human-use, diagnostic, or efficacy claims stay low confidence in a local-only pass",
+        ),
+        caveat_policy=(
+            "include patient safety caveats",
+            "include regulatory awareness",
+            "include clinical validation limits",
+        ),
+        next_step_policy=(
+            "prefer non-clinical safety boundary work before adoption or market tests",
+            "never recommend human testing from the deterministic local pass",
+        ),
     ),
     DomainProfile(
         id="ai_saas",
@@ -497,32 +596,42 @@ _PROFILES: tuple[DomainProfile, ...] = (
                 focus="Buyer, budget, switching cost, packaging, and subscription logic.",
                 keywords=("saas", "subscription", "b2b", "buyer"),
             ),
+            ClaimLens(
+                id="defensible_wedge",
+                label="Defensible wedge",
+                focus="Narrow workflow wedge, differentiation risk, and AI-wrapper substitution risk.",
+                keywords=("differentiation", "wrapper", "substitute", "retention"),
+            ),
         ),
         evidence_needs=(
             EvidenceNeed(
                 category="user_adoption",
                 request=(
-                    "Show that the target workflow is painful, frequent, and owned by a "
-                    "buyer or user with authority to change tools."
+                    "Show that the target workflow is painful, frequent, integrated into "
+                    "the buyer's current process, and owned by someone with urgency and "
+                    "authority to change tools."
                 ),
             ),
             EvidenceNeed(
                 category="technical",
                 request=(
                     "Define data inputs, deterministic quality checks, failure handling, "
-                    "privacy, security, and operational reliability."
+                    "privacy, security, uptime expectations, and operational reliability."
                 ),
             ),
             EvidenceNeed(
                 category="prior_art",
                 request=(
                     "Compare against existing software, AI assistants, manual workflows, "
-                    "and user-supplied offline references."
+                    "generic AI wrappers, and user-supplied offline references."
                 ),
             ),
             EvidenceNeed(
                 category="market",
-                request="Identify buyer, pricing logic, distribution channel, and switching trigger.",
+                request=(
+                    "Identify buyer urgency, pricing logic, willingness to pay, distribution "
+                    "channel, switching trigger, switching cost, and retention trigger."
+                ),
             ),
             EvidenceNeed(
                 category="safety_regulatory",
@@ -595,6 +704,62 @@ _PROFILES: tuple[DomainProfile, ...] = (
             "safety_regulatory",
             "market",
             "prior_art",
+        ),
+        council_lenses=(
+            "workflow_value",
+            "model_quality",
+            "go_to_market",
+            "defensible_wedge",
+        ),
+        reasoning_priorities=(
+            "buyer/workflow urgency before generic product scope",
+            "repeat usage and retention before broad SaaS confidence",
+            "narrow wedge before platform expansion",
+            "operational reliability before automation trust",
+            "willingness to pay before market optimism",
+        ),
+        risk_factors=(
+            "workflow integration risk",
+            "buyer urgency risk",
+            "switching cost risk",
+            "differentiation risk",
+            "AI wrapper risk",
+            "retention risk",
+            "operational reliability risk",
+            "willingness to pay risk",
+        ),
+        evidence_expectations=(
+            "buyer and workflow-owner interviews",
+            "current workaround and switching-trigger evidence",
+            "repeat usage or retention signal",
+            "output-quality rubric and reliability thresholds",
+            "substitute map against generic AI and manual workflows",
+            "willingness-to-pay or pricing threshold evidence",
+        ),
+        decision_heuristics=(
+            "penalize concepts that only describe a generic AI wrapper",
+            "treat one-time report value as insufficient for SaaS retention",
+            "prefer a narrow workflow wedge when differentiation is weak",
+            "do not upgrade confidence without buyer urgency and repeat-use evidence",
+        ),
+        output_guidance=(
+            "surface buyer/workflow, repeat usage, narrow wedge, GTM risk, and adoption risk",
+            "name AI-wrapper and differentiation risk when prior-art evidence is missing",
+            "keep legal, data, and reliability boundaries visible",
+        ),
+        confidence_policy=(
+            "confidence is capped until workflow frequency, buyer urgency, reliability, differentiation, and willingness to pay are evidenced",
+            "high confidence requires repeated-use evidence, not just user interest",
+        ),
+        caveat_policy=(
+            "include adoption and GTM caveats",
+            "include AI-wrapper differentiation caveats",
+            "include reliability and legal-boundary caveats",
+        ),
+        next_step_policy=(
+            "prioritize workflow interviews when buyer/workflow evidence is weak",
+            "prioritize output-quality evaluation when reliability evidence is weak",
+            "prioritize differentiation mapping when AI-wrapper risk is unresolved",
         ),
     ),
     DomainProfile(

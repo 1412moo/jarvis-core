@@ -11,8 +11,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import MISSING, fields, is_dataclass
 import json
 from pathlib import Path
+import re
 from typing import Any
 
+from .domain_profiles import get_profile
 from .schemas import (
     Claim,
     EvidenceEntry,
@@ -45,6 +47,7 @@ def result_to_json_dict(
         ],
         "experiments": [_to_jsonable(experiment) for experiment in result.experiments],
         "recommendation": _to_jsonable(result.recommendation),
+        "quality_signals": _build_quality_signals(result, profile_metadata),
         "markdown_report": _to_jsonable(result.markdown_report),
         "warnings": list(result.warnings),
     }
@@ -257,6 +260,7 @@ def _profile_metadata(value: Any) -> dict[str, Any]:
             "selected_by": str(getattr(value, "selected_by", "")),
             "matched_keywords": _to_jsonable(getattr(value, "matched_keywords", {})),
             "score_by_profile": _to_jsonable(getattr(value, "score_by_profile", {})),
+            "reasoning_policy": _reasoning_policy_from_profile(selected_profile),
         }
     return _profile_metadata_from_mapping(_to_jsonable(value))
 
@@ -269,18 +273,320 @@ def _profile_metadata_from_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
             if isinstance(selected_profile, Mapping)
             else getattr(selected_profile, "id", "")
         )
+        reasoning_policy = value.get("reasoning_policy") or _reasoning_policy_from_profile(
+            selected_profile
+        )
         return {
             "profile_id": str(selected_profile_id),
             "selected_by": str(value.get("selected_by", "")),
             "matched_keywords": _to_jsonable(value.get("matched_keywords", {})),
             "score_by_profile": _to_jsonable(value.get("score_by_profile", {})),
+            "reasoning_policy": _to_jsonable(reasoning_policy),
         }
     return {
         "profile_id": str(value.get("profile_id", "")),
         "selected_by": str(value.get("selected_by", "")),
         "matched_keywords": _to_jsonable(value.get("matched_keywords", {})),
         "score_by_profile": _to_jsonable(value.get("score_by_profile", {})),
+        "reasoning_policy": _to_jsonable(value.get("reasoning_policy", {})),
     }
+
+
+def _build_quality_signals(
+    result: ResearchCouncilResult,
+    profile_metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    profile = _profile_from_metadata(profile_metadata)
+    result_text = _normalized_result_text(result)
+    return {
+        "profile_adherence": _profile_adherence_signal(profile, result_text),
+        "evidence_coverage": _evidence_coverage_signal(result),
+        "risk_specificity": _risk_specificity_signal(profile, result_text),
+        "next_step_actionability": _next_step_actionability_signal(result),
+        "caveat_appropriateness": _caveat_appropriateness_signal(
+            profile_metadata,
+            result_text,
+            result.warnings,
+        ),
+    }
+
+
+def _profile_adherence_signal(profile: Any, result_text: str) -> dict[str, Any]:
+    terms = _policy_terms(
+        profile,
+        (
+            "council_lenses",
+            "reasoning_priorities",
+            "evidence_expectations",
+            "output_guidance",
+        ),
+    )
+    matched_terms = _matched_terms(result_text, terms)
+    score = min(4, len(matched_terms))
+    status = "strong" if score >= 4 else "partial" if score >= 2 else "weak"
+    return _quality_signal(
+        status=status,
+        score=score,
+        matched_terms=matched_terms,
+        rationale=(
+            "Deterministic check for profile policy terms appearing in claims, "
+            "evidence gaps, critiques, experiments, recommendation, or caveats."
+        ),
+    )
+
+
+def _evidence_coverage_signal(result: ResearchCouncilResult) -> dict[str, Any]:
+    claim_ids = {claim.id for claim in result.claims}
+    covered_claim_ids = {entry.claim_id for entry in result.evidence_ledger}
+    missing_entries = [
+        entry for entry in result.evidence_ledger if entry.evidence_type == "missing"
+    ]
+    has_gap_categories = any("gap_category=" in entry.notes for entry in missing_entries)
+    all_claims_covered = bool(claim_ids) and claim_ids <= covered_claim_ids
+    score = int(all_claims_covered) + int(bool(missing_entries)) + int(has_gap_categories)
+    status = "strong" if score == 3 else "partial" if score >= 1 else "weak"
+    return _quality_signal(
+        status=status,
+        score=score,
+        matched_terms=(
+            "all_claims_covered" if all_claims_covered else "claims_missing_coverage",
+            "explicit_missing_evidence" if missing_entries else "no_missing_entries",
+            "gap_categories_present" if has_gap_categories else "gap_categories_missing",
+        ),
+        rationale=(
+            "Deterministic check that every claim has ledger coverage and unsupported "
+            "claims remain explicit as categorized missing evidence."
+        ),
+        details={
+            "claim_count": len(claim_ids),
+            "covered_claim_count": len(claim_ids & covered_claim_ids),
+            "missing_evidence_count": len(missing_entries),
+        },
+    )
+
+
+def _risk_specificity_signal(profile: Any, result_text: str) -> dict[str, Any]:
+    terms = _policy_terms(profile, ("risk_factors", "decision_heuristics"))
+    if not terms:
+        terms = (
+            "feasibility",
+            "safety",
+            "adoption",
+            "prior art",
+            "market",
+            "regulatory",
+        )
+    matched_terms = _matched_terms(result_text, terms)
+    score = min(4, len(matched_terms))
+    status = "strong" if score >= 3 else "partial" if score >= 1 else "weak"
+    return _quality_signal(
+        status=status,
+        score=score,
+        matched_terms=matched_terms,
+        rationale="Deterministic check that risk language is profile-specific, not generic.",
+    )
+
+
+def _next_step_actionability_signal(result: ResearchCouncilResult) -> dict[str, Any]:
+    raw_next_step = str(result.recommendation.next_step or "").lower()
+    next_step = _normalize_text(result.recommendation.next_step)
+    experiment_ids = tuple(experiment.id for experiment in result.experiments)
+    selected_experiment_ids = tuple(
+        experiment_id for experiment_id in experiment_ids if experiment_id in raw_next_step
+    )
+    action_terms = _matched_terms(
+        next_step,
+        ("run", "create", "capture", "score", "map", "write", "address"),
+    )
+    score = (
+        int(bool(next_step))
+        + int(bool(selected_experiment_ids))
+        + int(bool(action_terms))
+        + int(any(term in next_step for term in ("threshold", "rubric", "trigger", "boundary")))
+    )
+    status = "strong" if score >= 3 else "partial" if score >= 1 else "weak"
+    return _quality_signal(
+        status=status,
+        score=score,
+        matched_terms=selected_experiment_ids + action_terms,
+        rationale=(
+            "Deterministic check that the recommendation names an experiment or concrete "
+            "action with decision-relevant detail."
+        ),
+    )
+
+
+def _caveat_appropriateness_signal(
+    profile_metadata: Mapping[str, Any],
+    result_text: str,
+    warnings: Sequence[str],
+) -> dict[str, Any]:
+    profile_id = str(profile_metadata.get("profile_id", ""))
+    warning_text = _normalize_text(" ".join(warnings))
+    expected_terms = _expected_caveat_terms(profile_id)
+    matched_terms = _matched_terms(f"{warning_text} {result_text}", expected_terms)
+    has_standard_warning = "no web search" in warning_text and "no citations" in warning_text
+    score = min(4, len(matched_terms) + int(has_standard_warning))
+    status = "strong" if score >= 3 else "partial" if score >= 1 else "weak"
+    return _quality_signal(
+        status=status,
+        score=score,
+        matched_terms=(
+            ("standard_local_only_caveat",) if has_standard_warning else ()
+        )
+        + matched_terms,
+        rationale=(
+            "Deterministic check that local-only caveats and domain-specific caveats "
+            "match the selected profile."
+        ),
+    )
+
+
+def _quality_signal(
+    *,
+    status: str,
+    score: int,
+    matched_terms: Sequence[str],
+    rationale: str,
+    details: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "status": status,
+        "score": score,
+        "matched_terms": list(matched_terms),
+        "rationale": rationale,
+    }
+    if details:
+        payload["details"] = _to_jsonable(details)
+    return payload
+
+
+def _profile_from_metadata(profile_metadata: Mapping[str, Any]) -> Any | None:
+    profile_id = str(profile_metadata.get("profile_id", "")).strip()
+    if not profile_id:
+        return None
+    try:
+        return get_profile(profile_id)
+    except ValueError:
+        return None
+
+
+def _policy_terms(profile: Any, field_names: Sequence[str]) -> tuple[str, ...]:
+    if profile is None:
+        return ()
+    terms: list[str] = []
+    for field_name in field_names:
+        for value in getattr(profile, field_name, ()):
+            terms.extend(_term_fragments(str(value)))
+    return _dedupe(terms)
+
+
+def _reasoning_policy_from_profile(profile: Any) -> dict[str, Any]:
+    field_names = (
+        "council_lenses",
+        "reasoning_priorities",
+        "risk_factors",
+        "evidence_expectations",
+        "decision_heuristics",
+        "output_guidance",
+        "confidence_policy",
+        "caveat_policy",
+        "next_step_policy",
+    )
+    return {
+        field_name: _to_jsonable(
+            profile.get(field_name, ()) if isinstance(profile, Mapping) else getattr(profile, field_name, ())
+        )
+        for field_name in field_names
+    }
+
+
+def _expected_caveat_terms(profile_id: str) -> tuple[str, ...]:
+    if profile_id == "medical_device":
+        return (
+            "patient safety",
+            "clinical validation",
+            "clinical efficacy",
+            "diagnostic performance",
+            "regulatory clearance",
+            "human testing",
+        )
+    if profile_id == "ai_saas":
+        return (
+            "buyer workflow",
+            "repeat usage",
+            "differentiation",
+            "ai wrapper",
+            "operational reliability",
+            "willingness to pay",
+            "legal advice",
+        )
+    return ("local only", "missing evidence", "no citations")
+
+
+def _normalized_result_text(result: ResearchCouncilResult) -> str:
+    parts: list[str] = [result.input_summary]
+    parts.extend(claim.text for claim in result.claims)
+    parts.extend(claim.rationale for claim in result.claims)
+    parts.extend(entry.summary for entry in result.evidence_ledger)
+    parts.extend(entry.notes for entry in result.evidence_ledger)
+    parts.extend(critique.finding for critique in result.reviewer_critiques)
+    parts.extend(critique.suggested_action for critique in result.reviewer_critiques)
+    parts.extend(experiment.title for experiment in result.experiments)
+    parts.extend(experiment.method for experiment in result.experiments)
+    parts.extend(experiment.risk for experiment in result.experiments)
+    parts.extend(
+        (
+            result.recommendation.decision,
+            result.recommendation.summary,
+            result.recommendation.next_step,
+            result.recommendation.rationale,
+        )
+    )
+    parts.extend(result.warnings)
+    return _normalize_text(" ".join(parts))
+
+
+def _matched_terms(text: str, terms: Sequence[str]) -> tuple[str, ...]:
+    normalized_text = _normalize_text(text)
+    matches: list[str] = []
+    for term in terms:
+        normalized_term = _normalize_text(term)
+        if normalized_term and normalized_term in normalized_text:
+            matches.append(normalized_term)
+    return _dedupe(matches)
+
+
+def _term_fragments(value: str) -> tuple[str, ...]:
+    normalized = _normalize_text(value)
+    if not normalized:
+        return ()
+    fragments = [normalized]
+    fragments.extend(
+        part.strip()
+        for part in re.split(r"\bbefore\b|\band\b|,|;|:", normalized)
+        if len(part.strip()) >= 4
+    )
+    if normalized.endswith(" risk"):
+        fragments.append(normalized[: -len(" risk")])
+    return tuple(fragments)
+
+
+def _normalize_text(value: Any) -> str:
+    text = str(value or "").lower()
+    text = re.sub(r"[-_/]+", " ", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _dedupe(values: Sequence[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            deduped.append(value)
+    return tuple(deduped)
 
 
 def _to_jsonable(value: Any) -> Any:

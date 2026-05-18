@@ -63,7 +63,10 @@ _STOPWORDS = frozenset(
 
 
 def build_evidence_ledger(
-    input_data: Any, claims: list[Claim] | tuple[Claim, ...]
+    input_data: Any,
+    claims: list[Claim] | tuple[Claim, ...],
+    *,
+    domain_profile: Any = None,
 ) -> list[EvidenceEntry]:
     """Build schema-compatible evidence entries for every claim.
 
@@ -73,7 +76,7 @@ def build_evidence_ledger(
     """
 
     input_view = _coerce_input(input_data)
-    domain_profile = domain_profile_for(input_data)
+    domain_profile = _reasoning_profile_for(input_data, domain_profile)
     claim_list = list(claims)
     entries: list[EvidenceEntry] = []
 
@@ -206,21 +209,128 @@ def _primary_entry_for_claim(
 
 def _gap_category_for_claim(claim: Claim) -> str:
     text = f"{claim.text} {claim.rationale}".lower()
-    if _contains_any(text, ("novelty", "prior-art", "existing", "substitutes", "patents", "comparison")):
+    if _contains_any(
+        text,
+        (
+            "prior-art position",
+            "prior art position",
+            "novelty and prior-art",
+            "differentiated from",
+            "patent-office",
+            "manual patent search",
+            "existing products",
+            "substitutes",
+        ),
+    ):
         return "prior_art"
-    if _contains_any(text, ("market", "buyer", "payer", "commercial", "willingness to pay", "budget")):
-        return "market"
-    if _contains_any(text, ("user need", "adoption", "clinician", "patient adoption", "demand", "workflow fit", "avoidance")):
-        return "user_adoption"
-    if _contains_any(text, ("safety", "regulatory", "medical-device", "ingestion", "retention", "obstruction", "biocompatibility", "sanitation", "diagnostic-quality", "clinical oversight", "human use", "approval")):
-        return "safety_regulatory"
-    if _contains_any(text, ("wastewater", "biodegradable", "degradation", "environment", "discharge")):
+    if _contains_any(
+        text, ("wastewater", "biodegradable", "degradation", "environment", "discharge")
+    ):
         return "environmental"
-    if _contains_any(text, ("technical", "feasibility", "implementation", "prototype", "sensing", "power", "data", "manufacturing", "experimentable")):
+    if _contains_any(
+        text,
+        (
+            "safety",
+            "regulatory",
+            "medical-device",
+            "ingestion",
+            "obstruction",
+            "biocompatibility",
+            "sanitation",
+            "diagnostic-quality",
+            "clinical oversight",
+            "human use",
+            "approval",
+            "legal interpretation",
+            "patentability",
+            "infringement",
+            "freedom-to-operate",
+            "legal strategy",
+            "trust",
+            "verification boundaries",
+            "professional-review",
+            "hallucinated",
+        ),
+    ):
+        return "safety_regulatory"
+    if _contains_any(
+        text,
+        (
+            "technical",
+            "feasibility",
+            "implementation",
+            "prototype",
+            "sensing",
+            "power",
+            "manufacturing",
+            "experimentable",
+            "automation",
+            "output reliability",
+            "quality checks",
+            "source traceability",
+            "error labels",
+            "rubric",
+        ),
+    ):
         return "technical"
+    if _contains_any(
+        text,
+        (
+            "buyer",
+            "payer",
+            "willingness to pay",
+            "pricing",
+            "distribution",
+            "channel access",
+            "market includes",
+            "commercial audience",
+        ),
+    ):
+        return "market"
+    if _contains_any(
+        text,
+        (
+            "user need",
+            "adoption",
+            "clinician",
+            "patient adoption",
+            "demand",
+            "workflow fit",
+            "avoidance",
+            "founder workflow",
+            "workflow integration",
+            "repeat usage",
+            "retention",
+            "current-workaround",
+            "solo developers",
+            "time savings",
+        ),
+    ):
+        return "user_adoption"
+    if _contains_any(text, ("market", "commercial")):
+        return "market"
+    if _contains_any(
+        text,
+        ("prior-art", "patents", "comparison", "differentiated", "differentiation", "generic ai"),
+    ):
+        return "prior_art"
     if claim.source_label == "assumed":
         return "user_adoption"
     return "technical"
+
+
+def _reasoning_profile_for(input_data: Any, domain_profile: Any) -> Any:
+    if domain_profile is None:
+        return domain_profile_for(input_data)
+    if _profile_id(domain_profile) == "medical_device":
+        legacy_profile = domain_profile_for(input_data)
+        if legacy_profile.id == "capsule_medical_environmental":
+            return legacy_profile
+    return domain_profile
+
+
+def _profile_id(profile: Any) -> str:
+    return str(getattr(profile, "id", "") or "").strip().lower()
 
 
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:

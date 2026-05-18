@@ -251,6 +251,7 @@ def _normalize_profile_metadata(value: Mapping[str, Any] | None) -> dict[str, An
     selected_by = str(value.get("selected_by", "")).strip()
     matched_keywords = value.get("matched_keywords", {})
     score_by_profile = value.get("score_by_profile", {})
+    reasoning_policy = value.get("reasoning_policy", {})
     if not profile_id:
         raise ValueError("profile.profile_id must be non-empty")
     if not selected_by:
@@ -259,6 +260,8 @@ def _normalize_profile_metadata(value: Mapping[str, Any] | None) -> dict[str, An
         raise ValueError("profile.matched_keywords must be an object")
     if not isinstance(score_by_profile, Mapping):
         raise ValueError("profile.score_by_profile must be an object")
+    if not isinstance(reasoning_policy, Mapping):
+        raise ValueError("profile.reasoning_policy must be an object")
 
     return {
         "profile_id": profile_id,
@@ -270,6 +273,10 @@ def _normalize_profile_metadata(value: Mapping[str, Any] | None) -> dict[str, An
         "score_by_profile": {
             str(profile_key): int(score)
             for profile_key, score in score_by_profile.items()
+        },
+        "reasoning_policy": {
+            str(policy_key): _tuple_of_strings(_coerce_keyword_sequence(policy_values))
+            for policy_key, policy_values in reasoning_policy.items()
         },
     }
 
