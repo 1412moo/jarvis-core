@@ -113,8 +113,8 @@ Expected exit behavior:
 Governance summary examples:
 
 ```text
-Benchmark governance: status=stable categories=none regressions=0 severity=stable
-Benchmark governance: status=warning categories=regression,contract_mismatch regressions=5 severity=critical
+Benchmark governance: status=stable categories=none regressions=0 severity=stable recommended_action=continue profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0
+Benchmark governance: status=warning categories=regression,contract_mismatch regressions=5 severity=critical recommended_action=block_and_review profile_change_rollup=added:0,removed:1,deltas:1,selection_changes:1
 ```
 
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark

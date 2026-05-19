@@ -383,12 +383,15 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
     regressions = sum(
         1 for signal in view.regressions if signal != "benchmark_hash changed"
     )
+    recommended_action = _recommended_benchmark_governance_action(severity)
     return (
         "Benchmark governance: "
         f"status={status} "
         f"categories={category_text} "
         f"regressions={regressions} "
-        f"severity={severity}"
+        f"severity={severity} "
+        f"recommended_action={recommended_action} "
+        f"profile_change_rollup={_format_profile_change_rollup(view)}"
     )
 
 
@@ -403,6 +406,24 @@ def classify_benchmark_governance_severity(view: BenchmarkDiffView) -> str:
     if view.benchmark_hash_changed:
         return "info"
     return "stable"
+
+
+def _recommended_benchmark_governance_action(severity: str) -> str:
+    return {
+        "stable": "continue",
+        "info": "review_metadata_change",
+        "warning": "review_composition_change",
+        "critical": "block_and_review",
+    }.get(severity, "review_metadata_change")
+
+
+def _format_profile_change_rollup(view: BenchmarkDiffView) -> str:
+    return (
+        f"added:{len(view.profiles_added)},"
+        f"removed:{len(view.profiles_removed)},"
+        f"deltas:{len(view.profile_diffs)},"
+        f"selection_changes:{len(view.selected_profile_changes)}"
+    )
 
 
 def classify_benchmark_governance_gate(view: BenchmarkDiffView) -> str:
