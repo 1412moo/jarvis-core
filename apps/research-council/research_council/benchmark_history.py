@@ -391,6 +391,7 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
         ("severity", severity),
         ("recommended_action", recommended_action),
         ("profile_change_rollup", _format_profile_change_rollup(view)),
+        ("policy_reason", _governance_policy_reason(severity)),
     )
     return "Benchmark governance: " + _format_key_value_fields(fields)
 
@@ -415,6 +416,15 @@ def _recommended_benchmark_governance_action(severity: str) -> str:
         "warning": "review_composition_change",
         "critical": "block_and_review",
     }.get(severity, "review_metadata_change")
+
+
+def _governance_policy_reason(severity: str) -> str:
+    return {
+        "stable": "stable_no_drift",
+        "info": "info_hash_change",
+        "warning": "warning_composition_change",
+        "critical": "critical_regression_or_contract_mismatch",
+    }.get(severity, "unknown_policy_reason")
 
 
 def _format_key_value_fields(fields: Sequence[tuple[str, str]]) -> str:
