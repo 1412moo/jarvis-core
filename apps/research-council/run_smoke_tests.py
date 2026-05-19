@@ -96,6 +96,7 @@ GOVERNANCE_SUMMARY_FIELD_ORDER = (
     "profile_change_rollup",
     "policy_reason",
     "escalation_reason",
+    "compatibility_tier",
 )
 
 
@@ -1610,7 +1611,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "recommended_action=continue "
             "profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 "
             "policy_reason=stable_no_drift "
-            "escalation_reason=no_escalation"
+            "escalation_reason=no_escalation "
+            "compatibility_tier=compatible"
         ),
         "stable benchmark diffs must report a compact stable governance summary",
     )
@@ -1646,7 +1648,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "recommended_action=review_metadata_change "
             "profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 "
             "policy_reason=info_hash_change "
-            "escalation_reason=hash_change_only"
+            "escalation_reason=hash_change_only "
+            "compatibility_tier=compatible"
         ),
         "benchmark hash changes alone must not count as governance regressions",
     )
@@ -1703,7 +1706,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "recommended_action=block_and_review "
             "profile_change_rollup=added:1,removed:1,deltas:1,selection_changes:1 "
             "policy_reason=critical_regression_or_contract_mismatch "
-            "escalation_reason=regression_count_gt_0"
+            "escalation_reason=regression_count_gt_0 "
+            "compatibility_tier=breaking_contract_change"
         ),
         "warning benchmark diffs must report compact regression governance",
     )
@@ -1803,7 +1807,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "recommended_action=review_composition_change "
             "profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 "
             "policy_reason=warning_composition_change "
-            "escalation_reason=composition_change"
+            "escalation_reason=composition_change "
+            "compatibility_tier=additive_contract_change"
         ),
         "composition-only benchmark drift must report warning severity",
     )
@@ -1842,7 +1847,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "recommended_action=block_and_review "
             "profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 "
             "policy_reason=critical_regression_or_contract_mismatch "
-            "escalation_reason=contract_mismatch"
+            "escalation_reason=contract_mismatch "
+            "compatibility_tier=breaking_contract_change"
         ),
         "contract mismatch benchmark drift must expose escalation reason",
     )
@@ -1867,7 +1873,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "recommended_action=block_and_review "
             "profile_change_rollup=added:1,removed:1,deltas:1,selection_changes:1 "
             "policy_reason=critical_regression_or_contract_mismatch "
-            "escalation_reason=regression_and_contract_mismatch"
+            "escalation_reason=regression_and_contract_mismatch "
+            "compatibility_tier=breaking_contract_change"
         ),
         "governance summary must include regression, composition, and contract categories",
     )

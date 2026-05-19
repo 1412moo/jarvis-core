@@ -400,6 +400,7 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
                 benchmark_hash_changed=view.benchmark_hash_changed,
             ),
         ),
+        ("compatibility_tier", _governance_compatibility_tier(categories)),
     )
     return "Benchmark governance: " + _format_key_value_fields(fields)
 
@@ -453,6 +454,15 @@ def _governance_escalation_reason(
     if benchmark_hash_changed:
         return "hash_change_only"
     return "no_escalation"
+
+
+def _governance_compatibility_tier(categories: Sequence[str]) -> str:
+    category_set = set(categories)
+    if "regression" in category_set or "contract_mismatch" in category_set:
+        return "breaking_contract_change"
+    if "composition_change" in category_set:
+        return "additive_contract_change"
+    return "compatible"
 
 
 def _format_key_value_fields(fields: Sequence[tuple[str, str]]) -> str:
