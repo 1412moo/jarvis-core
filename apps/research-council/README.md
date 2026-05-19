@@ -124,6 +124,10 @@ Governance summary contract rules:
   `escalation_reason` must remain present.
 - Any intentional summary string change must update the smoke test exact
   expected strings.
+- Keep this line bounded to gate, action, and policy-trigger metadata.
+- Put per-profile detail, regression signals, scenario telemetry, and pack
+  metadata detail in the benchmark diff report instead of adding summary fields.
+- Add a new suffix only when CI triage needs the value on the first line.
 
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
