@@ -405,6 +405,14 @@ def classify_benchmark_governance_severity(view: BenchmarkDiffView) -> str:
     return "stable"
 
 
+def classify_benchmark_governance_gate(view: BenchmarkDiffView) -> str:
+    """Classify opt-in benchmark governance CI gate result."""
+
+    if classify_benchmark_governance_severity(view) == "critical":
+        return "fail"
+    return "pass"
+
+
 def categorize_benchmark_drift(view: BenchmarkDiffView) -> tuple[str, ...]:
     """Categorize benchmark drift with conservative governance labels."""
 
@@ -829,6 +837,7 @@ __all__ = [
     "build_benchmark_diff_view",
     "build_benchmark_diff_view_from_history",
     "categorize_benchmark_drift",
+    "classify_benchmark_governance_gate",
     "classify_benchmark_governance_severity",
     "compare_latest_to_previous",
     "format_benchmark_diff_view",

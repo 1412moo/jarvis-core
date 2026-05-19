@@ -44,6 +44,7 @@ from research_council.benchmark_history import (
     build_benchmark_diff_view,
     build_benchmark_diff_view_from_history,
     categorize_benchmark_drift,
+    classify_benchmark_governance_gate,
     classify_benchmark_governance_severity,
     compare_latest_to_previous,
     format_benchmark_diff_view,
@@ -1518,6 +1519,9 @@ def test_benchmark_diff_viewer_contract() -> None:
     before_path = artifacts_root / f"benchmark-diff-before-{os.getpid()}.json"
     after_path = artifacts_root / f"benchmark-diff-after-{os.getpid()}.json"
     history_path = artifacts_root / f"benchmark-diff-history-{os.getpid()}.json"
+    stable_history_path = (
+        artifacts_root / f"benchmark-diff-stable-history-{os.getpid()}.json"
+    )
 
     before_snapshot = export_benchmark_snapshot(summary, before_path)
     same_view = build_benchmark_diff_view(before_snapshot, before_snapshot)
@@ -1538,6 +1542,10 @@ def test_benchmark_diff_viewer_contract() -> None:
     _assert(
         classify_benchmark_governance_severity(same_view) == "stable",
         "identical benchmark diffs must classify as stable severity",
+    )
+    _assert(
+        classify_benchmark_governance_gate(same_view) == "pass",
+        "stable benchmark diffs must pass the governance gate",
     )
     _assert(
         "- drift_categories: none" in same_diff_text,
@@ -1566,6 +1574,10 @@ def test_benchmark_diff_viewer_contract() -> None:
     _assert(
         classify_benchmark_governance_severity(hash_only_view) == "info",
         "benchmark hash changes alone must classify as info severity",
+    )
+    _assert(
+        classify_benchmark_governance_gate(hash_only_view) == "pass",
+        "info benchmark diffs must pass the governance gate",
     )
 
     changed_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
@@ -1612,6 +1624,10 @@ def test_benchmark_diff_viewer_contract() -> None:
     _assert(
         classify_benchmark_governance_severity(diff_view) == "critical",
         "regression benchmark drift must classify as critical severity",
+    )
+    _assert(
+        classify_benchmark_governance_gate(diff_view) == "fail",
+        "regression benchmark drift must fail the governance gate",
     )
     _assert(
         diff_view.regression_count >= 5,
@@ -1704,6 +1720,10 @@ def test_benchmark_diff_viewer_contract() -> None:
         classify_benchmark_governance_severity(scenario_changed_view) == "warning",
         "composition-only benchmark drift must classify as warning severity",
     )
+    _assert(
+        classify_benchmark_governance_gate(scenario_changed_view) == "pass",
+        "warning benchmark diffs must pass the governance gate",
+    )
 
     pack_changed_payload = json.loads(
         json.dumps(benchmark_snapshot_to_json_dict(before_snapshot))
@@ -1721,6 +1741,10 @@ def test_benchmark_diff_viewer_contract() -> None:
     _assert(
         classify_benchmark_governance_severity(pack_changed_view) == "critical",
         "contract mismatch benchmark drift must classify as critical severity",
+    )
+    _assert(
+        classify_benchmark_governance_gate(pack_changed_view) == "fail",
+        "contract mismatch benchmark drift must fail the governance gate",
     )
 
     warning_payload = json.loads(json.dumps(changed_payload))
@@ -1758,6 +1782,13 @@ def test_benchmark_diff_viewer_contract() -> None:
         history_view == diff_view,
         "history diff view must compare the latest entry to the previous entry",
     )
+    stable_history = append_benchmark_history(before_snapshot, stable_history_path)
+    stable_history = append_benchmark_history(before_snapshot, stable_history_path)
+    stable_history_view = build_benchmark_diff_view_from_history(stable_history)
+    _assert(
+        classify_benchmark_governance_gate(stable_history_view) == "pass",
+        "stable history benchmark diffs must pass the governance gate",
+    )
 
     before_after_cli = subprocess.run(
         [
@@ -1775,7 +1806,8 @@ def test_benchmark_diff_viewer_contract() -> None:
     )
     _assert(
         before_after_cli.returncode == 0,
-        f"run_benchmark_diff --before/--after failed: {before_after_cli.stderr.strip()}",
+        "run_benchmark_diff --before/--after must preserve default exit code 0: "
+        + before_after_cli.stderr.strip(),
     )
     _assert(
         "Benchmark diff:" in before_after_cli.stdout
@@ -1801,6 +1833,41 @@ def test_benchmark_diff_viewer_contract() -> None:
         and "input_data" not in before_after_cli.stdout
         and "scenario_id" not in before_after_cli.stdout,
         "benchmark diff CLI output must not leak local paths",
+    )
+
+    fail_on_critical_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_benchmark_diff.py")),
+            "--before",
+            str(before_path),
+            "--after",
+            str(after_path),
+            "--fail-on-critical",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        fail_on_critical_cli.returncode == 1,
+        "run_benchmark_diff --fail-on-critical must fail critical benchmark diffs",
+    )
+    _assert(
+        "Benchmark governance:" in fail_on_critical_cli.stdout
+        and "Benchmark diff:" in fail_on_critical_cli.stdout
+        and "- drift_categories:" in fail_on_critical_cli.stdout,
+        "run_benchmark_diff --fail-on-critical must preserve benchmark diff output",
+    )
+    _assert(
+        "C:" not in fail_on_critical_cli.stdout
+        and "jarvis-core" not in fail_on_critical_cli.stdout
+        and "raw_idea" not in fail_on_critical_cli.stdout
+        and "goal" not in fail_on_critical_cli.stdout
+        and "input_data" not in fail_on_critical_cli.stdout
+        and "scenario_id" not in fail_on_critical_cli.stdout,
+        "benchmark diff fail-on-critical output must not leak local paths",
     )
 
     history_cli = subprocess.run(
@@ -1842,6 +1909,30 @@ def test_benchmark_diff_viewer_contract() -> None:
         and "input_data" not in history_cli.stdout
         and "scenario_id" not in history_cli.stdout,
         "benchmark diff history output must not leak local paths",
+    )
+
+    stable_history_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_benchmark_diff.py")),
+            "--history",
+            str(stable_history_path),
+            "--fail-on-critical",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        stable_history_cli.returncode == 0,
+        "run_benchmark_diff --fail-on-critical must pass stable history diffs",
+    )
+    _assert(
+        "Benchmark governance:" in stable_history_cli.stdout
+        and "severity=stable" in stable_history_cli.stdout
+        and "Benchmark diff:" in stable_history_cli.stdout,
+        "stable history fail-on-critical output must preserve benchmark diff output",
     )
 
 

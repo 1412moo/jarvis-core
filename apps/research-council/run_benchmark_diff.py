@@ -9,6 +9,7 @@ import sys
 from research_council.benchmark_history import (
     build_benchmark_diff_view,
     build_benchmark_diff_view_from_history,
+    classify_benchmark_governance_gate,
     format_benchmark_diff_view,
     format_benchmark_governance_summary,
     load_benchmark_history,
@@ -36,6 +37,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Later benchmark snapshot JSON file. Required with --before.",
     )
+    parser.add_argument(
+        "--fail-on-critical",
+        action="store_true",
+        help="Return exit code 1 when governance severity is critical.",
+    )
     args = parser.parse_args(argv)
 
     if args.before is not None and args.after is None:
@@ -51,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
         view = build_benchmark_diff_view(args.before, args.after)
     print(format_benchmark_governance_summary(view))
     print(format_benchmark_diff_view(view))
+    if args.fail_on_critical and classify_benchmark_governance_gate(view) == "fail":
+        return 1
     return 0
 
 
