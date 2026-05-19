@@ -29,14 +29,13 @@ from research_council.evaluation import (
     format_regression_summary,
 )
 from research_council.benchmark_snapshot import (
-    BENCHMARK_PACK_ID,
-    BENCHMARK_PACK_VERSION,
     benchmark_snapshot_from_json_dict,
     benchmark_snapshot_to_json_dict,
     compare_benchmark_snapshots,
     export_benchmark_snapshot,
     load_benchmark_snapshot,
     snapshot_to_json,
+    validate_benchmark_pack_metadata,
 )
 from research_council.benchmark_history import (
     append_benchmark_history,
@@ -143,37 +142,11 @@ def _assert_scenario_template_coverage(coverage: dict[str, object]) -> None:
 
 
 def _assert_benchmark_pack_metadata(metadata: dict[str, object]) -> None:
+    violations = validate_benchmark_pack_metadata(metadata)
     _assert(
-        metadata.get("pack_id") == BENCHMARK_PACK_ID,
-        "benchmark pack metadata must record the deterministic pack id",
-    )
-    _assert(
-        metadata.get("pack_version") == BENCHMARK_PACK_VERSION,
-        "benchmark pack metadata must record the deterministic pack version",
-    )
-    _assert(
-        metadata.get("golden_case_count") == 22,
-        "benchmark pack metadata must record golden case count",
-    )
-    _assert(
-        metadata.get("mutation_case_count") == 16,
-        "benchmark pack metadata must record mutation case count",
-    )
-    _assert(
-        metadata.get("template_mutation_subset_count") == 6,
-        "benchmark pack metadata must record template mutation subset count",
-    )
-    _assert(
-        metadata.get("scenario_template_count") == 42,
-        "benchmark pack metadata must record generated scenario template count",
-    )
-    _assert(
-        metadata.get("scenario_template_category_count") == 6,
-        "benchmark pack metadata must record scenario template category count",
-    )
-    _assert(
-        metadata.get("profile_count") == 7,
-        "benchmark pack metadata must record benchmark profile count",
+        not violations,
+        "benchmark pack metadata must match the frozen contract: "
+        + ", ".join(violations),
     )
     serialized = json.dumps(metadata, sort_keys=True)
     for forbidden_text in (
@@ -1288,6 +1261,10 @@ def test_benchmark_snapshot_export_contract() -> None:
         and old_snapshot_pack_metadata["golden_case_count"] == 0,
         "old snapshots without benchmark pack metadata must load tolerantly",
     )
+    _assert(
+        validate_benchmark_pack_metadata(old_snapshot_pack_metadata),
+        "old snapshots without benchmark pack metadata must fail frozen contract validation",
+    )
 
     same_diff = compare_benchmark_snapshots(loaded, loaded)
     _assert(
@@ -1393,6 +1370,10 @@ def test_benchmark_history_contract() -> None:
         old_history_entry.benchmark_pack_metadata["pack_id"] == ""
         and old_history_entry.benchmark_pack_metadata["golden_case_count"] == 0,
         "old history entries without benchmark pack metadata must load tolerantly",
+    )
+    _assert(
+        validate_benchmark_pack_metadata(old_history_entry.benchmark_pack_metadata),
+        "old history entries without benchmark pack metadata must fail frozen contract validation",
     )
 
     first_trend = compare_latest_to_previous(loaded_history)

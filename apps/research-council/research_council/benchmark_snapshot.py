@@ -15,8 +15,34 @@ from .scenario_templates import build_scenario_summary, generate_scenarios
 
 SNAPSHOT_SCHEMA_VERSION = 1
 DEFAULT_BENCHMARK_VERSION = "research-council-benchmark-v1"
-BENCHMARK_PACK_ID = "research_council_core"
-BENCHMARK_PACK_VERSION = "1"
+
+
+@dataclass(frozen=True)
+class BenchmarkPackContract:
+    """Frozen count-only contract for benchmark pack composition."""
+
+    pack_id: str
+    pack_version: str
+    golden_case_count: int
+    mutation_case_count: int
+    template_mutation_subset_count: int
+    scenario_template_count: int
+    scenario_template_category_count: int
+    profile_count: int
+
+
+RESEARCH_COUNCIL_CORE_V1_CONTRACT = BenchmarkPackContract(
+    pack_id="research_council_core",
+    pack_version="1",
+    golden_case_count=22,
+    mutation_case_count=16,
+    template_mutation_subset_count=6,
+    scenario_template_count=42,
+    scenario_template_category_count=6,
+    profile_count=7,
+)
+BENCHMARK_PACK_ID = RESEARCH_COUNCIL_CORE_V1_CONTRACT.pack_id
+BENCHMARK_PACK_VERSION = RESEARCH_COUNCIL_CORE_V1_CONTRACT.pack_version
 
 
 @dataclass(frozen=True)
@@ -283,6 +309,18 @@ def compare_benchmark_snapshots(
     )
 
 
+def validate_benchmark_pack_metadata(metadata: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return concise frozen-contract mismatch reasons for pack metadata."""
+
+    normalized = _benchmark_pack_metadata_mapping(metadata)
+    expected = _benchmark_pack_contract_mapping(RESEARCH_COUNCIL_CORE_V1_CONTRACT)
+    return tuple(
+        f"{field} expected {expected[field]!r} got {normalized[field]!r}"
+        for field in expected
+        if normalized[field] != expected[field]
+    )
+
+
 def _build_benchmark_snapshot_with_hash(
     summary: RegressionSummary,
     *,
@@ -395,10 +433,11 @@ def _benchmark_pack_metadata(summary: RegressionSummary) -> dict[str, Any]:
     scenario_summary = build_scenario_summary(generate_scenarios())
     from .mutation_tests import build_mutation_cases, build_template_mutation_cases
 
+    contract = RESEARCH_COUNCIL_CORE_V1_CONTRACT
     return _benchmark_pack_metadata_mapping(
         {
-            "pack_id": BENCHMARK_PACK_ID,
-            "pack_version": BENCHMARK_PACK_VERSION,
+            "pack_id": contract.pack_id,
+            "pack_version": contract.pack_version,
             "golden_case_count": len(summary.evaluations),
             "mutation_case_count": len(build_mutation_cases()),
             "template_mutation_subset_count": len(build_template_mutation_cases()),
@@ -427,6 +466,21 @@ def _benchmark_pack_metadata_mapping(value: Any) -> dict[str, Any]:
     }
 
 
+def _benchmark_pack_contract_mapping(contract: BenchmarkPackContract) -> dict[str, Any]:
+    return {
+        "pack_id": contract.pack_id,
+        "pack_version": contract.pack_version,
+        "golden_case_count": contract.golden_case_count,
+        "mutation_case_count": contract.mutation_case_count,
+        "template_mutation_subset_count": contract.template_mutation_subset_count,
+        "scenario_template_count": contract.scenario_template_count,
+        "scenario_template_category_count": (
+            contract.scenario_template_category_count
+        ),
+        "profile_count": contract.profile_count,
+    }
+
+
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
@@ -450,12 +504,14 @@ def _count_value(value: Mapping[str, int], key: str) -> int:
 
 __all__ = [
     "BenchmarkDiffSummary",
+    "BenchmarkPackContract",
     "BenchmarkRunMetadata",
     "BenchmarkSnapshot",
     "BenchmarkVersionInfo",
     "BENCHMARK_PACK_ID",
     "BENCHMARK_PACK_VERSION",
     "DEFAULT_BENCHMARK_VERSION",
+    "RESEARCH_COUNCIL_CORE_V1_CONTRACT",
     "SNAPSHOT_SCHEMA_VERSION",
     "benchmark_snapshot_from_json_dict",
     "benchmark_snapshot_to_json_dict",
@@ -464,4 +520,5 @@ __all__ = [
     "export_benchmark_snapshot",
     "load_benchmark_snapshot",
     "snapshot_to_json",
+    "validate_benchmark_pack_metadata",
 ]
