@@ -102,22 +102,63 @@ def _assert(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def _parse_governance_summary_fields(
+    summary: str,
+    message: str,
+) -> tuple[tuple[str, str], ...]:
+    _assert(
+        summary.startswith(GOVERNANCE_SUMMARY_PREFIX),
+        message + ": missing governance summary prefix",
+    )
+    fields: list[tuple[str, str]] = []
+    for field in summary[len(GOVERNANCE_SUMMARY_PREFIX) :].split(" "):
+        _assert(
+            "=" in field,
+            message + f": malformed governance summary field {field!r}",
+        )
+        key, value = field.split("=", 1)
+        fields.append((key, value))
+    field_names = tuple(key for key, _value in fields)
+    _assert(
+        len(set(field_names)) == len(field_names),
+        message + f": duplicate governance summary fields {field_names!r}",
+    )
+    return tuple(fields)
+
+
 def _assert_governance_summary_contract(
     actual: str,
     expected: str,
     message: str,
 ) -> None:
+    actual_fields = _parse_governance_summary_fields(actual, message)
+    expected_fields = _parse_governance_summary_fields(
+        expected,
+        message + ": expected string fixture",
+    )
+    actual_field_order = tuple(key for key, _value in actual_fields)
+    expected_field_order = tuple(key for key, _value in expected_fields)
+    _assert(
+        expected_field_order == GOVERNANCE_SUMMARY_FIELD_ORDER,
+        message + f": expected fixture field order changed {expected_field_order!r}",
+    )
+    _assert(
+        actual_field_order == GOVERNANCE_SUMMARY_FIELD_ORDER,
+        message + f": governance summary field order changed {actual_field_order!r}",
+    )
+    for (field, actual_value), (_expected_field, expected_value) in zip(
+        actual_fields,
+        expected_fields,
+    ):
+        _assert(
+            actual_value == expected_value,
+            (
+                message
+                + f": governance summary field {field!r} expected "
+                + f"{expected_value!r} got {actual_value!r}"
+            ),
+        )
     _assert(actual == expected, message)
-    _assert(
-        actual.startswith(GOVERNANCE_SUMMARY_PREFIX),
-        message + ": missing governance summary prefix",
-    )
-    fields = actual[len(GOVERNANCE_SUMMARY_PREFIX) :].split(" ")
-    _assert(
-        tuple(field.split("=", 1)[0] for field in fields)
-        == GOVERNANCE_SUMMARY_FIELD_ORDER,
-        message + ": governance summary field order changed",
-    )
 
 
 def _combined_reasoning_trace(entries: list[dict[str, object]]) -> str:
