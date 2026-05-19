@@ -117,6 +117,13 @@ Benchmark governance: status=stable categories=none regressions=0 severity=stabl
 Benchmark governance: status=warning categories=regression,contract_mismatch regressions=5 severity=critical recommended_action=block_and_review profile_change_rollup=added:0,removed:1,deltas:1,selection_changes:1
 ```
 
+Governance summary contract rules:
+
+- Field order, spacing, and suffix order are contract.
+- `recommended_action` and `profile_change_rollup` must remain present.
+- Any intentional summary string change must update the smoke test exact
+  expected strings.
+
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
 policy says otherwise. If the files are created in the repository root during
