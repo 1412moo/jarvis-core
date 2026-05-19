@@ -379,6 +379,7 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
     categories = categorize_benchmark_drift(view)
     category_text = ",".join(categories) if categories else "none"
     status = "warning" if categories else "stable"
+    severity = classify_benchmark_governance_severity(view)
     regressions = sum(
         1 for signal in view.regressions if signal != "benchmark_hash changed"
     )
@@ -386,8 +387,22 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
         "Benchmark governance: "
         f"status={status} "
         f"categories={category_text} "
-        f"regressions={regressions}"
+        f"regressions={regressions} "
+        f"severity={severity}"
     )
+
+
+def classify_benchmark_governance_severity(view: BenchmarkDiffView) -> str:
+    """Classify benchmark governance severity for CI-friendly output."""
+
+    categories = categorize_benchmark_drift(view)
+    if "regression" in categories or "contract_mismatch" in categories:
+        return "critical"
+    if "composition_change" in categories:
+        return "warning"
+    if view.benchmark_hash_changed:
+        return "info"
+    return "stable"
 
 
 def categorize_benchmark_drift(view: BenchmarkDiffView) -> tuple[str, ...]:
@@ -814,6 +829,7 @@ __all__ = [
     "build_benchmark_diff_view",
     "build_benchmark_diff_view_from_history",
     "categorize_benchmark_drift",
+    "classify_benchmark_governance_severity",
     "compare_latest_to_previous",
     "format_benchmark_diff_view",
     "format_benchmark_governance_summary",

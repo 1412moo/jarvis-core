@@ -44,6 +44,7 @@ from research_council.benchmark_history import (
     build_benchmark_diff_view,
     build_benchmark_diff_view_from_history,
     categorize_benchmark_drift,
+    classify_benchmark_governance_severity,
     compare_latest_to_previous,
     format_benchmark_diff_view,
     format_benchmark_governance_summary,
@@ -1528,8 +1529,15 @@ def test_benchmark_diff_viewer_contract() -> None:
     )
     _assert(
         same_governance_summary
-        == "Benchmark governance: status=stable categories=none regressions=0",
+        == (
+            "Benchmark governance: "
+            "status=stable categories=none regressions=0 severity=stable"
+        ),
         "stable benchmark diffs must report a compact stable governance summary",
+    )
+    _assert(
+        classify_benchmark_governance_severity(same_view) == "stable",
+        "identical benchmark diffs must classify as stable severity",
     )
     _assert(
         "- drift_categories: none" in same_diff_text,
@@ -1549,8 +1557,15 @@ def test_benchmark_diff_viewer_contract() -> None:
     )
     _assert(
         format_benchmark_governance_summary(hash_only_view)
-        == "Benchmark governance: status=stable categories=none regressions=0",
+        == (
+            "Benchmark governance: "
+            "status=stable categories=none regressions=0 severity=info"
+        ),
         "benchmark hash changes alone must not count as governance regressions",
+    )
+    _assert(
+        classify_benchmark_governance_severity(hash_only_view) == "info",
+        "benchmark hash changes alone must classify as info severity",
     )
 
     changed_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
@@ -1588,9 +1603,15 @@ def test_benchmark_diff_viewer_contract() -> None:
         governance_summary
         == (
             "Benchmark governance: "
-            "status=warning categories=regression,composition_change regressions=5"
+            "status=warning "
+            "categories=regression,composition_change "
+            "regressions=5 severity=critical"
         ),
         "warning benchmark diffs must report compact regression governance",
+    )
+    _assert(
+        classify_benchmark_governance_severity(diff_view) == "critical",
+        "regression benchmark drift must classify as critical severity",
     )
     _assert(
         diff_view.regression_count >= 5,
@@ -1671,6 +1692,18 @@ def test_benchmark_diff_viewer_contract() -> None:
         categorize_benchmark_drift(scenario_changed_view) == ("composition_change",),
         "scenario template count changes must be categorized as composition changes",
     )
+    _assert(
+        format_benchmark_governance_summary(scenario_changed_view)
+        == (
+            "Benchmark governance: "
+            "status=warning categories=composition_change regressions=0 severity=warning"
+        ),
+        "composition-only benchmark drift must report warning severity",
+    )
+    _assert(
+        classify_benchmark_governance_severity(scenario_changed_view) == "warning",
+        "composition-only benchmark drift must classify as warning severity",
+    )
 
     pack_changed_payload = json.loads(
         json.dumps(benchmark_snapshot_to_json_dict(before_snapshot))
@@ -1685,6 +1718,10 @@ def test_benchmark_diff_viewer_contract() -> None:
         == ("composition_change", "contract_mismatch"),
         "invalid benchmark pack changes must report composition and contract mismatch",
     )
+    _assert(
+        classify_benchmark_governance_severity(pack_changed_view) == "critical",
+        "contract mismatch benchmark drift must classify as critical severity",
+    )
 
     warning_payload = json.loads(json.dumps(changed_payload))
     warning_payload["benchmark_pack_metadata"]["profile_count"] += 1
@@ -1698,7 +1735,7 @@ def test_benchmark_diff_viewer_contract() -> None:
             "Benchmark governance: "
             "status=warning "
             "categories=regression,composition_change,contract_mismatch "
-            "regressions=5"
+            "regressions=5 severity=critical"
         ),
         "governance summary must include regression, composition, and contract categories",
     )
