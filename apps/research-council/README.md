@@ -83,6 +83,61 @@ such as profile selection, required risk language, confidence blockers,
 reasoning traces, and JSON `quality_signals`. They intentionally avoid exact
 snapshot diffs.
 
+## Benchmark Governance CI Usage
+
+Use deterministic benchmark governance commands to check benchmark composition,
+drift categories, severity, and the opt-in CI gate from a terminal or CI job.
+The gate only fails when `--fail-on-critical` is supplied and the benchmark
+governance severity is `critical`; the default diff command preserves exit code
+`0` after printing the report.
+
+Basic command sequence:
+
+```bash
+python -B apps\research-council\run_golden_cases.py
+python -B apps\research-council\run_golden_cases.py --export-snapshot benchmark_snapshot.json
+python -B apps\research-council\run_benchmark_history.py --snapshot benchmark_snapshot.json --history benchmark_history.json
+python -B apps\research-council\run_benchmark_diff.py --history benchmark_history.json --fail-on-critical
+```
+
+Expected exit behavior:
+
+- `run_golden_cases.py` exits nonzero only when golden-case invariants fail.
+- `run_benchmark_diff.py --fail-on-critical` exits `1` only for
+  `severity=critical`.
+- `severity=stable`, `severity=info`, and `severity=warning` remain pass-only
+  for the opt-in gate.
+- Without `--fail-on-critical`, `run_benchmark_diff.py` keeps the default
+  reporting behavior; successful diff rendering returns exit code `0`.
+
+Governance summary examples:
+
+```text
+Benchmark governance: status=stable categories=none regressions=0 severity=stable
+Benchmark governance: status=warning categories=regression,contract_mismatch regressions=5 severity=critical
+```
+
+`benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
+artifacts. Keep them out of commits unless a future explicit benchmark artifact
+policy says otherwise. If the files are created in the repository root during
+local or CI checks, remove them after the run:
+
+```bash
+rm -f benchmark_snapshot.json benchmark_history.json
+```
+
+A history file with only one entry is useful for validating serialization and
+report formatting, but it is not a baseline-vs-current regression comparison.
+Do not treat a newly created single-entry history as a regression comparison.
+For real CI gating, use an intentional baseline snapshot or history strategy
+when comparing feature-branch output against an established benchmark pack.
+
+Non-goals for this usage note:
+
+- No GitHub Actions workflow file is added yet.
+- No default-branch baseline automation is added yet.
+- No generated artifact persistence policy is defined yet.
+
 The demo prints Markdown to stdout. Generated reports are not written to committed
 paths by default. The local `apps/research-council/artifacts/` directory is
 ignored for generated JSON exports.
