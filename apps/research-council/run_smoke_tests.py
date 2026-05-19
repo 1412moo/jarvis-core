@@ -43,6 +43,7 @@ from research_council.benchmark_history import (
     benchmark_history_entry_to_json_dict,
     build_benchmark_diff_view,
     build_benchmark_diff_view_from_history,
+    categorize_benchmark_drift,
     compare_latest_to_previous,
     format_benchmark_diff_view,
     format_benchmark_trend_summary,
@@ -1517,6 +1518,29 @@ def test_benchmark_diff_viewer_contract() -> None:
     history_path = artifacts_root / f"benchmark-diff-history-{os.getpid()}.json"
 
     before_snapshot = export_benchmark_snapshot(summary, before_path)
+    same_view = build_benchmark_diff_view(before_snapshot, before_snapshot)
+    same_diff_text = format_benchmark_diff_view(same_view)
+    _assert(
+        not categorize_benchmark_drift(same_view),
+        "identical benchmark diffs must not report drift categories",
+    )
+    _assert(
+        "- drift_categories: none" in same_diff_text,
+        "benchmark diff formatter must report empty drift categories",
+    )
+
+    hash_only_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
+    hash_only_payload["version_info"]["benchmark_hash"] = "changed"
+    hash_only_view = build_benchmark_diff_view(
+        before_snapshot,
+        benchmark_snapshot_from_json_dict(hash_only_payload),
+    )
+    _assert(
+        hash_only_view.benchmark_hash_changed
+        and "regression" not in categorize_benchmark_drift(hash_only_view),
+        "benchmark hash changes alone must not be categorized as regression",
+    )
+
     changed_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
     changed_payload["failed_invariants"] += 1
     changed_payload["consistency_failures"] += 1
@@ -1541,7 +1565,12 @@ def test_benchmark_diff_viewer_contract() -> None:
 
     diff_view = build_benchmark_diff_view(before_snapshot, after_snapshot)
     diff_text = format_benchmark_diff_view(diff_view)
+    drift_categories = categorize_benchmark_drift(diff_view)
     _assert(diff_view.changed, "benchmark diff view must report hash changes")
+    _assert(
+        drift_categories == ("regression", "composition_change"),
+        "benchmark drift categories must classify regressions and composition changes",
+    )
     _assert(
         diff_view.regression_count >= 5,
         "benchmark diff view must surface regression signals",
@@ -1581,6 +1610,7 @@ def test_benchmark_diff_viewer_contract() -> None:
         "- augmentation:",
         "- scenario_templates:",
         "- benchmark_pack:",
+        "- drift_categories:",
         "- profiles:",
         "- benchmark_hash_changed:",
         "- regression_signals:",
@@ -1602,6 +1632,48 @@ def test_benchmark_diff_viewer_contract() -> None:
         "benchmark_pack: changed=false, golden=+0, mutation=+0, templates=+0, profiles=+0"
         in diff_text,
         "benchmark diff formatter must include concise benchmark pack metadata",
+    )
+    _assert(
+        "drift_categories: regression,composition_change" in diff_text,
+        "benchmark diff formatter must include concise drift categories",
+    )
+
+    scenario_changed_payload = json.loads(
+        json.dumps(benchmark_snapshot_to_json_dict(before_snapshot))
+    )
+    scenario_changed_payload["scenario_template_coverage"]["total_scenarios"] += 1
+    scenario_changed_view = build_benchmark_diff_view(
+        before_snapshot,
+        benchmark_snapshot_from_json_dict(scenario_changed_payload),
+    )
+    _assert(
+        categorize_benchmark_drift(scenario_changed_view) == ("composition_change",),
+        "scenario template count changes must be categorized as composition changes",
+    )
+
+    pack_changed_payload = json.loads(
+        json.dumps(benchmark_snapshot_to_json_dict(before_snapshot))
+    )
+    pack_changed_payload["benchmark_pack_metadata"]["profile_count"] += 1
+    pack_changed_view = build_benchmark_diff_view(
+        before_snapshot,
+        benchmark_snapshot_from_json_dict(pack_changed_payload),
+    )
+    _assert(
+        categorize_benchmark_drift(pack_changed_view)
+        == ("composition_change", "contract_mismatch"),
+        "invalid benchmark pack changes must report composition and contract mismatch",
+    )
+
+    old_pack_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
+    old_pack_payload.pop("benchmark_pack_metadata", None)
+    old_pack_view = build_benchmark_diff_view(
+        before_snapshot,
+        benchmark_snapshot_from_json_dict(old_pack_payload),
+    )
+    _assert(
+        "contract_mismatch" in categorize_benchmark_drift(old_pack_view),
+        "missing benchmark pack metadata must be categorized as contract mismatch",
     )
 
     history = append_benchmark_history(before_snapshot, history_path)

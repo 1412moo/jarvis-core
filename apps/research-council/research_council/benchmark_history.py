@@ -13,6 +13,7 @@ from .benchmark_snapshot import (
     benchmark_snapshot_from_json_dict,
     benchmark_snapshot_to_json_dict,
     load_benchmark_snapshot,
+    validate_benchmark_pack_metadata,
 )
 
 
@@ -118,6 +119,7 @@ class BenchmarkDiffView:
     scenario_template_coverage_changed: bool = False
     benchmark_pack_metadata_delta: Mapping[str, int] = field(default_factory=dict)
     benchmark_pack_metadata_changed: bool = False
+    benchmark_pack_contract_violations: tuple[str, ...] = ()
     benchmark_hash_changed: bool = False
 
     @property
@@ -300,6 +302,7 @@ def format_benchmark_trend_summary(summary: BenchmarkTrendSummary) -> str:
 def format_benchmark_diff_view(view: BenchmarkDiffView) -> str:
     """Format a concise, deterministic benchmark diff report."""
 
+    drift_categories = categorize_benchmark_drift(view)
     lines = [
         (
             "Benchmark diff: "
@@ -334,6 +337,8 @@ def format_benchmark_diff_view(view: BenchmarkDiffView) -> str:
             f"templates={_signed(_count_value(view.benchmark_pack_metadata_delta, 'templates'))}, "
             f"profiles={_signed(_count_value(view.benchmark_pack_metadata_delta, 'profiles'))}"
         ),
+        "- drift_categories: "
+        + (",".join(drift_categories) if drift_categories else "none"),
         "- profiles: " + _format_added_removed(view.profiles_added, view.profiles_removed),
         "- case_ids: " + _format_added_removed(view.case_ids_added, view.case_ids_removed),
         f"- benchmark_hash_changed: {str(view.benchmark_hash_changed).lower()}",
@@ -366,6 +371,30 @@ def format_benchmark_diff_view(view: BenchmarkDiffView) -> str:
     if view.regressions:
         lines.append("- regression_signals: " + ", ".join(view.regressions))
     return "\n".join(lines)
+
+
+def categorize_benchmark_drift(view: BenchmarkDiffView) -> tuple[str, ...]:
+    """Categorize benchmark drift with conservative governance labels."""
+
+    categories: list[str] = []
+    if (
+        view.failed_invariants_delta > 0
+        or view.consistency_failures_delta > 0
+        or any(signal != "benchmark_hash changed" for signal in view.regressions)
+    ):
+        categories.append("regression")
+    if (
+        view.profiles_added
+        or view.profiles_removed
+        or view.case_ids_added
+        or view.case_ids_removed
+        or view.scenario_template_coverage_changed
+        or view.benchmark_pack_metadata_changed
+    ):
+        categories.append("composition_change")
+    if view.benchmark_pack_contract_violations:
+        categories.append("contract_mismatch")
+    return tuple(categories)
 
 
 def benchmark_history_entry_from_snapshot(
@@ -541,6 +570,9 @@ def _diff_view_from_trend(
         scenario_template_coverage_changed=trend.scenario_template_coverage_changed,
         benchmark_pack_metadata_delta=trend.benchmark_pack_metadata_delta,
         benchmark_pack_metadata_changed=trend.benchmark_pack_metadata_changed,
+        benchmark_pack_contract_violations=validate_benchmark_pack_metadata(
+            after_entry.benchmark_pack_metadata
+        ),
         benchmark_hash_changed=trend.benchmark_hash_changed,
     )
 
@@ -764,6 +796,7 @@ __all__ = [
     "benchmark_history_entry_to_json_dict",
     "build_benchmark_diff_view",
     "build_benchmark_diff_view_from_history",
+    "categorize_benchmark_drift",
     "compare_latest_to_previous",
     "format_benchmark_diff_view",
     "format_benchmark_trend_summary",
