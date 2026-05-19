@@ -10,6 +10,7 @@ from research_council.benchmark_history import (
     build_benchmark_diff_view,
     build_benchmark_diff_view_from_history,
     format_benchmark_diff_view,
+    format_benchmark_governance_summary,
     load_benchmark_history,
 )
 
@@ -48,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         view = build_benchmark_diff_view_from_history(load_benchmark_history(args.history))
     else:
         view = build_benchmark_diff_view(args.before, args.after)
+    print(format_benchmark_governance_summary(view))
     print(format_benchmark_diff_view(view))
     return 0
 

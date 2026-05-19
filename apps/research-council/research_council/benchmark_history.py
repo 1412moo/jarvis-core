@@ -373,6 +373,23 @@ def format_benchmark_diff_view(view: BenchmarkDiffView) -> str:
     return "\n".join(lines)
 
 
+def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
+    """Format a compact CI-oriented benchmark governance summary."""
+
+    categories = categorize_benchmark_drift(view)
+    category_text = ",".join(categories) if categories else "none"
+    status = "warning" if categories else "stable"
+    regressions = sum(
+        1 for signal in view.regressions if signal != "benchmark_hash changed"
+    )
+    return (
+        "Benchmark governance: "
+        f"status={status} "
+        f"categories={category_text} "
+        f"regressions={regressions}"
+    )
+
+
 def categorize_benchmark_drift(view: BenchmarkDiffView) -> tuple[str, ...]:
     """Categorize benchmark drift with conservative governance labels."""
 
@@ -799,6 +816,7 @@ __all__ = [
     "categorize_benchmark_drift",
     "compare_latest_to_previous",
     "format_benchmark_diff_view",
+    "format_benchmark_governance_summary",
     "format_benchmark_trend_summary",
     "history_to_json",
     "load_benchmark_history",

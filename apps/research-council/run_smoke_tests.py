@@ -46,6 +46,7 @@ from research_council.benchmark_history import (
     categorize_benchmark_drift,
     compare_latest_to_previous,
     format_benchmark_diff_view,
+    format_benchmark_governance_summary,
     format_benchmark_trend_summary,
     history_to_json,
     load_benchmark_history,
@@ -1520,9 +1521,15 @@ def test_benchmark_diff_viewer_contract() -> None:
     before_snapshot = export_benchmark_snapshot(summary, before_path)
     same_view = build_benchmark_diff_view(before_snapshot, before_snapshot)
     same_diff_text = format_benchmark_diff_view(same_view)
+    same_governance_summary = format_benchmark_governance_summary(same_view)
     _assert(
         not categorize_benchmark_drift(same_view),
         "identical benchmark diffs must not report drift categories",
+    )
+    _assert(
+        same_governance_summary
+        == "Benchmark governance: status=stable categories=none regressions=0",
+        "stable benchmark diffs must report a compact stable governance summary",
     )
     _assert(
         "- drift_categories: none" in same_diff_text,
@@ -1539,6 +1546,11 @@ def test_benchmark_diff_viewer_contract() -> None:
         hash_only_view.benchmark_hash_changed
         and "regression" not in categorize_benchmark_drift(hash_only_view),
         "benchmark hash changes alone must not be categorized as regression",
+    )
+    _assert(
+        format_benchmark_governance_summary(hash_only_view)
+        == "Benchmark governance: status=stable categories=none regressions=0",
+        "benchmark hash changes alone must not count as governance regressions",
     )
 
     changed_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
@@ -1565,11 +1577,20 @@ def test_benchmark_diff_viewer_contract() -> None:
 
     diff_view = build_benchmark_diff_view(before_snapshot, after_snapshot)
     diff_text = format_benchmark_diff_view(diff_view)
+    governance_summary = format_benchmark_governance_summary(diff_view)
     drift_categories = categorize_benchmark_drift(diff_view)
     _assert(diff_view.changed, "benchmark diff view must report hash changes")
     _assert(
         drift_categories == ("regression", "composition_change"),
         "benchmark drift categories must classify regressions and composition changes",
+    )
+    _assert(
+        governance_summary
+        == (
+            "Benchmark governance: "
+            "status=warning categories=regression,composition_change regressions=5"
+        ),
+        "warning benchmark diffs must report compact regression governance",
     )
     _assert(
         diff_view.regression_count >= 5,
@@ -1665,6 +1686,23 @@ def test_benchmark_diff_viewer_contract() -> None:
         "invalid benchmark pack changes must report composition and contract mismatch",
     )
 
+    warning_payload = json.loads(json.dumps(changed_payload))
+    warning_payload["benchmark_pack_metadata"]["profile_count"] += 1
+    warning_view = build_benchmark_diff_view(
+        before_snapshot,
+        benchmark_snapshot_from_json_dict(warning_payload),
+    )
+    _assert(
+        format_benchmark_governance_summary(warning_view)
+        == (
+            "Benchmark governance: "
+            "status=warning "
+            "categories=regression,composition_change,contract_mismatch "
+            "regressions=5"
+        ),
+        "governance summary must include regression, composition, and contract categories",
+    )
+
     old_pack_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
     old_pack_payload.pop("benchmark_pack_metadata", None)
     old_pack_view = build_benchmark_diff_view(
@@ -1707,8 +1745,24 @@ def test_benchmark_diff_viewer_contract() -> None:
         and "regressions=" in before_after_cli.stdout,
         "run_benchmark_diff --before/--after must print concise diff output",
     )
+    before_after_lines = before_after_cli.stdout.strip().splitlines()
     _assert(
-        "C:" not in before_after_cli.stdout and "jarvis-core" not in before_after_cli.stdout,
+        before_after_lines
+        and before_after_lines[0].startswith("Benchmark governance:"),
+        "run_benchmark_diff --before/--after must print governance summary first",
+    )
+    _assert(
+        "Benchmark diff:" in before_after_cli.stdout
+        and "- drift_categories:" in before_after_cli.stdout,
+        "run_benchmark_diff --before/--after must preserve detailed diff output",
+    )
+    _assert(
+        "C:" not in before_after_cli.stdout
+        and "jarvis-core" not in before_after_cli.stdout
+        and "raw_idea" not in before_after_cli.stdout
+        and "goal" not in before_after_cli.stdout
+        and "input_data" not in before_after_cli.stdout
+        and "scenario_id" not in before_after_cli.stdout,
         "benchmark diff CLI output must not leak local paths",
     )
 
@@ -1733,8 +1787,23 @@ def test_benchmark_diff_viewer_contract() -> None:
         and "regressions=" in history_cli.stdout,
         "run_benchmark_diff --history must print concise diff output",
     )
+    history_lines = history_cli.stdout.strip().splitlines()
     _assert(
-        "C:" not in history_cli.stdout and "jarvis-core" not in history_cli.stdout,
+        history_lines and history_lines[0].startswith("Benchmark governance:"),
+        "run_benchmark_diff --history must print governance summary first",
+    )
+    _assert(
+        "Benchmark diff:" in history_cli.stdout
+        and "- drift_categories:" in history_cli.stdout,
+        "run_benchmark_diff --history must preserve detailed diff output",
+    )
+    _assert(
+        "C:" not in history_cli.stdout
+        and "jarvis-core" not in history_cli.stdout
+        and "raw_idea" not in history_cli.stdout
+        and "goal" not in history_cli.stdout
+        and "input_data" not in history_cli.stdout
+        and "scenario_id" not in history_cli.stdout,
         "benchmark diff history output must not leak local paths",
     )
 
