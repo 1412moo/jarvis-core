@@ -128,6 +128,12 @@ Governance summary contract rules:
 - Put per-profile detail, regression signals, scenario telemetry, and pack
   metadata detail in the benchmark diff report instead of adding summary fields.
 - Add a new suffix only when CI triage needs the value on the first line.
+- Contract evolution is append-only: new metadata may be added only as a final
+  suffix, with README examples and smoke exact expected strings updated together.
+- Reordering, removing, renaming, changing spacing, or changing existing field
+  semantics is a breaking governance contract change.
+- Deprecate by leaving the existing field stable and appending a replacement
+  suffix; do not repurpose an existing field.
 
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
