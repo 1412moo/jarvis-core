@@ -45,6 +45,7 @@ class BenchmarkHistoryEntry:
     case_ids: tuple[str, ...]
     selected_profiles_by_case: Mapping[str, str]
     scenario_template_coverage: Mapping[str, Any] = field(default_factory=dict)
+    benchmark_pack_metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,8 @@ class BenchmarkTrendSummary:
     evidence_gap_delta: Mapping[str, int] = field(default_factory=dict)
     scenario_template_coverage_delta: Mapping[str, int] = field(default_factory=dict)
     scenario_template_coverage_changed: bool = False
+    benchmark_pack_metadata_delta: Mapping[str, int] = field(default_factory=dict)
+    benchmark_pack_metadata_changed: bool = False
     benchmark_hash_changed: bool = False
 
     @property
@@ -113,6 +116,8 @@ class BenchmarkDiffView:
     confidence_impact_delta: Mapping[str, int] = field(default_factory=dict)
     scenario_template_coverage_delta: Mapping[str, int] = field(default_factory=dict)
     scenario_template_coverage_changed: bool = False
+    benchmark_pack_metadata_delta: Mapping[str, int] = field(default_factory=dict)
+    benchmark_pack_metadata_changed: bool = False
     benchmark_hash_changed: bool = False
 
     @property
@@ -217,6 +222,14 @@ def compare_latest_to_previous(
         _scenario_template_coverage_mapping(previous.scenario_template_coverage)
         != _scenario_template_coverage_mapping(latest.scenario_template_coverage)
     )
+    benchmark_pack_metadata_delta = _benchmark_pack_metadata_delta(
+        previous.benchmark_pack_metadata,
+        latest.benchmark_pack_metadata,
+    )
+    benchmark_pack_metadata_changed = (
+        _benchmark_pack_metadata_mapping(previous.benchmark_pack_metadata)
+        != _benchmark_pack_metadata_mapping(latest.benchmark_pack_metadata)
+    )
 
     trend = BenchmarkTrendSummary(
         entries=len(entries),
@@ -250,6 +263,8 @@ def compare_latest_to_previous(
         evidence_gap_delta=evidence_gap_delta,
         scenario_template_coverage_delta=scenario_template_coverage_delta,
         scenario_template_coverage_changed=scenario_template_coverage_changed,
+        benchmark_pack_metadata_delta=benchmark_pack_metadata_delta,
+        benchmark_pack_metadata_changed=benchmark_pack_metadata_changed,
         benchmark_hash_changed=(previous.benchmark_hash != latest.benchmark_hash),
     )
     return BenchmarkTrendSummary(
@@ -310,6 +325,14 @@ def format_benchmark_diff_view(view: BenchmarkDiffView) -> str:
             f"categories={_signed(_count_value(view.scenario_template_coverage_delta, 'categories'))}, "
             f"profiles={_signed(_count_value(view.scenario_template_coverage_delta, 'profiles'))}, "
             f"subset={_signed(_count_value(view.scenario_template_coverage_delta, 'subset'))}"
+        ),
+        (
+            "- benchmark_pack: "
+            f"changed={str(view.benchmark_pack_metadata_changed).lower()}, "
+            f"golden={_signed(_count_value(view.benchmark_pack_metadata_delta, 'golden'))}, "
+            f"mutation={_signed(_count_value(view.benchmark_pack_metadata_delta, 'mutation'))}, "
+            f"templates={_signed(_count_value(view.benchmark_pack_metadata_delta, 'templates'))}, "
+            f"profiles={_signed(_count_value(view.benchmark_pack_metadata_delta, 'profiles'))}"
         ),
         "- profiles: " + _format_added_removed(view.profiles_added, view.profiles_removed),
         "- case_ids: " + _format_added_removed(view.case_ids_added, view.case_ids_removed),
@@ -383,6 +406,9 @@ def benchmark_history_entry_from_snapshot(
         scenario_template_coverage=_scenario_template_coverage_mapping(
             payload.get("scenario_template_coverage")
         ),
+        benchmark_pack_metadata=_benchmark_pack_metadata_mapping(
+            payload.get("benchmark_pack_metadata")
+        ),
     )
 
 
@@ -423,6 +449,9 @@ def benchmark_history_entry_to_json_dict(
         "scenario_template_coverage": _scenario_template_coverage_mapping(
             entry.scenario_template_coverage
         ),
+        "benchmark_pack_metadata": _benchmark_pack_metadata_mapping(
+            entry.benchmark_pack_metadata
+        ),
     }
 
 
@@ -460,6 +489,9 @@ def benchmark_history_entry_from_json_dict(
         },
         scenario_template_coverage=_scenario_template_coverage_mapping(
             payload.get("scenario_template_coverage")
+        ),
+        benchmark_pack_metadata=_benchmark_pack_metadata_mapping(
+            payload.get("benchmark_pack_metadata")
         ),
     )
 
@@ -507,6 +539,8 @@ def _diff_view_from_trend(
         confidence_impact_delta=trend.confidence_impact_delta,
         scenario_template_coverage_delta=trend.scenario_template_coverage_delta,
         scenario_template_coverage_changed=trend.scenario_template_coverage_changed,
+        benchmark_pack_metadata_delta=trend.benchmark_pack_metadata_delta,
+        benchmark_pack_metadata_changed=trend.benchmark_pack_metadata_changed,
         benchmark_hash_changed=trend.benchmark_hash_changed,
     )
 
@@ -630,6 +664,43 @@ def _scenario_template_coverage_mapping(value: Any) -> dict[str, Any]:
         ),
         "categories_covered": _string_list(mapping.get("categories_covered")),
         "profiles_covered": _string_list(mapping.get("profiles_covered")),
+    }
+
+
+def _benchmark_pack_metadata_delta(
+    previous: Mapping[str, Any],
+    latest: Mapping[str, Any],
+) -> dict[str, int]:
+    previous_metadata = _benchmark_pack_metadata_mapping(previous)
+    latest_metadata = _benchmark_pack_metadata_mapping(latest)
+    fields = {
+        "golden": "golden_case_count",
+        "mutation": "mutation_case_count",
+        "templates": "scenario_template_count",
+        "profiles": "profile_count",
+    }
+    return {
+        label: _int_value(latest_metadata.get(field)) - _int_value(previous_metadata.get(field))
+        for label, field in fields.items()
+        if _int_value(latest_metadata.get(field)) - _int_value(previous_metadata.get(field))
+    }
+
+
+def _benchmark_pack_metadata_mapping(value: Any) -> dict[str, Any]:
+    mapping = _mapping(value)
+    return {
+        "pack_id": str(mapping.get("pack_id", "")),
+        "pack_version": str(mapping.get("pack_version", "")),
+        "golden_case_count": _int_value(mapping.get("golden_case_count")),
+        "mutation_case_count": _int_value(mapping.get("mutation_case_count")),
+        "template_mutation_subset_count": _int_value(
+            mapping.get("template_mutation_subset_count")
+        ),
+        "scenario_template_count": _int_value(mapping.get("scenario_template_count")),
+        "scenario_template_category_count": _int_value(
+            mapping.get("scenario_template_category_count")
+        ),
+        "profile_count": _int_value(mapping.get("profile_count")),
     }
 
 

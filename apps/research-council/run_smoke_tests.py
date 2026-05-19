@@ -29,6 +29,8 @@ from research_council.evaluation import (
     format_regression_summary,
 )
 from research_council.benchmark_snapshot import (
+    BENCHMARK_PACK_ID,
+    BENCHMARK_PACK_VERSION,
     benchmark_snapshot_from_json_dict,
     benchmark_snapshot_to_json_dict,
     compare_benchmark_snapshots,
@@ -137,6 +139,54 @@ def _assert_scenario_template_coverage(coverage: dict[str, object]) -> None:
         _assert(
             forbidden_text not in serialized,
             f"scenario template coverage must not store raw scenario data: {forbidden_text}",
+        )
+
+
+def _assert_benchmark_pack_metadata(metadata: dict[str, object]) -> None:
+    _assert(
+        metadata.get("pack_id") == BENCHMARK_PACK_ID,
+        "benchmark pack metadata must record the deterministic pack id",
+    )
+    _assert(
+        metadata.get("pack_version") == BENCHMARK_PACK_VERSION,
+        "benchmark pack metadata must record the deterministic pack version",
+    )
+    _assert(
+        metadata.get("golden_case_count") == 22,
+        "benchmark pack metadata must record golden case count",
+    )
+    _assert(
+        metadata.get("mutation_case_count") == 16,
+        "benchmark pack metadata must record mutation case count",
+    )
+    _assert(
+        metadata.get("template_mutation_subset_count") == 6,
+        "benchmark pack metadata must record template mutation subset count",
+    )
+    _assert(
+        metadata.get("scenario_template_count") == 42,
+        "benchmark pack metadata must record generated scenario template count",
+    )
+    _assert(
+        metadata.get("scenario_template_category_count") == 6,
+        "benchmark pack metadata must record scenario template category count",
+    )
+    _assert(
+        metadata.get("profile_count") == 7,
+        "benchmark pack metadata must record benchmark profile count",
+    )
+    serialized = json.dumps(metadata, sort_keys=True)
+    for forbidden_text in (
+        "C:",
+        "jarvis-core",
+        "raw_idea",
+        "goal",
+        "input_data",
+        "scenario_id",
+    ):
+        _assert(
+            forbidden_text not in serialized,
+            f"benchmark pack metadata must not store raw benchmark data: {forbidden_text}",
         )
 
 
@@ -1195,6 +1245,7 @@ def test_benchmark_snapshot_export_contract() -> None:
         "OFF snapshot must record zero augmentation counts",
     )
     _assert_scenario_template_coverage(payload["scenario_template_coverage"])
+    _assert_benchmark_pack_metadata(payload["benchmark_pack_metadata"])
     _assert(
         payload["cases_by_profile"] == dict(analytics.cases_by_profile),
         "snapshot cases_by_profile must match analytics",
@@ -1219,14 +1270,23 @@ def test_benchmark_snapshot_export_contract() -> None:
     )
     old_snapshot_payload = dict(payload)
     old_snapshot_payload.pop("scenario_template_coverage", None)
+    old_snapshot_payload.pop("benchmark_pack_metadata", None)
     old_snapshot = benchmark_snapshot_from_json_dict(old_snapshot_payload)
     old_snapshot_coverage = benchmark_snapshot_to_json_dict(old_snapshot)[
         "scenario_template_coverage"
+    ]
+    old_snapshot_pack_metadata = benchmark_snapshot_to_json_dict(old_snapshot)[
+        "benchmark_pack_metadata"
     ]
     _assert(
         old_snapshot_coverage["coverage_type"] == ""
         and old_snapshot_coverage["total_scenarios"] == 0,
         "old snapshots without scenario template coverage must load tolerantly",
+    )
+    _assert(
+        old_snapshot_pack_metadata["pack_id"] == ""
+        and old_snapshot_pack_metadata["golden_case_count"] == 0,
+        "old snapshots without benchmark pack metadata must load tolerantly",
     )
 
     same_diff = compare_benchmark_snapshots(loaded, loaded)
@@ -1316,10 +1376,23 @@ def test_benchmark_history_contract() -> None:
         "benchmark history entry mapping must round-trip",
     )
     _assert_scenario_template_coverage(payload["entries"][0]["scenario_template_coverage"])
+    _assert_benchmark_pack_metadata(payload["entries"][0]["benchmark_pack_metadata"])
     _assert(
         loaded_history[0].scenario_template_coverage
         == snapshot.scenario_template_coverage,
         "benchmark history must preserve scenario template coverage metadata",
+    )
+    _assert(
+        loaded_history[0].benchmark_pack_metadata == snapshot.benchmark_pack_metadata,
+        "benchmark history must preserve benchmark pack metadata",
+    )
+    old_history_entry_payload = benchmark_history_entry_to_json_dict(loaded_history[0])
+    old_history_entry_payload.pop("benchmark_pack_metadata", None)
+    old_history_entry = benchmark_history_entry_from_json_dict(old_history_entry_payload)
+    _assert(
+        old_history_entry.benchmark_pack_metadata["pack_id"] == ""
+        and old_history_entry.benchmark_pack_metadata["golden_case_count"] == 0,
+        "old history entries without benchmark pack metadata must load tolerantly",
     )
 
     first_trend = compare_latest_to_previous(loaded_history)
@@ -1341,6 +1414,11 @@ def test_benchmark_history_contract() -> None:
         not repeated_trend.scenario_template_coverage_changed
         and not repeated_trend.scenario_template_coverage_delta,
         "repeated identical snapshots must keep scenario template telemetry stable",
+    )
+    _assert(
+        not repeated_trend.benchmark_pack_metadata_changed
+        and not repeated_trend.benchmark_pack_metadata_delta,
+        "repeated identical snapshots must keep benchmark pack metadata stable",
     )
 
     changed_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(snapshot)))
@@ -1386,6 +1464,11 @@ def test_benchmark_history_contract() -> None:
         not changed_trend.scenario_template_coverage_changed
         and not changed_trend.scenario_template_coverage_delta,
         "unchanged scenario template metadata must not create trend noise",
+    )
+    _assert(
+        not changed_trend.benchmark_pack_metadata_changed
+        and not changed_trend.benchmark_pack_metadata_delta,
+        "unchanged benchmark pack metadata must not create trend noise",
     )
     for expected_signal in (
         "failed_invariants increased",
@@ -1516,6 +1599,7 @@ def test_benchmark_diff_viewer_contract() -> None:
         "- cases:",
         "- augmentation:",
         "- scenario_templates:",
+        "- benchmark_pack:",
         "- profiles:",
         "- benchmark_hash_changed:",
         "- regression_signals:",
@@ -1532,6 +1616,11 @@ def test_benchmark_diff_viewer_contract() -> None:
         "scenario_templates: changed=false, scenarios=+0, categories=+0, profiles=+0, subset=+0"
         in diff_text,
         "benchmark diff formatter must include concise scenario template telemetry",
+    )
+    _assert(
+        "benchmark_pack: changed=false, golden=+0, mutation=+0, templates=+0, profiles=+0"
+        in diff_text,
+        "benchmark diff formatter must include concise benchmark pack metadata",
     )
 
     history = append_benchmark_history(before_snapshot, history_path)

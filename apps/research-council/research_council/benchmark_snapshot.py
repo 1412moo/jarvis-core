@@ -15,6 +15,8 @@ from .scenario_templates import build_scenario_summary, generate_scenarios
 
 SNAPSHOT_SCHEMA_VERSION = 1
 DEFAULT_BENCHMARK_VERSION = "research-council-benchmark-v1"
+BENCHMARK_PACK_ID = "research_council_core"
+BENCHMARK_PACK_VERSION = "1"
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,7 @@ class BenchmarkSnapshot:
     case_ids: tuple[str, ...]
     selected_profiles_by_case: Mapping[str, str]
     scenario_template_coverage: Mapping[str, Any] = field(default_factory=dict)
+    benchmark_pack_metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -179,6 +182,9 @@ def benchmark_snapshot_to_json_dict(snapshot: BenchmarkSnapshot) -> dict[str, An
         "scenario_template_coverage": _scenario_template_coverage_mapping(
             snapshot.scenario_template_coverage
         ),
+        "benchmark_pack_metadata": _benchmark_pack_metadata_mapping(
+            snapshot.benchmark_pack_metadata
+        ),
     }
 
 
@@ -233,6 +239,9 @@ def benchmark_snapshot_from_json_dict(payload: Mapping[str, Any]) -> BenchmarkSn
         },
         scenario_template_coverage=_scenario_template_coverage_mapping(
             payload.get("scenario_template_coverage")
+        ),
+        benchmark_pack_metadata=_benchmark_pack_metadata_mapping(
+            payload.get("benchmark_pack_metadata")
         ),
     )
 
@@ -331,6 +340,7 @@ def _build_benchmark_snapshot_with_hash(
             for evaluation in sorted(summary.evaluations, key=lambda item: item.case_id)
         },
         scenario_template_coverage=_scenario_template_coverage_metadata(),
+        benchmark_pack_metadata=_benchmark_pack_metadata(summary),
     )
 
 
@@ -381,6 +391,42 @@ def _scenario_template_coverage_mapping(value: Any) -> dict[str, Any]:
     }
 
 
+def _benchmark_pack_metadata(summary: RegressionSummary) -> dict[str, Any]:
+    scenario_summary = build_scenario_summary(generate_scenarios())
+    from .mutation_tests import build_mutation_cases, build_template_mutation_cases
+
+    return _benchmark_pack_metadata_mapping(
+        {
+            "pack_id": BENCHMARK_PACK_ID,
+            "pack_version": BENCHMARK_PACK_VERSION,
+            "golden_case_count": len(summary.evaluations),
+            "mutation_case_count": len(build_mutation_cases()),
+            "template_mutation_subset_count": len(build_template_mutation_cases()),
+            "scenario_template_count": scenario_summary.total_scenarios,
+            "scenario_template_category_count": len(scenario_summary.categories_covered),
+            "profile_count": len(scenario_summary.profiles_covered),
+        }
+    )
+
+
+def _benchmark_pack_metadata_mapping(value: Any) -> dict[str, Any]:
+    mapping = _mapping(value)
+    return {
+        "pack_id": str(mapping.get("pack_id", "")),
+        "pack_version": str(mapping.get("pack_version", "")),
+        "golden_case_count": _int_value(mapping.get("golden_case_count")),
+        "mutation_case_count": _int_value(mapping.get("mutation_case_count")),
+        "template_mutation_subset_count": _int_value(
+            mapping.get("template_mutation_subset_count")
+        ),
+        "scenario_template_count": _int_value(mapping.get("scenario_template_count")),
+        "scenario_template_category_count": _int_value(
+            mapping.get("scenario_template_category_count")
+        ),
+        "profile_count": _int_value(mapping.get("profile_count")),
+    }
+
+
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
@@ -407,6 +453,8 @@ __all__ = [
     "BenchmarkRunMetadata",
     "BenchmarkSnapshot",
     "BenchmarkVersionInfo",
+    "BENCHMARK_PACK_ID",
+    "BENCHMARK_PACK_VERSION",
     "DEFAULT_BENCHMARK_VERSION",
     "SNAPSHOT_SCHEMA_VERSION",
     "benchmark_snapshot_from_json_dict",
