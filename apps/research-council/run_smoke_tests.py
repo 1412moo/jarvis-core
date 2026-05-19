@@ -86,10 +86,38 @@ REQUIRED_GAP_CATEGORIES = {
     "market",
 }
 
+GOVERNANCE_SUMMARY_PREFIX = "Benchmark governance: "
+GOVERNANCE_SUMMARY_FIELD_ORDER = (
+    "status",
+    "categories",
+    "regressions",
+    "severity",
+    "recommended_action",
+    "profile_change_rollup",
+)
+
 
 def _assert(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def _assert_governance_summary_contract(
+    actual: str,
+    expected: str,
+    message: str,
+) -> None:
+    _assert(actual == expected, message)
+    _assert(
+        actual.startswith(GOVERNANCE_SUMMARY_PREFIX),
+        message + ": missing governance summary prefix",
+    )
+    fields = actual[len(GOVERNANCE_SUMMARY_PREFIX) :].split(" ")
+    _assert(
+        tuple(field.split("=", 1)[0] for field in fields)
+        == GOVERNANCE_SUMMARY_FIELD_ORDER,
+        message + ": governance summary field order changed",
+    )
 
 
 def _combined_reasoning_trace(entries: list[dict[str, object]]) -> str:
@@ -1531,9 +1559,9 @@ def test_benchmark_diff_viewer_contract() -> None:
         not categorize_benchmark_drift(same_view),
         "identical benchmark diffs must not report drift categories",
     )
-    _assert(
-        same_governance_summary
-        == (
+    _assert_governance_summary_contract(
+        same_governance_summary,
+        (
             "Benchmark governance: "
             "status=stable categories=none regressions=0 severity=stable "
             "recommended_action=continue "
@@ -1565,9 +1593,9 @@ def test_benchmark_diff_viewer_contract() -> None:
         and "regression" not in categorize_benchmark_drift(hash_only_view),
         "benchmark hash changes alone must not be categorized as regression",
     )
-    _assert(
-        format_benchmark_governance_summary(hash_only_view)
-        == (
+    _assert_governance_summary_contract(
+        format_benchmark_governance_summary(hash_only_view),
+        (
             "Benchmark governance: "
             "status=stable categories=none regressions=0 severity=info "
             "recommended_action=review_metadata_change "
@@ -1618,9 +1646,9 @@ def test_benchmark_diff_viewer_contract() -> None:
         drift_categories == ("regression", "composition_change"),
         "benchmark drift categories must classify regressions and composition changes",
     )
-    _assert(
-        governance_summary
-        == (
+    _assert_governance_summary_contract(
+        governance_summary,
+        (
             "Benchmark governance: "
             "status=warning "
             "categories=regression,composition_change "
@@ -1718,9 +1746,9 @@ def test_benchmark_diff_viewer_contract() -> None:
         categorize_benchmark_drift(scenario_changed_view) == ("composition_change",),
         "scenario template count changes must be categorized as composition changes",
     )
-    _assert(
-        format_benchmark_governance_summary(scenario_changed_view)
-        == (
+    _assert_governance_summary_contract(
+        format_benchmark_governance_summary(scenario_changed_view),
+        (
             "Benchmark governance: "
             "status=warning categories=composition_change regressions=0 severity=warning "
             "recommended_action=review_composition_change "
@@ -1765,9 +1793,9 @@ def test_benchmark_diff_viewer_contract() -> None:
         before_snapshot,
         benchmark_snapshot_from_json_dict(warning_payload),
     )
-    _assert(
-        format_benchmark_governance_summary(warning_view)
-        == (
+    _assert_governance_summary_contract(
+        format_benchmark_governance_summary(warning_view),
+        (
             "Benchmark governance: "
             "status=warning "
             "categories=regression,composition_change,contract_mismatch "
@@ -1834,6 +1862,11 @@ def test_benchmark_diff_viewer_contract() -> None:
         and before_after_lines[0].startswith("Benchmark governance:"),
         "run_benchmark_diff --before/--after must print governance summary first",
     )
+    _assert_governance_summary_contract(
+        before_after_lines[0],
+        governance_summary,
+        "run_benchmark_diff --before/--after governance summary must match formatter",
+    )
     _assert(
         "Benchmark diff:" in before_after_cli.stdout
         and "- drift_categories:" in before_after_cli.stdout,
@@ -1874,6 +1907,12 @@ def test_benchmark_diff_viewer_contract() -> None:
         and "- drift_categories:" in fail_on_critical_cli.stdout,
         "run_benchmark_diff --fail-on-critical must preserve benchmark diff output",
     )
+    fail_on_critical_lines = fail_on_critical_cli.stdout.strip().splitlines()
+    _assert_governance_summary_contract(
+        fail_on_critical_lines[0],
+        governance_summary,
+        "run_benchmark_diff --fail-on-critical governance summary must match formatter",
+    )
     _assert(
         "C:" not in fail_on_critical_cli.stdout
         and "jarvis-core" not in fail_on_critical_cli.stdout
@@ -1909,6 +1948,11 @@ def test_benchmark_diff_viewer_contract() -> None:
     _assert(
         history_lines and history_lines[0].startswith("Benchmark governance:"),
         "run_benchmark_diff --history must print governance summary first",
+    )
+    _assert_governance_summary_contract(
+        history_lines[0],
+        governance_summary,
+        "run_benchmark_diff --history governance summary must match formatter",
     )
     _assert(
         "Benchmark diff:" in history_cli.stdout
@@ -1947,6 +1991,12 @@ def test_benchmark_diff_viewer_contract() -> None:
         and "severity=stable" in stable_history_cli.stdout
         and "Benchmark diff:" in stable_history_cli.stdout,
         "stable history fail-on-critical output must preserve benchmark diff output",
+    )
+    stable_history_lines = stable_history_cli.stdout.strip().splitlines()
+    _assert_governance_summary_contract(
+        stable_history_lines[0],
+        format_benchmark_governance_summary(stable_history_view),
+        "stable history fail-on-critical governance summary must match formatter",
     )
 
 
