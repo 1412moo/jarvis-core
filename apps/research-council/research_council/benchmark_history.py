@@ -392,6 +392,14 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
         ("recommended_action", recommended_action),
         ("profile_change_rollup", _format_profile_change_rollup(view)),
         ("policy_reason", _governance_policy_reason(severity)),
+        (
+            "escalation_reason",
+            _governance_escalation_reason(
+                categories,
+                regressions=regressions,
+                benchmark_hash_changed=view.benchmark_hash_changed,
+            ),
+        ),
     )
     return "Benchmark governance: " + _format_key_value_fields(fields)
 
@@ -425,6 +433,26 @@ def _governance_policy_reason(severity: str) -> str:
         "warning": "warning_composition_change",
         "critical": "critical_regression_or_contract_mismatch",
     }.get(severity, "unknown_policy_reason")
+
+
+def _governance_escalation_reason(
+    categories: Sequence[str],
+    *,
+    regressions: int,
+    benchmark_hash_changed: bool,
+) -> str:
+    category_set = set(categories)
+    if "regression" in category_set and "contract_mismatch" in category_set:
+        return "regression_and_contract_mismatch"
+    if "contract_mismatch" in category_set:
+        return "contract_mismatch"
+    if "regression" in category_set or regressions > 0:
+        return "regression_count_gt_0"
+    if "composition_change" in category_set:
+        return "composition_change"
+    if benchmark_hash_changed:
+        return "hash_change_only"
+    return "no_escalation"
 
 
 def _format_key_value_fields(fields: Sequence[tuple[str, str]]) -> str:

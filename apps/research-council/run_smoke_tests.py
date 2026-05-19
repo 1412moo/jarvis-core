@@ -95,6 +95,7 @@ GOVERNANCE_SUMMARY_FIELD_ORDER = (
     "recommended_action",
     "profile_change_rollup",
     "policy_reason",
+    "escalation_reason",
 )
 
 
@@ -1608,7 +1609,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "status=stable categories=none regressions=0 severity=stable "
             "recommended_action=continue "
             "profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 "
-            "policy_reason=stable_no_drift"
+            "policy_reason=stable_no_drift "
+            "escalation_reason=no_escalation"
         ),
         "stable benchmark diffs must report a compact stable governance summary",
     )
@@ -1643,7 +1645,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "status=stable categories=none regressions=0 severity=info "
             "recommended_action=review_metadata_change "
             "profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 "
-            "policy_reason=info_hash_change"
+            "policy_reason=info_hash_change "
+            "escalation_reason=hash_change_only"
         ),
         "benchmark hash changes alone must not count as governance regressions",
     )
@@ -1699,7 +1702,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "regressions=5 severity=critical "
             "recommended_action=block_and_review "
             "profile_change_rollup=added:1,removed:1,deltas:1,selection_changes:1 "
-            "policy_reason=critical_regression_or_contract_mismatch"
+            "policy_reason=critical_regression_or_contract_mismatch "
+            "escalation_reason=regression_count_gt_0"
         ),
         "warning benchmark diffs must report compact regression governance",
     )
@@ -1798,7 +1802,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "status=warning categories=composition_change regressions=0 severity=warning "
             "recommended_action=review_composition_change "
             "profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 "
-            "policy_reason=warning_composition_change"
+            "policy_reason=warning_composition_change "
+            "escalation_reason=composition_change"
         ),
         "composition-only benchmark drift must report warning severity",
     )
@@ -1828,6 +1833,19 @@ def test_benchmark_diff_viewer_contract() -> None:
         classify_benchmark_governance_severity(pack_changed_view) == "critical",
         "contract mismatch benchmark drift must classify as critical severity",
     )
+    _assert_governance_summary_contract(
+        format_benchmark_governance_summary(pack_changed_view),
+        (
+            "Benchmark governance: "
+            "status=warning categories=composition_change,contract_mismatch "
+            "regressions=0 severity=critical "
+            "recommended_action=block_and_review "
+            "profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 "
+            "policy_reason=critical_regression_or_contract_mismatch "
+            "escalation_reason=contract_mismatch"
+        ),
+        "contract mismatch benchmark drift must expose escalation reason",
+    )
     _assert(
         classify_benchmark_governance_gate(pack_changed_view) == "fail",
         "contract mismatch benchmark drift must fail the governance gate",
@@ -1848,7 +1866,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "regressions=5 severity=critical "
             "recommended_action=block_and_review "
             "profile_change_rollup=added:1,removed:1,deltas:1,selection_changes:1 "
-            "policy_reason=critical_regression_or_contract_mismatch"
+            "policy_reason=critical_regression_or_contract_mismatch "
+            "escalation_reason=regression_and_contract_mismatch"
         ),
         "governance summary must include regression, composition, and contract categories",
     )
