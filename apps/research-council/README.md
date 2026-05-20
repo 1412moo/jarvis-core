@@ -258,6 +258,38 @@ Governance transition lifecycle:
   alter formatter output to represent grace, expiry, renewal, downgrade, or
   upgrade.
 
+Governance acknowledgement renewal workflow:
+
+- Acknowledgement, override, and grace decisions are not permanent approvals.
+  Renewal is required when their expiration condition is reached and the
+  operator still wants to proceed under the same unresolved governance result.
+- Renewal differs from revalidation: renewal extends an existing operational
+  acceptance for the same deterministic governance result, while revalidation
+  reassesses the result after benchmark hash, baseline, compatibility,
+  strictness, lifecycle, `escalation_reason`, ownership, or delegation changes.
+- Renewal authority belongs to the assigned governance owner or an authorized
+  delegate whose delegation remains valid for the renewed scope. CI should not
+  treat a rerun, retry, or ignored exit code as renewal authority.
+- Renewal triggers include acknowledgement expiration, grace-period expiration,
+  unresolved strict or blocking state at the end of a review window, owner
+  transfer, delegation expiration, or an escalation owner accepting renewal
+  responsibility.
+- Renewal metadata should include the renewal owner, renewal reason, renewal
+  scope, timestamp or durable reference, renewed expiration condition, linked
+  original acknowledgement or override, revalidation requirement, current
+  governance summary, and escalation fallback owner.
+- Stale acknowledgement, override, or grace records must not silently continue.
+  If renewal authority is missing or expired, transition to review, escalation,
+  or block according to the current `strictness_tier` and `lifecycle_phase`.
+- Renewal failure for `strictness_tier=strict` / `lifecycle_phase=stabilize`
+  should trigger escalation or remediation planning. Renewal failure for
+  `strictness_tier=blocking` / `lifecycle_phase=block` should stop operational
+  acceptance until an authorized owner resolves or renews it.
+- Renewal state is audit metadata outside the benchmark governance contract. Do
+  not add summary fields, mutate snapshots or history, alter benchmark hashes,
+  or change formatter output to represent renewal, stale acceptance, or renewal
+  failure.
+
 Governance accountability escalation policy:
 
 - `strictness_tier=advisory` / `lifecycle_phase=observe` and
