@@ -290,6 +290,38 @@ Governance accountability escalation policy:
   snapshots, history, benchmark hashes, governance fields, or formatter output to
   represent unresolved, escalated, renewed, or delegated states.
 
+Governance delegated authority chain:
+
+- Delegation is operational authority delegation, not benchmark ownership
+  transfer. The original governance summary and benchmark artifacts remain the
+  deterministic source of truth.
+- A governance owner may delegate acknowledgement or override authority only
+  with explicit scope, authority level, reason, expiration condition,
+  revalidation expectation, and escalation fallback owner.
+- Delegated acknowledgement authority permits the delegate to record acceptance
+  for the named benchmark scope. It does not permit changing the reported
+  severity, compatibility, strictness, lifecycle phase, escalation reason, or
+  benchmark artifacts.
+- Delegated override authority permits a scoped operational proceed decision.
+  It must preserve the original governance summary and cannot be broadened into
+  future runs, other branches, or other benchmark histories without a new
+  delegation record.
+- Delegation for `strictness_tier=blocking` / `lifecycle_phase=block` must be
+  time-bounded or run-bounded. It expires automatically when the expiration
+  condition is reached, the benchmark hash or baseline changes, governance
+  metadata changes, or the escalation fallback owner rejects or supersedes it.
+- Delegation chains should stay short and auditable. If authority is delegated
+  again, the audit record must retain the original owner, current delegate,
+  intermediate delegate if any, delegated scope, authority level, reason,
+  timestamp or durable reference, expiration condition, revalidation
+  expectation, and fallback owner.
+- After delegation expires, acknowledgement or override authority returns to the
+  original owner or fallback escalation owner. Expired delegation is not implied
+  approval and must not be inferred from a passing retry or ignored exit code.
+- Delegation state is audit metadata outside the benchmark governance contract.
+  Do not add summary fields, mutate snapshots or history, alter benchmark
+  hashes, or change formatter output to represent delegated authority.
+
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
 policy says otherwise. If the files are created in the repository root during
