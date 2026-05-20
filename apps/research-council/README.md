@@ -83,6 +83,149 @@ such as profile selection, required risk language, confidence blockers,
 reasoning traces, and JSON `quality_signals`. They intentionally avoid exact
 snapshot diffs.
 
+## Domain Profile Governance
+
+Domain profiles are deterministic metadata in
+`research_council/domain_profiles.py`. They shape local profile selection,
+profile-scoped reasoning policy, and compact JSON profile metadata. They do not
+authorize network calls, LLM calls, databases, APIs, UI behavior, async workers,
+or new orchestration systems.
+
+Safe profile evolution rules:
+
+- Prefer README-only or contract-only clarification when changing operator
+  expectations, support status, or review policy.
+- Keep profile IDs, aliases, registry order, safety tie-breaker order,
+  `selected_by` labels, JSON `profile` keys, and `quality_signals` keys stable
+  unless an explicit breaking-contract change is scoped.
+- Additive profile registry changes require deterministic selection keywords,
+  profile policy metadata, and benchmark coverage before they can be treated as
+  supported by the core benchmark pack.
+- If the registry grows without benchmark coverage, do not claim core-v1
+  benchmark support for the new profile until golden, mutation, or scenario
+  coverage and the frozen pack metadata are intentionally updated together.
+- Benchmark governance remains metadata-only: snapshots, history entries, diff
+  reports, and audit records may store profile IDs, counts, case IDs, selection
+  outcomes, hashes, bounded deltas, and mismatch reasons, but must not store raw
+  benchmark, golden, mutation, scenario, or user-provided input text.
+- The first-line governance summary stays bounded to gate, action, and policy
+  trigger metadata. Put profile-specific detail in benchmark analytics, diff
+  reports, or README guidance rather than adding summary fields.
+- Profile deprecation is append-only: keep the old ID or alias resolvable, add a
+  replacement path, and document support status. Do not repurpose an existing
+  profile ID, alias, keyword meaning, or output metadata field.
+- Any intentional benchmark-pack composition change must update the frozen pack
+  metadata, exact smoke expectations, and README examples in the same scoped
+  step, then run smoke and golden validation.
+
+Core-v1 benchmark profile support status:
+
+| Status | Profile IDs | Governance meaning |
+| --- | --- | --- |
+| Benchmark-covered | `general`, `medical_device`, `ai_saas`, `creator_tools`, `marketplace`, `enterprise_b2b`, `developer_tool` | Covered by the frozen core-v1 benchmark pack metadata and scenario-template profile coverage. |
+| Registry-only | `consumer_app`, `hardware_device`, `materials_science` | Available to deterministic local profile resolution, but not core-v1 benchmark-supported until coverage and frozen pack metadata are updated together. |
+
+This support-status table is governance guidance, not a schema migration. It
+does not change `ResearchCouncilInput`, `ResearchCouncilResult`, JSON field
+names, CLI behavior, benchmark hashes, or the first-line governance summary.
+For the v0.1 contract boundary, see
+[Governance Metadata Boundary](contracts/research-council-mvp.md#13-governance-metadata-boundary).
+
+Profile governance terminology:
+
+- Use `profile_support_status` only for the current support state:
+  `benchmark-covered`, `registry-only`, `deprecated`, or `legacy-alias`.
+- Use `change_type` only for the event being recorded, such as `promotion`,
+  `deprecation`, `alias_added`, `alias_retained`, `coverage_added`, or
+  `support_status_change`.
+- Treat core-v1 benchmark support as benchmark-pack coverage, not as general
+  profile availability. Registry presence alone is not benchmark support.
+
+Registry-only promotion checklist:
+
+- Keep the existing profile ID resolvable and append any new aliases without
+  repurposing old aliases.
+- Add benchmark coverage through golden, mutation, or scenario fixtures in the
+  same scoped change; do not rely on registry presence alone.
+- Update frozen pack metadata, exact smoke expectations, and README support
+  status together when the benchmark pack composition intentionally changes.
+- Verify exported benchmark metadata remains count-, ID-, hash-, and
+  outcome-based only; do not copy raw benchmark, golden, mutation, scenario, or
+  user-provided input text into snapshots, history, reports, or audit records.
+- Preserve the existing first-line governance summary fields unless a separate
+  append-only summary contract change is explicitly scoped.
+- Run smoke and golden validation before treating the profile as
+  benchmark-covered.
+
+Profile deprecation and alias retirement:
+
+- Treat deprecation as a support-status transition, not a registry deletion.
+  Keep the deprecated profile ID resolvable until a separately scoped breaking
+  change is approved.
+- Retire aliases by documenting them as legacy aliases while keeping them
+  mapped to the same canonical profile. Do not remap an old alias to a different
+  profile to force new behavior.
+- Add replacement aliases or profiles append-only, then document the replacement
+  path in README guidance. Existing JSON `profile_id`, `selected_by`,
+  `score_by_profile`, and `matched_keywords` metadata must remain interpretable.
+- If a deprecated profile stays in the registry but leaves benchmark-covered
+  support, update the support-status table and frozen pack metadata in the same
+  scoped change.
+- Deprecation audit records should store profile IDs, alias names, support
+  status, owner, rationale, and validation command references only. Do not copy
+  raw benchmark, golden, mutation, scenario, or user-provided input text.
+
+Profile governance audit record checklist:
+
+- `profile_id`: canonical profile ID being assessed.
+- `profile_support_status`: `benchmark-covered`, `registry-only`, `deprecated`,
+  or `legacy-alias`.
+- `change_type`: bounded label such as `promotion`, `deprecation`,
+  `alias_added`, `alias_retained`, `coverage_added`, or `support_status_change`.
+- `owner`: person, team, or CI role accountable for the operational decision.
+- `rationale`: short policy reason, without copying raw benchmark or user input.
+- `benchmark_reference`: snapshot, history, CI run, branch, or durable artifact
+  reference.
+- `benchmark_hash`: hash value when a snapshot or history comparison exists.
+- `governance_summary`: unchanged first-line governance summary when applicable.
+- `validation_commands`: the exact smoke and golden commands that were run.
+- `validation_result`: bounded result label, exit code, or durable log reference.
+
+Do not add raw fixture text, generated scenario text, mutation input text,
+golden-case body text, user-provided idea text, local filesystem paths, machine
+identifiers, timestamps used as behavior inputs, or ad hoc summary fields to
+profile governance audit records.
+
+Profile governance audit lifecycle:
+
+- Create a new profile governance audit record when support status changes,
+  benchmark coverage is added or removed, alias handling changes, ownership
+  changes, or the benchmark hash or comparison baseline changes.
+- Link renewal, supersession, closure, or sunset records to the prior profile
+  audit record instead of editing the prior record in place.
+- Treat profile audit retention and sunset as operational metadata governed by
+  the retention and compatibility sunset policies below. They do not mutate
+  snapshots, history entries, benchmark hashes, formatter output, JSON profile
+  metadata, or the first-line governance summary.
+- If a profile governance audit record expires or is superseded, keep the prior
+  record visible with bounded status metadata such as `expired`, `superseded`,
+  `renewed`, or `closed`.
+- Revalidate before relying on an old profile audit record after a benchmark
+  hash change, baseline change, support-status change, owner transfer, or
+  governance summary change.
+
+Governance section reading order:
+
+- Use `Domain Profile Governance` to decide whether a profile is benchmark-covered
+  or registry-only.
+- Use `Benchmark Governance CI Usage` to run deterministic benchmark commands
+  and interpret exit behavior.
+- Use `Governance summary contract rules` before changing first-line summary
+  fields, order, spacing, or suffixes.
+- Use the override, acknowledgement, ownership, transition, renewal,
+  escalation, delegation, dispute, retention, and sunset notes only for
+  operational audit handling outside the benchmark contract.
+
 ## Benchmark Governance CI Usage
 
 Use deterministic benchmark governance commands to check benchmark composition,

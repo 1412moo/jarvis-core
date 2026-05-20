@@ -198,3 +198,25 @@ This pass must not modify:
 - root `README.md`
 - root `AGENTS.md`
 - `docs/architecture.md`
+
+## 13. Governance Metadata Boundary
+
+README governance guidance may define operational metadata for domain profile
+support status, benchmark coverage, acknowledgement, audit retention, or
+compatibility sunset handling.
+
+That guidance does not change this v0.1 input/output contract unless the schema
+dataclasses and this contract are explicitly updated in the same scoped change.
+Governance records are operational metadata outside `ResearchCouncilInput`,
+`ResearchCouncilResult`, benchmark snapshots, history entries, benchmark hashes,
+and Markdown report output.
+
+Rules:
+
+- Governance metadata must remain deterministic, bounded, and reference-based.
+- Governance metadata must not require network calls, LLM calls, databases, API
+  services, UI behavior, async workers, or new orchestration systems.
+- Governance metadata must not store raw benchmark, golden, mutation, scenario,
+  or user-provided input text.
+- Governance metadata must not mutate benchmark snapshots, history entries,
+  benchmark hashes, formatter output, or the first-line governance summary.
