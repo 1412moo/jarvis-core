@@ -110,6 +110,23 @@ Expected exit behavior:
 - Without `--fail-on-critical`, `run_benchmark_diff.py` keeps the default
   reporting behavior; successful diff rendering returns exit code `0`.
 
+CI governance profile presets:
+
+- `observe`: never fail the CI job on benchmark governance alone; always publish
+  the governance summary and detailed diff for operator visibility.
+- `review`: run with `--fail-on-critical`; warnings remain pass-only but require
+  review according to local CI policy.
+- `strict`: run with `--fail-on-critical`; critical governance fails the job,
+  and `compatibility_tier=breaking_contract_change` requires acknowledgement
+  before operational acceptance.
+- `blocking`: run with `--fail-on-critical`; critical governance fails the job,
+  and no override should proceed without an explicit owner, rationale, scope,
+  and follow-up expectation.
+- These presets are documentation labels for CI/operator policy. They are not
+  CLI flags, emitted summary fields, or benchmark contract values.
+- Presets do not change the `--fail-on-critical` contract: only
+  `severity=critical` controls the opt-in benchmark governance failure signal.
+
 Governance summary examples:
 
 ```text
