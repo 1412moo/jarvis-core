@@ -172,6 +172,32 @@ Governance override philosophy:
   still follow append-only evolution, exact smoke fixtures, and summary growth
   control.
 
+Governance acknowledgement workflow:
+
+- Acknowledgement is optional for `strictness_tier=advisory` /
+  `lifecycle_phase=observe` and `strictness_tier=review` /
+  `lifecycle_phase=review`; those phases may still require local review policy,
+  but benchmark governance does not require a special acknowledgement record.
+- Acknowledgement is required before proceeding operationally with
+  `strictness_tier=strict` / `lifecycle_phase=stabilize` or
+  `strictness_tier=blocking` / `lifecycle_phase=block`.
+- Acknowledgement differs from override: override is the decision to proceed,
+  while acknowledgement is the auditable record that the operator or CI owner saw
+  the deterministic governance result and accepted the operational risk.
+- Acknowledgement metadata should include the owner, rationale, scope,
+  follow-up expectation, timestamp or durable reference, original governance
+  summary, `compatibility_tier`, `escalation_reason`, and the snapshot or
+  history artifact being assessed.
+- The acknowledgement scope should be no broader than the benchmark result it
+  accepts. For example, acknowledge one CI run, branch, release candidate, or
+  benchmark history comparison rather than changing future governance behavior.
+- Acknowledgement must not mutate snapshots, history entries, benchmark hashes,
+  golden fixtures, governance fields, or formatter output. It preserves
+  deterministic visibility and records an operational acceptance alongside it.
+- CI may store acknowledgement evidence in its own approval, deployment, or
+  incident process, but that process is outside the benchmark governance
+  contract and must not make the governance summary disappear.
+
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
 policy says otherwise. If the files are created in the repository root during
