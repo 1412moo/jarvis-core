@@ -322,6 +322,38 @@ Governance delegated authority chain:
   Do not add summary fields, mutate snapshots or history, alter benchmark
   hashes, or change formatter output to represent delegated authority.
 
+Governance dispute resolution policy:
+
+- A dispute is a governance interpretation disagreement among the owner,
+  operator, delegate, or escalation owner. It is not a request to rewrite the
+  benchmark result, lower severity, or hide the governance summary.
+- Disputes should cite the exact governance summary, disputed fields, snapshot
+  or history artifact, command context, initiator, rationale, requested
+  resolution, and provisional operational scope if any.
+- Override and dispute are separate states: an override is a proceed decision,
+  while a dispute is an unresolved interpretation question. A disputed
+  acknowledgement may be treated as provisional only within an explicitly
+  bounded scope and expiration condition.
+- Authority conflicts escalate to the assigned governance owner first, then to
+  the delegated escalation owner if the governance owner is unavailable,
+  conflicted, or inactive. CI should not resolve authority conflicts by
+  suppressing the report or retrying until a lower-risk result appears.
+- Ownership conflicts require an explicit owner resolution before strict or
+  blocking acknowledgement can be final. Until resolved, the original governance
+  summary remains authoritative and any operational proceed decision must be
+  recorded as provisional.
+- `strictness_tier=blocking` / `lifecycle_phase=block` disputes require explicit
+  governance owner or escalation owner resolution before acceptance. Blocking
+  disagreement cannot be downgraded by local operator interpretation alone.
+- Dispute resolution audit metadata should include the dispute initiator,
+  disputed governance summary, disputed fields, rationale, escalation owner,
+  resolution expectation, timestamp or durable reference, provisional scope, and
+  final resolution.
+- Resolution is operational metadata outside the benchmark governance contract.
+  Do not mutate snapshots, history, benchmark hashes, governance fields, or
+  formatter output to represent disputed, provisional, resolved, or rejected
+  interpretation states.
+
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
 policy says otherwise. If the files are created in the repository root during
