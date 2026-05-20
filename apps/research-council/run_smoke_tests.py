@@ -102,6 +102,33 @@ GOVERNANCE_SUMMARY_FIELD_ORDER = (
 )
 
 
+_SMOKE_ARTIFACTS_ROOT: Path | None = None
+
+
+def _smoke_artifacts_root() -> Path:
+    global _SMOKE_ARTIFACTS_ROOT
+    if _SMOKE_ARTIFACTS_ROOT is not None:
+        return _SMOKE_ARTIFACTS_ROOT
+
+    artifacts_root = Path(__file__).parent / "artifacts"
+    artifacts_root.mkdir(exist_ok=True)
+    run_dir_name = f"smoke-run-{os.getpid()}"
+    for index in range(1000):
+        candidate_name = run_dir_name if index == 0 else f"{run_dir_name}-{index}"
+        candidate = artifacts_root / candidate_name
+        try:
+            candidate.mkdir()
+        except FileExistsError:
+            continue
+        _SMOKE_ARTIFACTS_ROOT = candidate
+        return candidate
+    raise RuntimeError(f"could not allocate smoke artifact directory for {run_dir_name}")
+
+
+def _smoke_artifact_path(filename: str) -> Path:
+    return _smoke_artifacts_root() / filename
+
+
 def _assert(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
@@ -559,9 +586,7 @@ def test_optional_llm_augmentation_sandbox() -> None:
 
 
 def test_run_demo_json_output_support() -> None:
-    artifacts_root = Path(__file__).parent / "artifacts"
-    artifacts_root.mkdir(exist_ok=True)
-    json_path = artifacts_root / f"smoke-result-{os.getpid()}.json"
+    json_path = _smoke_artifact_path("smoke-result.json")
     completed = subprocess.run(
         [
             sys.executable,
@@ -601,10 +626,8 @@ def test_run_demo_json_output_support() -> None:
 
 
 def test_run_demo_custom_cli_input_support() -> None:
-    artifacts_root = Path(__file__).parent / "artifacts"
-    artifacts_root.mkdir(exist_ok=True)
-    json_path = artifacts_root / f"smoke-custom-result-{os.getpid()}.json"
-    markdown_path = artifacts_root / f"smoke-custom-result-{os.getpid()}.md"
+    json_path = _smoke_artifact_path("smoke-custom-result.json")
+    markdown_path = _smoke_artifact_path("smoke-custom-result.md")
 
     idea = "AI patent analysis assistant for solo founders"
     goal = "Evaluate differentiation and market viability"
@@ -679,9 +702,7 @@ def test_run_demo_custom_cli_input_support() -> None:
 
 
 def test_run_demo_explicit_profile_support() -> None:
-    artifacts_root = Path(__file__).parent / "artifacts"
-    artifacts_root.mkdir(exist_ok=True)
-    json_path = artifacts_root / f"smoke-explicit-profile-{os.getpid()}.json"
+    json_path = _smoke_artifact_path("smoke-explicit-profile.json")
 
     completed = subprocess.run(
         [
@@ -1236,9 +1257,7 @@ def test_golden_case_evaluation_harness() -> None:
 def test_benchmark_snapshot_export_contract() -> None:
     summary = evaluate_golden_cases()
     analytics = build_benchmark_analytics(summary)
-    artifacts_root = Path(__file__).parent / "artifacts"
-    artifacts_root.mkdir(exist_ok=True)
-    snapshot_path = artifacts_root / f"benchmark-snapshot-{os.getpid()}.json"
+    snapshot_path = _smoke_artifact_path("benchmark-snapshot.json")
 
     snapshot = export_benchmark_snapshot(
         summary,
@@ -1374,7 +1393,7 @@ def test_benchmark_snapshot_export_contract() -> None:
         "benchmark snapshot comparison must report compact deltas",
     )
 
-    cli_snapshot_path = artifacts_root / f"benchmark-cli-snapshot-{os.getpid()}.json"
+    cli_snapshot_path = _smoke_artifact_path("benchmark-cli-snapshot.json")
     completed = subprocess.run(
         [
             sys.executable,
@@ -1404,10 +1423,8 @@ def test_benchmark_snapshot_export_contract() -> None:
 
 def test_benchmark_history_contract() -> None:
     summary = evaluate_golden_cases()
-    artifacts_root = Path(__file__).parent / "artifacts"
-    artifacts_root.mkdir(exist_ok=True)
-    snapshot_path = artifacts_root / f"benchmark-history-snapshot-{os.getpid()}.json"
-    history_path = artifacts_root / f"benchmark-history-{os.getpid()}.json"
+    snapshot_path = _smoke_artifact_path("benchmark-history-snapshot.json")
+    history_path = _smoke_artifact_path("benchmark-history.json")
 
     snapshot = export_benchmark_snapshot(summary, snapshot_path)
     history = append_benchmark_history(snapshot, history_path)
@@ -1556,7 +1573,7 @@ def test_benchmark_history_contract() -> None:
         "benchmark history must not leak local filesystem paths",
     )
 
-    cli_history_path = artifacts_root / f"benchmark-history-cli-{os.getpid()}.json"
+    cli_history_path = _smoke_artifact_path("benchmark-history-cli.json")
     completed = subprocess.run(
         [
             sys.executable,
@@ -1588,14 +1605,10 @@ def test_benchmark_history_contract() -> None:
 
 def test_benchmark_diff_viewer_contract() -> None:
     summary = evaluate_golden_cases()
-    artifacts_root = Path(__file__).parent / "artifacts"
-    artifacts_root.mkdir(exist_ok=True)
-    before_path = artifacts_root / f"benchmark-diff-before-{os.getpid()}.json"
-    after_path = artifacts_root / f"benchmark-diff-after-{os.getpid()}.json"
-    history_path = artifacts_root / f"benchmark-diff-history-{os.getpid()}.json"
-    stable_history_path = (
-        artifacts_root / f"benchmark-diff-stable-history-{os.getpid()}.json"
-    )
+    before_path = _smoke_artifact_path("benchmark-diff-before.json")
+    after_path = _smoke_artifact_path("benchmark-diff-after.json")
+    history_path = _smoke_artifact_path("benchmark-diff-history.json")
+    stable_history_path = _smoke_artifact_path("benchmark-diff-stable-history.json")
 
     before_snapshot = export_benchmark_snapshot(summary, before_path)
     same_view = build_benchmark_diff_view(before_snapshot, before_snapshot)
