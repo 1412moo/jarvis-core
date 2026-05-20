@@ -384,6 +384,7 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
         1 for signal in view.regressions if signal != "benchmark_hash changed"
     )
     recommended_action = _recommended_benchmark_governance_action(severity)
+    compatibility_tier = _governance_compatibility_tier(categories)
     fields = (
         ("status", status),
         ("categories", category_text),
@@ -400,7 +401,8 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
                 benchmark_hash_changed=view.benchmark_hash_changed,
             ),
         ),
-        ("compatibility_tier", _governance_compatibility_tier(categories)),
+        ("compatibility_tier", compatibility_tier),
+        ("strictness_tier", _governance_strictness_tier(severity, compatibility_tier)),
     )
     return "Benchmark governance: " + _format_key_value_fields(fields)
 
@@ -463,6 +465,18 @@ def _governance_compatibility_tier(categories: Sequence[str]) -> str:
     if "composition_change" in category_set:
         return "additive_contract_change"
     return "compatible"
+
+
+def _governance_strictness_tier(severity: str, compatibility_tier: str) -> str:
+    if severity in {"stable", "info"}:
+        return "advisory"
+    if severity == "warning":
+        return "review"
+    if severity == "critical" and compatibility_tier == "breaking_contract_change":
+        return "blocking"
+    if severity == "critical":
+        return "strict"
+    return "review"
 
 
 def _format_key_value_fields(fields: Sequence[tuple[str, str]]) -> str:
