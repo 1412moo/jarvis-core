@@ -110,23 +110,6 @@ Expected exit behavior:
 - Without `--fail-on-critical`, `run_benchmark_diff.py` keeps the default
   reporting behavior; successful diff rendering returns exit code `0`.
 
-CI governance profile presets:
-
-- `observe`: never fail the CI job on benchmark governance alone; always publish
-  the governance summary and detailed diff for operator visibility.
-- `review`: run with `--fail-on-critical`; warnings remain pass-only but require
-  review according to local CI policy.
-- `strict`: run with `--fail-on-critical`; critical governance fails the job,
-  and `compatibility_tier=breaking_contract_change` requires acknowledgement
-  before operational acceptance.
-- `blocking`: run with `--fail-on-critical`; critical governance fails the job,
-  and no override should proceed without an explicit owner, rationale, scope,
-  and follow-up expectation.
-- These presets are documentation labels for CI/operator policy. They are not
-  CLI flags, emitted summary fields, or benchmark contract values.
-- Presets do not change the `--fail-on-critical` contract: only
-  `severity=critical` controls the opt-in benchmark governance failure signal.
-
 Governance summary examples:
 
 ```text
@@ -214,6 +197,35 @@ Governance acknowledgement workflow:
 - CI may store acknowledgement evidence in its own approval, deployment, or
   incident process, but that process is outside the benchmark governance
   contract and must not make the governance summary disappear.
+
+Governance ownership semantics:
+
+- The governance result is owned by the deterministic benchmark process; the
+  operational response is owned by the CI operator, release owner, or explicitly
+  assigned governance owner.
+- `strictness_tier=advisory` / `lifecycle_phase=observe` and
+  `strictness_tier=review` / `lifecycle_phase=review` may use local operator
+  ownership according to the consuming team's CI policy.
+- `strictness_tier=strict` / `lifecycle_phase=stabilize` and
+  `strictness_tier=blocking` / `lifecycle_phase=block` require an explicit
+  governance owner before acknowledgement or override can be treated as
+  accepted.
+- Acknowledgement authority belongs to the assigned governance owner or a
+  documented delegate with authority for the affected benchmark scope. CI should
+  not infer acknowledgement merely from a rerun, retry, or ignored exit code.
+- Override authority is narrower than ownership: an owner may approve a scoped
+  operational override, but that approval does not lower the reported severity,
+  compatibility, strictness, lifecycle phase, or escalation reason.
+- If no owner is available, proceeding is a temporary operational exception.
+  The audit record should say owner unavailable, name the temporary approver,
+  limit the scope and time horizon, and create a follow-up to assign ownership.
+- Ownership transfer does not change the original governance summary or
+  benchmark artifacts. Record the prior owner, new owner, transfer rationale,
+  timestamp or durable reference, and the unchanged governance summary in audit
+  metadata.
+- Accountability must stay visible next to the deterministic result: ownership
+  records should point to the exact summary, snapshot or history artifact,
+  command context, and CI run or release decision they cover.
 
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
