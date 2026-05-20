@@ -415,6 +415,42 @@ Governance audit retention policy:
   benchmark hashes, or change formatter output to represent retention, archival,
   deletion, renewal, or sunset.
 
+Governance compatibility sunset lifecycle:
+
+- Compatibility sunset is an operational lifecycle decision, not a benchmark
+  rewrite. It closes or retires an old compatibility exception, grace period, or
+  override while preserving the original governance summary and benchmark
+  references.
+- Compatibility grace expires when its bounded duration, CI run, branch, release
+  candidate, or benchmark history comparison scope ends; when the benchmark hash
+  or baseline changes; or when `compatibility_tier`, `strictness_tier`,
+  `lifecycle_phase`, or `escalation_reason` changes.
+- An expired compatibility exception is not hidden approval. After sunset, the
+  affected scope requires explicit revalidation before continued operational
+  acceptance.
+- Treat a compatibility state as operationally unsupported when the sunset
+  condition has passed, the required owner or delegate is unavailable, renewal is
+  rejected or expired, the fallback owner rejects the grace, or revalidation is
+  required but not completed.
+- Unsupported compatibility is an escalation or review trigger, not a local
+  ignore. For strict or blocking results, unsupported state should stop
+  operational acceptance until an authorized owner resolves, revalidates, or
+  replaces the exception.
+- Compatibility downgrade or upgrade across summaries should keep the audit
+  chain intact. Record the previous compatibility state, new governance summary,
+  reason for transition, owner, timestamp or durable reference, and linked
+  snapshot or history artifact.
+- Sunset metadata should include the sunset owner, sunset trigger, timestamp or
+  durable reference, affected scope, required revalidation, archive reference,
+  and fallback operational state.
+- Sunset records should be archived with immutable benchmark references. Do not
+  copy raw benchmark, golden, mutation, scenario, or user-provided input text
+  into sunset records.
+- Sunset state is operational metadata outside the benchmark governance contract.
+  Do not add summary fields, mutate snapshots or history, alter benchmark
+  hashes, or change formatter output to represent compatibility sunset,
+  unsupported state, or post-sunset revalidation.
+
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
 policy says otherwise. If the files are created in the repository root during
