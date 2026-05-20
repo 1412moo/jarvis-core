@@ -139,8 +139,8 @@ Governance section reading order:
 
 - Use `Domain Profile Governance` to decide whether a profile is benchmark-covered
   or registry-only.
-- Use `Benchmark Governance CI Usage` to run deterministic benchmark commands
-  and interpret exit behavior.
+- Use [Benchmark Governance CI Usage](README.md#benchmark-governance-ci-usage)
+  to run deterministic benchmark commands and interpret exit behavior.
 - Use `Governance summary contract rules` before changing first-line summary
   fields, order, spacing, or suffixes.
 - Use the override, acknowledgement, ownership, transition, renewal,

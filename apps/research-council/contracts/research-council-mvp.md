@@ -201,9 +201,11 @@ This pass must not modify:
 
 ## 13. Governance Metadata Boundary
 
-README governance guidance may define operational metadata for domain profile
+Governance documentation may define operational metadata for domain profile
 support status, benchmark coverage, acknowledgement, audit retention, or
-compatibility sunset handling.
+compatibility sunset handling. See the
+[README governance overview](../README.md#governance-overview) and
+[governance.md](../governance.md).
 
 That guidance does not change this v0.1 input/output contract unless the schema
 dataclasses and this contract are explicitly updated in the same scoped change.
