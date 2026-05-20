@@ -385,6 +385,7 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
     )
     recommended_action = _recommended_benchmark_governance_action(severity)
     compatibility_tier = _governance_compatibility_tier(categories)
+    strictness_tier = _governance_strictness_tier(severity, compatibility_tier)
     fields = (
         ("status", status),
         ("categories", category_text),
@@ -402,7 +403,8 @@ def format_benchmark_governance_summary(view: BenchmarkDiffView) -> str:
             ),
         ),
         ("compatibility_tier", compatibility_tier),
-        ("strictness_tier", _governance_strictness_tier(severity, compatibility_tier)),
+        ("strictness_tier", strictness_tier),
+        ("lifecycle_phase", _governance_lifecycle_phase(severity, compatibility_tier)),
     )
     return "Benchmark governance: " + _format_key_value_fields(fields)
 
@@ -476,6 +478,18 @@ def _governance_strictness_tier(severity: str, compatibility_tier: str) -> str:
         return "blocking"
     if severity == "critical":
         return "strict"
+    return "review"
+
+
+def _governance_lifecycle_phase(severity: str, compatibility_tier: str) -> str:
+    if severity in {"stable", "info"}:
+        return "observe"
+    if severity == "warning":
+        return "review"
+    if severity == "critical" and compatibility_tier == "breaking_contract_change":
+        return "block"
+    if severity == "critical":
+        return "stabilize"
     return "review"
 
 

@@ -113,16 +113,16 @@ Expected exit behavior:
 Governance summary examples:
 
 ```text
-Benchmark governance: status=stable categories=none regressions=0 severity=stable recommended_action=continue profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 policy_reason=stable_no_drift escalation_reason=no_escalation compatibility_tier=compatible strictness_tier=advisory
-Benchmark governance: status=warning categories=regression,contract_mismatch regressions=5 severity=critical recommended_action=block_and_review profile_change_rollup=added:0,removed:1,deltas:1,selection_changes:1 policy_reason=critical_regression_or_contract_mismatch escalation_reason=regression_and_contract_mismatch compatibility_tier=breaking_contract_change strictness_tier=blocking
+Benchmark governance: status=stable categories=none regressions=0 severity=stable recommended_action=continue profile_change_rollup=added:0,removed:0,deltas:0,selection_changes:0 policy_reason=stable_no_drift escalation_reason=no_escalation compatibility_tier=compatible strictness_tier=advisory lifecycle_phase=observe
+Benchmark governance: status=warning categories=regression,contract_mismatch regressions=5 severity=critical recommended_action=block_and_review profile_change_rollup=added:0,removed:1,deltas:1,selection_changes:1 policy_reason=critical_regression_or_contract_mismatch escalation_reason=regression_and_contract_mismatch compatibility_tier=breaking_contract_change strictness_tier=blocking lifecycle_phase=block
 ```
 
 Governance summary contract rules:
 
 - Field order, spacing, and suffix order are contract.
 - `recommended_action`, `profile_change_rollup`, `policy_reason`, and
-  `escalation_reason`, `compatibility_tier`, and `strictness_tier` must remain
-  present.
+  `escalation_reason`, `compatibility_tier`, `strictness_tier`, and
+  `lifecycle_phase` must remain present.
 - Any intentional summary string change must update the smoke test exact
   expected strings.
 - Keep this line bounded to gate, action, and policy-trigger metadata.
@@ -137,6 +137,10 @@ Governance summary contract rules:
   severity and compatibility impact: stable/info -> `advisory`, warning ->
   `review`, critical compatible/additive -> `strict`, and critical breaking ->
   `blocking`. It does not change the `--fail-on-critical` exit-code contract.
+- `lifecycle_phase` is first-line CI/operator next-step metadata derived from
+  severity and compatibility impact: stable/info -> `observe`, warning ->
+  `review`, critical compatible/additive -> `stabilize`, and critical breaking
+  -> `block`. It describes operational phase, not enforcement strength.
 - Contract evolution is append-only: new metadata may be added only as a final
   suffix, with README examples and smoke exact expected strings updated together.
 - Reordering, removing, renaming, changing spacing, or changing existing field

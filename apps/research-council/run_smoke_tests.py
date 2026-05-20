@@ -98,6 +98,7 @@ GOVERNANCE_SUMMARY_FIELD_ORDER = (
     "escalation_reason",
     "compatibility_tier",
     "strictness_tier",
+    "lifecycle_phase",
 )
 
 
@@ -1614,7 +1615,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "policy_reason=stable_no_drift "
             "escalation_reason=no_escalation "
             "compatibility_tier=compatible "
-            "strictness_tier=advisory"
+            "strictness_tier=advisory "
+            "lifecycle_phase=observe"
         ),
         "stable benchmark diffs must report a compact stable governance summary",
     )
@@ -1652,7 +1654,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "policy_reason=info_hash_change "
             "escalation_reason=hash_change_only "
             "compatibility_tier=compatible "
-            "strictness_tier=advisory"
+            "strictness_tier=advisory "
+            "lifecycle_phase=observe"
         ),
         "benchmark hash changes alone must not count as governance regressions",
     )
@@ -1711,7 +1714,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "policy_reason=critical_regression_or_contract_mismatch "
             "escalation_reason=regression_count_gt_0 "
             "compatibility_tier=breaking_contract_change "
-            "strictness_tier=blocking"
+            "strictness_tier=blocking "
+            "lifecycle_phase=block"
         ),
         "warning benchmark diffs must report compact regression governance",
     )
@@ -1813,7 +1817,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "policy_reason=warning_composition_change "
             "escalation_reason=composition_change "
             "compatibility_tier=additive_contract_change "
-            "strictness_tier=review"
+            "strictness_tier=review "
+            "lifecycle_phase=review"
         ),
         "composition-only benchmark drift must report warning severity",
     )
@@ -1854,7 +1859,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "policy_reason=critical_regression_or_contract_mismatch "
             "escalation_reason=contract_mismatch "
             "compatibility_tier=breaking_contract_change "
-            "strictness_tier=blocking"
+            "strictness_tier=blocking "
+            "lifecycle_phase=block"
         ),
         "contract mismatch benchmark drift must expose escalation reason",
     )
@@ -1881,7 +1887,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             "policy_reason=critical_regression_or_contract_mismatch "
             "escalation_reason=regression_and_contract_mismatch "
             "compatibility_tier=breaking_contract_change "
-            "strictness_tier=blocking"
+            "strictness_tier=blocking "
+            "lifecycle_phase=block"
         ),
         "governance summary must include regression, composition, and contract categories",
     )
