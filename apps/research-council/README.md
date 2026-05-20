@@ -110,6 +110,43 @@ Expected exit behavior:
 - Without `--fail-on-critical`, `run_benchmark_diff.py` keeps the default
   reporting behavior; successful diff rendering returns exit code `0`.
 
+## Codex Goals Usage
+
+Use Codex Goals as the orchestration layer for long-running
+research-council governance objectives. A Goal should keep work scoped,
+verified, and auditable across sessions, while this repo, its README, and its
+contracts remain the source of truth.
+
+Codex Goals manage work objectives; they do not replace smoke tests, golden
+cases, schemas, benchmark hashes, governance contracts, or required command
+output. research-council owns deterministic benchmark governance, so Goals must
+preserve deterministic behavior, metadata-only governance, append-only contract
+evolution, summary growth control, schema/hash stability, and the rule against
+storing raw benchmark, golden, mutation, scenario, or user-provided input text.
+
+Reusable Goal template:
+
+```text
+Repo path: C:\work\jarvis-core
+Branch: <branch name>
+Objective: <bounded governance objective>
+Constraints:
+- Prefer README-only or contract-only changes unless implementation is
+  explicitly required.
+- Preserve deterministic behavior, metadata-only governance, append-only
+  contract evolution, summary growth control, and schema/hash stability.
+- Do not store raw benchmark, golden, mutation, scenario, or user-provided input
+  text.
+Validation commands:
+- python -B apps\research-council\run_smoke_tests.py
+- python -B apps\research-council\run_golden_cases.py
+Stop condition: Stop when the scoped objective is documented or implemented,
+validation has run, and any governance risk is reported.
+Report format: Changed files; objective summary; validation results;
+confirmation that output, schema, hash, CLI/API/UI/DB behavior, and governance
+contracts remain unchanged unless explicitly scoped.
+```
+
 Governance summary examples:
 
 ```text
