@@ -258,6 +258,38 @@ Governance transition lifecycle:
   alter formatter output to represent grace, expiry, renewal, downgrade, or
   upgrade.
 
+Governance accountability escalation policy:
+
+- `strictness_tier=advisory` / `lifecycle_phase=observe` and
+  `strictness_tier=review` / `lifecycle_phase=review` may stay within local
+  operator handling unless local CI policy defines a review timeout.
+- `strictness_tier=strict` / `lifecycle_phase=stabilize` requires a bounded
+  review window. If the issue remains unresolved after that window, escalate to
+  the assigned governance owner or documented delegate for renewal, rejection,
+  or remediation planning.
+- `strictness_tier=blocking` / `lifecycle_phase=block` requires escalation when
+  unresolved past its acknowledgement timeout, when no owner is assigned, or when
+  the owner is inactive. Blocking escalation should not wait for another
+  benchmark rewrite to make the state look lower risk.
+- Expired acknowledgement, owner inactivity, retry-only handling, or ignored
+  `--fail-on-critical` exit codes are not automatic approval. They are
+  escalation triggers.
+- Escalation authority should follow the consuming team's ownership chain:
+  local operator -> governance owner -> delegated release or incident owner. The
+  benchmark governance process only supplies deterministic evidence; it does not
+  choose the human authority.
+- Escalation audit metadata should include the original owner, escalation owner,
+  escalation trigger, escalation timestamp or durable reference, escalation
+  scope, original governance summary, snapshot or history artifact, and
+  revalidation expectation.
+- Acknowledgement renewal is the escalation owner's responsibility once the
+  escalation is accepted. Renewal must cite the current governance result and
+  cannot reuse stale acknowledgement metadata after a benchmark hash, baseline,
+  compatibility, strictness, lifecycle, or escalation reason change.
+- Escalation transition is operational, not a benchmark rewrite. Do not mutate
+  snapshots, history, benchmark hashes, governance fields, or formatter output to
+  represent unresolved, escalated, renewed, or delegated states.
+
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
 policy says otherwise. If the files are created in the repository root during
