@@ -354,6 +354,35 @@ Governance dispute resolution policy:
   formatter output to represent disputed, provisional, resolved, or rejected
   interpretation states.
 
+Governance audit retention policy:
+
+- Governance audit records should be retained for the consuming team's required
+  release, incident, compliance, or CI audit window. Retention is owned by the
+  governance owner or the CI/release owner named in the operational record.
+- Archive audit records rather than deleting them when they document strict or
+  blocking acknowledgement, override, dispute, escalation, delegation, grace, or
+  ownership transfer. Deletion should be reserved for local scratch artifacts or
+  records explicitly covered by the consuming team's data-retention policy.
+- Audit records should keep immutable benchmark references: the original
+  governance summary, command context, benchmark hash, snapshot or history
+  artifact reference, CI run or release reference, owner, scope, and timestamp.
+- Expired acknowledgement, override, dispute, escalation, delegation, or grace
+  records remain part of the audit trail. Mark them expired, superseded, renewed,
+  or closed in audit metadata instead of removing the original record.
+- Retention records must not include raw benchmark, golden, mutation, scenario,
+  or user-provided input text. Keep references and bounded governance metadata
+  rather than copying benchmark payload content into the audit trail.
+- Revalidation should create a new audit record linked to the prior one when the
+  benchmark hash, baseline, compatibility, strictness, lifecycle,
+  `escalation_reason`, owner, or delegated authority changes.
+- Sunset handling should name the retention owner, sunset reason, final
+  disposition, and durable reference to any archived record. Sunset does not
+  change the original governance summary or benchmark artifacts.
+- Retention state is operational metadata outside the benchmark governance
+  contract. Do not add summary fields, mutate snapshots or history, alter
+  benchmark hashes, or change formatter output to represent retention, archival,
+  deletion, renewal, or sunset.
+
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
 policy says otherwise. If the files are created in the repository root during
