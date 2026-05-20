@@ -227,6 +227,37 @@ Governance ownership semantics:
   records should point to the exact summary, snapshot or history artifact,
   command context, and CI run or release decision they cover.
 
+Governance transition lifecycle:
+
+- Expiration is optional for `strictness_tier=advisory` /
+  `lifecycle_phase=observe` and `strictness_tier=review` /
+  `lifecycle_phase=review`, unless local CI policy requires a review window.
+- Temporary acknowledgement or override for `strictness_tier=strict` /
+  `lifecycle_phase=stabilize` and `strictness_tier=blocking` /
+  `lifecycle_phase=block` must include an expiration condition. Use a bounded
+  timestamp, CI run, branch, release candidate, or benchmark history comparison
+  scope; do not leave strict or blocking acceptance open-ended.
+- Revalidation is required when the benchmark hash changes, the compared
+  snapshot or history baseline changes, `compatibility_tier`,
+  `strictness_tier`, `lifecycle_phase`, or `escalation_reason` changes, the
+  acknowledgement scope expires, or ownership transfers to a new accountable
+  owner.
+- A compatibility grace period is an operational exception, not a governance
+  downgrade. It must name the compatibility issue, owner, rationale, bounded
+  duration or scope, and follow-up expectation.
+- Expired acknowledgement, override, or grace does not hide or rewrite the
+  governance result. The latest deterministic summary remains visible, and CI or
+  operators must either revalidate, renew with a new audit record, or stop the
+  operational acceptance.
+- Escalation upgrades, such as review -> strict or strict -> blocking, require a
+  fresh acknowledgement before proceeding. Escalation downgrades may close the
+  prior acknowledgement, but they should still record the new summary and the
+  reason the previous higher-risk state no longer applies.
+- Transition state is expressed only in audit metadata outside the benchmark
+  contract. Do not add ad hoc lifecycle fields, mutate snapshots or history, or
+  alter formatter output to represent grace, expiry, renewal, downgrade, or
+  upgrade.
+
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
 policy says otherwise. If the files are created in the repository root during
