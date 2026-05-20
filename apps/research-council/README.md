@@ -148,6 +148,30 @@ Governance summary contract rules:
 - Deprecate by leaving the existing field stable and appending a replacement
   suffix; do not repurpose an existing field.
 
+Governance override philosophy:
+
+- Governance metadata is the deterministic record of benchmark drift, not an
+  operational permission system. An override is a downstream operator or CI
+  decision to proceed despite the visible governance result.
+- Overrides may be routine for `strictness_tier=advisory` / `lifecycle_phase=observe`
+  and policy-reviewed for `strictness_tier=review` / `lifecycle_phase=review`,
+  but they must not hide, rewrite, or suppress the original summary line.
+- `strictness_tier=strict` / `lifecycle_phase=stabilize` and
+  `strictness_tier=blocking` / `lifecycle_phase=block` require explicit
+  acknowledgement with an owner, reason, scope, and follow-up expectation before
+  proceeding operationally.
+- Override audit records should keep the original governance summary, command
+  context, snapshot or history reference, approver or owner, and rationale.
+- Overrides are operational decisions, not benchmark rewrites: do not edit
+  snapshots, history entries, benchmark hashes, golden fixtures, or governance
+  fields merely to make a run appear lower risk.
+- The `--fail-on-critical` contract remains unchanged. CI may decide how to
+  handle that exit code, but the benchmark governance report must remain visible
+  and deterministic.
+- Override policy does not evolve the governance contract. Contract changes
+  still follow append-only evolution, exact smoke fixtures, and summary growth
+  control.
+
 `benchmark_snapshot.json` and `benchmark_history.json` are generated benchmark
 artifacts. Keep them out of commits unless a future explicit benchmark artifact
 policy says otherwise. If the files are created in the repository root during
