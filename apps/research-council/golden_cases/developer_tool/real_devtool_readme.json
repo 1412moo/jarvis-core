@@ -1,0 +1,85 @@
+{
+  "case_id": "developer_tool/real_devtool_readme",
+  "tags": [
+    "realistic_case",
+    "overlap_case",
+    "weak_signal_guard"
+  ],
+  "input": {
+    "raw_idea": "README-style pitch for a local debugging CLI that watches test failures, explains stack traces, opens linked GitHub issues, and suggests SDK integration checks before CI retries. It uses AI assistant language and says teams can share dashboards with managers, but the core workflow is install, connect repo, inspect logs, and shorten developer feedback loops.",
+    "goal": "Evaluate developer workflow, setup complexity, integration burden, compatibility, time-to-value, and repeat developer usage.",
+    "context": "The README has generic AI and dashboard wording; it should remain a developer-tool benchmark rather than enterprise SaaS."
+  },
+  "expected": {
+    "profile_id": "developer_tool",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "real devtool workflow discipline",
+        "scope": "profile_consistency_text",
+        "all": [
+          "developer workflow",
+          "setup complexity",
+          "integration burden",
+          "time-to-first-value",
+          "ecosystem compatibility"
+        ]
+      },
+      {
+        "name": "README observability remains developer-specific",
+        "scope": "profile_consistency_text",
+        "any": [
+          "debugging or observability value",
+          "observability value"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no enterprise marketplace creator medical drift",
+        "scope": "profile_consistency_text",
+        "terms": [
+          "enterprise B2B blocker",
+          "procurement path",
+          "liquidity threshold",
+          "marketplace blocker",
+          "creator-tools blocker",
+          "patient safety",
+          "clinical validation"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "developer adoption evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "integration evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "technical",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

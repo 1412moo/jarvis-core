@@ -1,0 +1,95 @@
+{
+  "case_id": "ai_saas/workflow_ai_assistant",
+  "input": {
+    "raw_idea": "AI SaaS patent triage assistant for solo founders that turns invention notes into comparison tables and workflow handoff notes",
+    "goal": "Evaluate workflow adoption, willingness to pay, retention, reliability, and differentiation.",
+    "context": "The concept should be judged as a repeatable founder workflow, not as a one-time generated report."
+  },
+  "expected": {
+    "profile_id": "ai_saas",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "workflow buyer reasoning",
+        "scope": "analysis_text",
+        "all": [
+          "workflow",
+          "buyer"
+        ]
+      },
+      {
+        "name": "retention and repeat usage reasoning",
+        "scope": "analysis_text",
+        "all": [
+          "retention",
+          "repeat usage"
+        ]
+      },
+      {
+        "name": "willingness-to-pay evidence gap",
+        "scope": "evidence_ledger",
+        "all": [
+          "willingness to pay"
+        ]
+      },
+      {
+        "name": "AI SaaS expected experiments",
+        "scope": "experiments",
+        "all": [
+          "Workflow interview",
+          "Output-quality evaluation",
+          "Trust and verification boundary check",
+          "Differentiation mapping"
+        ]
+      },
+      {
+        "name": "AI-wrapper differentiation risk",
+        "scope": "recommendation",
+        "all": [
+          "AI-wrapper risk",
+          "differentiation"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no launch-ready wording",
+        "scope": "result_text",
+        "terms": [
+          "ready for launch",
+          "validated retention",
+          "proven willingness to pay"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "technical reliability gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "technical",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "confidence rationale exists",
+        "type": "confidence_rationale_present"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "case_id": "developer_tool/cli_debugging_tool",
+  "input": {
+    "raw_idea": "Developer tool CLI debugging SDK for local development with GitHub integration, logs, observability, and CI/CD monitoring",
+    "goal": "Evaluate developer workflow fit, setup complexity, integration cost, time-to-value, and repeat usage.",
+    "context": "Focus on compatibility with existing stacks, documentation burden, and whether individual developers or teams would adopt it."
+  },
+  "expected": {
+    "profile_id": "developer_tool",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "DX friction and setup concern",
+        "scope": "analysis_text",
+        "all": [
+          "setup complexity",
+          "time-to-first-value"
+        ]
+      },
+      {
+        "name": "integration and compatibility concern",
+        "scope": "analysis_text",
+        "all": [
+          "integration burden",
+          "ecosystem compatibility"
+        ]
+      },
+      {
+        "name": "debugging observability value concern",
+        "scope": "analysis_text",
+        "any": [
+          "debugging or observability value",
+          "observability value"
+        ]
+      },
+      {
+        "name": "developer workflow and repeat usage",
+        "scope": "analysis_text",
+        "all": [
+          "developer workflow",
+          "repeat usage"
+        ]
+      },
+      {
+        "name": "target developer evidence gap",
+        "scope": "evidence_ledger",
+        "all": [
+          "target developer segment",
+          "existing workflow pain",
+          "repeat usage trigger"
+        ]
+      },
+      {
+        "name": "developer-tool experiments",
+        "scope": "experiments",
+        "all": [
+          "Developer workflow interview",
+          "Setup friction test",
+          "Integration prototype",
+          "Documentation comprehension test",
+          "Existing tool comparison"
+        ]
+      },
+      {
+        "name": "developer-tool recommendation",
+        "scope": "recommendation",
+        "all": [
+          "developer-tool blocker",
+          "setup",
+          "integration",
+          "time-to-value"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no AI SaaS buyer/WTP-only drift",
+        "scope": "analysis_text",
+        "terms": [
+          "AI-wrapper risk",
+          "buyer urgency",
+          "willingness to pay"
+        ]
+      },
+      {
+        "name": "no medical-device safety drift",
+        "scope": "analysis_text",
+        "terms": [
+          "patient safety",
+          "clinical validation",
+          "regulatory clearance"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "integration gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "technical",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "developer workflow gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "confidence rationale exists",
+        "type": "confidence_rationale_present"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

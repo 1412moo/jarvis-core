@@ -1,0 +1,152 @@
+{
+  "case_id": "marketplace/local_service_marketplace",
+  "input": {
+    "raw_idea": "Local service marketplace connecting home repair providers and customers with listings, booking, reviews, escrow payments, take rate monetization, and trust and safety moderation",
+    "goal": "Evaluate liquidity, cold start strategy, supply-side and demand-side acquisition, matching efficiency, transaction frequency, retention by side, and disintermediation risk.",
+    "context": "Focus on local density, quality control, reputation system, moderation burden, and whether repeat transactions can sustain the marketplace."
+  },
+  "expected": {
+    "profile_id": "marketplace",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "liquidity and cold-start concern",
+        "scope": "analysis_text",
+        "all": [
+          "liquidity",
+          "cold-start"
+        ]
+      },
+      {
+        "name": "supply and demand reasoning",
+        "scope": "analysis_text",
+        "all": [
+          "supply-side acquisition",
+          "demand-side acquisition",
+          "retention by side"
+        ]
+      },
+      {
+        "name": "trust safety and moderation concern",
+        "scope": "analysis_text",
+        "all": [
+          "trust and safety",
+          "moderation burden"
+        ]
+      },
+      {
+        "name": "transaction monetization and disintermediation concern",
+        "scope": "analysis_text",
+        "all": [
+          "transaction frequency",
+          "take-rate",
+          "disintermediation"
+        ]
+      },
+      {
+        "name": "marketplace evidence gaps",
+        "scope": "evidence_ledger",
+        "all": [
+          "supply-side acquisition",
+          "demand-side acquisition",
+          "liquidity threshold",
+          "local or niche density",
+          "transaction frequency",
+          "disintermediation risk",
+          "trust/safety risk",
+          "moderation burden"
+        ]
+      },
+      {
+        "name": "marketplace experiments",
+        "scope": "experiments",
+        "all": [
+          "Supply-side interview",
+          "Demand-side interview",
+          "Concierge matching test",
+          "Liquidity threshold test",
+          "Trust/safety risk review",
+          "Pricing/take-rate test",
+          "Repeat transaction cohort check"
+        ]
+      },
+      {
+        "name": "marketplace recommendation",
+        "scope": "recommendation",
+        "all": [
+          "marketplace blocker",
+          "liquidity",
+          "supply-side acquisition",
+          "demand-side acquisition"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no enterprise procurement/security drift",
+        "scope": "analysis_text",
+        "terms": [
+          "procurement path",
+          "security/compliance requirements",
+          "budget owner",
+          "enterprise B2B blocker"
+        ]
+      },
+      {
+        "name": "no developer-tool DX drift",
+        "scope": "analysis_text",
+        "terms": [
+          "DX friction",
+          "setup complexity",
+          "time-to-first-value",
+          "developer-tool blocker"
+        ]
+      },
+      {
+        "name": "no medical-device safety drift",
+        "scope": "analysis_text",
+        "terms": [
+          "patient safety",
+          "clinical validation",
+          "regulatory clearance"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "liquidity gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "transaction monetization gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "market",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "confidence rationale exists",
+        "type": "confidence_rationale_present"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

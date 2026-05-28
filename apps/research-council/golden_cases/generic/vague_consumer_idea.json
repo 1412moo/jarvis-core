@@ -1,0 +1,77 @@
+{
+  "case_id": "generic/vague_consumer_idea",
+  "input": {
+    "raw_idea": "A lightweight taxonomy for organizing private reading notes",
+    "goal": "Evaluate clarity and whether anyone would adopt it.",
+    "context": "The target user, current workaround, and adoption trigger are not yet defined."
+  },
+  "expected": {
+    "profile_id": "general",
+    "selected_by": "fallback",
+    "contains": [
+      {
+        "name": "target user ambiguity",
+        "scope": "reasoning_trace",
+        "all": [
+          "target user unclear"
+        ]
+      },
+      {
+        "name": "missing adoption evidence",
+        "scope": "reasoning_trace",
+        "all": [
+          "adoption evidence missing"
+        ]
+      },
+      {
+        "name": "adoption evidence request",
+        "scope": "evidence_ledger",
+        "all": [
+          "target user",
+          "current workaround",
+          "adoption trigger"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no validated adoption wording",
+        "scope": "result_text",
+        "terms": [
+          "ready for launch",
+          "validated adoption",
+          "validated demand"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "adoption gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "confidence rationale exists",
+        "type": "confidence_rationale_present"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

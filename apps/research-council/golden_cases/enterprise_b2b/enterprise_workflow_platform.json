@@ -1,0 +1,139 @@
+{
+  "case_id": "enterprise_b2b/enterprise_workflow_platform",
+  "input": {
+    "raw_idea": "Enterprise workflow platform for compliance automation across departments with procurement approval, SSO, audit logs, admin dashboard, security review, and multi-team rollout",
+    "goal": "Evaluate budget owner clarity, stakeholder alignment, ROI proof, integration burden, onboarding/training cost, and rollout risk.",
+    "context": "The product would need IT approval, governance, enterprise integration, vendor trust, and department workflow adoption before broad deployment."
+  },
+  "expected": {
+    "profile_id": "enterprise_b2b",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "procurement and security concern",
+        "scope": "analysis_text",
+        "all": [
+          "procurement path",
+          "security/compliance requirements"
+        ]
+      },
+      {
+        "name": "stakeholder and budget owner reasoning",
+        "scope": "analysis_text",
+        "all": [
+          "budget owner",
+          "stakeholder alignment",
+          "champion versus buyer"
+        ]
+      },
+      {
+        "name": "rollout onboarding integration burden",
+        "scope": "analysis_text",
+        "all": [
+          "integration burden",
+          "rollout complexity",
+          "onboarding/training burden"
+        ]
+      },
+      {
+        "name": "ROI proof concern",
+        "scope": "analysis_text",
+        "all": [
+          "ROI proof",
+          "long sales cycle"
+        ]
+      },
+      {
+        "name": "enterprise evidence gaps",
+        "scope": "evidence_ledger",
+        "all": [
+          "budget owner",
+          "procurement path",
+          "security/compliance requirements",
+          "enterprise integration requirements",
+          "stakeholder alignment",
+          "switching cost"
+        ]
+      },
+      {
+        "name": "enterprise experiments",
+        "scope": "experiments",
+        "all": [
+          "Procurement interview",
+          "Security/compliance review mapping",
+          "Stakeholder mapping exercise",
+          "Rollout simulation",
+          "ROI validation interview",
+          "Integration pilot"
+        ]
+      },
+      {
+        "name": "enterprise recommendation",
+        "scope": "recommendation",
+        "all": [
+          "enterprise B2B blocker",
+          "procurement",
+          "security/compliance",
+          "ROI proof"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no developer-tool DX drift",
+        "scope": "analysis_text",
+        "terms": [
+          "DX friction",
+          "debugging or observability value",
+          "time-to-first-value",
+          "developer-tool blocker"
+        ]
+      },
+      {
+        "name": "no medical-device safety drift",
+        "scope": "analysis_text",
+        "terms": [
+          "patient safety",
+          "clinical validation",
+          "regulatory clearance"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "procurement gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "market",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "security compliance gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "safety_regulatory",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "confidence rationale exists",
+        "type": "confidence_rationale_present"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

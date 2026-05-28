@@ -1,0 +1,855 @@
+"""Deterministic local reviewers for Research Council.
+
+The functions in this module are intentionally simple, local, and
+standard-library only. They do not perform web search, network calls, LLM calls,
+or citation generation.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Sequence
+from textwrap import shorten
+
+from .claim_extractor import DomainProfile, domain_profile_for, evidence_request_for
+from .evidence_ledger import evidence_gap_category
+from .schemas import Claim, EvidenceEntry, ResearchCouncilInput, ReviewerCritique
+
+
+REVIEWER_ROLES: tuple[str, ...] = (
+    "technical",
+    "market",
+    "safety_regulatory",
+    "red_team",
+)
+
+_TECHNICAL_KEYWORDS = (
+    "build",
+    "technical",
+    "implementation",
+    "prototype",
+    "device",
+    "capsule",
+    "sensor",
+    "sensing",
+    "power",
+    "data",
+    "manufacturing",
+    "transit",
+    "automation",
+    "model",
+    "output",
+    "quality",
+    "reliability",
+    "integration",
+    "setup",
+    "sdk",
+    "api",
+    "cli",
+    "debugging",
+    "observability",
+    "logs",
+    "monitoring",
+    "compatibility",
+    "enterprise integration",
+    "deployment responsibility",
+    "workflow integration depth",
+    "rollout",
+    "vendor reliability",
+    "matching",
+    "listings",
+    "booking",
+    "quality control",
+    "reputation system",
+    "content repurposing",
+    "collaboration workflow",
+    "platform dependency",
+    "production workflow",
+)
+_MARKET_KEYWORDS = (
+    "adopt",
+    "market",
+    "customer",
+    "user",
+    "pay",
+    "willing",
+    "demand",
+    "useful",
+    "value",
+    "founder",
+    "workflow",
+    "retention",
+    "subscription",
+    "distribution",
+    "pricing",
+    "developer",
+    "setup",
+    "switching cost",
+    "documentation",
+    "team adoption",
+    "enterprise",
+    "procurement",
+    "budget owner",
+    "stakeholder",
+    "champion",
+    "buyer",
+    "roi",
+    "rollout",
+    "onboarding",
+    "training",
+    "marketplace",
+    "liquidity",
+    "cold start",
+    "supply-side",
+    "demand-side",
+    "sellers",
+    "buyers",
+    "providers",
+    "customers",
+    "transaction",
+    "take rate",
+    "disintermediation",
+    "creator",
+    "content production",
+    "audience growth",
+    "fan community",
+    "community engagement",
+    "monetization",
+    "sponsorship",
+    "paid community",
+    "creator retention",
+    "creator onboarding",
+)
+_SAFETY_KEYWORDS = (
+    "safety",
+    "regulatory",
+    "compliance",
+    "privacy",
+    "legal",
+    "medical",
+    "health",
+    "financial",
+    "data",
+    "risk",
+    "patent",
+    "patentability",
+    "infringement",
+    "hallucination",
+    "verification",
+    "trust",
+    "attorney",
+    "security",
+    "security review",
+    "compliance",
+    "soc2",
+    "sso",
+    "audit logs",
+    "governance",
+    "it approval",
+    "trust and safety",
+    "moderation",
+    "escrow",
+    "fraud",
+    "abuse",
+    "reputation",
+    "reviews",
+    "platform policy",
+    "platform dependency",
+    "audience data",
+    "brand safety",
+    "sponsorship disclosure",
+    "fan community",
+)
+_RED_TEAM_KEYWORDS = (
+    "assume",
+    "scale",
+    "expand",
+    "trust",
+    "unsupported",
+    "evidence",
+    "adopt",
+    "screen",
+    "diagnostic",
+    "safety",
+    "hallucination",
+    "differentiation",
+    "substitute",
+    "generic ai",
+    "retention",
+    "tool sprawl",
+    "setup",
+    "integration",
+    "documentation",
+    "observability",
+    "procurement",
+    "vendor trust",
+    "long sales cycle",
+    "org-wide adoption",
+    "chicken-and-egg",
+    "cold start",
+    "liquidity",
+    "local density",
+    "retention asymmetry",
+    "disintermediation",
+    "moderation",
+    "quality control",
+    "creator churn",
+    "audience lock-in",
+    "audience lock in",
+    "platform dependency",
+    "generic content",
+    "creator differentiation",
+)
+_REGULATED_DOMAIN_KEYWORDS = (
+    "medical",
+    "health",
+    "clinical",
+    "patient",
+    "diagnosis",
+    "legal",
+    "lawyer",
+    "contract",
+    "financial",
+    "investment",
+    "insurance",
+    "privacy",
+    "personal data",
+    "patent",
+    "patentability",
+    "infringement",
+    "freedom-to-operate",
+    "attorney",
+    "intellectual property",
+    "security",
+    "security review",
+    "compliance",
+    "soc2",
+    "sso",
+    "audit logs",
+    "governance",
+)
+
+
+def run_reviewers(
+    input_data: ResearchCouncilInput,
+    claims: Sequence[Claim],
+    evidence_entries: Sequence[EvidenceEntry],
+    *,
+    domain_profile: DomainProfile | None = None,
+) -> list[ReviewerCritique]:
+    """Return deterministic critiques from all Research Council reviewer roles."""
+
+    claim_list = tuple(claims)
+    evidence_list = tuple(evidence_entries)
+    domain_profile = _reasoning_profile_for(input_data, domain_profile)
+    evidence_by_claim = _evidence_by_claim(evidence_list)
+    missing_claim_ids = _missing_claim_ids(claim_list, evidence_by_claim)
+    gap_category_by_claim = _gap_category_by_claim(evidence_list)
+
+    critiques = [
+        _build_technical_critique(
+            claim_list, missing_claim_ids, gap_category_by_claim, domain_profile, 1
+        ),
+        _build_market_critique(
+            claim_list, missing_claim_ids, gap_category_by_claim, domain_profile, 2
+        ),
+        _build_safety_critique(
+            input_data, claim_list, missing_claim_ids, gap_category_by_claim, domain_profile, 3
+        ),
+        _build_red_team_critique(
+            claim_list, missing_claim_ids, gap_category_by_claim, domain_profile, 4
+        ),
+    ]
+    return critiques
+
+
+def _build_technical_critique(
+    claims: tuple[Claim, ...],
+    missing_claim_ids: set[str],
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
+    index: int,
+) -> ReviewerCritique:
+    claim = _select_claim_by_gap_category(
+        claims, ("technical",), missing_claim_ids, gap_category_by_claim, _TECHNICAL_KEYWORDS
+    )
+    target = _claim_target_text(claim)
+    gap_note = _claim_gap_note(claim, gap_category_by_claim, domain_profile, fallback="technical")
+    severity = _severity_for_claim(claim, missing_claim_ids, default="medium")
+    if domain_profile.id == "capsule_medical_environmental":
+        finding = (
+            f"The technical blocker is the capsule itself: {target} "
+            "must show that a swallowable body can observe enough of the colon while moving, "
+            "capture or retain usable data, and still pass safely despite orientation, occlusion, "
+            f"power, and retrieval limits. {gap_note}"
+        )
+        suggested_action = (
+            "Build a non-ingestible capsule-size bench mockup and test image or sensor capture "
+            "through a simulated curved wet channel before considering any clinical path."
+        )
+    elif domain_profile.id == "ai_saas":
+        finding = (
+            f"The product reliability case is not proven for {target}. An AI patent-analysis "
+            "tool has to show repeatable output quality, source traceability, useful prior-art "
+            "comparison structure, clear uncertainty labels, and failure handling for missing "
+            f"or conflicting inputs before it can be trusted in a founder workflow. {gap_note}"
+        )
+        suggested_action = (
+            "Score a small set of user-supplied invention briefs and offline reference snippets "
+            "with a fixed output-quality rubric before building more SaaS surface area."
+        )
+    elif domain_profile.id == "developer_tool":
+        finding = (
+            f"The developer-tool integration case is not proven for {target}. The concept "
+            "must show setup complexity, time-to-first-value, stack compatibility, permissions, "
+            "and debugging or observability value before developers will add it to an SDK, "
+            f"API, CLI, CI/CD, GitHub, or local development workflow. {gap_note}"
+        )
+        suggested_action = (
+            "Run a setup friction test and one integration prototype in a realistic developer "
+            "stack before expanding tool surface area."
+        )
+    elif domain_profile.id == "marketplace":
+        finding = (
+            f"The marketplace matching case is not proven for {target}. The concept must show "
+            "matching efficiency, booking/listing workflow, response time, quality control, "
+            "and reputation-system mechanics before relying on automated marketplace liquidity. "
+            f"{gap_note}"
+        )
+        suggested_action = (
+            "Run a concierge matching test that records match time, listing quality, booking "
+            "friction, quality-control failures, and completion outcome."
+        )
+    elif domain_profile.id == "creator_tools":
+        finding = (
+            f"The creator-tool workflow case is not proven for {target}. The concept must "
+            "show content repurposing value, collaboration workflow, production workflow "
+            "integration, import/export needs, and platform dependency constraints before "
+            f"claiming creator workflow fit. {gap_note}"
+        )
+        suggested_action = (
+            "Run a content repurposing prototype or production workflow test that records "
+            "handoffs, platform constraints, and repeated creator work."
+        )
+    elif domain_profile.id == "enterprise_b2b":
+        finding = (
+            f"The enterprise integration case is not proven for {target}. The concept must "
+            "show integration burden, workflow integration depth, deployment responsibility, "
+            "rollout complexity, and vendor reliability expectations before a company can "
+            f"plan a credible rollout. {gap_note}"
+        )
+        suggested_action = (
+            "Run an integration pilot that records systems touched, deployment owner, "
+            "reliability threshold, rollback path, and rollout dependencies."
+        )
+    else:
+        finding = (
+            f"The technical case is not proven yet for {target}. "
+            "The concept needs a small prototype or bench test that exposes the core mechanism, "
+            f"performance threshold, and failure modes. {gap_note}"
+        )
+        suggested_action = (
+            "Run the smallest local prototype or bench test that can falsify the core feasibility claim."
+        )
+    return ReviewerCritique(
+        id=_critique_id(index),
+        reviewer_role="technical",
+        claim_id=claim.id if claim else None,
+        finding=finding,
+        severity=severity,
+        suggested_action=suggested_action,
+    )
+
+
+def _build_market_critique(
+    claims: tuple[Claim, ...],
+    missing_claim_ids: set[str],
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
+    index: int,
+) -> ReviewerCritique:
+    claim = _select_claim_by_gap_category(
+        claims,
+        ("user_adoption", "market"),
+        missing_claim_ids,
+        gap_category_by_claim,
+        _MARKET_KEYWORDS,
+    )
+    target = _claim_target_text(claim)
+    gap_note = _claim_gap_note(claim, gap_category_by_claim, domain_profile, fallback="user_adoption")
+    severity = _severity_for_claim(claim, missing_claim_ids, default="medium")
+    if domain_profile.id == "capsule_medical_environmental":
+        finding = (
+            f"Adoption is unproven for {target}. A less burdensome capsule story is appealing, "
+            "but it does not show that patients would trust ingestion, clinicians would trust "
+            "diagnostic quality, or payers and screening programs would prefer this pathway over "
+            f"established alternatives. {gap_note}"
+        )
+        suggested_action = (
+            "Run separate non-clinical interviews with one patient-like participant and one care-pathway "
+            "operator to test trust, refusal points, and the decision this concept would change."
+        )
+    elif domain_profile.id == "ai_saas":
+        finding = (
+            f"The SaaS adoption case remains weak for {target}. Founder interest is not enough: "
+            "the concept needs evidence that patent triage is painful and frequent, that users "
+            "will switch from manual search, generic AI, spreadsheets, or attorney intake, and "
+            f"that repeat usage and willingness to pay can support retention. {gap_note}"
+        )
+        suggested_action = (
+            "Interview solo founders around their last invention-screening workflow, current "
+            "substitutes, time cost, trust blockers, desired integrations, and payment threshold."
+        )
+    elif domain_profile.id == "developer_tool":
+        finding = (
+            f"The developer adoption case remains weak for {target}. Developer interest is "
+            "not enough: the concept needs evidence for a target developer segment, current "
+            "workflow pain, switching cost from existing tools, setup tolerance, individual "
+            f"versus team adoption path, and repeat usage. {gap_note}"
+        )
+        suggested_action = (
+            "Interview target developers about their current workflow, existing tools, setup "
+            "friction, documentation needs, team rollout blockers, and repeat-use trigger."
+        )
+    elif domain_profile.id == "marketplace":
+        finding = (
+            f"The marketplace liquidity case remains weak for {target}. One-sided interest is "
+            "not enough: the concept needs separate supply-side acquisition, demand-side "
+            "acquisition, local or niche density, cold-start strategy, transaction frequency, "
+            f"and retention by side. {gap_note}"
+        )
+        suggested_action = (
+            "Run supply-side and demand-side interviews in one constrained wedge, then define "
+            "the smallest liquidity threshold and cold-start sequence."
+        )
+    elif domain_profile.id == "creator_tools":
+        finding = (
+            f"The creator retention and monetization case remains weak for {target}. Creator "
+            "interest is not enough: the concept needs evidence for target creator segment, "
+            "content production frequency, audience growth loop, fan/community engagement, "
+            f"monetization path, creator-segment willingness to pay, and churn risk. {gap_note}"
+        )
+        suggested_action = (
+            "Interview creators in one segment about production cadence, workflow pain, "
+            "audience growth loop, monetization path, onboarding friction, and retention trigger."
+        )
+    elif domain_profile.id == "enterprise_b2b":
+        finding = (
+            f"The enterprise buying case remains weak for {target}. Champion enthusiasm is "
+            "not enough: the concept needs evidence for budget owner clarity, procurement "
+            "path, stakeholder alignment, buyer versus champion distinction, ROI proof, "
+            f"long sales cycle, onboarding/training burden, and org-wide adoption risk. {gap_note}"
+        )
+        suggested_action = (
+            "Run procurement and stakeholder interviews that identify champion, buyer, IT/security, "
+            "procurement owner, budget owner, required ROI proof, and rollout blockers."
+        )
+    else:
+        finding = (
+            f"The demand and usefulness case remains weak for {target}. "
+            "Interest in the idea has not been separated from a repeatable adoption trigger, "
+            f"budget owner, or competing alternative. {gap_note}"
+        )
+        suggested_action = (
+            "Run a lightweight adoption check with the target user and record the current workaround, "
+            "switching trigger, and next decision."
+        )
+    return ReviewerCritique(
+        id=_critique_id(index),
+        reviewer_role="market",
+        claim_id=claim.id if claim else None,
+        finding=finding,
+        severity=severity,
+        suggested_action=suggested_action,
+    )
+
+
+def _build_safety_critique(
+    input_data: ResearchCouncilInput,
+    claims: tuple[Claim, ...],
+    missing_claim_ids: set[str],
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
+    index: int,
+) -> ReviewerCritique:
+    claim = _select_claim_by_gap_category(
+        claims,
+        ("safety_regulatory",),
+        missing_claim_ids,
+        gap_category_by_claim,
+        _SAFETY_KEYWORDS,
+    )
+    target = _claim_target_text(claim)
+    regulated_terms = _matched_terms(_input_text(input_data), _REGULATED_DOMAIN_KEYWORDS)
+    regulated_note = (
+        f" The idea mentions potentially regulated or sensitive terms: {', '.join(regulated_terms)}."
+        if regulated_terms
+        else ""
+    )
+    gap_note = _claim_gap_note(
+        claim, gap_category_by_claim, domain_profile, fallback="safety_regulatory"
+    )
+    severity = (
+        "high"
+        if regulated_terms
+        or domain_profile.id in {"capsule_medical_environmental", "medical_device"}
+        or domain_profile.id == "enterprise_b2b"
+        or (
+            domain_profile.id == "ai_saas"
+            and claim
+            and _contains_keyword(
+                claim.text,
+                ("legal", "patent", "trust", "verification", "hallucinated"),
+            )
+        )
+        else _severity_for_claim(claim, missing_claim_ids, default="medium")
+    )
+    if domain_profile.id == "capsule_medical_environmental":
+        finding = (
+            f"The safety boundary is the highest-impact blocker for {target}. "
+            "The concept involves ingestion, possible retention or obstruction, biocompatibility, "
+            "diagnostic false reassurance, patient discharge, and degradation byproducts entering "
+            f"wastewater. {gap_note}"
+        )
+        suggested_action = (
+            "Create a non-clinical safety table that lists hazards, stop conditions, required "
+            "expert review, and what evidence is mandatory before any human-use experiment."
+        )
+    elif domain_profile.id == "ai_saas":
+        finding = (
+            f"The trust boundary is underspecified for {target}.{regulated_note} A patent-analysis "
+            "assistant can mislead users if it hallucinates citations, treats generated summaries "
+            "as legal conclusions, or hides uncertainty around patentability, infringement, "
+            f"freedom-to-operate, and filing decisions. {gap_note}"
+        )
+        suggested_action = (
+            "Write an output boundary checklist that separates allowed summaries and comparison "
+            "tables from blocked legal advice, unsupported citations, and attorney-review triggers."
+        )
+    elif domain_profile.id == "developer_tool":
+        finding = (
+            f"The operational boundary is underspecified for {target}.{regulated_note} A developer "
+            "tool can expose secrets, production logs, access scopes, credentials, or deployment "
+            f"state if integration boundaries and safe defaults are not explicit. {gap_note}"
+        )
+        suggested_action = (
+            "Write an operational boundary checklist covering secrets, permissions, log exposure, "
+            "production data, and safe integration defaults."
+        )
+    elif domain_profile.id == "marketplace":
+        finding = (
+            f"The marketplace trust/safety boundary is underspecified for {target}.{regulated_note} "
+            "A marketplace can fail through fraud, abuse, review manipulation, disputes, unsafe "
+            "matches, or moderation overload if trust, escrow, reputation, and quality-control "
+            f"boundaries are not explicit. {gap_note}"
+        )
+        suggested_action = (
+            "Write a trust/safety risk review covering moderation owner, escrow or dispute path, "
+            "fraud and abuse cases, reputation abuse, quality-control failures, and stop conditions."
+        )
+    elif domain_profile.id == "creator_tools":
+        finding = (
+            f"The creator platform dependency boundary is underspecified for {target}.{regulated_note} "
+            "A creator tool can fail if platform policies, audience data ownership, sponsorship "
+            "disclosure, brand safety, audience lock-in, or fan/community moderation boundaries "
+            f"are not explicit. {gap_note}"
+        )
+        suggested_action = (
+            "Write a platform dependency risk review covering policy changes, audience data, "
+            "distribution channel dependency, sponsorship disclosure, moderation, and lock-in."
+        )
+    elif domain_profile.id == "enterprise_b2b":
+        finding = (
+            f"The enterprise security/compliance boundary is underspecified for {target}.{regulated_note} "
+            "A B2B workflow platform can stall in security review if SOC2 expectations, SSO, "
+            "audit logs, governance, data access, admin controls, and IT approval are not "
+            f"explicit. {gap_note}"
+        )
+        suggested_action = (
+            "Map security/compliance requirements with SOC2, SSO, audit logs, governance, "
+            "data-access owner, IT approval, and stop conditions before rollout."
+        )
+    else:
+        finding = (
+            f"The safety and regulatory boundary is underspecified for {target}."
+            f"{regulated_note} Safety-sensitive use, advice boundaries, data handling, and "
+            f"review requirements need explicit constraints before broader use. {gap_note}"
+        )
+        suggested_action = (
+            "Write a one-page boundary checklist covering sensitive use, required review, "
+            "prohibited claims, and conditions that should pause the idea."
+        )
+    return ReviewerCritique(
+        id=_critique_id(index),
+        reviewer_role="safety_regulatory",
+        claim_id=claim.id if claim else None,
+        finding=finding,
+        severity=severity,
+        suggested_action=suggested_action,
+    )
+
+
+def _build_red_team_critique(
+    claims: tuple[Claim, ...],
+    missing_claim_ids: set[str],
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
+    index: int,
+) -> ReviewerCritique:
+    claim = _select_claim_by_gap_category(
+        claims,
+        ("prior_art", "environmental"),
+        missing_claim_ids,
+        gap_category_by_claim,
+        _RED_TEAM_KEYWORDS,
+    )
+    target = _claim_target_text(claim)
+    gap_note = _claim_gap_note(claim, gap_category_by_claim, domain_profile, fallback="prior_art")
+    severity = _severity_for_claim(claim, missing_claim_ids, default="high")
+    if domain_profile.id == "capsule_medical_environmental":
+        finding = (
+            f"The easiest harmful overclaim for {target} is that a biodegradable capsule can be "
+            "treated as a screening substitute before it has evidence on coverage, missed lesions, "
+            "retention, degradation residue, and fit with existing care. The submitted description "
+            f"defines a concept; it does not support those outcome claims. {gap_note}"
+        )
+        suggested_action = (
+            "Rewrite the concept notes so every screening, safety, and environmental statement is "
+            "labeled as user-provided, missing evidence, or a non-clinical experiment target."
+        )
+    elif domain_profile.id == "ai_saas":
+        finding = (
+            f"The easiest failure mode for {target} is a polished AI report that feels authoritative "
+            "while relying on weak differentiation, unresolved AI-wrapper risk, unverified "
+            "prior-art coverage, hidden generic-AI substitution, or hallucinated legal "
+            "interpretation. The concept must prove where human verification starts and "
+            f"where automation stops. {gap_note}"
+        )
+        suggested_action = (
+            "Run a differentiation and trust red-team pass where every output line is marked as "
+            "user-supplied, source-checkable, uncertain, or blocked from legal interpretation."
+        )
+    elif domain_profile.id == "developer_tool":
+        finding = (
+            f"The easiest failure mode for {target} is tool sprawl: another SDK, API, CLI, or "
+            "dashboard that adds setup, documentation, and integration burden without enough "
+            "debugging, observability, or workflow-fit value to beat current tools. "
+            f"{gap_note}"
+        )
+        suggested_action = (
+            "Run an existing-tool comparison that marks current substitutes, switching cost, "
+            "compatibility boundaries, documentation burden, and repeat-use triggers."
+        )
+    elif domain_profile.id == "marketplace":
+        finding = (
+            f"The easiest failure mode for {target} is marketplace stall: supply and demand "
+            "never reach liquidity, local density is too thin, trust/safety work grows faster "
+            "than transactions, or both sides disintermediate after the first match. {gap_note}"
+        )
+        suggested_action = (
+            "Run a marketplace red-team pass that marks liquidity threshold, cold-start path, "
+            "side-specific retention, moderation burden, disintermediation, and substitute channels."
+        )
+    elif domain_profile.id == "creator_tools":
+        finding = (
+            f"The easiest failure mode for {target} is creator churn: creators try the tool "
+            "once, then return to generic AI/content tools, native platform features, or manual "
+            "workflow because audience growth, fan engagement, monetization, and retention "
+            f"triggers are weak. {gap_note}"
+        )
+        suggested_action = (
+            "Run a creator differentiation and churn red-team pass that marks generic tool "
+            "substitutes, platform dependency, audience lock-in, and missing retention triggers."
+        )
+    elif domain_profile.id == "enterprise_b2b":
+        finding = (
+            f"The easiest failure mode for {target} is enterprise drag: a champion likes the "
+            "workflow, but procurement, security/compliance review, switching cost, training, "
+            "integration burden, ROI proof, or vendor-trust concerns block org-wide adoption. "
+            f"{gap_note}"
+        )
+        suggested_action = (
+            "Run a stakeholder and switching-cost map that separates champion interest, buyer "
+            "approval, procurement blockers, security review, rollout burden, and vendor trust."
+        )
+    else:
+        finding = (
+            f"The easiest failure mode for {target} is false confidence: a polished concept could "
+            "make unsupported claims look researched. The next pass needs deliberate checks for "
+            f"overclaiming and unfalsifiable next steps. {gap_note}"
+        )
+        suggested_action = (
+            "Run an adversarial read where every high-impact statement maps to provided input, "
+            "an explicit missing-evidence entry, or a cheap experiment."
+        )
+    return ReviewerCritique(
+        id=_critique_id(index),
+        reviewer_role="red_team",
+        claim_id=claim.id if claim else None,
+        finding=finding,
+        severity=severity,
+        suggested_action=suggested_action,
+    )
+
+
+def _evidence_by_claim(evidence_entries: Iterable[EvidenceEntry]) -> dict[str, tuple[EvidenceEntry, ...]]:
+    grouped: dict[str, list[EvidenceEntry]] = {}
+    for entry in evidence_entries:
+        grouped.setdefault(entry.claim_id, []).append(entry)
+    return {claim_id: tuple(entries) for claim_id, entries in grouped.items()}
+
+
+def _missing_claim_ids(
+    claims: Iterable[Claim],
+    evidence_by_claim: dict[str, tuple[EvidenceEntry, ...]],
+) -> set[str]:
+    missing: set[str] = set()
+    for claim in claims:
+        entries = evidence_by_claim.get(claim.id, ())
+        has_provided_evidence = any(entry.evidence_type == "provided" for entry in entries)
+        has_missing_evidence = any(entry.evidence_type == "missing" for entry in entries)
+        if claim.source_label == "needs_evidence" or has_missing_evidence or not has_provided_evidence:
+            missing.add(claim.id)
+    return missing
+
+
+def _gap_category_by_claim(evidence_entries: Iterable[EvidenceEntry]) -> dict[str, str]:
+    categories: dict[str, str] = {}
+    for entry in evidence_entries:
+        category = evidence_gap_category(entry)
+        if category:
+            categories.setdefault(entry.claim_id, category)
+    return categories
+
+
+def _claim_gap_note(
+    claim: Claim | None,
+    gap_category_by_claim: dict[str, str],
+    domain_profile: DomainProfile,
+    *,
+    fallback: str,
+) -> str:
+    category = fallback
+    if claim and claim.id in gap_category_by_claim:
+        category = gap_category_by_claim[claim.id]
+    request = evidence_request_for(domain_profile, category)
+    return f"Evidence needed ({category}): {request}"
+
+
+def _select_claim(
+    claims: tuple[Claim, ...],
+    keywords: tuple[str, ...],
+    missing_claim_ids: set[str],
+) -> Claim | None:
+    missing_matches = [
+        claim for claim in claims if claim.id in missing_claim_ids and _contains_keyword(claim.text, keywords)
+    ]
+    if missing_matches:
+        return missing_matches[0]
+
+    keyword_matches = [claim for claim in claims if _contains_keyword(claim.text, keywords)]
+    if keyword_matches:
+        return keyword_matches[0]
+
+    unsupported_claims = [
+        claim for claim in claims if claim.id in missing_claim_ids or claim.confidence == "low"
+    ]
+    if unsupported_claims:
+        return unsupported_claims[0]
+
+    return claims[0] if claims else None
+
+
+def _select_claim_by_gap_category(
+    claims: tuple[Claim, ...],
+    categories: tuple[str, ...],
+    missing_claim_ids: set[str],
+    gap_category_by_claim: dict[str, str],
+    fallback_keywords: tuple[str, ...],
+) -> Claim | None:
+    for category in categories:
+        for claim in claims:
+            if claim.id in missing_claim_ids and gap_category_by_claim.get(claim.id) == category:
+                return claim
+    for category in categories:
+        for claim in claims:
+            if gap_category_by_claim.get(claim.id) == category:
+                return claim
+    return _select_claim(claims, fallback_keywords, missing_claim_ids)
+
+
+def _severity_for_claim(
+    claim: Claim | None,
+    missing_claim_ids: set[str],
+    *,
+    default: str,
+) -> str:
+    if claim is None:
+        return "high"
+    if claim.id in missing_claim_ids and claim.confidence == "low":
+        return "high"
+    if claim.source_label == "needs_evidence":
+        return "high"
+    if claim.id in missing_claim_ids:
+        return "medium"
+    return default
+
+
+def _claim_target_text(claim: Claim | None) -> str:
+    if claim is None:
+        return "the overall idea"
+    return f"`{claim.id}` ({shorten(claim.text, width=120, placeholder='...')})"
+
+
+def _input_text(input_data: ResearchCouncilInput) -> str:
+    parts = [
+        _get_field(input_data, "raw_idea"),
+        _get_field(input_data, "goal"),
+        _get_field(input_data, "context"),
+        " ".join(_get_sequence_field(input_data, "constraints")),
+        " ".join(_get_sequence_field(input_data, "provided_evidence")),
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def _get_field(input_data: ResearchCouncilInput, field_name: str) -> str:
+    if isinstance(input_data, dict):
+        value = input_data.get(field_name, "")
+    else:
+        value = getattr(input_data, field_name, "")
+    return str(value or "")
+
+
+def _get_sequence_field(input_data: ResearchCouncilInput, field_name: str) -> tuple[str, ...]:
+    if isinstance(input_data, dict):
+        value = input_data.get(field_name, ())
+    else:
+        value = getattr(input_data, field_name, ())
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(str(item) for item in value if str(item).strip())
+
+
+def _contains_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in keywords)
+
+
+def _matched_terms(text: str, keywords: tuple[str, ...]) -> tuple[str, ...]:
+    lowered = text.lower()
+    return tuple(keyword for keyword in keywords if keyword in lowered)
+
+
+def _critique_id(index: int) -> str:
+    return f"critique-{index:03d}"
+
+
+def _reasoning_profile_for(input_data: ResearchCouncilInput, domain_profile: DomainProfile | None) -> DomainProfile:
+    if domain_profile is None:
+        return domain_profile_for(input_data)
+    if getattr(domain_profile, "id", "") == "medical_device":
+        legacy_profile = domain_profile_for(input_data)
+        if legacy_profile.id == "capsule_medical_environmental":
+            return legacy_profile
+    return domain_profile

@@ -1,0 +1,69 @@
+{
+  "case_id": "generic/hard_vague_profile_ambiguity",
+  "tags": [
+    "hard_case",
+    "weak_signal_guard",
+    "false_positive_prevention"
+  ],
+  "input": {
+    "raw_idea": "A taxonomy for organizing team notes and unclear project ideas",
+    "goal": "Evaluate target user, problem severity, alternatives, and adoption evidence.",
+    "context": "Avoid assuming a specialized domain; no strong anchors are established."
+  },
+  "expected": {
+    "profile_id": "general",
+    "selected_by": "fallback",
+    "contains": [
+      {
+        "name": "general adoption discipline",
+        "scope": "analysis_text",
+        "all": [
+          "target user",
+          "problem severity",
+          "alternatives",
+          "adoption evidence"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no specialized profile forced",
+        "scope": "analysis_text",
+        "terms": [
+          "AI-wrapper risk",
+          "marketplace blocker",
+          "enterprise B2B blocker",
+          "developer-tool blocker",
+          "creator-tools blocker",
+          "patient safety risk unresolved",
+          "clinical validation evidence missing"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "adoption gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}

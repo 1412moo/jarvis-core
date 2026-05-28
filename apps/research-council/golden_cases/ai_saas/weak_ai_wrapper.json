@@ -1,0 +1,100 @@
+{
+  "case_id": "ai_saas/weak_ai_wrapper",
+  "input": {
+    "raw_idea": "AI SaaS workflow assistant that wraps an LLM to generate patent analysis reports for solo founders",
+    "goal": "Evaluate buyer urgency, narrow wedge, differentiation, and GTM risk.",
+    "context": "Focus on repeat usage, switching cost, workflow integration, and whether the idea is more than a generic AI wrapper."
+  },
+  "expected": {
+    "profile_id": "ai_saas",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "differentiation warning",
+        "scope": "analysis_text",
+        "all": [
+          "differentiation",
+          "generic AI wrapper"
+        ]
+      },
+      {
+        "name": "buyer workflow concern",
+        "scope": "analysis_text",
+        "all": [
+          "buyer",
+          "workflow"
+        ]
+      },
+      {
+        "name": "retention concern",
+        "scope": "analysis_text",
+        "all": [
+          "retention"
+        ]
+      },
+      {
+        "name": "willingness-to-pay gap",
+        "scope": "analysis_text",
+        "all": [
+          "willingness to pay"
+        ]
+      },
+      {
+        "name": "AI-wrapper concern",
+        "scope": "analysis_text",
+        "any": [
+          "AI-wrapper risk",
+          "AI wrapper risk",
+          "generic AI wrapper"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no optimistic confidence wording",
+        "scope": "result_text",
+        "terms": [
+          "ready for launch",
+          "validated market",
+          "validated demand"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "workflow adoption gap blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "user_adoption",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "confidence rationale exists",
+        "type": "confidence_rationale_present"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present",
+        "signals": [
+          "profile_adherence",
+          "evidence_coverage",
+          "risk_specificity",
+          "next_step_actionability",
+          "caveat_appropriateness"
+        ]
+      }
+    ]
+  }
+}

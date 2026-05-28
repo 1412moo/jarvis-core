@@ -1,0 +1,100 @@
+{
+  "case_id": "medical_device/real_remote_monitoring_pitch",
+  "tags": [
+    "realistic_case",
+    "overlap_case",
+    "contamination_prone",
+    "confidence_downgrade",
+    "augmentation_stress"
+  ],
+  "input": {
+    "raw_idea": "Concept summary for a remote monitoring device that pairs a home sensor with clinician review to flag possible deterioration between appointments. The pitch says the model is accurate in pilots, improves care coordination, and could reduce readmissions, but intended use, patient safety hazards, clinical validation protocol, and regulatory pathway are not documented.",
+    "goal": "Evaluate patient safety, intended use, clinical validation, regulatory pathway, conservative confidence, and non-clinical next steps.",
+    "context": "The summary has optimistic clinical and SaaS-style ROI wording; unsupported claims must not become proof of safety or clearance."
+  },
+  "expected": {
+    "profile_id": "medical_device",
+    "selected_by": "deterministic_score",
+    "contains": [
+      {
+        "name": "real medical safety discipline",
+        "scope": "profile_consistency_text",
+        "all": [
+          "patient safety",
+          "clinical validation",
+          "regulatory pathway",
+          "intended use",
+          "conservative"
+        ]
+      },
+      {
+        "name": "non-clinical path remains visible",
+        "scope": "recommendation",
+        "all": [
+          "non-clinical"
+        ]
+      }
+    ],
+    "not_contains": [
+      {
+        "name": "no unsafe deployment optimism",
+        "scope": "result_text",
+        "terms": [
+          "safe for human use",
+          "ready for clinical use",
+          "approved for deployment",
+          "regulatory clearance established",
+          "validated demand",
+          "AI-wrapper risk"
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "name": "safety evidence blocks confidence",
+        "type": "evidence_confidence_impact",
+        "category": "safety_regulatory",
+        "impact": "confidence_blocker",
+        "minimum": 1
+      },
+      {
+        "name": "conservative safety-first decision",
+        "type": "recommendation_decision_in",
+        "values": [
+          "pause_broad_use_resolve_safety_blocker"
+        ]
+      },
+      {
+        "name": "TEST_NOISY rejects unsafe medical augmentation",
+        "type": "llm_augmentation_summary",
+        "modes": [
+          "test_noisy"
+        ],
+        "min_rejected": 3,
+        "rejection_reasons": [
+          "unsafe medical claim",
+          "raw input echo",
+          "unsupported confidence escalation",
+          "unsupported augmentation scope"
+        ],
+        "require_no_rejected_text": true
+      },
+      {
+        "name": "unsupported claims cannot be high confidence",
+        "type": "unsupported_claim_confidence_not",
+        "forbidden": [
+          "high"
+        ]
+      },
+      {
+        "name": "reasoning trace exists",
+        "type": "reasoning_trace_present",
+        "scope": "missing_evidence"
+      },
+      {
+        "name": "quality signals maintained",
+        "type": "quality_signals_present"
+      }
+    ]
+  }
+}
