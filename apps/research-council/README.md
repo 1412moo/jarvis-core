@@ -131,6 +131,35 @@ Expected exit behavior:
 - Without `--fail-on-critical`, `run_benchmark_diff.py` keeps the default
   reporting behavior; successful diff rendering returns exit code `0`.
 
+Replay deterministic benchmark governance decisions from existing metadata with
+`run_governance_replay.py`. Use `--history` to compare the latest two entries in
+a benchmark history file, or use `--before` and `--after` to compare explicit
+snapshot files:
+
+```bash
+python -B apps\research-council\run_governance_replay.py --history benchmark_history.json
+python -B apps\research-council\run_governance_replay.py --before baseline_snapshot.json --after current_snapshot.json
+```
+
+Optional expected checks can pin the first-line governance summary and benchmark
+hashes:
+
+```bash
+python -B apps\research-council\run_governance_replay.py --history benchmark_history.json --expected-summary "<summary>" --expected-baseline-hash "<hash>" --expected-current-hash "<hash>"
+```
+
+Replay exit behavior:
+
+- `0`: replay matched and any expected metadata matched.
+- `1`: replay comparison completed, but expected metadata mismatched.
+- `2`: usage, input, malformed metadata, missing file, or insufficient history
+  error.
+
+Replay output must stay bounded to metadata-only fields. It must not expose raw
+idea, goal, `input_data`, scenario text or IDs, fixture internals, local paths,
+raw benchmark/golden/mutation material, or raw expected CLI input. Replay should
+not create or modify benchmark artifacts.
+
 Detailed governance summary rules, operational handling, Codex Goal guidance,
 authority rules, lifecycle rules, audit retention, compatibility sunset handling,
 and generated benchmark artifact policy live in [governance.md](governance.md).
