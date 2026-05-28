@@ -2099,6 +2099,277 @@ def test_benchmark_diff_viewer_contract() -> None:
         "stable history fail-on-critical governance summary must match formatter",
     )
 
+    single_history_path = _smoke_artifact_path("governance-replay-single-history.json")
+    malformed_history_path = _smoke_artifact_path("governance-replay-malformed-history.json")
+    append_benchmark_history(before_snapshot, single_history_path)
+    malformed_history_path.write_text("{not-json", encoding="utf-8")
+
+    def artifact_file_contents() -> dict[str, bytes]:
+        return {
+            path.name: path.read_bytes()
+            for path in sorted(_smoke_artifacts_root().iterdir(), key=lambda item: item.name)
+            if path.is_file()
+        }
+
+    replay_artifacts_before = artifact_file_contents()
+
+    replay_history_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(history_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_history_cli.returncode == 0,
+        f"run_governance_replay --history failed: {replay_history_cli.stderr.strip()}",
+    )
+    replay_history_lines = replay_history_cli.stdout.strip().splitlines()
+    _assert(
+        replay_history_lines
+        == [
+            "Governance replay: match=true",
+            "- source: history",
+            "- entries_compared: 2",
+            f"- baseline_hash: {before_snapshot.version_info.benchmark_hash}",
+            f"- current_hash: {after_snapshot.version_info.benchmark_hash}",
+            f"- summary: {governance_summary}",
+            "- gate: fail",
+        ],
+        "run_governance_replay --history must replay bounded governance metadata",
+    )
+
+    replay_before_after_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--before",
+            str(before_path),
+            "--after",
+            str(after_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_before_after_cli.returncode == 0,
+        "run_governance_replay --before/--after failed: "
+        + replay_before_after_cli.stderr.strip(),
+    )
+    replay_before_after_lines = replay_before_after_cli.stdout.strip().splitlines()
+    _assert(
+        replay_before_after_lines
+        == [
+            "Governance replay: match=true",
+            "- source: snapshots",
+            "- entries_compared: 2",
+            f"- baseline_hash: {before_snapshot.version_info.benchmark_hash}",
+            f"- current_hash: {after_snapshot.version_info.benchmark_hash}",
+            f"- summary: {governance_summary}",
+            "- gate: fail",
+        ],
+        "run_governance_replay --before/--after must replay exact snapshot metadata",
+    )
+
+    replay_expected_summary_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(history_path),
+            "--expected-summary",
+            governance_summary,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_expected_summary_cli.returncode == 0,
+        "run_governance_replay expected summary match must exit 0: "
+        + replay_expected_summary_cli.stderr.strip(),
+    )
+
+    replay_summary_mismatch_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(history_path),
+            "--expected-summary",
+            "Benchmark governance: mismatch",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_summary_mismatch_cli.returncode == 1,
+        "run_governance_replay expected summary mismatch must exit 1",
+    )
+    _assert(
+        replay_summary_mismatch_cli.stdout.strip().splitlines()
+        == [
+            "Governance replay: match=false",
+            "- mismatch: expected_summary",
+            "- expected: provided_summary",
+            f"- actual: {governance_summary}",
+        ],
+        "run_governance_replay summary mismatch must print bounded comparison",
+    )
+
+    replay_hash_match_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(stable_history_path),
+            "--expected-baseline-hash",
+            before_snapshot.version_info.benchmark_hash,
+            "--expected-current-hash",
+            before_snapshot.version_info.benchmark_hash,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_hash_match_cli.returncode == 0,
+        "run_governance_replay expected hash match must exit 0: "
+        + replay_hash_match_cli.stderr.strip(),
+    )
+
+    replay_hash_mismatch_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(stable_history_path),
+            "--expected-current-hash",
+            "not-the-current-hash",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_hash_mismatch_cli.returncode == 1,
+        "run_governance_replay expected current hash mismatch must exit 1",
+    )
+    _assert(
+        replay_hash_mismatch_cli.stdout.strip().splitlines()
+        == [
+            "Governance replay: match=false",
+            "- mismatch: expected_current_hash",
+            "- expected: provided_current_hash",
+            f"- actual: {before_snapshot.version_info.benchmark_hash}",
+        ],
+        "run_governance_replay current hash mismatch must print bounded comparison",
+    )
+
+    replay_single_history_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(single_history_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_single_history_cli.returncode == 2,
+        "run_governance_replay insufficient history must exit 2",
+    )
+    _assert(
+        "insufficient_history" in replay_single_history_cli.stderr,
+        "run_governance_replay insufficient history must explain bounded reason",
+    )
+
+    replay_malformed_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(malformed_history_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_malformed_cli.returncode == 2,
+        "run_governance_replay malformed metadata must exit 2",
+    )
+    _assert(
+        "malformed_metadata" in replay_malformed_cli.stderr,
+        "run_governance_replay malformed metadata must explain bounded reason",
+    )
+
+    replay_outputs = "\n".join(
+        (
+            replay_history_cli.stdout,
+            replay_history_cli.stderr,
+            replay_before_after_cli.stdout,
+            replay_before_after_cli.stderr,
+            replay_expected_summary_cli.stdout,
+            replay_expected_summary_cli.stderr,
+            replay_summary_mismatch_cli.stdout,
+            replay_summary_mismatch_cli.stderr,
+            replay_hash_match_cli.stdout,
+            replay_hash_match_cli.stderr,
+            replay_hash_mismatch_cli.stdout,
+            replay_hash_mismatch_cli.stderr,
+            replay_single_history_cli.stdout,
+            replay_single_history_cli.stderr,
+            replay_malformed_cli.stdout,
+            replay_malformed_cli.stderr,
+        )
+    )
+    leaked_fragments = (
+        "C:",
+        "jarvis-core",
+        str(_smoke_artifacts_root()),
+        _smoke_artifacts_root().name,
+        history_path.name,
+        before_path.name,
+        after_path.name,
+        single_history_path.name,
+        malformed_history_path.name,
+        "Benchmark governance: mismatch",
+        "not-the-current-hash",
+        "raw_idea",
+        "goal",
+        "input_data",
+        "scenario_id",
+        "fixture",
+        "fixture_count",
+        *before_snapshot.case_ids,
+        *after_snapshot.case_ids,
+    )
+    _assert(
+        not any(fragment and fragment in replay_outputs for fragment in leaked_fragments),
+        "governance replay output must stay bounded to metadata-only fields",
+    )
+    _assert(
+        artifact_file_contents() == replay_artifacts_before,
+        "governance replay must not create or modify smoke artifact files",
+    )
+
 
 def test_mutation_test_runner_contract() -> None:
     cases = build_mutation_cases()
