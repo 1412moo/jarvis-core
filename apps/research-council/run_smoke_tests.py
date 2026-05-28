@@ -2320,6 +2320,41 @@ def test_benchmark_diff_viewer_contract() -> None:
         "run_governance_replay malformed metadata must explain bounded reason",
     )
 
+    def assert_replay_usage_error(
+        extra_args: tuple[str, ...], message: str
+    ) -> subprocess.CompletedProcess[str]:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(Path(__file__).with_name("run_governance_replay.py")),
+                *extra_args,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        _assert(completed.returncode == 2, f"{message} must exit 2")
+        _assert(completed.stdout == "", f"{message} must not write stdout")
+        _assert(
+            completed.stderr == "Governance replay invalid: usage_error\n",
+            f"{message} must report bounded usage error",
+        )
+        return completed
+
+    replay_no_source_usage_cli = assert_replay_usage_error(
+        (),
+        "run_governance_replay without source args",
+    )
+    replay_before_without_after_usage_cli = assert_replay_usage_error(
+        ("--before", str(before_path)),
+        "run_governance_replay --before without --after",
+    )
+    replay_history_with_after_usage_cli = assert_replay_usage_error(
+        ("--history", str(history_path), "--after", str(after_path)),
+        "run_governance_replay --history with --after",
+    )
+
     replay_outputs = "\n".join(
         (
             replay_history_cli.stdout,
@@ -2338,6 +2373,12 @@ def test_benchmark_diff_viewer_contract() -> None:
             replay_single_history_cli.stderr,
             replay_malformed_cli.stdout,
             replay_malformed_cli.stderr,
+            replay_no_source_usage_cli.stdout,
+            replay_no_source_usage_cli.stderr,
+            replay_before_without_after_usage_cli.stdout,
+            replay_before_without_after_usage_cli.stderr,
+            replay_history_with_after_usage_cli.stdout,
+            replay_history_with_after_usage_cli.stderr,
         )
     )
     leaked_fragments = (
