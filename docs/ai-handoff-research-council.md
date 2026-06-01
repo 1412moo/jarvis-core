@@ -9,14 +9,19 @@ docs, and verify behavior from the current checkout.
 - Workspace root: `C:\work`
 - Git repository: `C:\work\jarvis-core`
 - Active app: `apps\research-council`
-- Last known branch: `feature/research-council-domain-profiles`
-- Last known stable commit: `87e75b41b96fea5c8ab0daa96b207f973c691cd1`
+- Stable branch/checkpoint: `main`
+- Latest stable main commit: `7aff219e9352b57ee87559dcf672e23450d8a100`
 
 ## Recently Completed
 
-Commit `87e75b41b96fea5c8ab0daa96b207f973c691cd1` added the governance replay
-CLI and smoke coverage:
+Recent merged Research Council governance work through PR #71 updated replay
+documentation and smoke coverage:
 
+- Replay CLI usage docs in `apps\research-council\README.md`.
+- Governance replay usage-error smoke coverage.
+- Operator checklist in `apps\research-council\governance.md`.
+- Expected-value edge smoke coverage.
+- Replay output contract smoke tightening.
 - `apps\research-council\run_governance_replay.py`
 - `apps\research-council\run_smoke_tests.py`
 
@@ -28,9 +33,13 @@ expected summary and hash metadata with stable exit codes:
 - `1`: valid comparison mismatch.
 - `2`: usage, malformed input, missing file, or insufficient history.
 
-Replay output must remain bounded and metadata-only. It must not echo raw
-expected CLI input, local paths, fixture internals, scenario content, benchmark
-body text, golden-case text, mutation text, or user-provided idea material.
+Replay output must remain bounded and metadata-only for successful matches,
+expected metadata mismatches, usage errors, missing files, malformed metadata,
+and insufficient history. Expected metadata smoke coverage includes missing
+values, empty values, multiple expected options, mismatch precedence, and no raw
+expected-input echo. Replay output must not expose local paths, fixture
+internals, scenario content, benchmark body text, golden-case text, mutation
+text, or user-provided idea material.
 
 ## Core Constraints
 
@@ -56,6 +65,9 @@ body text, golden-case text, mutation text, or user-provided idea material.
 - `apps\research-council\run_golden_cases.py`
 - `apps\research-council\run_governance_replay.py`
 
+Future sessions should also read the Operator Checklist in
+`apps\research-council\governance.md` before changing Research Council files.
+
 ## Standard Verification
 
 Run these before and after behavior changes:
@@ -77,7 +89,7 @@ changed.
    git status --short
    git branch --show-current
    git log --oneline -5
-   git show --stat --oneline 87e75b41b96fea5c8ab0daa96b207f973c691cd1
+   git show --stat --oneline 7aff219e9352b57ee87559dcf672e23450d8a100
    ```
 
 2. Read the governance and contract docs listed in `Inspect First`.
