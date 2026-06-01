@@ -309,6 +309,30 @@ def _assert_no_raw_benchmark_text_storage(payload: object, context: str) -> None
     walk(payload, ())
 
 
+def _replay_success_metadata(stdout: str, context: str) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for line in stdout.strip().splitlines():
+        if line == "Governance replay: match=true":
+            metadata["match"] = "true"
+        elif line.startswith("- "):
+            key, value = line[2:].split(": ", 1)
+            if key != "source":
+                metadata[key] = value
+    expected_keys = (
+        "match",
+        "entries_compared",
+        "baseline_hash",
+        "current_hash",
+        "summary",
+        "gate",
+    )
+    _assert(
+        set(metadata) == set(expected_keys),
+        f"{context} replay metadata keys changed: {tuple(sorted(metadata))!r}",
+    )
+    return {key: metadata[key] for key in expected_keys}
+
+
 def test_deterministic_pipeline_contract() -> None:
     result = run_research_council(build_sample_input())
 
@@ -2291,6 +2315,14 @@ def test_benchmark_diff_viewer_contract() -> None:
             "- gate: fail",
         ],
         "run_governance_replay --before/--after must replay exact snapshot metadata",
+    )
+    _assert(
+        _replay_success_metadata(replay_history_cli.stdout, "history source")
+        == _replay_success_metadata(
+            replay_before_after_cli.stdout,
+            "before/after source",
+        ),
+        "governance replay must produce the same decision metadata across sources",
     )
 
     replay_expected_summary_cli = subprocess.run(
