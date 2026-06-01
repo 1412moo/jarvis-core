@@ -10,18 +10,20 @@ docs, and verify behavior from the current checkout.
 - Git repository: `C:\work\jarvis-core`
 - Active app: `apps\research-council`
 - Stable branch/checkpoint: `main`
-- Latest stable main commit: `7aff219e9352b57ee87559dcf672e23450d8a100`
+- Latest stable main commit: `06027b4131a4ac46b5746f4f280bbf98ce671854`
 
 ## Recently Completed
 
-Recent merged Research Council governance work through PR #71 updated replay
-documentation and smoke coverage:
+Recent merged Research Council governance work through PR #73 updated replay
+documentation, handoff checkpoint metadata, and smoke coverage:
 
 - Replay CLI usage docs in `apps\research-council\README.md`.
 - Governance replay usage-error smoke coverage.
 - Operator checklist in `apps\research-council\governance.md`.
 - Expected-value edge smoke coverage.
 - Replay output contract smoke tightening.
+- PR #72 refreshed this AI handoff checkpoint.
+- PR #73 added metadata privacy/no-raw-text invariant smoke coverage.
 - `apps\research-council\run_governance_replay.py`
 - `apps\research-council\run_smoke_tests.py`
 
@@ -40,6 +42,9 @@ values, empty values, multiple expected options, mismatch precedence, and no raw
 expected-input echo. Replay output must not expose local paths, fixture
 internals, scenario content, benchmark body text, golden-case text, mutation
 text, or user-provided idea material.
+Metadata privacy smoke coverage key-checks benchmark snapshot, history, diff,
+and replay metadata payloads for raw-text storage fields without changing
+schemas, benchmark hashes, or CLI output.
 
 ## Core Constraints
 
@@ -89,7 +94,7 @@ changed.
    git status --short
    git branch --show-current
    git log --oneline -5
-   git show --stat --oneline 7aff219e9352b57ee87559dcf672e23450d8a100
+   git show --stat --oneline 06027b4131a4ac46b5746f4f280bbf98ce671854
    ```
 
 2. Read the governance and contract docs listed in `Inspect First`.
