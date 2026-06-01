@@ -2104,6 +2104,7 @@ def test_benchmark_diff_viewer_contract() -> None:
 
     single_history_path = _smoke_artifact_path("governance-replay-single-history.json")
     malformed_history_path = _smoke_artifact_path("governance-replay-malformed-history.json")
+    missing_history_path = _smoke_artifact_path("governance-replay-missing-history.json")
     append_benchmark_history(before_snapshot, single_history_path)
     malformed_history_path.write_text("{not-json", encoding="utf-8")
 
@@ -2115,6 +2116,33 @@ def test_benchmark_diff_viewer_contract() -> None:
         }
 
     replay_artifacts_before = artifact_file_contents()
+
+    def assert_replay_success(
+        completed: subprocess.CompletedProcess[str],
+        expected_lines: list[str],
+        message: str,
+    ) -> None:
+        _assert(
+            completed.returncode == 0,
+            f"{message} must exit 0: {completed.stderr.strip()}",
+        )
+        _assert(completed.stderr == "", f"{message} must not write stderr")
+        _assert(
+            completed.stdout.strip().splitlines() == expected_lines,
+            f"{message} must print exact bounded output",
+        )
+
+    def assert_replay_invalid(
+        completed: subprocess.CompletedProcess[str],
+        reason: str,
+        message: str,
+    ) -> None:
+        _assert(completed.returncode == 2, f"{message} must exit 2")
+        _assert(completed.stdout == "", f"{message} must not write stdout")
+        _assert(
+            completed.stderr == f"Governance replay invalid: {reason}\n",
+            f"{message} must report bounded {reason}",
+        )
 
     replay_history_cli = subprocess.run(
         [
@@ -2128,14 +2156,9 @@ def test_benchmark_diff_viewer_contract() -> None:
         capture_output=True,
         text=True,
     )
-    _assert(
-        replay_history_cli.returncode == 0,
-        f"run_governance_replay --history failed: {replay_history_cli.stderr.strip()}",
-    )
-    replay_history_lines = replay_history_cli.stdout.strip().splitlines()
-    _assert(
-        replay_history_lines
-        == [
+    assert_replay_success(
+        replay_history_cli,
+        [
             "Governance replay: match=true",
             "- source: history",
             "- entries_compared: 2",
@@ -2161,15 +2184,9 @@ def test_benchmark_diff_viewer_contract() -> None:
         capture_output=True,
         text=True,
     )
-    _assert(
-        replay_before_after_cli.returncode == 0,
-        "run_governance_replay --before/--after failed: "
-        + replay_before_after_cli.stderr.strip(),
-    )
-    replay_before_after_lines = replay_before_after_cli.stdout.strip().splitlines()
-    _assert(
-        replay_before_after_lines
-        == [
+    assert_replay_success(
+        replay_before_after_cli,
+        [
             "Governance replay: match=true",
             "- source: snapshots",
             "- entries_compared: 2",
@@ -2218,6 +2235,10 @@ def test_benchmark_diff_viewer_contract() -> None:
     _assert(
         replay_summary_mismatch_cli.returncode == 1,
         "run_governance_replay expected summary mismatch must exit 1",
+    )
+    _assert(
+        replay_summary_mismatch_cli.stderr == "",
+        "run_governance_replay expected summary mismatch must not write stderr",
     )
     _assert(
         replay_summary_mismatch_cli.stdout.strip().splitlines()
@@ -2269,6 +2290,10 @@ def test_benchmark_diff_viewer_contract() -> None:
     _assert(
         replay_hash_mismatch_cli.returncode == 1,
         "run_governance_replay expected current hash mismatch must exit 1",
+    )
+    _assert(
+        replay_hash_mismatch_cli.stderr == "",
+        "run_governance_replay expected current hash mismatch must not write stderr",
     )
     _assert(
         replay_hash_mismatch_cli.stdout.strip().splitlines()
@@ -2363,12 +2388,9 @@ def test_benchmark_diff_viewer_contract() -> None:
         capture_output=True,
         text=True,
     )
-    _assert(
-        replay_single_history_cli.returncode == 2,
-        "run_governance_replay insufficient history must exit 2",
-    )
-    _assert(
-        "insufficient_history" in replay_single_history_cli.stderr,
+    assert_replay_invalid(
+        replay_single_history_cli,
+        "insufficient_history",
         "run_governance_replay insufficient history must explain bounded reason",
     )
 
@@ -2384,13 +2406,28 @@ def test_benchmark_diff_viewer_contract() -> None:
         capture_output=True,
         text=True,
     )
-    _assert(
-        replay_malformed_cli.returncode == 2,
-        "run_governance_replay malformed metadata must exit 2",
-    )
-    _assert(
-        "malformed_metadata" in replay_malformed_cli.stderr,
+    assert_replay_invalid(
+        replay_malformed_cli,
+        "malformed_metadata",
         "run_governance_replay malformed metadata must explain bounded reason",
+    )
+
+    replay_missing_history_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(missing_history_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert_replay_invalid(
+        replay_missing_history_cli,
+        "missing_file",
+        "run_governance_replay missing history must explain bounded reason",
     )
 
     def assert_replay_usage_error(
@@ -2407,12 +2444,7 @@ def test_benchmark_diff_viewer_contract() -> None:
             capture_output=True,
             text=True,
         )
-        _assert(completed.returncode == 2, f"{message} must exit 2")
-        _assert(completed.stdout == "", f"{message} must not write stdout")
-        _assert(
-            completed.stderr == "Governance replay invalid: usage_error\n",
-            f"{message} must report bounded usage error",
-        )
+        assert_replay_invalid(completed, "usage_error", message)
         return completed
 
     replay_no_source_usage_cli = assert_replay_usage_error(
@@ -2454,6 +2486,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             replay_single_history_cli.stderr,
             replay_malformed_cli.stdout,
             replay_malformed_cli.stderr,
+            replay_missing_history_cli.stdout,
+            replay_missing_history_cli.stderr,
             replay_no_source_usage_cli.stdout,
             replay_no_source_usage_cli.stderr,
             replay_before_without_after_usage_cli.stdout,
@@ -2474,6 +2508,8 @@ def test_benchmark_diff_viewer_contract() -> None:
         after_path.name,
         single_history_path.name,
         malformed_history_path.name,
+        missing_history_path.name,
+        str(missing_history_path),
         "Benchmark governance: mismatch",
         "not-the-baseline-hash",
         "not-the-current-hash",
