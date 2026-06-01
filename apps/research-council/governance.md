@@ -147,6 +147,58 @@ Governance section reading order:
   escalation, delegation, dispute, retention, and sunset notes only for
   operational audit handling outside the benchmark contract.
 
+## Operator Checklist
+
+Before code changes:
+
+- Confirm branch and worktree status.
+- Read README, governance, handoff, and relevant contract or test files.
+- Identify whether the change is docs-only, test-only, or behavior-affecting.
+- State whether schema, hash, output, CLI, API, UI, or DB behavior is expected
+  to remain unchanged.
+- Prefer the smallest scoped change and do not broaden orchestration.
+
+Before PR:
+
+- Review the diff for raw input, fixture, path, scenario, golden, mutation, or
+  user text leakage.
+- Confirm generated benchmark artifacts are not committed.
+- Confirm summary fields, order, spacing, and hashes changed only if explicitly
+  scoped.
+- Run smoke and golden validation for behavior or app-code changes.
+- For docs-only changes, record why tests were skipped.
+
+Before merge:
+
+- Confirm governance summary and replay output remain bounded and
+  deterministic.
+- Confirm any critical, strict, or blocking result has owner, scope,
+  acknowledgement, and follow-up if proceeding operationally.
+- Confirm contract evolution is append-only and exact smoke expectations were
+  updated when summary output intentionally changed.
+
+After merge:
+
+- Retain audit references as bounded metadata: command context, hash, summary,
+  owner, scope, and validation result.
+- Revalidate if benchmark hash, baseline, compatibility, strictness, lifecycle,
+  escalation reason, or owner changes.
+- Remove local generated benchmark artifacts unless policy explicitly says to
+  keep them.
+
+Forbidden actions:
+
+- Do not store or print raw benchmark, golden, mutation, scenario, fixture, or
+  user-provided input text.
+- Do not leak local filesystem paths or raw expected CLI input in replay or
+  governance output.
+- Do not edit snapshots, history, hashes, fixtures, or governance fields to make
+  risk look lower.
+- Do not remove, reorder, rename, or repurpose existing summary fields without
+  an explicit breaking-contract scope.
+- Do not add DB, API, UI, network, LLM, async, or orchestration behavior as part
+  of checklist docs.
+
 ## Codex Goals Usage
 
 Use Codex Goals as the orchestration layer for long-running
