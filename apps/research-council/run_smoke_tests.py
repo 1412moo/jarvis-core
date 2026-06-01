@@ -101,6 +101,29 @@ GOVERNANCE_SUMMARY_FIELD_ORDER = (
     "lifecycle_phase",
 )
 
+RAW_BENCHMARK_TEXT_STORAGE_KEYS = frozenset(
+    (
+        "text",
+        "raw_text",
+        "prompt",
+        "response",
+        "content",
+        "golden_text",
+        "mutation_text",
+        "scenario_text",
+        "benchmark_text",
+        "case_text",
+        "template_text",
+        "input_text",
+        "output_text",
+        "expected_text",
+        "actual_text",
+        "raw_idea",
+        "goal",
+        "input_data",
+    )
+)
+
 
 _SMOKE_ARTIFACTS_ROOT: Path | None = None
 
@@ -266,6 +289,24 @@ def _assert_benchmark_pack_metadata(metadata: dict[str, object]) -> None:
             forbidden_text not in serialized,
             f"benchmark pack metadata must not store raw benchmark data: {forbidden_text}",
         )
+
+
+def _assert_no_raw_benchmark_text_storage(payload: object, context: str) -> None:
+    def walk(value: object, path: tuple[str, ...]) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                key_text = str(key)
+                key_path = ".".join((*path, key_text))
+                _assert(
+                    key_text.lower() not in RAW_BENCHMARK_TEXT_STORAGE_KEYS,
+                    f"{context} must not store raw benchmark text field {key_path!r}",
+                )
+                walk(item, (*path, key_text))
+        elif isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                walk(item, (*path, f"[{index}]"))
+
+    walk(payload, ())
 
 
 def test_deterministic_pipeline_contract() -> None:
@@ -1600,6 +1641,60 @@ def test_benchmark_history_contract() -> None:
     _assert(
         "C:" not in completed.stdout and "jarvis-core" not in completed.stdout,
         "benchmark history CLI output must not leak local filesystem paths",
+    )
+
+
+def test_benchmark_metadata_privacy_invariants() -> None:
+    summary = evaluate_golden_cases()
+    snapshot_path = _smoke_artifact_path("benchmark-privacy-snapshot.json")
+    history_path = _smoke_artifact_path("benchmark-privacy-history.json")
+
+    snapshot = export_benchmark_snapshot(summary, snapshot_path)
+    snapshot_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    _assert(
+        "benchmark_hash" in snapshot_payload["version_info"]
+        and "case_ids" in snapshot_payload
+        and "golden_case_count" in snapshot_payload["benchmark_pack_metadata"]
+        and "mutation_case_count" in snapshot_payload["benchmark_pack_metadata"]
+        and "scenario_template_count" in snapshot_payload["benchmark_pack_metadata"],
+        "privacy smoke must preserve allowed benchmark metadata fields",
+    )
+    _assert_no_raw_benchmark_text_storage(
+        snapshot_payload,
+        "benchmark snapshot metadata",
+    )
+
+    history = append_benchmark_history(snapshot, history_path)
+    history = append_benchmark_history(snapshot, history_path)
+    history_payload = json.loads(history_path.read_text(encoding="utf-8"))
+    _assert_no_raw_benchmark_text_storage(
+        history_payload,
+        "benchmark history metadata",
+    )
+
+    diff_view = build_benchmark_diff_view_from_history(history)
+    diff_payload = {
+        **diff_view.__dict__,
+        "profile_diffs": [
+            profile.__dict__ for profile in diff_view.profile_diffs
+        ],
+    }
+    _assert_no_raw_benchmark_text_storage(
+        diff_payload,
+        "benchmark diff metadata",
+    )
+
+    replay_metadata_payload = {
+        "source": "history",
+        "entries_compared": 2,
+        "baseline_hash": history[-2].benchmark_hash,
+        "current_hash": history[-1].benchmark_hash,
+        "summary": format_benchmark_governance_summary(diff_view),
+        "gate": classify_benchmark_governance_gate(diff_view),
+    }
+    _assert_no_raw_benchmark_text_storage(
+        replay_metadata_payload,
+        "governance replay metadata",
     )
 
 
@@ -3136,6 +3231,7 @@ def main() -> None:
     test_golden_case_evaluation_harness()
     test_benchmark_snapshot_export_contract()
     test_benchmark_history_contract()
+    test_benchmark_metadata_privacy_invariants()
     test_benchmark_diff_viewer_contract()
     test_mutation_test_runner_contract()
     test_scenario_template_generation_contract()
