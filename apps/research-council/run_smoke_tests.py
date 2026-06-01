@@ -1927,6 +1927,9 @@ def test_benchmark_diff_viewer_contract() -> None:
     stable_history = append_benchmark_history(before_snapshot, stable_history_path)
     stable_history = append_benchmark_history(before_snapshot, stable_history_path)
     stable_history_view = build_benchmark_diff_view_from_history(stable_history)
+    stable_summary = format_benchmark_governance_summary(stable_history_view)
+    stable_baseline_hash = stable_history[-2].benchmark_hash
+    stable_current_hash = stable_history[-1].benchmark_hash
     _assert(
         classify_benchmark_governance_gate(stable_history_view) == "pass",
         "stable history benchmark diffs must pass the governance gate",
@@ -2095,7 +2098,7 @@ def test_benchmark_diff_viewer_contract() -> None:
     stable_history_lines = stable_history_cli.stdout.strip().splitlines()
     _assert_governance_summary_contract(
         stable_history_lines[0],
-        format_benchmark_governance_summary(stable_history_view),
+        stable_summary,
         "stable history fail-on-critical governance summary must match formatter",
     )
 
@@ -2235,9 +2238,9 @@ def test_benchmark_diff_viewer_contract() -> None:
             "--history",
             str(stable_history_path),
             "--expected-baseline-hash",
-            before_snapshot.version_info.benchmark_hash,
+            stable_baseline_hash,
             "--expected-current-hash",
-            before_snapshot.version_info.benchmark_hash,
+            stable_current_hash,
         ],
         check=False,
         capture_output=True,
@@ -2273,9 +2276,79 @@ def test_benchmark_diff_viewer_contract() -> None:
             "Governance replay: match=false",
             "- mismatch: expected_current_hash",
             "- expected: provided_current_hash",
-            f"- actual: {before_snapshot.version_info.benchmark_hash}",
+            f"- actual: {stable_current_hash}",
         ],
         "run_governance_replay current hash mismatch must print bounded comparison",
+    )
+
+    replay_empty_current_hash_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(stable_history_path),
+            "--expected-current-hash",
+            "",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_empty_current_hash_cli.returncode == 1,
+        "run_governance_replay empty expected current hash must exit 1",
+    )
+    _assert(
+        replay_empty_current_hash_cli.stderr == "",
+        "run_governance_replay empty expected current hash must not write stderr",
+    )
+    _assert(
+        replay_empty_current_hash_cli.stdout.strip().splitlines()
+        == [
+            "Governance replay: match=false",
+            "- mismatch: expected_current_hash",
+            "- expected: provided_current_hash",
+            f"- actual: {stable_current_hash}",
+        ],
+        "run_governance_replay empty expected current hash must print bounded comparison",
+    )
+
+    replay_multiple_expected_mismatch_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--history",
+            str(stable_history_path),
+            "--expected-summary",
+            stable_summary,
+            "--expected-baseline-hash",
+            "not-the-baseline-hash",
+            "--expected-current-hash",
+            "not-the-current-hash",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_multiple_expected_mismatch_cli.returncode == 1,
+        "run_governance_replay multiple expected mismatch must exit 1",
+    )
+    _assert(
+        replay_multiple_expected_mismatch_cli.stderr == "",
+        "run_governance_replay multiple expected mismatch must not write stderr",
+    )
+    _assert(
+        replay_multiple_expected_mismatch_cli.stdout.strip().splitlines()
+        == [
+            "Governance replay: match=false",
+            "- mismatch: expected_baseline_hash",
+            "- expected: provided_baseline_hash",
+            f"- actual: {stable_baseline_hash}",
+        ],
+        "run_governance_replay multiple expected mismatch must report first mismatch",
     )
 
     replay_single_history_cli = subprocess.run(
@@ -2354,6 +2427,10 @@ def test_benchmark_diff_viewer_contract() -> None:
         ("--history", str(history_path), "--after", str(after_path)),
         "run_governance_replay --history with --after",
     )
+    replay_missing_expected_current_hash_cli = assert_replay_usage_error(
+        ("--history", str(history_path), "--expected-current-hash"),
+        "run_governance_replay missing expected current hash",
+    )
 
     replay_outputs = "\n".join(
         (
@@ -2369,6 +2446,10 @@ def test_benchmark_diff_viewer_contract() -> None:
             replay_hash_match_cli.stderr,
             replay_hash_mismatch_cli.stdout,
             replay_hash_mismatch_cli.stderr,
+            replay_empty_current_hash_cli.stdout,
+            replay_empty_current_hash_cli.stderr,
+            replay_multiple_expected_mismatch_cli.stdout,
+            replay_multiple_expected_mismatch_cli.stderr,
             replay_single_history_cli.stdout,
             replay_single_history_cli.stderr,
             replay_malformed_cli.stdout,
@@ -2379,6 +2460,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             replay_before_without_after_usage_cli.stderr,
             replay_history_with_after_usage_cli.stdout,
             replay_history_with_after_usage_cli.stderr,
+            replay_missing_expected_current_hash_cli.stdout,
+            replay_missing_expected_current_hash_cli.stderr,
         )
     )
     leaked_fragments = (
@@ -2392,6 +2475,7 @@ def test_benchmark_diff_viewer_contract() -> None:
         single_history_path.name,
         malformed_history_path.name,
         "Benchmark governance: mismatch",
+        "not-the-baseline-hash",
         "not-the-current-hash",
         "raw_idea",
         "goal",
