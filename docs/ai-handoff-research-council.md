@@ -10,11 +10,11 @@ docs, and verify behavior from the current checkout.
 - Git repository: `C:\work\jarvis-core`
 - Active app: `apps\research-council`
 - Stable branch/checkpoint: `main`
-- Latest stable main commit: `58c875e406223da43517d65d1c0e2fab80bd943b`
+- Latest stable main commit: `37519b223e856a06140c5488793597baef93b786`
 
 ## Recently Completed
 
-Recent merged Research Council governance work through PR #79 updated replay
+Recent merged Research Council governance work through PR #81 updated replay
 documentation, handoff checkpoint metadata, and smoke coverage:
 
 - Replay CLI usage docs in `apps\research-council\README.md`.
@@ -27,6 +27,7 @@ documentation, handoff checkpoint metadata, and smoke coverage:
 - PR #75 added governance replay source parity smoke coverage.
 - PR #77 added benchmark history append/load ordering and latest-two diff pair smoke coverage.
 - PR #79 added benchmark history loader edge smoke coverage for missing history, non-mapping payloads, invalid entries, partial-field defaults, and unknown fields.
+- PR #81 added governance summary operator-facing field order smoke coverage for `status`, `categories`, `regressions`, `severity`, `recommended_action`, `profile_change_rollup`, `policy_reason`, and `escalation_reason`.
 - `apps\research-council\run_governance_replay.py`
 - `apps\research-council\run_smoke_tests.py`
 
@@ -100,7 +101,7 @@ changed.
    git status --short
    git branch --show-current
    git log --oneline -5
-   git show --stat --oneline 58c875e406223da43517d65d1c0e2fab80bd943b
+   git show --stat --oneline 37519b223e856a06140c5488793597baef93b786
    ```
 
 2. Read the governance and contract docs listed in `Inspect First`.
