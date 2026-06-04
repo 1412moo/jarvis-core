@@ -10,11 +10,11 @@ docs, and verify behavior from the current checkout.
 - Git repository: `C:\work\jarvis-core`
 - Active app: `apps\research-council`
 - Stable branch/checkpoint: `main`
-- Latest stable main commit: `8f5e52df9e06c170158c92755c8b70e661b639d1`
+- Latest stable main commit: `7ba757c0db87ee59081c4ebdce0c1c57fa4d009c`
 
 ## Recently Completed
 
-Recent merged Research Council governance work through PR #75 updated replay
+Recent merged Research Council governance work through PR #77 updated replay
 documentation, handoff checkpoint metadata, and smoke coverage:
 
 - Replay CLI usage docs in `apps\research-council\README.md`.
@@ -25,6 +25,7 @@ documentation, handoff checkpoint metadata, and smoke coverage:
 - PR #72 refreshed this AI handoff checkpoint.
 - PR #73 added metadata privacy/no-raw-text invariant smoke coverage.
 - PR #75 added governance replay source parity smoke coverage.
+- PR #77 added benchmark history append/load ordering and latest-two diff pair smoke coverage.
 - `apps\research-council\run_governance_replay.py`
 - `apps\research-council\run_smoke_tests.py`
 
@@ -98,7 +99,7 @@ changed.
    git status --short
    git branch --show-current
    git log --oneline -5
-   git show --stat --oneline 8f5e52df9e06c170158c92755c8b70e661b639d1
+   git show --stat --oneline 7ba757c0db87ee59081c4ebdce0c1c57fa4d009c
    ```
 
 2. Read the governance and contract docs listed in `Inspect First`.
