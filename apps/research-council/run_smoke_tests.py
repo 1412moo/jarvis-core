@@ -100,6 +100,16 @@ GOVERNANCE_SUMMARY_FIELD_ORDER = (
     "strictness_tier",
     "lifecycle_phase",
 )
+GOVERNANCE_SUMMARY_OPERATOR_FIELD_ORDER = (
+    "status",
+    "categories",
+    "regressions",
+    "severity",
+    "recommended_action",
+    "profile_change_rollup",
+    "policy_reason",
+    "escalation_reason",
+)
 
 RAW_BENCHMARK_TEXT_STORAGE_KEYS = frozenset(
     (
@@ -214,6 +224,21 @@ def _assert_governance_summary_contract(
             ),
         )
     _assert(actual == expected, message)
+
+
+def _assert_governance_summary_operator_field_order(
+    summary: str,
+    message: str,
+) -> None:
+    field_order = tuple(
+        key for key, _value in _parse_governance_summary_fields(summary, message)
+    )
+    _assert(
+        field_order[: len(GOVERNANCE_SUMMARY_OPERATOR_FIELD_ORDER)]
+        == GOVERNANCE_SUMMARY_OPERATOR_FIELD_ORDER,
+        message
+        + f": governance summary operator field order changed {field_order!r}",
+    )
 
 
 def _combined_reasoning_trace(entries: list[dict[str, object]]) -> str:
@@ -1885,6 +1910,51 @@ def test_benchmark_metadata_privacy_invariants() -> None:
         replay_metadata_payload,
         "governance replay metadata",
     )
+
+
+def test_benchmark_governance_summary_field_order_contract() -> None:
+    summary = evaluate_golden_cases()
+    snapshot_path = _smoke_artifact_path("benchmark-governance-field-order.json")
+
+    before_snapshot = export_benchmark_snapshot(summary, snapshot_path)
+    base_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
+    stable_view = build_benchmark_diff_view(before_snapshot, before_snapshot)
+
+    hash_only_payload = json.loads(json.dumps(base_payload))
+    hash_only_payload["version_info"]["benchmark_hash"] = "field-order-hash-change"
+    hash_only_view = build_benchmark_diff_view(
+        before_snapshot,
+        benchmark_snapshot_from_json_dict(hash_only_payload),
+    )
+
+    composition_payload = json.loads(json.dumps(base_payload))
+    composition_payload["scenario_template_coverage"]["total_scenarios"] += 1
+    composition_view = build_benchmark_diff_view(
+        before_snapshot,
+        benchmark_snapshot_from_json_dict(composition_payload),
+    )
+
+    regression_payload = json.loads(json.dumps(base_payload))
+    regression_payload["failed_invariants"] += 1
+    regression_view = build_benchmark_diff_view(
+        before_snapshot,
+        benchmark_snapshot_from_json_dict(regression_payload),
+    )
+
+    for label, expected_severity, view in (
+        ("stable", "stable", stable_view),
+        ("info", "info", hash_only_view),
+        ("warning", "warning", composition_view),
+        ("critical", "critical", regression_view),
+    ):
+        _assert(
+            classify_benchmark_governance_severity(view) == expected_severity,
+            f"{label} benchmark governance fixture must keep expected severity",
+        )
+        _assert_governance_summary_operator_field_order(
+            format_benchmark_governance_summary(view),
+            f"{label} benchmark governance summary",
+        )
 
 
 def test_benchmark_diff_viewer_contract() -> None:
