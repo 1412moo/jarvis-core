@@ -1668,6 +1668,85 @@ def test_benchmark_history_contract() -> None:
     )
 
 
+def test_benchmark_history_retention_ordering_contract() -> None:
+    summary = evaluate_golden_cases()
+    snapshot_path = _smoke_artifact_path("benchmark-history-ordering-snapshot.json")
+    history_path = _smoke_artifact_path("benchmark-history-ordering.json")
+
+    snapshot = export_benchmark_snapshot(summary, snapshot_path)
+    base_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(snapshot)))
+
+    def snapshot_variant(
+        label: str, failed_invariants: int, consistency_failures: int
+    ):
+        payload = json.loads(json.dumps(base_payload))
+        payload["failed_invariants"] = failed_invariants
+        payload["consistency_failures"] = consistency_failures
+        payload["version_info"] = dict(payload["version_info"])
+        payload["version_info"]["benchmark_hash"] = f"history-ordering-{label}"
+        return benchmark_snapshot_from_json_dict(payload)
+
+    baseline_snapshot = snapshot_variant("baseline", 0, 0)
+    middle_snapshot = snapshot_variant("middle", 1, 1)
+    current_snapshot = snapshot_variant("current", 3, 2)
+    expected_hashes = (
+        baseline_snapshot.version_info.benchmark_hash,
+        middle_snapshot.version_info.benchmark_hash,
+        current_snapshot.version_info.benchmark_hash,
+    )
+
+    history = append_benchmark_history(baseline_snapshot, history_path)
+    history = append_benchmark_history(middle_snapshot, history_path)
+    history = append_benchmark_history(current_snapshot, history_path)
+    loaded_history = load_benchmark_history(history_path)
+    payload = json.loads(history_path.read_text(encoding="utf-8"))
+    payload_hashes = tuple(entry["benchmark_hash"] for entry in payload["entries"])
+
+    _assert(
+        tuple(entry.benchmark_hash for entry in history) == expected_hashes,
+        "benchmark history append order must remain stable",
+    )
+    _assert(
+        tuple(entry.benchmark_hash for entry in loaded_history) == expected_hashes,
+        "loaded benchmark history must preserve append ordering",
+    )
+    _assert(
+        payload_hashes == expected_hashes,
+        "benchmark history JSON entries must preserve append ordering",
+    )
+
+    trend = compare_latest_to_previous(loaded_history)
+    _assert(trend.entries == 3, "benchmark history trend must retain entry count")
+    _assert(
+        trend.failed_invariants_delta == 2
+        and trend.consistency_failures_delta == 1
+        and trend.benchmark_hash_changed,
+        "benchmark trend must compare current entry to the previous entry",
+    )
+
+    history_view = build_benchmark_diff_view_from_history(loaded_history)
+    latest_pair_view = build_benchmark_diff_view(
+        loaded_history[-2], loaded_history[-1]
+    )
+    first_to_current_view = build_benchmark_diff_view(
+        loaded_history[0], loaded_history[-1]
+    )
+    _assert(
+        history_view == latest_pair_view,
+        "history diff view must compare the latest entry to the previous entry",
+    )
+    _assert(
+        history_view.failed_invariants_delta == 2
+        and history_view.consistency_failures_delta == 1,
+        "history diff view must use the latest two entries as baseline/current",
+    )
+    _assert(
+        first_to_current_view.failed_invariants_delta == 3
+        and first_to_current_view != history_view,
+        "history diff view must not compare the first entry to current",
+    )
+
+
 def test_benchmark_metadata_privacy_invariants() -> None:
     summary = evaluate_golden_cases()
     snapshot_path = _smoke_artifact_path("benchmark-privacy-snapshot.json")
@@ -3263,6 +3342,7 @@ def main() -> None:
     test_golden_case_evaluation_harness()
     test_benchmark_snapshot_export_contract()
     test_benchmark_history_contract()
+    test_benchmark_history_retention_ordering_contract()
     test_benchmark_metadata_privacy_invariants()
     test_benchmark_diff_viewer_contract()
     test_mutation_test_runner_contract()
