@@ -2419,6 +2419,59 @@ def test_benchmark_diff_viewer_contract() -> None:
         "benchmark diff fail-on-critical output must not leak local paths",
     )
 
+    def assert_non_critical_fail_on_critical(
+        candidate_after_path: Path,
+        candidate_view,
+        message: str,
+    ) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(Path(__file__).with_name("run_benchmark_diff.py")),
+                "--before",
+                str(before_path),
+                "--after",
+                str(candidate_after_path),
+                "--fail-on-critical",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        _assert(completed.returncode == 0, f"{message} must exit 0")
+        _assert(completed.stderr == "", f"{message} must not write stderr")
+        _assert(
+            completed.stdout
+            == (
+                format_benchmark_governance_summary(candidate_view)
+                + "\n"
+                + format_benchmark_diff_view(candidate_view)
+                + "\n"
+            ),
+            f"{message} must print exact formatter output",
+        )
+        _assert(
+            "C:" not in completed.stdout
+            and "jarvis-core" not in completed.stdout
+            and "raw_idea" not in completed.stdout
+            and "goal" not in completed.stdout
+            and "input_data" not in completed.stdout
+            and "scenario_id" not in completed.stdout,
+            f"{message} output must not leak local paths or raw benchmark text",
+        )
+
+    assert_non_critical_fail_on_critical(
+        info_after_path,
+        hash_only_view,
+        "run_benchmark_diff info --fail-on-critical",
+    )
+    assert_non_critical_fail_on_critical(
+        warning_after_path,
+        scenario_changed_view,
+        "run_benchmark_diff warning --fail-on-critical",
+    )
+
     history_cli = subprocess.run(
         [
             sys.executable,
