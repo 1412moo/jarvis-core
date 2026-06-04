@@ -1961,6 +1961,8 @@ def test_benchmark_diff_viewer_contract() -> None:
     summary = evaluate_golden_cases()
     before_path = _smoke_artifact_path("benchmark-diff-before.json")
     after_path = _smoke_artifact_path("benchmark-diff-after.json")
+    info_after_path = _smoke_artifact_path("benchmark-diff-info-after.json")
+    warning_after_path = _smoke_artifact_path("benchmark-diff-warning-after.json")
     history_path = _smoke_artifact_path("benchmark-diff-history.json")
     stable_history_path = _smoke_artifact_path("benchmark-diff-stable-history.json")
 
@@ -2002,9 +2004,11 @@ def test_benchmark_diff_viewer_contract() -> None:
 
     hash_only_payload = json.loads(json.dumps(benchmark_snapshot_to_json_dict(before_snapshot)))
     hash_only_payload["version_info"]["benchmark_hash"] = "changed"
+    hash_only_snapshot = benchmark_snapshot_from_json_dict(hash_only_payload)
+    info_after_path.write_text(snapshot_to_json(hash_only_snapshot), encoding="utf-8")
     hash_only_view = build_benchmark_diff_view(
         before_snapshot,
-        benchmark_snapshot_from_json_dict(hash_only_payload),
+        hash_only_snapshot,
     )
     _assert(
         hash_only_view.benchmark_hash_changed
@@ -2166,9 +2170,14 @@ def test_benchmark_diff_viewer_contract() -> None:
         json.dumps(benchmark_snapshot_to_json_dict(before_snapshot))
     )
     scenario_changed_payload["scenario_template_coverage"]["total_scenarios"] += 1
+    scenario_changed_snapshot = benchmark_snapshot_from_json_dict(scenario_changed_payload)
+    warning_after_path.write_text(
+        snapshot_to_json(scenario_changed_snapshot),
+        encoding="utf-8",
+    )
     scenario_changed_view = build_benchmark_diff_view(
         before_snapshot,
-        benchmark_snapshot_from_json_dict(scenario_changed_payload),
+        scenario_changed_snapshot,
     )
     _assert(
         categorize_benchmark_drift(scenario_changed_view) == ("composition_change",),
@@ -2560,6 +2569,62 @@ def test_benchmark_diff_viewer_contract() -> None:
         "governance replay must produce the same decision metadata across sources",
     )
 
+    replay_info_before_after_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--before",
+            str(before_path),
+            "--after",
+            str(info_after_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert_replay_success(
+        replay_info_before_after_cli,
+        [
+            "Governance replay: match=true",
+            "- source: snapshots",
+            "- entries_compared: 2",
+            f"- baseline_hash: {before_snapshot.version_info.benchmark_hash}",
+            f"- current_hash: {hash_only_snapshot.version_info.benchmark_hash}",
+            f"- summary: {format_benchmark_governance_summary(hash_only_view)}",
+            "- gate: pass",
+        ],
+        "run_governance_replay info --before/--after must keep gate pass consistent with summary",
+    )
+
+    replay_warning_before_after_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--before",
+            str(before_path),
+            "--after",
+            str(warning_after_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert_replay_success(
+        replay_warning_before_after_cli,
+        [
+            "Governance replay: match=true",
+            "- source: snapshots",
+            "- entries_compared: 2",
+            f"- baseline_hash: {before_snapshot.version_info.benchmark_hash}",
+            f"- current_hash: {scenario_changed_snapshot.version_info.benchmark_hash}",
+            f"- summary: {format_benchmark_governance_summary(scenario_changed_view)}",
+            "- gate: pass",
+        ],
+        "run_governance_replay warning --before/--after must keep gate pass consistent with summary",
+    )
+
     replay_expected_summary_cli = subprocess.run(
         [
             sys.executable,
@@ -2840,6 +2905,10 @@ def test_benchmark_diff_viewer_contract() -> None:
             replay_history_cli.stderr,
             replay_before_after_cli.stdout,
             replay_before_after_cli.stderr,
+            replay_info_before_after_cli.stdout,
+            replay_info_before_after_cli.stderr,
+            replay_warning_before_after_cli.stdout,
+            replay_warning_before_after_cli.stderr,
             replay_expected_summary_cli.stdout,
             replay_expected_summary_cli.stderr,
             replay_summary_mismatch_cli.stdout,
@@ -2876,6 +2945,8 @@ def test_benchmark_diff_viewer_contract() -> None:
         history_path.name,
         before_path.name,
         after_path.name,
+        info_after_path.name,
+        warning_after_path.name,
         single_history_path.name,
         malformed_history_path.name,
         missing_history_path.name,
