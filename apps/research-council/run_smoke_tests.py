@@ -2629,10 +2629,18 @@ def test_benchmark_diff_viewer_contract() -> None:
         capture_output=True,
         text=True,
     )
-    _assert(
-        replay_hash_match_cli.returncode == 0,
-        "run_governance_replay expected hash match must exit 0: "
-        + replay_hash_match_cli.stderr.strip(),
+    assert_replay_success(
+        replay_hash_match_cli,
+        [
+            "Governance replay: match=true",
+            "- source: history",
+            "- entries_compared: 2",
+            f"- baseline_hash: {stable_baseline_hash}",
+            f"- current_hash: {stable_current_hash}",
+            f"- summary: {stable_summary}",
+            "- gate: pass",
+        ],
+        "run_governance_replay stable expected hash match must replay bounded governance metadata",
     )
 
     replay_hash_mismatch_cli = subprocess.run(
