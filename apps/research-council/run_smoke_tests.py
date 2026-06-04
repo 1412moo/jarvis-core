@@ -2936,6 +2936,66 @@ def test_benchmark_diff_viewer_contract() -> None:
         "run_governance_replay non-mapping snapshot must explain bounded reason",
     )
 
+    replay_missing_after_snapshot_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--before",
+            str(before_path),
+            "--after",
+            str(missing_snapshot_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert_replay_invalid(
+        replay_missing_after_snapshot_cli,
+        "missing_file",
+        "run_governance_replay missing after snapshot must explain bounded reason",
+    )
+
+    replay_malformed_after_snapshot_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--before",
+            str(before_path),
+            "--after",
+            str(malformed_snapshot_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert_replay_invalid(
+        replay_malformed_after_snapshot_cli,
+        "malformed_metadata",
+        "run_governance_replay malformed after snapshot must explain bounded reason",
+    )
+
+    replay_non_mapping_after_snapshot_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--before",
+            str(before_path),
+            "--after",
+            str(non_mapping_snapshot_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert_replay_invalid(
+        replay_non_mapping_after_snapshot_cli,
+        "malformed_metadata",
+        "run_governance_replay non-mapping after snapshot must explain bounded reason",
+    )
+
     def assert_replay_usage_error(
         extra_args: tuple[str, ...], message: str
     ) -> subprocess.CompletedProcess[str]:
@@ -3004,6 +3064,12 @@ def test_benchmark_diff_viewer_contract() -> None:
             replay_malformed_snapshot_cli.stderr,
             replay_non_mapping_snapshot_cli.stdout,
             replay_non_mapping_snapshot_cli.stderr,
+            replay_missing_after_snapshot_cli.stdout,
+            replay_missing_after_snapshot_cli.stderr,
+            replay_malformed_after_snapshot_cli.stdout,
+            replay_malformed_after_snapshot_cli.stderr,
+            replay_non_mapping_after_snapshot_cli.stdout,
+            replay_non_mapping_after_snapshot_cli.stderr,
             replay_no_source_usage_cli.stdout,
             replay_no_source_usage_cli.stderr,
             replay_before_without_after_usage_cli.stdout,
