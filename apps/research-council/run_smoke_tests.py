@@ -1747,6 +1747,92 @@ def test_benchmark_history_retention_ordering_contract() -> None:
     )
 
 
+def test_benchmark_history_loader_edge_contract() -> None:
+    missing_history_path = _smoke_artifact_path("benchmark-loader-missing.json")
+    non_mapping_path = _smoke_artifact_path("benchmark-loader-non-mapping.json")
+    invalid_entries_path = _smoke_artifact_path(
+        "benchmark-loader-invalid-entries.json"
+    )
+    partial_entries_path = _smoke_artifact_path(
+        "benchmark-loader-partial-entries.json"
+    )
+
+    _assert(
+        load_benchmark_history(missing_history_path) == (),
+        "missing benchmark history files must load as empty history",
+    )
+
+    non_mapping_path.write_text("[]", encoding="utf-8")
+    _assert(
+        load_benchmark_history(non_mapping_path) == (),
+        "non-mapping benchmark history payloads must load as empty history",
+    )
+
+    invalid_entries_path.write_text(
+        json.dumps({"history_schema_version": 1, "entries": "not-a-list"}),
+        encoding="utf-8",
+    )
+    _assert(
+        load_benchmark_history(invalid_entries_path) == (),
+        "benchmark history payloads with invalid entries must load as empty history",
+    )
+
+    partial_entry = {
+        "benchmark_hash": "loader-partial",
+        "fixture_count": "not-an-int",
+        "augmentation_counts": {"accepted": "3", "rejected": "not-an-int"},
+        "benchmark_pack_metadata": {
+            "golden_case_count": "2",
+            "profile_count": "not-an-int",
+        },
+        "scenario_template_coverage": {
+            "coverage_type": "loader-edge",
+            "total_scenarios": "4",
+        },
+        "unknown_extra_metadata": {"ignored": True},
+    }
+    current_entry = {
+        "snapshot_schema_version": "1",
+        "benchmark_hash": "loader-current",
+        "fixture_count": 5,
+    }
+    partial_entries_path.write_text(
+        json.dumps(
+            {
+                "history_schema_version": 1,
+                "unknown_top_level_metadata": True,
+                "entries": ["not-a-mapping", partial_entry, 7, current_entry],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    loaded_history = load_benchmark_history(partial_entries_path)
+    _assert(
+        tuple(entry.benchmark_hash for entry in loaded_history)
+        == ("loader-partial", "loader-current"),
+        "benchmark history loader must skip non-mapping entries and preserve valid order",
+    )
+    first_entry = loaded_history[0]
+    first_entry_payload = benchmark_history_entry_to_json_dict(first_entry)
+    _assert(
+        first_entry.fixture_count == 0
+        and first_entry.augmentation_counts["accepted"] == 3
+        and first_entry.augmentation_counts["rejected"] == 0,
+        "partial benchmark history fields must fall back deterministically",
+    )
+    _assert(
+        first_entry.benchmark_pack_metadata["golden_case_count"] == 2
+        and first_entry.benchmark_pack_metadata["profile_count"] == 0
+        and first_entry.scenario_template_coverage["total_scenarios"] == 4,
+        "partial benchmark history metadata must coerce count fields deterministically",
+    )
+    _assert(
+        "unknown_extra_metadata" not in first_entry_payload,
+        "unknown benchmark history metadata must not be persisted by the loader",
+    )
+
+
 def test_benchmark_metadata_privacy_invariants() -> None:
     summary = evaluate_golden_cases()
     snapshot_path = _smoke_artifact_path("benchmark-privacy-snapshot.json")
@@ -3343,6 +3429,7 @@ def main() -> None:
     test_benchmark_snapshot_export_contract()
     test_benchmark_history_contract()
     test_benchmark_history_retention_ordering_contract()
+    test_benchmark_history_loader_edge_contract()
     test_benchmark_metadata_privacy_invariants()
     test_benchmark_diff_viewer_contract()
     test_mutation_test_runner_contract()
