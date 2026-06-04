@@ -2471,12 +2471,16 @@ def test_benchmark_diff_viewer_contract() -> None:
     malformed_snapshot_path = _smoke_artifact_path(
         "governance-replay-malformed-snapshot.json"
     )
+    non_mapping_snapshot_path = _smoke_artifact_path(
+        "governance-replay-non-mapping-snapshot.json"
+    )
     missing_snapshot_path = _smoke_artifact_path(
         "governance-replay-missing-snapshot.json"
     )
     append_benchmark_history(before_snapshot, single_history_path)
     malformed_history_path.write_text("{not-json", encoding="utf-8")
     malformed_snapshot_path.write_text("{not-json", encoding="utf-8")
+    non_mapping_snapshot_path.write_text("[]", encoding="utf-8")
 
     def artifact_file_contents() -> dict[str, bytes]:
         return {
@@ -2912,6 +2916,26 @@ def test_benchmark_diff_viewer_contract() -> None:
         "run_governance_replay malformed snapshot must explain bounded reason",
     )
 
+    replay_non_mapping_snapshot_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--before",
+            str(non_mapping_snapshot_path),
+            "--after",
+            str(after_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert_replay_invalid(
+        replay_non_mapping_snapshot_cli,
+        "malformed_metadata",
+        "run_governance_replay non-mapping snapshot must explain bounded reason",
+    )
+
     def assert_replay_usage_error(
         extra_args: tuple[str, ...], message: str
     ) -> subprocess.CompletedProcess[str]:
@@ -2978,6 +3002,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             replay_missing_snapshot_cli.stderr,
             replay_malformed_snapshot_cli.stdout,
             replay_malformed_snapshot_cli.stderr,
+            replay_non_mapping_snapshot_cli.stdout,
+            replay_non_mapping_snapshot_cli.stderr,
             replay_no_source_usage_cli.stdout,
             replay_no_source_usage_cli.stderr,
             replay_before_without_after_usage_cli.stdout,
@@ -3002,8 +3028,10 @@ def test_benchmark_diff_viewer_contract() -> None:
         malformed_history_path.name,
         missing_history_path.name,
         malformed_snapshot_path.name,
+        non_mapping_snapshot_path.name,
         missing_snapshot_path.name,
         str(missing_history_path),
+        str(non_mapping_snapshot_path),
         str(missing_snapshot_path),
         "Benchmark governance: mismatch",
         "not-the-baseline-hash",
