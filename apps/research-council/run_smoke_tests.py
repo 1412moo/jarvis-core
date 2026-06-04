@@ -2752,6 +2752,41 @@ def test_benchmark_diff_viewer_contract() -> None:
         "run_governance_replay current hash mismatch must print bounded comparison",
     )
 
+    replay_snapshot_hash_mismatch_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_governance_replay.py")),
+            "--before",
+            str(before_path),
+            "--after",
+            str(after_path),
+            "--expected-current-hash",
+            "not-the-current-hash",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        replay_snapshot_hash_mismatch_cli.returncode == 1,
+        "run_governance_replay snapshot expected current hash mismatch must exit 1",
+    )
+    _assert(
+        replay_snapshot_hash_mismatch_cli.stderr == "",
+        "run_governance_replay snapshot expected current hash mismatch must not write stderr",
+    )
+    _assert(
+        replay_snapshot_hash_mismatch_cli.stdout.strip().splitlines()
+        == [
+            "Governance replay: match=false",
+            "- mismatch: expected_current_hash",
+            "- expected: provided_current_hash",
+            f"- actual: {after_snapshot.version_info.benchmark_hash}",
+        ],
+        "run_governance_replay snapshot current hash mismatch must print bounded comparison",
+    )
+
     replay_empty_current_hash_cli = subprocess.run(
         [
             sys.executable,
@@ -3048,6 +3083,8 @@ def test_benchmark_diff_viewer_contract() -> None:
             replay_hash_match_cli.stderr,
             replay_hash_mismatch_cli.stdout,
             replay_hash_mismatch_cli.stderr,
+            replay_snapshot_hash_mismatch_cli.stdout,
+            replay_snapshot_hash_mismatch_cli.stderr,
             replay_empty_current_hash_cli.stdout,
             replay_empty_current_hash_cli.stderr,
             replay_multiple_expected_mismatch_cli.stdout,
