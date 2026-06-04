@@ -1664,16 +1664,17 @@ def test_benchmark_history_contract() -> None:
     )
 
     cli_history_path = _smoke_artifact_path("benchmark-history-cli.json")
+    cli_history_args = [
+        sys.executable,
+        "-B",
+        str(Path(__file__).with_name("run_benchmark_history.py")),
+        "--snapshot",
+        str(snapshot_path),
+        "--history",
+        str(cli_history_path),
+    ]
     completed = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            str(Path(__file__).with_name("run_benchmark_history.py")),
-            "--snapshot",
-            str(snapshot_path),
-            "--history",
-            str(cli_history_path),
-        ],
+        cli_history_args,
         check=False,
         capture_output=True,
         text=True,
@@ -1690,6 +1691,35 @@ def test_benchmark_history_contract() -> None:
     _assert(
         "C:" not in completed.stdout and "jarvis-core" not in completed.stdout,
         "benchmark history CLI output must not leak local filesystem paths",
+    )
+    stable_completed = subprocess.run(
+        cli_history_args,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        stable_completed.returncode == 0,
+        "stable run_benchmark_history.py append failed: "
+        + stable_completed.stderr.strip(),
+    )
+    _assert(
+        stable_completed.stderr == "",
+        "stable benchmark history CLI append must not write stderr",
+    )
+    _assert(
+        stable_completed.stdout
+        == (
+            "Benchmark history updated: entries=2, changed=false, regressions=0. "
+            "Deltas: cases=0, hard_cases=0, realistic_cases=0, invariants=0, "
+            "failed_invariants=0, consistency_failures=0, augmentation=0/0/0.\n"
+        ),
+        "stable benchmark history CLI append must print exact stable summary",
+    )
+    _assert(
+        "C:" not in stable_completed.stdout
+        and "jarvis-core" not in stable_completed.stdout,
+        "stable benchmark history CLI output must not leak local filesystem paths",
     )
 
 
