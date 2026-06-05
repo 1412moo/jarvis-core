@@ -2347,6 +2347,15 @@ def test_benchmark_diff_viewer_contract() -> None:
         "run_benchmark_diff --before/--after must preserve default exit code 0: "
         + before_after_cli.stderr.strip(),
     )
+    expected_diff_output = governance_summary + "\n" + diff_text + "\n"
+    _assert(
+        before_after_cli.stderr == "",
+        "run_benchmark_diff --before/--after must not write stderr",
+    )
+    _assert(
+        before_after_cli.stdout == expected_diff_output,
+        "run_benchmark_diff --before/--after must print exact formatter output",
+    )
     _assert(
         "Benchmark diff:" in before_after_cli.stdout
         and "regressions=" in before_after_cli.stdout,
@@ -2487,6 +2496,15 @@ def test_benchmark_diff_viewer_contract() -> None:
     _assert(
         history_cli.returncode == 0,
         f"run_benchmark_diff --history failed: {history_cli.stderr.strip()}",
+    )
+    _assert(history_cli.stderr == "", "run_benchmark_diff --history must not write stderr")
+    _assert(
+        history_cli.stdout == expected_diff_output,
+        "run_benchmark_diff --history must print exact formatter output",
+    )
+    _assert(
+        history_cli.stdout == before_after_cli.stdout,
+        "benchmark diff CLI sources must preserve exact output parity",
     )
     _assert(
         "Benchmark diff:" in history_cli.stdout
