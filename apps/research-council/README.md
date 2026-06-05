@@ -50,6 +50,16 @@ python -B apps/research-council/run_demo.py `
 Optional local context and repeated constraints can be supplied with
 `--context` and `--constraints`.
 
+Optional locally supplied evidence can also be repeated:
+
+```powershell
+python -B apps/research-council/run_demo.py `
+  --idea "Care log assistant" `
+  --goal "Evaluate evidence handling" `
+  --provided-evidence "Caregivers need daily logs for reimbursement." `
+  --provided-evidence "Manual logs create repeated admin work."
+```
+
 Optionally force a deterministic domain profile:
 
 ```powershell
