@@ -3543,6 +3543,14 @@ def test_scenario_template_generation_contract() -> None:
         f"run_scenario_templates.py failed: {text_cli.stderr.strip()}",
     )
     _assert(
+        text_cli.stderr == "",
+        "run_scenario_templates.py must not write stderr",
+    )
+    _assert(
+        text_cli.stdout == summary_text + "\n",
+        "run_scenario_templates.py must print exact summary formatter output",
+    )
+    _assert(
         len(text_cli.stdout.strip().splitlines()) == 1
         and "Scenario templates generated:" in text_cli.stdout
         and "42 scenarios" in text_cli.stdout,
@@ -3588,6 +3596,17 @@ def test_scenario_template_generation_contract() -> None:
     _assert(
         category_cli.returncode == 0,
         f"run_scenario_templates.py --category failed: {category_cli.stderr.strip()}",
+    )
+    weak_keyword_summary = build_scenario_summary(
+        generate_scenarios(category="weak_keyword_template")
+    )
+    _assert(
+        category_cli.stderr == "",
+        "run_scenario_templates.py --category must not write stderr",
+    )
+    _assert(
+        category_cli.stdout == format_scenario_summary(weak_keyword_summary) + "\n",
+        "run_scenario_templates.py --category must print exact formatter output",
     )
     _assert(
         "7 scenarios" in category_cli.stdout
