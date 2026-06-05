@@ -68,7 +68,7 @@ from research_council.scenario_templates import (
     generate_scenarios,
     scenarios_to_json,
 )
-from run_demo import build_sample_input
+from run_demo import build_sample_input, format_profile_listing
 
 
 REQUIRED_REVIEWER_ROLES = {
@@ -718,6 +718,37 @@ def test_run_demo_json_output_support() -> None:
     _assert(
         exported_result.markdown_report.markdown == completed.stdout,
         "run_demo JSON markdown must match stdout markdown",
+    )
+
+
+def test_run_demo_list_profiles_support() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_demo.py")),
+            "--list-profiles",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_demo --list-profiles failed: {completed.stderr.strip()}",
+    )
+    _assert(completed.stderr == "", "run_demo --list-profiles must not write stderr")
+    _assert(
+        completed.stdout == format_profile_listing(),
+        "run_demo --list-profiles must print deterministic profile metadata",
+    )
+    _assert(
+        "# Research Council Report" not in completed.stdout,
+        "run_demo --list-profiles must exit before running a report",
+    )
+    _assert(
+        "benchmark-covered" not in completed.stdout and "registry-only" not in completed.stdout,
+        "run_demo --list-profiles must not duplicate governance support status",
     )
 
 

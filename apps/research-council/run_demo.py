@@ -5,7 +5,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from research_council import ResearchCouncilInput, run_research_council, write_result_json
+from research_council import (
+    ALIASES,
+    ResearchCouncilInput,
+    list_profiles,
+    run_research_council,
+    write_result_json,
+)
 
 
 def build_sample_input() -> ResearchCouncilInput:
@@ -35,6 +41,19 @@ def build_sample_input() -> ResearchCouncilInput:
             "The user supplied the desired biodegradable wastewater-discharge behavior.",
         ),
     )
+
+
+def format_profile_listing() -> str:
+    aliases_by_profile: dict[str, list[str]] = {}
+    for alias, profile_id in sorted(ALIASES.items()):
+        aliases_by_profile.setdefault(profile_id, []).append(alias)
+
+    lines = ["Research Council profiles:"]
+    for profile in list_profiles():
+        aliases = aliases_by_profile.get(profile.id, [])
+        alias_text = ", ".join(aliases) if aliases else "none"
+        lines.append(f"- {profile.id}: {profile.label} (aliases: {alias_text})")
+    return "\n".join(lines) + "\n"
 
 
 def build_runtime_input(
@@ -135,6 +154,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--list-profiles",
+        action="store_true",
+        help="List deterministic profile ids and aliases, then exit.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         help="Optional path for writing the Markdown report; stdout is always used.",
@@ -154,6 +178,10 @@ def parse_args() -> tuple[argparse.Namespace, argparse.ArgumentParser]:
 
 def main() -> None:
     args, parser = parse_args()
+    if args.list_profiles:
+        print(format_profile_listing(), end="")
+        return
+
     input_data = build_runtime_input(args, parser)
     try:
         result = run_research_council(input_data, profile=args.profile)

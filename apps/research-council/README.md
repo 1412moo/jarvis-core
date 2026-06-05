@@ -60,6 +60,12 @@ python -B apps/research-council/run_demo.py `
   --provided-evidence "Manual logs create repeated admin work."
 ```
 
+List available deterministic profiles and aliases:
+
+```powershell
+python -B apps/research-council/run_demo.py --list-profiles
+```
+
 Optionally force a deterministic domain profile:
 
 ```powershell
