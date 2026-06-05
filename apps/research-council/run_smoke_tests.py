@@ -1337,6 +1337,15 @@ def test_golden_case_evaluation_harness() -> None:
         completed.returncode == 0,
         f"run_golden_cases --show-analytics failed: {completed.stderr.strip()}",
     )
+    expected_analytics_output = format_regression_summary(summary) + "\n" + formatted_analytics + "\n"
+    _assert(
+        completed.stderr == "",
+        "run_golden_cases --show-analytics must not write stderr",
+    )
+    _assert(
+        completed.stdout == expected_analytics_output,
+        "run_golden_cases --show-analytics must print exact formatter output",
+    )
     _assert(
         "Golden cases passed:" in completed.stdout
         and "Benchmark analytics:" in completed.stdout,
