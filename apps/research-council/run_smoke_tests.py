@@ -1721,6 +1721,25 @@ def test_benchmark_history_contract() -> None:
         and "jarvis-core" not in stable_completed.stdout,
         "stable benchmark history CLI output must not leak local filesystem paths",
     )
+    cli_history_payload = json.loads(cli_history_path.read_text(encoding="utf-8"))
+    cli_history = load_benchmark_history(cli_history_path)
+    _assert(len(cli_history) == 2, "benchmark history CLI must persist two entries")
+    _assert(
+        tuple(entry.benchmark_hash for entry in cli_history)
+        == (
+            snapshot.version_info.benchmark_hash,
+            snapshot.version_info.benchmark_hash,
+        ),
+        "benchmark history CLI entries must preserve snapshot hashes",
+    )
+    _assert(
+        json.loads(history_to_json(cli_history)) == cli_history_payload,
+        "benchmark history CLI JSON must round-trip deterministically",
+    )
+    _assert_no_raw_benchmark_text_storage(
+        cli_history_payload,
+        "benchmark history CLI metadata",
+    )
 
 
 def test_benchmark_history_retention_ordering_contract() -> None:
