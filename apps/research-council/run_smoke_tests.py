@@ -3391,6 +3391,18 @@ def test_mutation_test_runner_contract() -> None:
     cases = build_mutation_cases()
     summary = run_mutation_tests(cases)
     summary_text = format_mutation_summary(summary)
+    expected_mutation_summary = (
+        "Mutation tests passed: "
+        f"{summary.passed_cases}/{summary.total_cases} cases, "
+        f"{len(summary.categories_covered)} categories, "
+        f"{summary.profile_drift_failures} profile drift failures, "
+        f"{summary.contamination_failures} contamination failures, "
+        f"{summary.unsafe_acceptance_failures} unsafe acceptance failures."
+    )
+    _assert(
+        summary_text == expected_mutation_summary,
+        "mutation summary formatter must preserve field order and labels",
+    )
     _assert(summary.passed, summary_text)
     _assert(summary.total_cases >= 15, "mutation suite must cover fixed edge cases")
     _assert(
