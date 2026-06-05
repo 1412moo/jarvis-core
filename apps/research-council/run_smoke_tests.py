@@ -3436,6 +3436,14 @@ def test_mutation_test_runner_contract() -> None:
         f"run_mutation_tests.py failed: {completed.stderr.strip()}",
     )
     _assert(
+        completed.stderr == "",
+        "run_mutation_tests.py must not write stderr",
+    )
+    _assert(
+        completed.stdout == summary_text + "\n",
+        "run_mutation_tests.py must print exact formatter output",
+    )
+    _assert(
         "Mutation tests passed:" in completed.stdout,
         "run_mutation_tests.py must print a concise pass summary",
     )
