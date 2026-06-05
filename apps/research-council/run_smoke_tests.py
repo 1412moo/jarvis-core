@@ -1322,11 +1322,36 @@ def test_golden_case_evaluation_harness() -> None:
         "analytics formatter must expose realistic benchmark counts",
     )
 
+    golden_cases_cli = Path(__file__).with_name("run_golden_cases.py")
+    default_completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(golden_cases_cli),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        default_completed.returncode == 0,
+        f"run_golden_cases failed: {default_completed.stderr.strip()}",
+    )
+    expected_default_output = format_regression_summary(summary) + "\n"
+    _assert(
+        default_completed.stderr == "",
+        "run_golden_cases must not write stderr",
+    )
+    _assert(
+        default_completed.stdout == expected_default_output,
+        "run_golden_cases must print exact summary formatter output",
+    )
+
     completed = subprocess.run(
         [
             sys.executable,
             "-B",
-            str(Path(__file__).with_name("run_golden_cases.py")),
+            str(golden_cases_cli),
             "--show-analytics",
         ],
         check=False,
