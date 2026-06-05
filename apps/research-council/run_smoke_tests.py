@@ -1308,6 +1308,49 @@ def test_golden_case_evaluation_harness() -> None:
             f"analytics profile coverage missing {profile_id}",
         )
     formatted_analytics = format_benchmark_analytics(analytics)
+    format_counts = (
+        lambda counts: "none"
+        if not counts
+        else ", ".join(f"{key}={counts[key]}" for key in sorted(counts))
+    )
+    expected_analytics_lines = [
+        "Benchmark analytics:",
+        (
+            "- totals: "
+            f"cases={analytics.total_cases}, hard_cases={analytics.hard_cases}, "
+            f"realistic_cases={analytics.realistic_cases}, "
+            f"synthetic_cases={analytics.synthetic_cases}, "
+            f"overlap_cases={analytics.overlap_cases}, "
+            f"profiles_covered={analytics.profiles_covered_count}, "
+            f"invariants={analytics.total_invariants}, "
+            f"failed_invariants={analytics.failed_invariants}"
+        ),
+        (
+            "- consistency: "
+            f"checks={analytics.consistency_checks}, "
+            f"failures={analytics.consistency_failures}, "
+            "missing_required_terms="
+            f"{sum(analytics.missing_required_terms_by_profile.values())}, "
+            "forbidden_contamination="
+            f"{sum(analytics.forbidden_contamination_by_profile.values())}"
+        ),
+        (
+            "- augmentation: "
+            f"accepted={analytics.augmentation_accepted}, "
+            f"filtered={analytics.augmentation_filtered}, "
+            f"rejected={analytics.augmentation_rejected}"
+        ),
+        "- cases_by_profile: " + format_counts(analytics.cases_by_profile),
+        "- hard_cases_by_profile: " + format_counts(analytics.hard_cases_by_profile),
+        "- evidence_gaps_by_profile: "
+        + format_counts(analytics.evidence_gaps_by_profile),
+        "- confidence_impacts: "
+        + format_counts(analytics.confidence_impact_distribution),
+    ]
+    _assert(
+        formatted_analytics.splitlines() == expected_analytics_lines,
+        "analytics formatter must preserve field order and labels",
+    )
     _assert(
         "Benchmark analytics:" in formatted_analytics,
         "analytics formatter must identify benchmark analytics output",
