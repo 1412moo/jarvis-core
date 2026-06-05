@@ -1509,6 +1509,30 @@ def test_benchmark_snapshot_export_contract() -> None:
         and "Benchmark snapshot exported:" in completed.stdout,
         "run_golden_cases --export-snapshot must preserve summary output and report export",
     )
+    cli_snapshot_text = cli_snapshot_path.read_text(encoding="utf-8")
+    cli_snapshot_payload = json.loads(cli_snapshot_text)
+    cli_snapshot = load_benchmark_snapshot(cli_snapshot_path)
+    _assert(
+        benchmark_snapshot_to_json_dict(cli_snapshot) == cli_snapshot_payload,
+        "run_golden_cases --export-snapshot payload must round-trip deterministically",
+    )
+    _assert(
+        cli_snapshot.version_info.benchmark_hash
+        == snapshot.version_info.benchmark_hash,
+        "run_golden_cases --export-snapshot must preserve benchmark hash",
+    )
+    _assert(
+        cli_snapshot_payload == payload,
+        "run_golden_cases --export-snapshot metadata must match direct export",
+    )
+    _assert_no_raw_benchmark_text_storage(
+        cli_snapshot_payload,
+        "benchmark snapshot CLI metadata",
+    )
+    _assert(
+        "C:" not in cli_snapshot_text and "jarvis-core" not in cli_snapshot_text,
+        "benchmark snapshot CLI export must not leak local filesystem paths",
+    )
 
 
 def test_benchmark_history_contract() -> None:
