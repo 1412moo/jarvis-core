@@ -2407,6 +2407,14 @@ def test_benchmark_diff_viewer_contract() -> None:
         "run_benchmark_diff --fail-on-critical must fail critical benchmark diffs",
     )
     _assert(
+        fail_on_critical_cli.stderr == "",
+        "run_benchmark_diff --fail-on-critical must not write stderr",
+    )
+    _assert(
+        fail_on_critical_cli.stdout == expected_diff_output,
+        "run_benchmark_diff --fail-on-critical must print exact formatter output",
+    )
+    _assert(
         "Benchmark governance:" in fail_on_critical_cli.stdout
         and "Benchmark diff:" in fail_on_critical_cli.stdout
         and "- drift_categories:" in fail_on_critical_cli.stdout,
