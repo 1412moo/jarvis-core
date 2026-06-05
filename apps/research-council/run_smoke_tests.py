@@ -13,6 +13,7 @@ from research_council import (
     LLMAdvisorConfig,
     LLMAugmentationMode,
     ResearchCouncilInput,
+    artifacts_to_json,
     get_profile,
     list_profiles,
     result_from_json,
@@ -535,6 +536,11 @@ def test_json_export_contract() -> None:
         )
 
     artifact_payload = result_to_artifacts_dict(result)
+    artifact_json_payload = json.loads(artifacts_to_json(result))
+    _assert(
+        artifact_json_payload == artifact_payload,
+        "compact artifact JSON must match compact artifact dict payload",
+    )
     _assert(
         isinstance(artifact_payload["markdown_report"], str),
         "compact artifact JSON must expose markdown_report as text",
