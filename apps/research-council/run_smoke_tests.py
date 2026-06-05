@@ -3573,6 +3573,18 @@ def test_scenario_template_generation_contract() -> None:
         f"run_scenario_templates.py --json failed: {json_cli.stderr.strip()}",
     )
     _assert(
+        json_cli.stderr == "",
+        "run_scenario_templates.py --json must not write stderr",
+    )
+    _assert(
+        json_cli.stdout == serialized,
+        "run_scenario_templates.py --json must print exact serialized scenarios",
+    )
+    _assert(
+        json.loads(json_cli.stdout) == payload,
+        "run_scenario_templates.py --json payload must match in-process serialization",
+    )
+    _assert(
         json.loads(json_cli.stdout)["total_scenarios"] == summary.total_scenarios,
         "run_scenario_templates.py --json must emit parseable deterministic JSON",
     )
