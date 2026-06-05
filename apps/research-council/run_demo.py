@@ -47,6 +47,7 @@ def build_runtime_input(
             args.goal,
             args.context,
             args.constraints,
+            args.provided_evidence,
         )
     )
     if not has_custom_input:
@@ -62,6 +63,7 @@ def build_runtime_input(
         goal=args.goal,
         context=args.context,
         constraints=tuple(args.constraints or ()),
+        provided_evidence=tuple(args.provided_evidence or ()),
     )
 
 
@@ -112,6 +114,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Optional constraint for the custom run. Repeat this flag to provide "
             "multiple constraints."
+        ),
+    )
+    parser.add_argument(
+        "--provided-evidence",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help=(
+            "Optional locally supplied evidence for the custom run. Repeat this "
+            "flag to provide multiple evidence notes."
         ),
     )
     parser.add_argument(
