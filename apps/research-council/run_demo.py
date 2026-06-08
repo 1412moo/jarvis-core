@@ -10,6 +10,7 @@ from research_council import (
     LLMAugmentationMode,
     ResearchCouncilInput,
     list_profiles,
+    resolve_domain_profile,
     run_research_council,
     write_result_json,
 )
@@ -44,16 +45,42 @@ def build_sample_input() -> ResearchCouncilInput:
     )
 
 
-def format_profile_listing() -> str:
-    aliases_by_profile: dict[str, list[str]] = {}
+def aliases_by_profile() -> dict[str, list[str]]:
+    aliases: dict[str, list[str]] = {}
     for alias, profile_id in sorted(ALIASES.items()):
-        aliases_by_profile.setdefault(profile_id, []).append(alias)
+        aliases.setdefault(profile_id, []).append(alias)
+    return aliases
 
+
+def format_profile_listing() -> str:
+    aliases = aliases_by_profile()
     lines = ["Research Council profiles:"]
     for profile in list_profiles():
-        aliases = aliases_by_profile.get(profile.id, [])
-        alias_text = ", ".join(aliases) if aliases else "none"
+        profile_aliases = aliases.get(profile.id, [])
+        alias_text = ", ".join(profile_aliases) if profile_aliases else "none"
         lines.append(f"- {profile.id}: {profile.label} (aliases: {alias_text})")
+    return "\n".join(lines) + "\n"
+
+
+def format_profile_description(profile_or_alias: str) -> str:
+    profile = resolve_domain_profile(
+        build_sample_input(),
+        explicit_profile_id=profile_or_alias,
+    ).profile
+    profile_aliases = aliases_by_profile().get(profile.id, [])
+    alias_text = ", ".join(profile_aliases) if profile_aliases else "none"
+
+    lines = [
+        "Research Council profile:",
+        f"- id: {profile.id}",
+        f"- label: {profile.label}",
+        f"- aliases: {alias_text}",
+        f"- summary: {profile.summary}",
+    ]
+    if profile.evidence_needs:
+        lines.append("- evidence_needs:")
+        for need in profile.evidence_needs:
+            lines.append(f"  - {need.category}: {need.request}")
     return "\n".join(lines) + "\n"
 
 
@@ -160,6 +187,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="List deterministic profile ids and aliases, then exit.",
     )
     parser.add_argument(
+        "--describe-profile",
+        metavar="PROFILE",
+        help="Describe one deterministic profile id or alias, then exit.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         help="Optional path for writing the Markdown report; stdout is always used.",
@@ -188,8 +220,18 @@ def parse_args() -> tuple[argparse.Namespace, argparse.ArgumentParser]:
 
 def main() -> None:
     args, parser = parse_args()
+    if args.list_profiles and args.describe_profile:
+        parser.error("--list-profiles and --describe-profile cannot be used together.")
     if args.list_profiles:
         print(format_profile_listing(), end="")
+        return
+    if args.describe_profile:
+        try:
+            print(format_profile_description(args.describe_profile), end="")
+        except ValueError as exc:
+            if "unknown domain profile" in str(exc):
+                parser.error(str(exc))
+            raise
         return
 
     input_data = build_runtime_input(args, parser)
