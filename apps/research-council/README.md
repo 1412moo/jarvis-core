@@ -82,6 +82,16 @@ Optionally export the structured JSON result while preserving Markdown stdout:
 python -B apps/research-council/run_demo.py --json-output apps/research-council/artifacts/sample-result.json
 ```
 
+Optionally include deterministic sandbox augmentation metadata in the JSON
+export. This uses local deterministic fixtures only and does not make external
+LLM calls:
+
+```powershell
+python -B apps/research-council/run_demo.py `
+  --llm-augmentation-mode test_safe `
+  --json-output apps/research-council/artifacts/sample-result.json
+```
+
 Run the smoke test:
 
 ```powershell

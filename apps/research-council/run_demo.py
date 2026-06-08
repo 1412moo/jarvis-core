@@ -7,6 +7,7 @@ from pathlib import Path
 
 from research_council import (
     ALIASES,
+    LLMAugmentationMode,
     ResearchCouncilInput,
     list_profiles,
     run_research_council,
@@ -168,6 +169,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional path for writing the structured Research Council JSON result.",
     )
+    parser.add_argument(
+        "--llm-augmentation-mode",
+        choices=[mode.value for mode in LLMAugmentationMode],
+        default=LLMAugmentationMode.OFF.value,
+        help=(
+            "Optional deterministic augmentation sandbox mode. Defaults to off; "
+            "this does not make external LLM calls."
+        ),
+    )
     return parser
 
 
@@ -184,7 +194,11 @@ def main() -> None:
 
     input_data = build_runtime_input(args, parser)
     try:
-        result = run_research_council(input_data, profile=args.profile)
+        result = run_research_council(
+            input_data,
+            profile=args.profile,
+            llm_advisor_config=args.llm_augmentation_mode,
+        )
     except ValueError as exc:
         if args.profile and "unknown domain profile" in str(exc):
             parser.error(str(exc))
