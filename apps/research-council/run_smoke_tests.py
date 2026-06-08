@@ -836,6 +836,69 @@ def test_run_demo_llm_augmentation_mode_support() -> None:
     )
 
 
+def test_run_demo_input_json_support() -> None:
+    input_path = _smoke_artifact_path("smoke-demo-input.json")
+    json_path = _smoke_artifact_path("smoke-demo-input-result.json")
+    input_payload = {
+        "context": "Family caregivers need repeatable daily documentation.",
+        "constraints": [
+            "No external services",
+            "Keep the workflow local and deterministic",
+        ],
+        "goal": "Evaluate whether caregiver evidence supports a simple MVP",
+        "idea": "Care log assistant",
+        "provided_evidence": [
+            "Manual logs create repeated admin work.",
+            "Caregivers need daily records for reimbursement conversations.",
+        ],
+    }
+    input_path.write_text(
+        json.dumps(input_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_demo.py")),
+            "--input-json",
+            str(input_path),
+            "--profile",
+            "ai_saas",
+            "--llm-augmentation-mode",
+            "off",
+            "--json-output",
+            str(json_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_demo --input-json failed: {completed.stderr.strip()}",
+    )
+    _assert(
+        completed.stdout.startswith("# Research Council Report"),
+        "run_demo --input-json must preserve Markdown stdout",
+    )
+    _assert("Care log assistant" in completed.stdout, "input JSON idea must reach stdout")
+    _assert(
+        "Manual logs create repeated admin work." in completed.stdout,
+        "input JSON provided evidence must reach stdout",
+    )
+    _assert(json_path.exists(), "run_demo --input-json must create JSON output when requested")
+    exported_payload = json.loads(json_path.read_text(encoding="utf-8"))
+    _assert(
+        exported_payload["profile"]["profile_id"] == "ai_saas",
+        "run_demo --input-json must allow explicit runtime profile selection",
+    )
+    _assert(
+        exported_payload["optional_llm_augments"]["mode"] == "off",
+        "run_demo --input-json must allow runtime augmentation mode",
+    )
+
+
 def test_run_demo_custom_cli_input_support() -> None:
     json_path = _smoke_artifact_path("smoke-custom-result.json")
     markdown_path = _smoke_artifact_path("smoke-custom-result.md")
@@ -4150,6 +4213,7 @@ def main() -> None:
     test_json_export_contract()
     test_optional_llm_augmentation_sandbox()
     test_run_demo_json_output_support()
+    test_run_demo_input_json_support()
     test_run_demo_custom_cli_input_support()
     test_run_demo_explicit_profile_support()
     test_ai_saas_profile_reasoning()
