@@ -752,6 +752,50 @@ def test_run_demo_list_profiles_support() -> None:
     )
 
 
+def test_run_demo_llm_augmentation_mode_support() -> None:
+    json_path = _smoke_artifact_path("smoke-llm-augmentation-result.json")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_demo.py")),
+            "--llm-augmentation-mode",
+            "test_safe",
+            "--json-output",
+            str(json_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_demo --llm-augmentation-mode failed: {completed.stderr.strip()}",
+    )
+    _assert(
+        completed.stdout.startswith("# Research Council Report"),
+        "run_demo augmentation mode must preserve Markdown stdout",
+    )
+    _assert(
+        json_path.exists(),
+        "run_demo augmentation mode must create a JSON file when requested",
+    )
+    exported_payload = json.loads(json_path.read_text(encoding="utf-8"))
+    augments = exported_payload["optional_llm_augments"]
+    _assert(
+        augments["mode"] == "test_safe",
+        "run_demo augmentation mode must be reflected in JSON metadata",
+    )
+    _assert(
+        augments["enabled"] is True,
+        "run_demo test_safe augmentation metadata must be enabled",
+    )
+    _assert(
+        augments["accepted_count"] > 0,
+        "run_demo test_safe augmentation metadata must include accepted candidates",
+    )
+
+
 def test_run_demo_custom_cli_input_support() -> None:
     json_path = _smoke_artifact_path("smoke-custom-result.json")
     markdown_path = _smoke_artifact_path("smoke-custom-result.md")
