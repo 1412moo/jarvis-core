@@ -66,6 +66,12 @@ List available deterministic profiles and aliases:
 python -B apps/research-council/run_demo.py --list-profiles
 ```
 
+Describe one deterministic profile by id or alias:
+
+```powershell
+python -B apps/research-council/run_demo.py --describe-profile software
+```
+
 Optionally force a deterministic domain profile:
 
 ```powershell

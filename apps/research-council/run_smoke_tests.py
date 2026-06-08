@@ -68,7 +68,7 @@ from research_council.scenario_templates import (
     generate_scenarios,
     scenarios_to_json,
 )
-from run_demo import build_sample_input, format_profile_listing
+from run_demo import build_sample_input, format_profile_description, format_profile_listing
 
 
 REQUIRED_REVIEWER_ROLES = {
@@ -749,6 +749,46 @@ def test_run_demo_list_profiles_support() -> None:
     _assert(
         "benchmark-covered" not in completed.stdout and "registry-only" not in completed.stdout,
         "run_demo --list-profiles must not duplicate governance support status",
+    )
+
+
+def test_run_demo_describe_profile_support() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).with_name("run_demo.py")),
+            "--describe-profile",
+            "software",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_demo --describe-profile failed: {completed.stderr.strip()}",
+    )
+    _assert(completed.stderr == "", "run_demo --describe-profile must not write stderr")
+    _assert(
+        completed.stdout == format_profile_description("software"),
+        "run_demo --describe-profile must print deterministic profile metadata",
+    )
+    _assert(
+        "- id: ai_saas" in completed.stdout and "- aliases: software" in completed.stdout,
+        "run_demo --describe-profile must resolve aliases to canonical profile metadata",
+    )
+    _assert(
+        "- evidence_needs:" in completed.stdout,
+        "run_demo --describe-profile must include bounded evidence needs",
+    )
+    _assert(
+        "# Research Council Report" not in completed.stdout,
+        "run_demo --describe-profile must exit before running a report",
+    )
+    _assert(
+        "benchmark-covered" not in completed.stdout and "registry-only" not in completed.stdout,
+        "run_demo --describe-profile must not duplicate governance support status",
     )
 
 
