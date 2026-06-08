@@ -60,6 +60,28 @@ python -B apps/research-council/run_demo.py `
   --provided-evidence "Manual logs create repeated admin work."
 ```
 
+Longer custom inputs can be supplied as a local JSON object:
+
+```json
+{
+  "idea": "Care log assistant",
+  "goal": "Evaluate whether caregiver evidence supports a simple MVP",
+  "context": "Family caregivers need repeatable daily documentation.",
+  "constraints": [
+    "No external services",
+    "Keep the workflow local and deterministic"
+  ],
+  "provided_evidence": [
+    "Manual logs create repeated admin work.",
+    "Caregivers need daily records for reimbursement conversations."
+  ]
+}
+```
+
+```powershell
+python -B apps/research-council/run_demo.py --input-json demo-input.json
+```
+
 List available deterministic profiles and aliases:
 
 ```powershell

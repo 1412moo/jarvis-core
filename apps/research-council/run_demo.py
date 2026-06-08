@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from research_council import (
@@ -84,10 +85,90 @@ def format_profile_description(profile_or_alias: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def build_input_from_json(
+    path: Path,
+    parser: argparse.ArgumentParser,
+) -> ResearchCouncilInput:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except OSError as exc:
+        parser.error(f"--input-json could not be read: {exc}")
+    except json.JSONDecodeError as exc:
+        parser.error(f"--input-json must contain valid JSON: {exc.msg}")
+
+    if not isinstance(payload, dict):
+        parser.error("--input-json must contain a JSON object.")
+
+    allowed_keys = {
+        "context",
+        "constraints",
+        "goal",
+        "idea",
+        "provided_evidence",
+        "raw_idea",
+    }
+    unknown_keys = sorted(str(key) for key in payload if key not in allowed_keys)
+    if unknown_keys:
+        parser.error("--input-json contains unknown keys: " + ", ".join(unknown_keys))
+    if "idea" in payload and "raw_idea" in payload:
+        parser.error("--input-json must not contain both raw_idea and idea.")
+
+    raw_idea = _optional_json_string(payload, "raw_idea", parser)
+    idea = _optional_json_string(payload, "idea", parser)
+    goal = _optional_json_string(payload, "goal", parser)
+    context = _optional_json_string(payload, "context", parser)
+    if raw_idea is None and idea is None:
+        parser.error("--input-json must contain idea or raw_idea.")
+    if goal is None:
+        parser.error("--input-json must contain goal.")
+
+    return ResearchCouncilInput(
+        raw_idea=raw_idea if raw_idea is not None else str(idea),
+        goal=goal,
+        context=context,
+        constraints=_json_string_list(payload, "constraints", parser),
+        provided_evidence=_json_string_list(payload, "provided_evidence", parser),
+    )
+
+
+def _optional_json_string(
+    payload: dict[object, object],
+    key: str,
+    parser: argparse.ArgumentParser,
+) -> str | None:
+    if key not in payload:
+        return None
+    value = payload[key]
+    if not isinstance(value, str):
+        parser.error(f"--input-json field {key} must be a string.")
+    return value
+
+
+def _json_string_list(
+    payload: dict[object, object],
+    key: str,
+    parser: argparse.ArgumentParser,
+) -> tuple[str, ...]:
+    if key not in payload:
+        return ()
+    value = payload[key]
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        parser.error(f"--input-json field {key} must be a list of strings.")
+    return tuple(value)
+
+
 def build_runtime_input(
     args: argparse.Namespace,
     parser: argparse.ArgumentParser,
 ) -> ResearchCouncilInput:
+    if args.input_json:
+        if any((args.idea, args.goal, args.context, args.constraints, args.provided_evidence)):
+            parser.error(
+                "--input-json cannot be combined with --idea, --goal, --context, "
+                "--constraints, or --provided-evidence."
+            )
+        return build_input_from_json(args.input_json, parser)
+
     has_custom_input = any(
         (
             args.idea,
@@ -190,6 +271,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--describe-profile",
         metavar="PROFILE",
         help="Describe one deterministic profile id or alias, then exit.",
+    )
+    parser.add_argument(
+        "--input-json",
+        type=Path,
+        metavar="PATH",
+        help="Optional local JSON object for custom Research Council input.",
     )
     parser.add_argument(
         "--output",
