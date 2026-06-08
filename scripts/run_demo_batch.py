@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         required=True,
-        help="Directory for per-case Markdown/JSON output and batch-summary.json.",
+        help="Directory for per-case Markdown/JSON output and batch summaries.",
     )
     parser.add_argument(
         "--profile",
@@ -133,10 +133,88 @@ def main() -> int:
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    markdown_summary_path = output_dir / "batch-summary.md"
+    markdown_summary_path.write_text(
+        _format_markdown_summary(summary, output_dir),
+        encoding="utf-8",
+    )
 
     print(f"Batch summary: {summary_path}")
+    print(f"Batch index: {markdown_summary_path}")
     print(f"Completed: ok={passed_count}, failed={failed_count}")
     return failed_return_code
+
+
+def _format_markdown_summary(summary: dict[str, Any], output_dir: Path) -> str:
+    lines = [
+        "# Research Council Demo Batch Summary",
+        "",
+        f"- Total inputs: {_md_code(summary.get('total_inputs'))}",
+        f"- OK: {_md_code(summary.get('passed_count'))}",
+        f"- Failed: {_md_code(summary.get('failed_count'))}",
+        f"- Output directory: {_md_code(str(output_dir))}",
+        "",
+        "| Input | Status | Return code | Profile | Recommendation | Counts | Markdown | JSON |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    items = summary.get("items", [])
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        _md_cell(item.get("input_filename")),
+                        _md_cell(item.get("status")),
+                        _md_cell(item.get("return_code")),
+                        _md_cell(item.get("profile_id")),
+                        _md_cell(item.get("recommendation_decision")),
+                        _md_cell(_format_counts(item.get("counts"))),
+                        _md_cell(_path_name(item.get("markdown_output_path"))),
+                        _md_cell(_path_name(item.get("json_output_path"))),
+                    )
+                )
+                + " |"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def _format_counts(value: object) -> str:
+    if not isinstance(value, dict):
+        return "n/a"
+    parts: list[str] = []
+    for key, label in (
+        ("claims", "claims"),
+        ("evidence_entries", "evidence"),
+        ("reviewer_critiques", "critiques"),
+        ("experiments", "experiments"),
+        ("warnings", "warnings"),
+    ):
+        count = value.get(key)
+        if isinstance(count, int):
+            parts.append(f"{label}={count}")
+    return ", ".join(parts) if parts else "n/a"
+
+
+def _path_name(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        return "n/a"
+    return Path(value).name
+
+
+def _md_cell(value: object) -> str:
+    return (
+        str(value if value not in (None, "") else "n/a")
+        .replace("|", "\\|")
+        .replace("\n", " ")
+    )
+
+
+def _md_code(value: object) -> str:
+    text = str(value if value not in (None, "") else "n/a").replace("`", "\\`")
+    return f"`{text}`"
 
 
 def _safe_result_metadata(path: Path) -> dict[str, Any]:

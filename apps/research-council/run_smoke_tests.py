@@ -965,11 +965,32 @@ def test_run_demo_batch_helper_support() -> None:
 
     summary_path = output_dir / "batch-summary.json"
     _assert(summary_path.exists(), "batch helper must write batch-summary.json")
+    markdown_summary_path = output_dir / "batch-summary.md"
+    _assert(markdown_summary_path.exists(), "batch helper must write batch-summary.md")
     summary_text = summary_path.read_text(encoding="utf-8")
+    markdown_summary_text = markdown_summary_path.read_text(encoding="utf-8")
     summary = json.loads(summary_text)
     _assert(summary["total_inputs"] == 2, "batch summary must record total input count")
     _assert(summary["passed_count"] == 2, "batch summary must record passed count")
     _assert(summary["failed_count"] == 0, "batch summary must record failed count")
+    _assert(
+        "- Total inputs: `2`" in markdown_summary_text
+        and "- OK: `2`" in markdown_summary_text
+        and "- Failed: `0`" in markdown_summary_text,
+        "batch Markdown summary must include bounded totals",
+    )
+    _assert(
+        "| Input | Status | Return code | Profile | Recommendation | Counts | Markdown | JSON |"
+        in markdown_summary_text,
+        "batch Markdown summary must include a per-case table",
+    )
+    _assert(
+        "case-a.md" in markdown_summary_text
+        and "case-a.json" in markdown_summary_text
+        and "case-b.md" in markdown_summary_text
+        and "case-b.json" in markdown_summary_text,
+        "batch Markdown summary must include per-case output filenames",
+    )
     _assert(
         [item["input_filename"] for item in summary["items"]] == ["case-a.json", "case-b.json"],
         "batch helper must process inputs in deterministic filename order",
@@ -993,6 +1014,10 @@ def test_run_demo_batch_helper_support() -> None:
         _assert(
             raw_fragment not in summary_text,
             "batch summary must not copy raw input text or full report body",
+        )
+        _assert(
+            raw_fragment not in markdown_summary_text,
+            "batch Markdown summary must not copy raw input text or full report body",
         )
 
 

@@ -93,8 +93,9 @@ python -B scripts/run_demo_batch.py `
 ```
 
 The batch helper processes `*.json` inputs by filename, writes per-case
-Markdown/JSON outputs, and creates a `batch-summary.json` with bounded metadata
-only. It does not copy raw input text or full report bodies into the summary.
+Markdown/JSON outputs, and creates `batch-summary.json` plus a
+`batch-summary.md` index with bounded metadata only. It does not copy raw input
+text or full report bodies into the summaries.
 
 List available deterministic profiles and aliases:
 
