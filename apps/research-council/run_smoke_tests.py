@@ -899,6 +899,103 @@ def test_run_demo_input_json_support() -> None:
     )
 
 
+def test_run_demo_batch_helper_support() -> None:
+    input_dir = _smoke_artifact_path("smoke-demo-batch-inputs")
+    output_dir = _smoke_artifact_path("smoke-demo-batch-outputs")
+    input_dir.mkdir()
+    input_payloads = {
+        "case-a.json": {
+            "context": "Family caregivers need repeatable daily documentation.",
+            "constraints": ["No external services"],
+            "goal": "Evaluate whether caregiver evidence supports a simple MVP",
+            "idea": "Care log assistant",
+            "provided_evidence": ["Manual logs create repeated admin work."],
+        },
+        "case-b.json": {
+            "context": "Local tutoring workflows need repeatable feedback.",
+            "constraints": ["Keep the workflow local and deterministic"],
+            "goal": "Evaluate whether tutor feedback evidence supports a simple MVP",
+            "idea": "Tutor feedback helper",
+            "provided_evidence": ["Tutors rewrite similar feedback after each session."],
+        },
+    }
+    for filename, payload in input_payloads.items():
+        (input_dir / filename).write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).parents[2] / "scripts" / "run_demo_batch.py"),
+            "--input-dir",
+            str(input_dir),
+            "--output-dir",
+            str(output_dir),
+            "--profile",
+            "ai_saas",
+            "--llm-augmentation-mode",
+            "off",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"run_demo_batch.py failed: {completed.stderr.strip()}",
+    )
+    _assert(completed.stderr == "", "run_demo_batch.py must not write stderr on success")
+    _assert(
+        "Research Council demo batch: inputs=2" in completed.stdout
+        and "- case-a.json: ok" in completed.stdout
+        and "- case-b.json: ok" in completed.stdout,
+        "run_demo_batch.py must print bounded per-case progress",
+    )
+    _assert(
+        "# Research Council Report" not in completed.stdout
+        and "Manual logs create repeated admin work." not in completed.stdout,
+        "run_demo_batch.py progress must not echo raw reports or input evidence",
+    )
+    for stem in ("case-a", "case-b"):
+        _assert((output_dir / f"{stem}.md").exists(), "batch helper must write Markdown")
+        _assert((output_dir / f"{stem}.json").exists(), "batch helper must write JSON")
+
+    summary_path = output_dir / "batch-summary.json"
+    _assert(summary_path.exists(), "batch helper must write batch-summary.json")
+    summary_text = summary_path.read_text(encoding="utf-8")
+    summary = json.loads(summary_text)
+    _assert(summary["total_inputs"] == 2, "batch summary must record total input count")
+    _assert(summary["passed_count"] == 2, "batch summary must record passed count")
+    _assert(summary["failed_count"] == 0, "batch summary must record failed count")
+    _assert(
+        [item["input_filename"] for item in summary["items"]] == ["case-a.json", "case-b.json"],
+        "batch helper must process inputs in deterministic filename order",
+    )
+    for item in summary["items"]:
+        _assert(item["status"] == "ok", "batch summary items must record ok status")
+        _assert(item["return_code"] == 0, "batch summary items must record return code")
+        _assert(item["profile_id"] == "ai_saas", "batch summary must include safe profile metadata")
+        _assert(
+            item["recommendation_decision"],
+            "batch summary must include safe recommendation decision metadata",
+        )
+        _assert(item["counts"]["claims"] > 0, "batch summary must include safe count metadata")
+    for raw_fragment in (
+        "Care log assistant",
+        "Manual logs create repeated admin work.",
+        "Tutor feedback helper",
+        "Tutors rewrite similar feedback after each session.",
+        "# Research Council Report",
+    ):
+        _assert(
+            raw_fragment not in summary_text,
+            "batch summary must not copy raw input text or full report body",
+        )
+
+
 def test_run_demo_custom_cli_input_support() -> None:
     json_path = _smoke_artifact_path("smoke-custom-result.json")
     markdown_path = _smoke_artifact_path("smoke-custom-result.md")
@@ -4214,6 +4311,7 @@ def main() -> None:
     test_optional_llm_augmentation_sandbox()
     test_run_demo_json_output_support()
     test_run_demo_input_json_support()
+    test_run_demo_batch_helper_support()
     test_run_demo_custom_cli_input_support()
     test_run_demo_explicit_profile_support()
     test_ai_saas_profile_reasoning()

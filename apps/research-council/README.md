@@ -82,6 +82,20 @@ Longer custom inputs can be supplied as a local JSON object:
 python -B apps/research-council/run_demo.py --input-json demo-input.json
 ```
 
+Run a local batch of JSON inputs into a user-selected output directory:
+
+```powershell
+python -B scripts/run_demo_batch.py `
+  --input-dir demo-inputs `
+  --output-dir demo-outputs `
+  --profile ai_saas `
+  --llm-augmentation-mode off
+```
+
+The batch helper processes `*.json` inputs by filename, writes per-case
+Markdown/JSON outputs, and creates a `batch-summary.json` with bounded metadata
+only. It does not copy raw input text or full report bodies into the summary.
+
 List available deterministic profiles and aliases:
 
 ```powershell
