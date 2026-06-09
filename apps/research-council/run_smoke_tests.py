@@ -1049,6 +1049,178 @@ def test_run_demo_batch_helper_support() -> None:
         )
 
 
+def test_compare_demo_batches_helper_support() -> None:
+    baseline_dir = _smoke_artifact_path("smoke-demo-batch-baseline")
+    candidate_dir = _smoke_artifact_path("smoke-demo-batch-candidate")
+    output_dir = _smoke_artifact_path("smoke-demo-batch-comparison")
+    baseline_dir.mkdir()
+    candidate_dir.mkdir()
+
+    baseline_summary = {
+        "failed_count": 0,
+        "items": [
+            {
+                "confidence_blockers": 7,
+                "high_critiques": 4,
+                "input_filename": "case-a.json",
+                "json_output_path": str(baseline_dir / "case-a.json"),
+                "markdown_output_path": str(baseline_dir / "case-a.md"),
+                "missing_evidence": 10,
+                "profile_id": "ai_saas",
+                "recommendation_decision": "continue_with_workflow_adoption_experiment",
+                "return_code": 0,
+                "selected_by": "explicit",
+                "selected_profile": "ai_saas",
+                "status": "ok",
+                "warnings": 5,
+            },
+            {
+                "confidence_blockers": 7,
+                "high_critiques": 4,
+                "input_filename": "case-b.json",
+                "json_output_path": str(baseline_dir / "case-b.json"),
+                "markdown_output_path": str(baseline_dir / "case-b.md"),
+                "missing_evidence": 10,
+                "profile_id": "ai_saas",
+                "recommendation_decision": "continue_with_workflow_adoption_experiment",
+                "return_code": 0,
+                "selected_by": "explicit",
+                "selected_profile": "ai_saas",
+                "status": "ok",
+                "warnings": 5,
+            },
+        ],
+        "passed_count": 2,
+        "total_inputs": 2,
+    }
+    candidate_summary = {
+        "failed_count": 0,
+        "items": [
+            {
+                "confidence_blockers": 5,
+                "high_critiques": 4,
+                "input_filename": "case-a.json",
+                "json_output_path": str(candidate_dir / "case-a.json"),
+                "markdown_output_path": str(candidate_dir / "case-a.md"),
+                "missing_evidence": 7,
+                "profile_id": "medical_device",
+                "recommendation_decision": "pause_broad_use_resolve_safety_blocker",
+                "return_code": 0,
+                "selected_by": "deterministic_score",
+                "selected_profile": "medical_device",
+                "status": "ok",
+                "warnings": 5,
+            },
+            {
+                "confidence_blockers": 6,
+                "high_critiques": 4,
+                "input_filename": "case-c.json",
+                "json_output_path": str(candidate_dir / "case-c.json"),
+                "markdown_output_path": str(candidate_dir / "case-c.md"),
+                "missing_evidence": 8,
+                "profile_id": "general",
+                "recommendation_decision": "continue_with_primary_blocker_experiment",
+                "return_code": 0,
+                "selected_by": "fallback",
+                "selected_profile": "general",
+                "status": "ok",
+                "warnings": 4,
+            },
+        ],
+        "passed_count": 2,
+        "total_inputs": 2,
+    }
+    (baseline_dir / "batch-summary.json").write_text(
+        json.dumps(baseline_summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (candidate_dir / "batch-summary.json").write_text(
+        json.dumps(candidate_summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).parents[2] / "scripts" / "compare_demo_batches.py"),
+            "--baseline-dir",
+            str(baseline_dir),
+            "--candidate-dir",
+            str(candidate_dir),
+            "--output-dir",
+            str(output_dir),
+            "--baseline-label",
+            "explicit",
+            "--candidate-label",
+            "auto",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _assert(
+        completed.returncode == 0,
+        f"compare_demo_batches.py failed: {completed.stderr.strip()}",
+    )
+    _assert(completed.stderr == "", "compare_demo_batches.py must not write stderr on success")
+    _assert(
+        "matched=1" in completed.stdout
+        and "baseline_only=1" in completed.stdout
+        and "candidate_only=1" in completed.stdout
+        and "profile=1" in completed.stdout
+        and "decision=1" in completed.stdout
+        and "triage=1" in completed.stdout,
+        "compare_demo_batches.py must print bounded comparison progress",
+    )
+
+    comparison_path = output_dir / "comparison-summary.json"
+    markdown_path = output_dir / "comparison-summary.md"
+    _assert(comparison_path.exists(), "comparison helper must write comparison-summary.json")
+    _assert(markdown_path.exists(), "comparison helper must write comparison-summary.md")
+    comparison_text = comparison_path.read_text(encoding="utf-8")
+    markdown_text = markdown_path.read_text(encoding="utf-8")
+    comparison = json.loads(comparison_text)
+    _assert(comparison["matched_count"] == 1, "comparison summary must count matched inputs")
+    _assert(comparison["baseline_only_count"] == 1, "comparison summary must count baseline-only inputs")
+    _assert(comparison["candidate_only_count"] == 1, "comparison summary must count candidate-only inputs")
+    _assert(comparison["changed_profile_count"] == 1, "comparison summary must count profile changes")
+    _assert(comparison["changed_decision_count"] == 1, "comparison summary must count decision changes")
+    _assert(comparison["changed_triage_count"] == 1, "comparison summary must count triage changes")
+    matched = next(
+        item for item in comparison["items"] if item["input_filename"] == "case-a.json"
+    )
+    _assert(matched["changed_profile"], "comparison item must flag changed profile")
+    _assert(matched["changed_decision"], "comparison item must flag changed decision")
+    _assert(matched["changed_triage"], "comparison item must flag changed triage")
+    _assert(
+        "| Changed | Input | Profile | Selected by | Decision | Blockers | High critiques | "
+        "Missing evidence | Warnings | Baseline MD | Candidate MD |"
+        in markdown_text,
+        "comparison Markdown summary must include a per-case comparison table",
+    )
+    _assert(
+        "ai_saas -> medical_device" in markdown_text
+        and "case-a.md" in markdown_text
+        and "case-c.md" in markdown_text,
+        "comparison Markdown summary must include safe comparison metadata and filenames",
+    )
+    for raw_fragment in (
+        "Care log assistant",
+        "Manual logs create repeated admin work.",
+        "# Research Council Report",
+        "Executive Snapshot",
+    ):
+        _assert(
+            raw_fragment not in comparison_text,
+            "comparison summary must not copy raw input text or full report body",
+        )
+        _assert(
+            raw_fragment not in markdown_text,
+            "comparison Markdown summary must not copy raw input text or full report body",
+        )
+
+
 def test_run_demo_custom_cli_input_support() -> None:
     json_path = _smoke_artifact_path("smoke-custom-result.json")
     markdown_path = _smoke_artifact_path("smoke-custom-result.md")
@@ -4365,6 +4537,7 @@ def main() -> None:
     test_run_demo_json_output_support()
     test_run_demo_input_json_support()
     test_run_demo_batch_helper_support()
+    test_compare_demo_batches_helper_support()
     test_run_demo_custom_cli_input_support()
     test_run_demo_explicit_profile_support()
     test_ai_saas_profile_reasoning()
