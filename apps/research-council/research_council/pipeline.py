@@ -114,15 +114,16 @@ _AI_SAAS_CATEGORY_BONUS = {
 _AI_SAAS_PRIORITY_TERMS = {
     "user_adoption": (
         "workflow",
-        "founder",
+        "workflow owner",
+        "target user",
         "adoption",
         "integration",
         "retention",
         "repeat usage",
     ),
     "technical": ("reliability", "quality", "traceability", "hallucination", "automation"),
-    "safety_regulatory": ("trust", "verification", "legal", "patentability", "citation"),
-    "prior_art": ("differentiation", "substitute", "prior-art", "generic ai"),
+    "safety_regulatory": ("trust", "verification", "legal", "regulated", "citation"),
+    "prior_art": ("differentiation", "substitute", "competing workflow", "generic ai"),
     "market": ("willingness to pay", "pricing", "distribution", "subscription"),
 }
 
@@ -431,8 +432,9 @@ def _create_recommendation(
             summary = (
                 f"Primary AI SaaS blocker: {primary_blocker.category.replace('_', ' ')} "
                 f"evidence for `{primary_blocker.claim_id}`. Treat the submitted description "
-                "as concept input, not proof of founder adoption, output reliability, workflow "
-                "integration, trust, narrow-wedge differentiation, retention, or willingness to pay."
+                "as concept input, not proof of target user or workflow-owner adoption, output "
+                "reliability, workflow integration, trust, narrow-wedge differentiation, retention, "
+                "or willingness to pay."
             )
         elif domain_profile.id == "developer_tool":
             if primary_blocker.category == "technical":
