@@ -82,6 +82,25 @@ Longer custom inputs can be supplied as a local JSON object:
 python -B apps/research-council/run_demo.py --input-json demo-input.json
 ```
 
+Run the local desktop launcher:
+
+```powershell
+python -B apps/research-council/run_local_app.py
+```
+
+The launcher is a deterministic local Tk window for non-developer use. It does
+not make external LLM/API calls, web requests, or citations. Each run writes
+`input.json`, `report.md`, and `result.json` under the output directory selected
+in the window. The default output root is the user's home directory under
+`ResearchCouncilRuns`, not the repository, and launcher runs refuse repository
+internal output directories.
+
+Run its headless self-test:
+
+```powershell
+python -B apps/research-council/run_local_app.py --self-test --output-dir C:\work\rc-local-app-smoke
+```
+
 Run a local batch of JSON inputs into a user-selected output directory:
 
 ```powershell

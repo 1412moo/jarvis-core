@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 from research_council import (
     ALLOWED_AUGMENTATION_CATEGORIES,
@@ -897,6 +898,49 @@ def test_run_demo_input_json_support() -> None:
         exported_payload["optional_llm_augments"]["mode"] == "off",
         "run_demo --input-json must allow runtime augmentation mode",
     )
+
+
+def test_run_local_app_self_test_support() -> None:
+    with tempfile.TemporaryDirectory(prefix="research-council-local-app-") as temp_dir:
+        output_dir = Path(temp_dir)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(Path(__file__).with_name("run_local_app.py")),
+                "--self-test",
+                "--output-dir",
+                str(output_dir),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        _assert(
+            completed.returncode == 0,
+            f"run_local_app --self-test failed: {completed.stderr.strip()}",
+        )
+        _assert(
+            "Research Council local launcher self-test passed" in completed.stdout,
+            "run_local_app --self-test must report success",
+        )
+        input_paths = list(output_dir.glob("*/input.json"))
+        report_paths = list(output_dir.glob("*/report.md"))
+        result_paths = list(output_dir.glob("*/result.json"))
+        _assert(len(input_paths) == 1, "launcher self-test must create one input.json")
+        _assert(len(report_paths) == 1, "launcher self-test must create one report.md")
+        _assert(len(result_paths) == 1, "launcher self-test must create one result.json")
+        _assert(
+            report_paths[0].read_text(encoding="utf-8").startswith(
+                "# Research Council Report"
+            ),
+            "launcher self-test report must contain Markdown output",
+        )
+        result_payload = json.loads(result_paths[0].read_text(encoding="utf-8"))
+        _assert(
+            result_payload["profile"]["profile_id"] == "ai_saas",
+            "launcher self-test must preserve the selected profile",
+        )
 
 
 def test_run_demo_batch_helper_support() -> None:
@@ -4536,6 +4580,7 @@ def main() -> None:
     test_optional_llm_augmentation_sandbox()
     test_run_demo_json_output_support()
     test_run_demo_input_json_support()
+    test_run_local_app_self_test_support()
     test_run_demo_batch_helper_support()
     test_compare_demo_batches_helper_support()
     test_run_demo_custom_cli_input_support()
