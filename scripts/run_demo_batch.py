@@ -154,8 +154,12 @@ def _format_markdown_summary(summary: dict[str, Any], output_dir: Path) -> str:
         f"- Failed: {_md_code(summary.get('failed_count'))}",
         f"- Output directory: {_md_code(str(output_dir))}",
         "",
-        "| Input | Status | Return code | Profile | Recommendation | Counts | Markdown | JSON |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        (
+            "| Input | Status | Return code | Selected profile | Selected by | "
+            "Recommendation | Blockers | High critiques | Missing evidence | "
+            "Warnings | Counts | Markdown | JSON |"
+        ),
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     items = summary.get("items", [])
     if isinstance(items, list):
@@ -169,8 +173,13 @@ def _format_markdown_summary(summary: dict[str, Any], output_dir: Path) -> str:
                         _md_cell(item.get("input_filename")),
                         _md_cell(item.get("status")),
                         _md_cell(item.get("return_code")),
-                        _md_cell(item.get("profile_id")),
+                        _md_cell(item.get("selected_profile")),
+                        _md_cell(item.get("selected_by")),
                         _md_cell(item.get("recommendation_decision")),
+                        _md_cell(item.get("confidence_blockers")),
+                        _md_cell(item.get("high_critiques")),
+                        _md_cell(item.get("missing_evidence")),
+                        _md_cell(item.get("warnings")),
                         _md_cell(_format_counts(item.get("counts"))),
                         _md_cell(_path_name(item.get("markdown_output_path"))),
                         _md_cell(_path_name(item.get("json_output_path"))),
@@ -229,12 +238,36 @@ def _safe_result_metadata(path: Path) -> dict[str, Any]:
         profile_id = _string_or_none(profile.get("profile_id"))
         if profile_id:
             metadata["profile_id"] = profile_id
+            metadata["selected_profile"] = profile_id
+        selected_by = _string_or_none(profile.get("selected_by"))
+        if selected_by:
+            metadata["selected_by"] = selected_by
 
     recommendation = payload.get("recommendation")
     if isinstance(recommendation, dict):
         decision = _string_or_none(recommendation.get("decision"))
         if decision:
             metadata["recommendation_decision"] = decision
+
+    evidence_entries = _list_or_empty(payload.get("evidence_ledger"))
+    critiques = _list_or_empty(payload.get("reviewer_critiques"))
+    warnings = _list_or_empty(payload.get("warnings"))
+    metadata["confidence_blockers"] = sum(
+        1
+        for entry in evidence_entries
+        if isinstance(entry, dict) and entry.get("confidence_impact") == "confidence_blocker"
+    )
+    metadata["high_critiques"] = sum(
+        1
+        for critique in critiques
+        if isinstance(critique, dict) and critique.get("severity") == "high"
+    )
+    metadata["missing_evidence"] = sum(
+        1
+        for entry in evidence_entries
+        if isinstance(entry, dict) and entry.get("evidence_type") == "missing"
+    )
+    metadata["warnings"] = len(warnings)
 
     counts: dict[str, int] = {}
     for payload_key, count_key in (
@@ -251,6 +284,10 @@ def _safe_result_metadata(path: Path) -> dict[str, Any]:
         metadata["counts"] = counts
 
     return metadata
+
+
+def _list_or_empty(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
 
 
 def _string_or_none(value: object) -> str | None:

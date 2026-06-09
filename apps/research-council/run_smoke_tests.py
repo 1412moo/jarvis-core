@@ -980,7 +980,8 @@ def test_run_demo_batch_helper_support() -> None:
         "batch Markdown summary must include bounded totals",
     )
     _assert(
-        "| Input | Status | Return code | Profile | Recommendation | Counts | Markdown | JSON |"
+        "| Input | Status | Return code | Selected profile | Selected by | Recommendation | "
+        "Blockers | High critiques | Missing evidence | Warnings | Counts | Markdown | JSON |"
         in markdown_summary_text,
         "batch Markdown summary must include a per-case table",
     )
@@ -1000,10 +1001,37 @@ def test_run_demo_batch_helper_support() -> None:
         _assert(item["return_code"] == 0, "batch summary items must record return code")
         _assert(item["profile_id"] == "ai_saas", "batch summary must include safe profile metadata")
         _assert(
+            item["selected_profile"] == "ai_saas",
+            "batch summary must include safe selected profile metadata",
+        )
+        _assert(
+            item["selected_by"] == "explicit",
+            "batch summary must include safe profile selection metadata",
+        )
+        _assert(
             item["recommendation_decision"],
             "batch summary must include safe recommendation decision metadata",
         )
+        _assert(
+            item["confidence_blockers"] >= 0,
+            "batch summary must include safe confidence blocker count",
+        )
+        _assert(
+            item["high_critiques"] >= 0,
+            "batch summary must include safe high critique count",
+        )
+        _assert(
+            item["missing_evidence"] >= 0,
+            "batch summary must include safe missing evidence count",
+        )
+        _assert(item["warnings"] >= 0, "batch summary must include safe warning count")
         _assert(item["counts"]["claims"] > 0, "batch summary must include safe count metadata")
+    _assert(
+        "ai_saas | explicit" in markdown_summary_text
+        and "claims=" in markdown_summary_text
+        and "warnings=" in markdown_summary_text,
+        "batch Markdown summary must include safe triage metadata",
+    )
     for raw_fragment in (
         "Care log assistant",
         "Manual logs create repeated admin work.",
