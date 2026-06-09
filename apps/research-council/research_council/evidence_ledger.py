@@ -710,6 +710,7 @@ def build_evidence_ledger(
                 validation_experiment=validation_experiment,
                 confidence_impact=confidence_impact,
                 reasoning_trace=reasoning_trace,
+                gap_label=_display_gap_label(domain_profile, gap_category),
                 trace_category=_trace_category_for_entry(status, gap_category),
                 trace_severity=_trace_severity_for_impact(confidence_impact),
             )
@@ -787,6 +788,7 @@ def _primary_entry_for_claim(
     validation_experiment: str,
     confidence_impact: str,
     reasoning_trace: tuple[str, ...],
+    gap_label: str,
     trace_category: str,
     trace_severity: str,
 ) -> EvidenceEntry:
@@ -820,7 +822,7 @@ def _primary_entry_for_claim(
             claim_id=claim.id,
             evidence_type="missing",
             summary=(
-                f"Assumption needs {gap_category.replace('_', ' ')} evidence: "
+                f"Assumption needs {gap_label} evidence: "
                 f"{required_evidence} Validation experiment: {validation_experiment}. "
                 f"Confidence impact: {confidence_impact}."
             ),
@@ -845,7 +847,7 @@ def _primary_entry_for_claim(
             claim_id=claim.id,
             evidence_type="missing",
             summary=(
-                f"Needs {gap_category.replace('_', ' ')} evidence before support: "
+                f"Needs {gap_label} evidence before support: "
                 f"{required_evidence} Validation experiment: {validation_experiment}. "
                 f"Confidence impact: {confidence_impact}."
             ),
@@ -869,7 +871,7 @@ def _primary_entry_for_claim(
         claim_id=claim.id,
         evidence_type="missing",
         summary=(
-            f"Missing {gap_category.replace('_', ' ')} evidence: {required_evidence} "
+            f"Missing {gap_label} evidence: {required_evidence} "
             f"Validation experiment: {validation_experiment}. "
             f"Confidence impact: {confidence_impact}."
         ),
@@ -887,6 +889,12 @@ def _primary_entry_for_claim(
         trace_category=trace_category,
         trace_severity=trace_severity,
     )
+
+
+def _display_gap_label(domain_profile: Any, gap_category: str) -> str:
+    if _profile_id(domain_profile) == "ai_saas" and gap_category == "prior_art":
+        return "differentiation and substitute"
+    return gap_category.replace("_", " ")
 
 
 def _required_evidence_for_claim(

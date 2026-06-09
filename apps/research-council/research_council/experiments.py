@@ -259,20 +259,20 @@ def _ai_saas_workflow_interview_experiment(
 ) -> _ExperimentDraft:
     claim_ids = _critique_claim_ids(critiques, "market") or _select_claim_ids(
         claims,
-        ("founder workflow", "workflow integration", "repeat usage", "retention", "willingness"),
+        ("target workflow", "workflow integration", "repeat usage", "retention", "willingness"),
         fallback_ids,
         limit=2,
     )
     return _ExperimentDraft(
         title="Workflow interview",
         hypothesis=(
-            "Solo founders have a frequent, painful patent-analysis workflow where a trusted "
+            "Target users or workflow owners have a frequent, painful workflow where a trusted "
             "automation tool could change the next decision."
         ),
         claim_ids=claim_ids,
         method=(
-            "Interview target founders about their last invention-screening or prior-art search "
-            "attempt. Capture current workaround, time spent, trigger event, trust blockers, "
+            "Interview target users or workflow owners about their last task attempt. Capture "
+            "current workaround, time spent, trigger event, switching cost, trust blockers, "
             "integration needs, purchase-intent or willingness-to-pay threshold, and what would "
             "make them repeat the workflow. "
             f"Keep the decision goal in frame: {_short_goal(input_data)}."
@@ -281,11 +281,11 @@ def _ai_saas_workflow_interview_experiment(
             "At least three interviews identify the same painful workflow step, current substitute, "
             "and concrete repeat-use trigger."
         ),
-        minimum_sample="3-5 solo founders or founder-like builders with recent invention-screening needs.",
+        minimum_sample="3-5 target users or workflow owners with recent task-workflow needs.",
         estimated_time="2-4 hours",
         estimated_cost_level="free-to-low",
         stop_criteria=(
-            "Stop if participants describe patent analysis as rare, fully delegated, or not worth "
+            "Stop if participants describe the task as rare, fully delegated, or not worth "
             "a paid workflow change."
         ),
         decision_impact=(
@@ -312,22 +312,22 @@ def _ai_saas_output_quality_experiment(
     return _ExperimentDraft(
         title="Output-quality evaluation",
         hypothesis=(
-            "A local prototype or manual concierge flow can produce useful patent-analysis outputs "
+            "A local prototype or manual concierge flow can produce useful source-backed outputs "
             "without unsupported claims, fake citations, or hidden uncertainty."
         ),
         claim_ids=claim_ids,
         method=(
-            "Use only user-supplied invention briefs, saved prior-art notes, or offline reference "
-            "snippets. Score each output for source traceability, claim-element coverage, uncertainty "
-            "labels, missing-evidence flags, hallucinated citation risk, and actionability. If no "
-            "local source material exists, stop at the rubric and request source material instead "
-            "of inventing examples."
+            "Use only user-supplied task inputs, saved workflow notes, or offline reference "
+            "snippets. Score each output for source traceability, task coverage, uncertainty "
+            "labels, missing-evidence flags, failure handling, hallucinated citation risk, and "
+            "actionability. If no local source material exists, stop at the rubric and request "
+            "source material instead of inventing examples."
         ),
         metric=(
             "Every tested output links material statements to supplied inputs or marks them as "
             "missing evidence, with zero unsupported legal conclusions."
         ),
-        minimum_sample="5 founder tasks or invention briefs with user-supplied offline reference material.",
+        minimum_sample="5 target tasks with user-supplied offline reference material.",
         estimated_time="3-6 hours",
         estimated_cost_level="free-to-low",
         stop_criteria=(
@@ -351,22 +351,22 @@ def _ai_saas_trust_boundary_experiment(
 ) -> _ExperimentDraft:
     claim_ids = _critique_claim_ids(critiques, "safety_regulatory") or _select_claim_ids(
         claims,
-        ("legal interpretation", "trust", "verification", "professional-review", "patentability"),
+        ("professional advice", "trust", "verification", "professional-review", "regulated"),
         fallback_ids,
         limit=2,
     )
     return _ExperimentDraft(
         title="Trust and verification boundary check",
         hypothesis=(
-            "The product can define boundaries that let founders use automation for triage "
-            "without mistaking it for legal advice or verified prior-art coverage."
+            "The product can define boundaries that let users use automation for workflow "
+            "analysis without mistaking it for professional advice or verified coverage."
         ),
         claim_ids=claim_ids,
         method=(
-            "Create an allowed/blocked output checklist for summaries, comparison tables, novelty "
-            "signals, patentability language, infringement language, filing suggestions, and attorney "
-            "review triggers. Red-team the current concept against hallucinated citations, hidden "
-            "uncertainty, and overconfident legal interpretation. Constraints considered: "
+            "Create an allowed/blocked output checklist for summaries, comparison tables, status "
+            "signals, regulated-decision language, professional-advice language, and human-review "
+            "triggers. Red-team the current concept against hallucinated citations, hidden "
+            "uncertainty, and overconfident authority. Constraints considered: "
             f"{_short_constraints(input_data)}."
         ),
         metric=(
@@ -383,7 +383,7 @@ def _ai_saas_trust_boundary_experiment(
             "Proceed only if trust boundaries are explicit enough for a controlled prototype test."
         ),
         risk=(
-            "A boundary checklist is not legal advice and does not validate compliance or patent accuracy."
+            "A boundary checklist is not professional advice and does not validate compliance or output accuracy."
         ),
     )
 
@@ -396,7 +396,7 @@ def _ai_saas_differentiation_mapping_experiment(
 ) -> _ExperimentDraft:
     claim_ids = _critique_claim_ids(critiques, "red_team") or _select_claim_ids(
         claims,
-        ("differentiated", "substitutes", "generic ai", "distribution", "manual patent search"),
+        ("differentiated", "substitutes", "generic ai", "distribution", "manual workflow"),
         fallback_ids,
         limit=2,
     )
@@ -404,12 +404,12 @@ def _ai_saas_differentiation_mapping_experiment(
         title="Differentiation mapping",
         hypothesis=(
             "The concept can identify a defensible wedge against competing workflow substitutes "
-            "and a plausible distribution path for the chosen founder segment."
+            "and a plausible distribution path for the chosen user segment."
         ),
         claim_ids=claim_ids,
         method=(
-            "Map the proposed workflow against manual patent search, patent-office databases, "
-            "generic AI assistants, spreadsheets, attorney intake, and doing nothing. For each "
+            "Map the proposed workflow against manual work, generic AI assistants, spreadsheets, "
+            "existing SaaS products, service providers, and doing nothing. For each "
             "substitute, record the user's switching trigger, switching cost, integration path, "
             "trust advantage, pricing pressure, AI-wrapper risk, and distribution channel. "
             "Use the goal as the decision frame: "
@@ -419,7 +419,7 @@ def _ai_saas_differentiation_mapping_experiment(
             "The map identifies one narrow differentiated workflow wedge, one reachable "
             "distribution path, and one substitute that should be treated as the main competitor."
         ),
-        minimum_sample="One completed substitute map reviewed with at least one target founder.",
+        minimum_sample="One completed substitute map reviewed with at least one target user or workflow owner.",
         estimated_time="60-120 minutes",
         estimated_cost_level="free",
         stop_criteria=(
@@ -430,7 +430,7 @@ def _ai_saas_differentiation_mapping_experiment(
             "more specific workflow."
         ),
         risk=(
-            "A map clarifies strategy but does not create external market, patent, or competitive evidence."
+            "A map clarifies strategy but does not create external market or competitive evidence."
         ),
     )
 

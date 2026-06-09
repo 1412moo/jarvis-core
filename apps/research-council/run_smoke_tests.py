@@ -1408,9 +1408,9 @@ def test_ai_saas_profile_reasoning() -> None:
 
     _assert(result.profile["profile_id"] == "ai_saas", "AI SaaS profile must be active")
     for expected in (
-        "founder workflow",
+        "target users",
         "automation",
-        "prior-art",
+        "task evaluation",
         "generic ai wrapper",
         "narrow wedge",
         "output reliability",
@@ -1424,7 +1424,7 @@ def test_ai_saas_profile_reasoning() -> None:
         _assert(expected in claim_text, f"AI SaaS claims must mention {expected}")
 
     for expected in (
-        "current prior-art search workflow",
+        "current task workflow",
         "ai wrapper risk",
         "hallucination checks",
         "competing workflow substitute",
@@ -1433,9 +1433,9 @@ def test_ai_saas_profile_reasoning() -> None:
         _assert(expected in evidence_text, f"AI SaaS evidence gaps must mention {expected}")
 
     for expected in (
-        "ai patent-analysis tool",
+        "ai workflow tool",
         "repeatable output quality",
-        "founder workflow",
+        "trusted in the workflow",
         "hallucinates citations",
         "ai-wrapper risk",
         "generic-ai substitution",
@@ -1466,8 +1466,8 @@ def test_ai_saas_profile_reasoning() -> None:
             f"AI SaaS recommendation must weight {expected}",
         )
     _assert(
-        "generic ai" in markdown and "legal advice" in markdown,
-        "AI SaaS Markdown must expose substitutes and legal-output boundaries",
+        "generic ai" in markdown and "professional advice" in markdown,
+        "AI SaaS Markdown must expose substitutes and professional-output boundaries",
     )
 
 

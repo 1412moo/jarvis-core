@@ -288,14 +288,14 @@ def _build_technical_critique(
         )
     elif domain_profile.id == "ai_saas":
         finding = (
-            f"The product reliability case is not proven for {target}. An AI patent-analysis "
-            "tool has to show repeatable output quality, source traceability, useful prior-art "
-            "comparison structure, clear uncertainty labels, and failure handling for missing "
-            f"or conflicting inputs before it can be trusted in a founder workflow. {gap_note}"
+            f"The product reliability case is not proven for {target}. An AI workflow tool "
+            "has to show repeatable output quality, source traceability, useful comparison "
+            "structure, privacy controls, clear uncertainty labels, and failure handling for "
+            f"missing or conflicting inputs before it can be trusted in the workflow. {gap_note}"
         )
         suggested_action = (
-            "Score a small set of user-supplied invention briefs and offline reference snippets "
-            "with a fixed output-quality rubric before building more SaaS surface area."
+            "Score a small set of user-supplied task inputs and offline reference snippets with "
+            "a fixed output-quality rubric before building more SaaS surface area."
         )
     elif domain_profile.id == "developer_tool":
         finding = (
@@ -390,14 +390,16 @@ def _build_market_critique(
         )
     elif domain_profile.id == "ai_saas":
         finding = (
-            f"The SaaS adoption case remains weak for {target}. Founder interest is not enough: "
-            "the concept needs evidence that patent triage is painful and frequent, that users "
-            "will switch from manual search, generic AI, spreadsheets, or attorney intake, and "
-            f"that repeat usage and willingness to pay can support retention. {gap_note}"
+            f"The SaaS adoption case remains weak for {target}. User interest is not enough: "
+            "the concept needs evidence that the target workflow is painful and frequent, that "
+            "workflow owners will switch from the current workaround, generic AI, spreadsheets, "
+            f"existing SaaS, or service providers, and that repeat usage and willingness to pay "
+            f"can support retention. {gap_note}"
         )
         suggested_action = (
-            "Interview solo founders around their last invention-screening workflow, current "
-            "substitutes, time cost, trust blockers, desired integrations, and payment threshold."
+            "Interview target users or workflow owners around their last workflow attempt, "
+            "current substitute, time cost, trust blockers, desired integrations, repeat-use "
+            "trigger, and payment threshold."
         )
     elif domain_profile.id == "developer_tool":
         finding = (
@@ -498,7 +500,7 @@ def _build_safety_critique(
             and claim
             and _contains_keyword(
                 claim.text,
-                ("legal", "patent", "trust", "verification", "hallucinated"),
+                ("legal", "regulated", "professional", "trust", "verification", "hallucinated"),
             )
         )
         else _severity_for_claim(claim, missing_claim_ids, default="medium")
@@ -516,14 +518,15 @@ def _build_safety_critique(
         )
     elif domain_profile.id == "ai_saas":
         finding = (
-            f"The trust boundary is underspecified for {target}.{regulated_note} A patent-analysis "
-            "assistant can mislead users if it hallucinates citations, treats generated summaries "
-            "as legal conclusions, or hides uncertainty around patentability, infringement, "
-            f"freedom-to-operate, and filing decisions. {gap_note}"
+            f"The trust boundary is underspecified for {target}.{regulated_note} An AI workflow "
+            "assistant can mislead users if it hallucinates citations, treats generated outputs "
+            "as regulated, legal, financial, medical, or professional-advice conclusions, or hides "
+            f"uncertainty around source coverage and verification limits. {gap_note}"
         )
         suggested_action = (
-            "Write an output boundary checklist that separates allowed summaries and comparison "
-            "tables from blocked legal advice, unsupported citations, and attorney-review triggers."
+            "Write an output boundary checklist that separates allowed summaries, comparisons, "
+            "and status signals from blocked professional advice, unsupported citations, and "
+            "human-review triggers."
         )
     elif domain_profile.id == "developer_tool":
         finding = (
@@ -620,13 +623,13 @@ def _build_red_team_critique(
         finding = (
             f"The easiest failure mode for {target} is a polished AI report that feels authoritative "
             "while relying on weak differentiation, unresolved AI-wrapper risk, unverified "
-            "prior-art coverage, hidden generic-AI substitution, or hallucinated legal "
-            "interpretation. The concept must prove where human verification starts and "
+            "claims, hidden generic-AI substitution, hidden uncertainty, or hallucinated "
+            "authority. The concept must prove where human verification starts and "
             f"where automation stops. {gap_note}"
         )
         suggested_action = (
             "Run a differentiation and trust red-team pass where every output line is marked as "
-            "user-supplied, source-checkable, uncertain, or blocked from legal interpretation."
+            "user-supplied, source-checkable, uncertain, or blocked from professional advice."
         )
     elif domain_profile.id == "developer_tool":
         finding = (

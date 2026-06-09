@@ -406,13 +406,13 @@ _AI_SAAS_EVIDENCE_REQUESTS: dict[str, str] = {
         "hallucination checks, privacy controls, and operational reliability thresholds."
     ),
     "user_adoption": (
-        "Interview target founders about the current prior-art search workflow, buyer/workflow "
+        "Interview target users or workflow owners about the current task workflow, buyer/workflow "
         "owner, pain frequency, time cost, switching cost, trust blockers, integration needs, "
         "and repeat usage triggers."
     ),
     "prior_art": (
-        "Map differentiation and AI wrapper risk against manual patent search, patent-office "
-        "databases, generic AI assistants, spreadsheets, attorney intake, and user-supplied "
+        "Map differentiation and AI wrapper risk against manual workflows, spreadsheets, "
+        "generic AI assistants, existing SaaS products, service providers, and user-supplied "
         "offline references."
     ),
     "safety_regulatory": (
@@ -421,7 +421,7 @@ _AI_SAAS_EVIDENCE_REQUESTS: dict[str, str] = {
     ),
     "market": (
         "Test buyer urgency, willingness to pay, packaging, distribution channel, switching "
-        "cost, competing workflow substitute, and whether repeat patent-analysis moments can "
+        "cost, competing workflow substitute, and whether repeat task-evaluation moments can "
         "support SaaS retention."
     ),
 }
@@ -630,21 +630,21 @@ def _ai_saas_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]
         _concept_claim(input_view, focus),
         _ClaimSpec(
             text=(
-                "The SaaS value depends on a painful, repeated founder workflow: solo "
-                "developers must decide whether an invention idea deserves patent-analysis "
-                "time, tool setup, or professional budget."
+                "The SaaS value depends on a painful, repeated workflow: target users or "
+                "workflow owners must decide whether the task deserves tool setup, process "
+                "change, or budget."
             ),
             source_label="assumed",
             confidence="low",
             rationale=(
-                "The target user and decision goal imply workflow pain, but no founder "
+                "The target user and decision goal imply workflow pain, but no user "
                 "interviews, usage logs, or current-workaround evidence were supplied."
             ),
         ),
         _ClaimSpec(
             text=(
-                "Automation creates value only if it shortens prior-art triage while keeping "
-                "the user's invention description, claim elements, comparison logic, and "
+                "Automation creates value only if it shortens task evaluation while keeping "
+                "the user's source material, comparison logic, uncertainty labels, and "
                 "verification steps visible."
             ),
             source_label="extracted",
@@ -656,24 +656,23 @@ def _ai_saas_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]
         ),
         _ClaimSpec(
             text=(
-                "Prior-art position is unresolved; the product must be differentiated from "
-                "manual patent search, patent-office databases, generic AI assistants, "
-                "spreadsheets, attorney intake workflows, and other analysis substitutes. "
-                "If the narrow wedge is only a generic AI wrapper, defensibility and "
-                "switching motivation are weak."
+                "Differentiation is unresolved; the product must be separated from manual "
+                "workflows, spreadsheets, generic AI assistants, existing SaaS products, "
+                "service providers, and other workflow substitutes. If the narrow wedge is "
+                "only a generic AI wrapper, defensibility and switching motivation are weak."
             ),
             source_label="needs_evidence",
             confidence="low",
             rationale=(
-                "This local pass does not perform web search, patent search, market research, "
+                "This local pass does not perform web search, competitor research, market research, "
                 "or citation gathering."
             ),
         ),
         _ClaimSpec(
             text=(
-                "Output reliability is a core product risk: summaries, claim charts, novelty "
-                "flags, and comparison tables need a deterministic rubric, source traceability, "
-                "error labels, and repeatable quality checks."
+                "Output reliability is a core product risk: summaries, recommendations, "
+                "comparisons, and status signals need a deterministic rubric, source "
+                "traceability, error labels, and repeatable quality checks."
             ),
             source_label="needs_evidence",
             confidence="low",
@@ -685,13 +684,13 @@ def _ai_saas_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]
         _ClaimSpec(
             text=(
                 "The tool risks hallucinated or overconfident legal interpretation if it "
-                "presents patentability, infringement, freedom-to-operate, filing, or legal "
-                "strategy conclusions without verification and professional-review boundaries."
+                "presents regulated, legal, financial, medical, or professional-advice "
+                "conclusions without verification and escalation boundaries."
             ),
             source_label="needs_evidence",
             confidence="low",
             rationale=(
-                "Patent analysis touches legal interpretation risk, but the current concept "
+                "AI workflow analysis can touch sensitive decisions, but the current concept "
                 "does not define allowed output boundaries or review requirements."
             ),
         ),
@@ -711,23 +710,22 @@ def _ai_saas_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]
         _ClaimSpec(
             text=(
                 "Buyer/workflow integration is unproven; adoption likely depends on importing "
-                "an invention disclosure, saving search notes, exporting comparison tables, "
-                "absorbing switching cost, and handing off reviewed outputs to founder, team, "
-                "or attorney workflows."
+                "source material, saving task notes, exporting structured outputs, absorbing "
+                "switching cost, and handing off reviewed outputs to users, teams, or service "
+                "providers."
             ),
             source_label="assumed",
             confidence="low",
             rationale=(
-                "Integration needs are inferred from the patent-analysis workflow; no target "
+                "Integration needs are inferred from the proposed workflow; no target "
                 "user workflow artifacts were supplied."
             ),
         ),
         _ClaimSpec(
             text=(
-                "SaaS retention depends on repeat usage triggers such as new invention ideas, "
-                "competitor monitoring, disclosure reviews, investor diligence, office-action "
-                "preparation, or portfolio refreshes; a one-time report may not support a "
-                "subscription."
+                "SaaS retention depends on repeat usage triggers such as recurring decisions, "
+                "new source material, periodic reviews, handoff moments, reporting cycles, or "
+                "workflow refreshes; a one-time report may not support a subscription."
             ),
             source_label="assumed",
             confidence="low",
@@ -739,8 +737,8 @@ def _ai_saas_claim_specs(input_view: _InputView, focus: str) -> list[_ClaimSpec]
         _ClaimSpec(
             text=(
                 "Willingness to pay and distribution are unproven; the concept needs evidence "
-                "for founder budget, pricing threshold, channel access, and why users would pay "
-                "instead of using generic AI, manual search, or professional services."
+                "for buyer budget, pricing threshold, channel access, and why users would pay "
+                "instead of using generic AI, manual workflow, spreadsheets, or service providers."
             ),
             source_label="assumed",
             confidence="low",
