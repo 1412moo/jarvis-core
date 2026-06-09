@@ -99,6 +99,23 @@ text or full report bodies into the summaries. The index includes safe triage
 counts such as confidence blockers, high critiques, missing evidence, and
 warnings.
 
+Compare two local batch output directories, for example an explicit profile run
+against an automatic profile-selection run:
+
+```powershell
+python -B scripts/compare_demo_batches.py `
+  --baseline-dir demo-outputs-explicit `
+  --candidate-dir demo-outputs-auto `
+  --output-dir demo-comparison `
+  --baseline-label explicit `
+  --candidate-label auto
+```
+
+The comparison helper reads only each directory's `batch-summary.json` and
+writes `comparison-summary.json` plus a `comparison-summary.md` index with
+profile, decision, and triage deltas. It does not copy raw input text or full
+report bodies into the comparison summaries.
+
 List available deterministic profiles and aliases:
 
 ```powershell
