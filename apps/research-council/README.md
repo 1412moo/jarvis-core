@@ -88,6 +88,9 @@ Run the local desktop launcher:
 python -B apps/research-council/run_local_app.py
 ```
 
+For a non-developer walkthrough of the launcher, see
+[USER_GUIDE.md](USER_GUIDE.md).
+
 The launcher is a deterministic local Tk window for non-developer use. It does
 not make external LLM/API calls, web requests, or citations. Each run writes
 `input.json`, `report.md`, and `result.json` under the output directory selected

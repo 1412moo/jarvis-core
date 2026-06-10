@@ -25,6 +25,22 @@ DEFAULT_OUTPUT_ROOT = Path.home() / "ResearchCouncilRuns"
 DEFAULT_PROFILE_ID = "ai_saas"
 AUGMENTATION_MODE_VALUES = tuple(mode.value for mode in LLMAugmentationMode)
 SANDBOX_MESSAGE = "deterministic sandbox, no external LLM calls"
+IDEA_ONLY_HELP = (
+    "You can start with only an idea. Empty fields will use safe default prompts."
+)
+DEFAULT_GOAL = (
+    "Evaluate whether this idea can become a viable MVP and identify the next "
+    "validation step."
+)
+DEFAULT_CONTEXT = (
+    "The user is exploring this as a product or workflow opportunity. The report "
+    "should identify assumptions, evidence gaps, risks, and minimum viable experiments."
+)
+DEFAULT_CONSTRAINTS = (
+    "Human review required",
+    "No external services",
+    "Treat outputs as validation planning, not final proof",
+)
 
 
 @dataclass(frozen=True)
@@ -92,6 +108,22 @@ def build_input_payload(
     }
 
 
+def with_safe_defaults(
+    *,
+    goal: str,
+    context: str,
+    constraints: tuple[str, ...],
+) -> tuple[str, str, tuple[str, ...]]:
+    normalized_constraints = tuple(
+        str(item).strip() for item in constraints if str(item).strip()
+    )
+    return (
+        goal.strip() or DEFAULT_GOAL,
+        context.strip() or DEFAULT_CONTEXT,
+        normalized_constraints or DEFAULT_CONSTRAINTS,
+    )
+
+
 def allocate_run_dir(output_root: Path) -> Path:
     output_root.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -123,11 +155,14 @@ def run_local_research(
     context = context.strip()
     profile = profile.strip() or DEFAULT_PROFILE_ID
     llm_augmentation_mode = llm_augmentation_mode.strip() or LLMAugmentationMode.OFF.value
+    goal, context, constraints = with_safe_defaults(
+        goal=goal,
+        context=context,
+        constraints=constraints,
+    )
 
     if not idea:
         raise ValueError("Idea is required.")
-    if not goal:
-        raise ValueError("Goal is required.")
     if llm_augmentation_mode not in AUGMENTATION_MODE_VALUES:
         raise ValueError(f"Unknown LLM augmentation mode: {llm_augmentation_mode}")
 
@@ -205,43 +240,45 @@ def launch_gui() -> None:
             root.rowconfigure(0, weight=1)
 
             frame.columnconfigure(1, weight=1)
-            frame.rowconfigure(3, weight=1)
             frame.rowconfigure(4, weight=1)
             frame.rowconfigure(5, weight=1)
             frame.rowconfigure(6, weight=1)
-            frame.rowconfigure(11, weight=1)
+            frame.rowconfigure(7, weight=1)
+            frame.rowconfigure(12, weight=1)
 
             title = ttk.Label(frame, text=APP_TITLE, font=("", 15, "bold"))
             title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
             subtitle = ttk.Label(frame, text=SANDBOX_MESSAGE)
             subtitle.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 12))
+            idea_only_help = ttk.Label(frame, text=IDEA_ONLY_HELP)
+            idea_only_help.grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 12))
 
-            ttk.Label(frame, text="Idea").grid(row=2, column=0, sticky="nw")
-            self.idea_text = self._text_box(frame, row=2, height=4)
+            ttk.Label(frame, text="Idea").grid(row=3, column=0, sticky="nw")
+            self.idea_text = self._text_box(frame, row=3, height=4)
 
-            ttk.Label(frame, text="Goal").grid(row=3, column=0, sticky="nw")
-            self.goal_text = self._text_box(frame, row=3, height=3)
+            ttk.Label(frame, text="Goal").grid(row=4, column=0, sticky="nw")
+            self.goal_text = self._text_box(frame, row=4, height=3)
 
-            ttk.Label(frame, text="Context").grid(row=4, column=0, sticky="nw")
-            self.context_text = self._text_box(frame, row=4, height=4)
+            ttk.Label(frame, text="Context").grid(row=5, column=0, sticky="nw")
+            self.context_text = self._text_box(frame, row=5, height=4)
 
-            ttk.Label(frame, text="Constraints").grid(row=5, column=0, sticky="nw")
-            self.constraints_text = self._text_box(frame, row=5, height=4)
+            ttk.Label(frame, text="Constraints").grid(row=6, column=0, sticky="nw")
+            self.constraints_text = self._text_box(frame, row=6, height=4)
 
-            ttk.Label(frame, text="Provided evidence").grid(row=6, column=0, sticky="nw")
-            self.evidence_text = self._text_box(frame, row=6, height=4)
+            ttk.Label(frame, text="Provided evidence").grid(row=7, column=0, sticky="nw")
+            self.evidence_text = self._text_box(frame, row=7, height=4)
 
-            ttk.Label(frame, text="Profile").grid(row=7, column=0, sticky="w", pady=(10, 0))
+            ttk.Label(frame, text="Profile").grid(row=8, column=0, sticky="w", pady=(10, 0))
             profile_box = ttk.Combobox(
                 frame,
                 textvariable=self.profile_var,
                 values=profile_ids(),
                 state="readonly",
             )
-            profile_box.grid(row=7, column=1, sticky="ew", pady=(10, 0))
+            profile_box.grid(row=8, column=1, sticky="ew", pady=(10, 0))
 
             ttk.Label(frame, text="LLM augmentation mode").grid(
-                row=8,
+                row=9,
                 column=0,
                 sticky="w",
                 pady=(8, 0),
@@ -252,9 +289,9 @@ def launch_gui() -> None:
                 values=AUGMENTATION_MODE_VALUES,
                 state="readonly",
             )
-            mode_box.grid(row=8, column=1, sticky="ew", pady=(8, 0))
+            mode_box.grid(row=9, column=1, sticky="ew", pady=(8, 0))
             ttk.Label(frame, text=SANDBOX_MESSAGE).grid(
-                row=8,
+                row=9,
                 column=2,
                 sticky="w",
                 padx=(8, 0),
@@ -262,15 +299,15 @@ def launch_gui() -> None:
             )
 
             ttk.Label(frame, text="Output directory").grid(
-                row=9,
+                row=10,
                 column=0,
                 sticky="w",
                 pady=(8, 0),
             )
             output_entry = ttk.Entry(frame, textvariable=self.output_dir_var)
-            output_entry.grid(row=9, column=1, sticky="ew", pady=(8, 0))
+            output_entry.grid(row=10, column=1, sticky="ew", pady=(8, 0))
             ttk.Button(frame, text="Choose...", command=self.choose_output_dir).grid(
-                row=9,
+                row=10,
                 column=2,
                 sticky="ew",
                 padx=(8, 0),
@@ -278,7 +315,7 @@ def launch_gui() -> None:
             )
 
             buttons = ttk.Frame(frame)
-            buttons.grid(row=10, column=0, columnspan=3, sticky="ew", pady=(12, 8))
+            buttons.grid(row=11, column=0, columnspan=3, sticky="ew", pady=(12, 8))
             buttons.columnconfigure(4, weight=1)
             self.run_button = ttk.Button(buttons, text="Run", command=self.run)
             self.run_button.grid(row=0, column=0, sticky="w")
@@ -297,9 +334,9 @@ def launch_gui() -> None:
             )
             self.open_report_button.grid(row=0, column=2, sticky="w", padx=(8, 0))
 
-            ttk.Label(frame, text="Status / output log").grid(row=11, column=0, sticky="nw")
+            ttk.Label(frame, text="Status / output log").grid(row=12, column=0, sticky="nw")
             log_frame = ttk.Frame(frame)
-            log_frame.grid(row=11, column=1, columnspan=2, sticky="nsew")
+            log_frame.grid(row=12, column=1, columnspan=2, sticky="nsew")
             log_frame.columnconfigure(0, weight=1)
             log_frame.rowconfigure(0, weight=1)
             self.log_text = tk.Text(log_frame, height=8, wrap="word", state="disabled")
@@ -312,18 +349,18 @@ def launch_gui() -> None:
             log_scroll.grid(row=0, column=1, sticky="ns")
             self.log_text.configure(yscrollcommand=log_scroll.set)
 
-            ttk.Label(frame, text="report.md").grid(row=12, column=0, sticky="w", pady=(8, 0))
+            ttk.Label(frame, text="report.md").grid(row=13, column=0, sticky="w", pady=(8, 0))
             ttk.Entry(
                 frame,
                 textvariable=self.report_path_var,
                 state="readonly",
-            ).grid(row=12, column=1, columnspan=2, sticky="ew", pady=(8, 0))
-            ttk.Label(frame, text="result.json").grid(row=13, column=0, sticky="w", pady=(4, 0))
+            ).grid(row=13, column=1, columnspan=2, sticky="ew", pady=(8, 0))
+            ttk.Label(frame, text="result.json").grid(row=14, column=0, sticky="w", pady=(4, 0))
             ttk.Entry(
                 frame,
                 textvariable=self.result_path_var,
                 state="readonly",
-            ).grid(row=13, column=1, columnspan=2, sticky="ew", pady=(4, 0))
+            ).grid(row=14, column=1, columnspan=2, sticky="ew", pady=(4, 0))
 
         def _text_box(self, parent: ttk.Frame, *, row: int, height: int) -> tk.Text:
             box = tk.Text(parent, height=height, wrap="word")
@@ -398,18 +435,11 @@ def launch_gui() -> None:
 
 def run_self_test(output_dir: Path) -> LocalRunArtifacts:
     artifacts = run_local_research(
-        idea="AI onboarding assistant for small B2B SaaS teams",
-        goal="Evaluate whether the idea has enough evidence for a local MVP plan.",
-        context="The buyer is a small operations team with repeated customer setup work.",
-        constraints=(
-            "Standard library only.",
-            "No external services.",
-            "Keep missing evidence explicit.",
-        ),
-        provided_evidence=(
-            "Small teams spend time copying onboarding notes between tools.",
-            "Founders want a deterministic first pass before customer interviews.",
-        ),
+        idea="CareNote assistant for family caregivers",
+        goal="",
+        context="",
+        constraints=(),
+        provided_evidence=(),
         profile=DEFAULT_PROFILE_ID,
         llm_augmentation_mode=LLMAugmentationMode.OFF.value,
         output_root=output_dir,
@@ -421,6 +451,20 @@ def run_self_test(output_dir: Path) -> LocalRunArtifacts:
         "# Research Council Report"
     ):
         raise RuntimeError("self-test report.md did not contain a report")
+
+    input_payload = json.loads(artifacts.input_json.read_text(encoding="utf-8"))
+    if input_payload["goal"] != DEFAULT_GOAL:
+        raise RuntimeError("self-test input.json did not include the default goal")
+    if input_payload["context"] != DEFAULT_CONTEXT:
+        raise RuntimeError("self-test input.json did not include the default context")
+    if input_payload["constraints"] != list(DEFAULT_CONSTRAINTS):
+        raise RuntimeError("self-test input.json did not include default constraints")
+    if input_payload["provided_evidence"] != []:
+        raise RuntimeError("self-test input.json should allow empty provided evidence")
+
+    report_text = artifacts.report_md.read_text(encoding="utf-8")
+    if "Missing evidence entries" not in report_text:
+        raise RuntimeError("self-test report.md did not show missing evidence")
 
     result_payload = json.loads(artifacts.result_json.read_text(encoding="utf-8"))
     if result_payload["profile"]["profile_id"] != DEFAULT_PROFILE_ID:

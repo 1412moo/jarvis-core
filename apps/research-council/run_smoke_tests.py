@@ -930,11 +930,45 @@ def test_run_local_app_self_test_support() -> None:
         _assert(len(input_paths) == 1, "launcher self-test must create one input.json")
         _assert(len(report_paths) == 1, "launcher self-test must create one report.md")
         _assert(len(result_paths) == 1, "launcher self-test must create one result.json")
+        input_payload = json.loads(input_paths[0].read_text(encoding="utf-8"))
         _assert(
-            report_paths[0].read_text(encoding="utf-8").startswith(
-                "# Research Council Report"
+            input_payload["goal"]
+            == (
+                "Evaluate whether this idea can become a viable MVP and identify "
+                "the next validation step."
             ),
+            "launcher self-test must support idea-only default goal",
+        )
+        _assert(
+            input_payload["context"]
+            == (
+                "The user is exploring this as a product or workflow opportunity. "
+                "The report should identify assumptions, evidence gaps, risks, "
+                "and minimum viable experiments."
+            ),
+            "launcher self-test must support idea-only default context",
+        )
+        _assert(
+            input_payload["constraints"]
+            == [
+                "Human review required",
+                "No external services",
+                "Treat outputs as validation planning, not final proof",
+            ],
+            "launcher self-test must support idea-only default constraints",
+        )
+        _assert(
+            input_payload["provided_evidence"] == [],
+            "launcher self-test must allow empty provided evidence",
+        )
+        report_text = report_paths[0].read_text(encoding="utf-8")
+        _assert(
+            report_text.startswith("# Research Council Report"),
             "launcher self-test report must contain Markdown output",
+        )
+        _assert(
+            "Missing evidence entries" in report_text,
+            "launcher self-test report must show missing evidence",
         )
         result_payload = json.loads(result_paths[0].read_text(encoding="utf-8"))
         _assert(
