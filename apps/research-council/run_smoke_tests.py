@@ -70,6 +70,7 @@ from research_council.scenario_templates import (
     scenarios_to_json,
 )
 from run_demo import build_sample_input, format_profile_description, format_profile_listing
+from run_local_app import format_profile_recommendation, refine_idea_for_launcher
 
 
 REQUIRED_REVIEWER_ROLES = {
@@ -975,6 +976,47 @@ def test_run_local_app_self_test_support() -> None:
             result_payload["profile"]["profile_id"] == "ai_saas",
             "launcher self-test must preserve the selected profile",
         )
+
+
+def test_run_local_app_idea_refinement_helper() -> None:
+    refinement = refine_idea_for_launcher(
+        "SI 사업부에서 장비 setup할 때 하는 것도 없는데 일주일 동안 장비 옆에서 "
+        "지키면서 잘 가동되는지 확인해야 했다. 가동 중 문제가 생기면 장비를 "
+        "멈추고 원인 파악을 해야 했다. 시뮬레이션으로 미리 검증하면 어떨까?"
+    )
+    _assert(
+        refinement.recommended_profile == "hardware_device",
+        "industrial equipment refinement should map to the closest existing hardware profile",
+    )
+    _assert(
+        refinement.profile_confidence == "medium",
+        "industrial equipment refinement should use conservative medium confidence",
+    )
+    _assert(
+        "developer_tool" in refinement.alternative_profiles,
+        "industrial equipment refinement should include developer/tooling alternative",
+    )
+    _assert(
+        "ai_saas" in refinement.alternative_profiles,
+        "industrial equipment refinement should include AI SaaS as an editable alternative",
+    )
+    _assert(
+        "시뮬레이션" in refinement.goal,
+        "industrial equipment refinement should produce a simulation-focused goal",
+    )
+    _assert(
+        any("PLC 데이터" in constraint for constraint in refinement.constraints),
+        "industrial equipment refinement should keep missing PLC/log data explicit",
+    )
+    _assert(
+        any("장시간" in evidence for evidence in refinement.provided_evidence),
+        "industrial equipment refinement should extract standby evidence from the raw idea",
+    )
+    formatted = format_profile_recommendation(refinement)
+    _assert(
+        "recommended: hardware_device" in formatted and "confidence: medium" in formatted,
+        "profile recommendation formatter should expose recommendation and confidence",
+    )
 
 
 def test_run_demo_batch_helper_support() -> None:
@@ -4615,6 +4657,7 @@ def main() -> None:
     test_run_demo_json_output_support()
     test_run_demo_input_json_support()
     test_run_local_app_self_test_support()
+    test_run_local_app_idea_refinement_helper()
     test_run_demo_batch_helper_support()
     test_compare_demo_batches_helper_support()
     test_run_demo_custom_cli_input_support()

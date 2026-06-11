@@ -85,6 +85,13 @@ Python이 PATH에 잡혀 있지 않으면 `python` 대신 실제 Python 실행 �
 검토할 아이디어를 적는 곳입니다. 예: "CareNote assistant for family caregivers".
 이 필드만 입력해도 실행할 수 있습니다.
 
+### Idea 구체화
+
+Idea만 입력한 뒤 누르면 launcher가 로컬 deterministic rules로 goal, context,
+constraints, provided evidence, recommended profile, alternative profiles, profile
+confidence를 채웁니다. 자동 선택된 profile은 확정값이 아니라 추천값입니다. Run을
+누르기 전에 사용자가 직접 읽고 수정할 수 있습니다.
+
 ### Goal
 
 이번 report가 답해야 할 질문입니다. 비워두면 기본 goal이 자동으로 들어갑니다:

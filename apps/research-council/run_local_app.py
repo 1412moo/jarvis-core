@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -15,6 +16,7 @@ from research_council import (
     LLMAugmentationMode,
     ResearchCouncilInput,
     list_profiles,
+    resolve_domain_profile,
     run_research_council,
     write_result_json,
 )
@@ -41,6 +43,45 @@ DEFAULT_CONSTRAINTS = (
     "No external services",
     "Treat outputs as validation planning, not final proof",
 )
+REFINEMENT_BASE_CONSTRAINTS = (
+    "local-only",
+    "no external services",
+    "Current output is idea refinement and validation planning only",
+    "Treat user-provided notes as evidence leads, not final proof",
+    "Separate technical feasibility from business validation",
+)
+INDUSTRIAL_AUTOMATION_PROFILE = "hardware_device"
+INDUSTRIAL_AUTOMATION_ALTERNATIVES = (
+    "developer_tool",
+    "enterprise_b2b",
+    "ai_saas",
+)
+INDUSTRIAL_AUTOMATION_SIGNALS = (
+    ("industrial automation", 5),
+    ("manufacturing", 4),
+    ("factory", 3),
+    ("equipment", 3),
+    ("machine", 3),
+    ("setup", 3),
+    ("simulation", 4),
+    ("fault", 3),
+    ("downtime", 4),
+    ("plc", 4),
+    ("장비", 3),
+    ("설비", 3),
+    ("제조", 3),
+    ("공정", 3),
+    ("생산", 3),
+    ("자동화", 4),
+    ("셋업", 3),
+    ("가동", 3),
+    ("시뮬레이션", 4),
+    ("장애", 3),
+    ("고장", 3),
+    ("정지", 3),
+    ("멈추", 3),
+    ("원인", 2),
+)
 
 
 @dataclass(frozen=True)
@@ -49,6 +90,18 @@ class LocalRunArtifacts:
     input_json: Path
     report_md: Path
     result_json: Path
+
+
+@dataclass(frozen=True)
+class IdeaRefinement:
+    goal: str
+    context: str
+    constraints: tuple[str, ...]
+    provided_evidence: tuple[str, ...]
+    recommended_profile: str
+    alternative_profiles: tuple[str, ...]
+    profile_confidence: str
+    profile_rationale: str
 
 
 def split_lines(value: str) -> tuple[str, ...]:
@@ -122,6 +175,250 @@ def with_safe_defaults(
         context.strip() or DEFAULT_CONTEXT,
         normalized_constraints or DEFAULT_CONSTRAINTS,
     )
+
+
+def refine_idea_for_launcher(raw_idea: str) -> IdeaRefinement:
+    """Turn a raw idea into editable launcher fields using local deterministic rules."""
+
+    idea = _clean_text(raw_idea)
+    if not idea:
+        raise ValueError("Idea is required before refinement.")
+
+    industrial_refinement = _industrial_automation_refinement(idea)
+    if industrial_refinement is not None:
+        return industrial_refinement
+    return _generic_refinement(idea)
+
+
+def format_profile_recommendation(refinement: IdeaRefinement) -> str:
+    alternatives = ", ".join(refinement.alternative_profiles) or "none"
+    return (
+        f"recommended: {refinement.recommended_profile}; "
+        f"alternatives: {alternatives}; "
+        f"confidence: {refinement.profile_confidence}"
+    )
+
+
+def _industrial_automation_refinement(idea: str) -> IdeaRefinement | None:
+    matched_signals, signal_score = _matched_weighted_signals(
+        idea,
+        INDUSTRIAL_AUTOMATION_SIGNALS,
+    )
+    if len(matched_signals) < 2 or signal_score < 8:
+        return None
+
+    provided_evidence = _industrial_provided_evidence(idea)
+    constraints = (
+        "local-only",
+        "no external services",
+        "현재는 아이디어 구체화/검증 계획 단계",
+        "사용자 제공 설명은 근거 후보이지 최종 proof가 아님",
+        "실제 장비 로그/PLC 데이터/생산 telemetry 없음",
+        "기술 가능성과 사업성을 분리해서 평가해야 함",
+        "bench/log/operator validation 없이 시뮬레이션 정확도를 가정하지 않음",
+    )
+    return IdeaRefinement(
+        goal=(
+            "제조장비 셋업/장애분석 시뮬레이션이 실행 가능한 MVP가 될 수 있는지 "
+            "평가하고, 기술 가능성과 사업성을 분리해서 다음 검증 단계를 정한다."
+        ),
+        context=(
+            "사용자는 SI/제조 현장의 장비 셋업, 장시간 가동 확인, 가동 중 문제 "
+            "발생 시 장비 정지와 원인 파악이 필요한 상황을 설명했다. report는 "
+            "시뮬레이션 기반 사전 검증, 기술 가능성, 작업자 workflow, 장비 안전, "
+            "사업 검증을 분리해서 다뤄야 한다."
+        ),
+        constraints=constraints,
+        provided_evidence=provided_evidence,
+        recommended_profile=INDUSTRIAL_AUTOMATION_PROFILE,
+        alternative_profiles=INDUSTRIAL_AUTOMATION_ALTERNATIVES,
+        profile_confidence="medium",
+        profile_rationale=(
+            "industrial automation/manufacturing-equipment 신호가 감지됐지만 현재 "
+            "profile registry에는 전용 industrial_automation profile이 없으므로 "
+            "가장 가까운 기존 profile인 hardware_device를 추천한다."
+        ),
+    )
+
+
+def _generic_refinement(idea: str) -> IdeaRefinement:
+    selection = resolve_domain_profile(
+        {
+            "raw_idea": idea,
+            "goal": DEFAULT_GOAL,
+            "context": DEFAULT_CONTEXT,
+        }
+    )
+    recommended_profile = selection.selected_profile.id
+    alternative_profiles = _top_alternative_profiles(
+        selection.score_by_profile,
+        recommended_profile,
+    )
+    profile_confidence = _profile_confidence(
+        score_by_profile=selection.score_by_profile,
+        recommended_profile=recommended_profile,
+        selected_by=selection.selected_by,
+    )
+    return IdeaRefinement(
+        goal=_goal_for_recommended_profile(recommended_profile),
+        context=(
+            "The user supplied a raw idea for local Research Council refinement: "
+            f"{_clip_text(idea, 240)}. The report should distinguish assumptions, "
+            "missing evidence, risks, and minimum viable experiments from validated "
+            "proof."
+        ),
+        constraints=REFINEMENT_BASE_CONSTRAINTS,
+        provided_evidence=(f"User-provided raw idea: {_clip_text(idea, 240)}",),
+        recommended_profile=recommended_profile,
+        alternative_profiles=alternative_profiles,
+        profile_confidence=profile_confidence,
+        profile_rationale=(
+            f"Existing deterministic profile scoring selected {recommended_profile} "
+            f"by {selection.selected_by}."
+        ),
+    )
+
+
+def _goal_for_recommended_profile(profile_id: str) -> str:
+    if profile_id == "ai_saas":
+        return (
+            "Evaluate whether this software workflow idea can become a viable MVP, "
+            "including buyer urgency, repeat usage, differentiation, and reliability risks."
+        )
+    if profile_id == "developer_tool":
+        return (
+            "Evaluate whether this developer workflow tool can become a viable MVP, "
+            "including setup, integration, time-to-value, and repeat-use risks."
+        )
+    if profile_id == "enterprise_b2b":
+        return (
+            "Evaluate whether this enterprise workflow idea can become a viable MVP, "
+            "including buyer, procurement, rollout, security, and ROI risks."
+        )
+    if profile_id == "hardware_device":
+        return (
+            "Evaluate whether this hardware or field-operation idea can become a "
+            "viable MVP, including technical feasibility, safety, deployment, and "
+            "operator workflow risks."
+        )
+    return DEFAULT_GOAL
+
+
+def _top_alternative_profiles(
+    score_by_profile: dict[str, int],
+    recommended_profile: str,
+    *,
+    limit: int = 3,
+) -> tuple[str, ...]:
+    ranked = tuple(
+        profile_id
+        for profile_id, score in sorted(
+            score_by_profile.items(),
+            key=lambda item: (-item[1], item[0]),
+        )
+        if profile_id != recommended_profile and score > 0
+    )
+    if len(ranked) >= limit:
+        return ranked[:limit]
+
+    fallbacks = (
+        "ai_saas",
+        "developer_tool",
+        "enterprise_b2b",
+        "hardware_device",
+        "general",
+    )
+    alternatives = list(ranked)
+    for profile_id in fallbacks:
+        if profile_id != recommended_profile and profile_id not in alternatives:
+            alternatives.append(profile_id)
+        if len(alternatives) >= limit:
+            break
+    return tuple(alternatives)
+
+
+def _profile_confidence(
+    *,
+    score_by_profile: dict[str, int],
+    recommended_profile: str,
+    selected_by: str,
+) -> str:
+    if selected_by == "fallback":
+        return "low"
+    selected_score = score_by_profile.get(recommended_profile, 0)
+    other_scores = [
+        score
+        for profile_id, score in score_by_profile.items()
+        if profile_id != recommended_profile
+    ]
+    runner_up = max(other_scores, default=0)
+    if selected_score >= 12 and selected_score - runner_up >= 5:
+        return "high"
+    if selected_score >= 4:
+        return "medium"
+    return "low"
+
+
+def _industrial_provided_evidence(idea: str) -> tuple[str, ...]:
+    evidence = ["사용자가 제공한 SI/제조 장비 셋업/운영 문제 설명."]
+    if _any_signal_matches(idea, ("setup", "셋업", "장비", "설비")):
+        evidence.append(
+            "장비 셋업 또는 commissioning 후 현장 검증이 필요하다는 사용자 설명."
+        )
+    if _any_signal_matches(idea, ("일주일", "대기", "지키", "standby", "wait")):
+        evidence.append("장비 옆에서 장시간 가동 상태를 확인해야 한다는 사용자 설명.")
+    if _any_signal_matches(idea, ("장애", "고장", "문제", "fault", "failure", "error")):
+        evidence.append("가동 중 문제 발생 시 장비를 멈추고 원인을 파악해야 한다는 사용자 설명.")
+    if _any_signal_matches(idea, ("시뮬레이션", "simulation", "미리 검증", "pre validation")):
+        evidence.append("시뮬레이션으로 사전 검증해보자는 사용자 제안.")
+    if len(evidence) == 1:
+        evidence.append(f"User-provided raw idea: {_clip_text(idea, 240)}")
+    return tuple(evidence)
+
+
+def _matched_weighted_signals(
+    text: str,
+    signals: tuple[tuple[str, int], ...],
+) -> tuple[tuple[str, ...], int]:
+    matches: list[str] = []
+    score = 0
+    for keyword, weight in signals:
+        if keyword in matches:
+            continue
+        if _keyword_matches(text, keyword):
+            matches.append(keyword)
+            score += weight
+    return tuple(matches), score
+
+
+def _any_signal_matches(text: str, signals: tuple[str, ...]) -> bool:
+    return any(_keyword_matches(text, signal) for signal in signals)
+
+
+def _keyword_matches(text: str, keyword: str) -> bool:
+    normalized_text = _clean_text(text).lower()
+    normalized_keyword = _clean_text(keyword).lower()
+    if not normalized_keyword:
+        return False
+    if re.fullmatch(r"[a-z0-9 ]+", normalized_keyword):
+        pattern = (
+            r"(?<![a-z0-9])"
+            + re.escape(normalized_keyword).replace(r"\ ", r"\s+")
+            + r"(?![a-z0-9])"
+        )
+        return re.search(pattern, normalized_text) is not None
+    return normalized_keyword in normalized_text
+
+
+def _clean_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _clip_text(value: str, limit: int) -> str:
+    text = _clean_text(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
 
 
 def allocate_run_dir(output_root: Path) -> Path:
@@ -223,13 +520,14 @@ def launch_gui() -> None:
             self.last_artifacts: LocalRunArtifacts | None = None
 
             root.title(APP_TITLE)
-            root.minsize(840, 720)
+            root.minsize(900, 760)
 
             self.profile_var = tk.StringVar(value=DEFAULT_PROFILE_ID)
             self.mode_var = tk.StringVar(value=LLMAugmentationMode.OFF.value)
             self.output_dir_var = tk.StringVar(value=str(default_output_root()))
             self.report_path_var = tk.StringVar(value="")
             self.result_path_var = tk.StringVar(value="")
+            self.profile_recommendation_var = tk.StringVar(value="")
 
             self._build_layout(root)
 
@@ -244,7 +542,7 @@ def launch_gui() -> None:
             frame.rowconfigure(5, weight=1)
             frame.rowconfigure(6, weight=1)
             frame.rowconfigure(7, weight=1)
-            frame.rowconfigure(12, weight=1)
+            frame.rowconfigure(13, weight=1)
 
             title = ttk.Label(frame, text=APP_TITLE, font=("", 15, "bold"))
             title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
@@ -277,8 +575,20 @@ def launch_gui() -> None:
             )
             profile_box.grid(row=8, column=1, sticky="ew", pady=(10, 0))
 
-            ttk.Label(frame, text="LLM augmentation mode").grid(
+            ttk.Label(frame, text="Profile recommendation").grid(
                 row=9,
+                column=0,
+                sticky="w",
+                pady=(8, 0),
+            )
+            ttk.Entry(
+                frame,
+                textvariable=self.profile_recommendation_var,
+                state="readonly",
+            ).grid(row=9, column=1, columnspan=2, sticky="ew", pady=(8, 0))
+
+            ttk.Label(frame, text="LLM augmentation mode").grid(
+                row=10,
                 column=0,
                 sticky="w",
                 pady=(8, 0),
@@ -289,9 +599,9 @@ def launch_gui() -> None:
                 values=AUGMENTATION_MODE_VALUES,
                 state="readonly",
             )
-            mode_box.grid(row=9, column=1, sticky="ew", pady=(8, 0))
+            mode_box.grid(row=10, column=1, sticky="ew", pady=(8, 0))
             ttk.Label(frame, text=SANDBOX_MESSAGE).grid(
-                row=9,
+                row=10,
                 column=2,
                 sticky="w",
                 padx=(8, 0),
@@ -299,15 +609,15 @@ def launch_gui() -> None:
             )
 
             ttk.Label(frame, text="Output directory").grid(
-                row=10,
+                row=11,
                 column=0,
                 sticky="w",
                 pady=(8, 0),
             )
             output_entry = ttk.Entry(frame, textvariable=self.output_dir_var)
-            output_entry.grid(row=10, column=1, sticky="ew", pady=(8, 0))
+            output_entry.grid(row=11, column=1, sticky="ew", pady=(8, 0))
             ttk.Button(frame, text="Choose...", command=self.choose_output_dir).grid(
-                row=10,
+                row=11,
                 column=2,
                 sticky="ew",
                 padx=(8, 0),
@@ -315,28 +625,34 @@ def launch_gui() -> None:
             )
 
             buttons = ttk.Frame(frame)
-            buttons.grid(row=11, column=0, columnspan=3, sticky="ew", pady=(12, 8))
+            buttons.grid(row=12, column=0, columnspan=3, sticky="ew", pady=(12, 8))
             buttons.columnconfigure(4, weight=1)
+            self.refine_button = ttk.Button(
+                buttons,
+                text="Idea 구체화",
+                command=self.refine_idea,
+            )
+            self.refine_button.grid(row=0, column=0, sticky="w")
             self.run_button = ttk.Button(buttons, text="Run", command=self.run)
-            self.run_button.grid(row=0, column=0, sticky="w")
+            self.run_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
             self.open_folder_button = ttk.Button(
                 buttons,
                 text="Open output folder",
                 command=self.open_output_folder,
                 state="disabled",
             )
-            self.open_folder_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
+            self.open_folder_button.grid(row=0, column=2, sticky="w", padx=(8, 0))
             self.open_report_button = ttk.Button(
                 buttons,
                 text="Open report",
                 command=self.open_report,
                 state="disabled",
             )
-            self.open_report_button.grid(row=0, column=2, sticky="w", padx=(8, 0))
+            self.open_report_button.grid(row=0, column=3, sticky="w", padx=(8, 0))
 
-            ttk.Label(frame, text="Status / output log").grid(row=12, column=0, sticky="nw")
+            ttk.Label(frame, text="Status / output log").grid(row=13, column=0, sticky="nw")
             log_frame = ttk.Frame(frame)
-            log_frame.grid(row=12, column=1, columnspan=2, sticky="nsew")
+            log_frame.grid(row=13, column=1, columnspan=2, sticky="nsew")
             log_frame.columnconfigure(0, weight=1)
             log_frame.rowconfigure(0, weight=1)
             self.log_text = tk.Text(log_frame, height=8, wrap="word", state="disabled")
@@ -349,18 +665,18 @@ def launch_gui() -> None:
             log_scroll.grid(row=0, column=1, sticky="ns")
             self.log_text.configure(yscrollcommand=log_scroll.set)
 
-            ttk.Label(frame, text="report.md").grid(row=13, column=0, sticky="w", pady=(8, 0))
+            ttk.Label(frame, text="report.md").grid(row=14, column=0, sticky="w", pady=(8, 0))
             ttk.Entry(
                 frame,
                 textvariable=self.report_path_var,
                 state="readonly",
-            ).grid(row=13, column=1, columnspan=2, sticky="ew", pady=(8, 0))
-            ttk.Label(frame, text="result.json").grid(row=14, column=0, sticky="w", pady=(4, 0))
+            ).grid(row=14, column=1, columnspan=2, sticky="ew", pady=(8, 0))
+            ttk.Label(frame, text="result.json").grid(row=15, column=0, sticky="w", pady=(4, 0))
             ttk.Entry(
                 frame,
                 textvariable=self.result_path_var,
                 state="readonly",
-            ).grid(row=14, column=1, columnspan=2, sticky="ew", pady=(4, 0))
+            ).grid(row=15, column=1, columnspan=2, sticky="ew", pady=(4, 0))
 
         def _text_box(self, parent: ttk.Frame, *, row: int, height: int) -> tk.Text:
             box = tk.Text(parent, height=height, wrap="word")
@@ -374,8 +690,35 @@ def launch_gui() -> None:
             if selected:
                 self.output_dir_var.set(selected)
 
+        def refine_idea(self) -> None:
+            try:
+                refinement = refine_idea_for_launcher(self.idea_text.get("1.0", "end"))
+            except Exception as exc:
+                self.append_log(f"Idea refinement failed: {exc}")
+                messagebox.showerror(APP_TITLE, str(exc))
+                return
+
+            self._replace_text(self.goal_text, refinement.goal)
+            self._replace_text(self.context_text, refinement.context)
+            self._replace_text(self.constraints_text, "\n".join(refinement.constraints))
+            self._replace_text(
+                self.evidence_text,
+                "\n".join(refinement.provided_evidence),
+            )
+            self.profile_var.set(refinement.recommended_profile)
+            recommendation = format_profile_recommendation(refinement)
+            self.profile_recommendation_var.set(recommendation)
+            self.append_log("Refined idea locally. Review or edit fields before Run.")
+            self.append_log(f"Profile recommendation: {recommendation}")
+            self.append_log(f"Rationale: {refinement.profile_rationale}")
+
+        def _replace_text(self, box: tk.Text, value: str) -> None:
+            box.delete("1.0", "end")
+            box.insert("1.0", value)
+
         def run(self) -> None:
             self.run_button.configure(state="disabled")
+            self.refine_button.configure(state="disabled")
             self.open_folder_button.configure(state="disabled")
             self.open_report_button.configure(state="disabled")
             self.report_path_var.set("")
@@ -407,6 +750,7 @@ def launch_gui() -> None:
                 self.append_log(f"Created result.json: {artifacts.result_json}")
             finally:
                 self.run_button.configure(state="normal")
+                self.refine_button.configure(state="normal")
 
         def append_log(self, message: str) -> None:
             self.log_text.configure(state="normal")
