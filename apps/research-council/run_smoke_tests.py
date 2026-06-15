@@ -1018,6 +1018,136 @@ def test_run_local_app_idea_refinement_helper() -> None:
         "profile recommendation formatter should expose recommendation and confidence",
     )
 
+    healthcare_refinement = refine_idea_for_launcher(
+        "A home health app that helps family caregivers track wound care photos, "
+        "medication reminders, and nurse handoff notes for elderly parents."
+    )
+    _assert(
+        any("privacy" in constraint.lower() for constraint in healthcare_refinement.constraints),
+        "healthcare refinement should add privacy constraints",
+    )
+    _assert(
+        any("clinical" in constraint.lower() for constraint in healthcare_refinement.constraints),
+        "healthcare refinement should add clinical-boundary constraints",
+    )
+    _assert(
+        any("medication" in constraint.lower() for constraint in healthcare_refinement.constraints),
+        "healthcare refinement should add medication/care safety constraints",
+    )
+
+    education_refinement = refine_idea_for_launcher(
+        "Adaptive math tutor for middle school students that turns wrong answers "
+        "into short practice drills and sends weekly progress notes to teachers."
+    )
+    _assert(
+        any("student data" in constraint.lower() for constraint in education_refinement.constraints),
+        "education refinement should add student data constraints",
+    )
+    _assert(
+        any("minor safety" in constraint.lower() for constraint in education_refinement.constraints),
+        "education refinement should add minor safety constraints",
+    )
+    _assert(
+        any("learning efficacy" in constraint.lower() for constraint in education_refinement.constraints),
+        "education refinement should add learning efficacy constraints",
+    )
+
+    fintech_refinement = refine_idea_for_launcher(
+        "Personal finance coach that reads bank transaction exports, groups "
+        "subscription leaks, and suggests a debt payoff plan for gig workers."
+    )
+    _assert(
+        any("financial advice" in constraint.lower() for constraint in fintech_refinement.constraints),
+        "fintech refinement should add financial advice boundary constraints",
+    )
+    _assert(
+        any("privacy" in constraint.lower() for constraint in fintech_refinement.constraints),
+        "fintech refinement should add privacy constraints",
+    )
+    _assert(
+        any("validate recommendations" in constraint.lower() for constraint in fintech_refinement.constraints),
+        "fintech refinement should add recommendation validation constraints",
+    )
+    _assert(
+        fintech_refinement.profile_confidence == "low",
+        "fintech refinement should lower confidence when no fintech profile exists",
+    )
+
+    logistics_refinement = refine_idea_for_launcher(
+        "Route planning dashboard for small delivery fleets that predicts late "
+        "deliveries from traffic, driver capacity, and package priority."
+    )
+    _assert(
+        any("live operations" in constraint.lower() for constraint in logistics_refinement.constraints),
+        "logistics refinement should add live operations constraints",
+    )
+    _assert(
+        any("routing data quality" in constraint.lower() for constraint in logistics_refinement.constraints),
+        "logistics refinement should add routing data quality constraints",
+    )
+    _assert(
+        any("driver workflow" in constraint.lower() for constraint in logistics_refinement.constraints),
+        "logistics refinement should add driver workflow constraints",
+    )
+    _assert(
+        logistics_refinement.profile_confidence == "low",
+        "logistics refinement should lower confidence when no logistics profile exists",
+    )
+
+    audit_refinement = refine_idea_for_launcher(
+        "Internal audit evidence readiness assistant that maps policy controls to "
+        "screenshots, approvals, logs, and evidence owners before quarterly audits."
+    )
+    _assert(
+        audit_refinement.recommended_profile == "enterprise_b2b"
+        or audit_refinement.alternative_profiles[:1] == ("enterprise_b2b",),
+        "audit refinement should surface enterprise_b2b as recommendation or top alternative",
+    )
+    _assert(
+        any("compliance proof" in constraint.lower() for constraint in audit_refinement.constraints),
+        "audit refinement should add compliance-proof boundary constraints",
+    )
+
+    consumer_refinement = refine_idea_for_launcher(
+        "Mobile app for friends to plan weekend activities, vote on options, "
+        "split costs, and remember favorite places."
+    )
+    _assert(
+        "consumer app idea" in consumer_refinement.goal,
+        "consumer app refinement should use a consumer-specific goal",
+    )
+
+    _assert(
+        "parents.." not in healthcare_refinement.context,
+        "refinement context should avoid duplicated terminal punctuation",
+    )
+
+    adult_math_refinement = refine_idea_for_launcher("I want a math tutor app for adults")
+    _assert(
+        any("adult learner workflow" in constraint.lower() for constraint in adult_math_refinement.constraints),
+        "adult education refinement should keep adult learner workflow constraints",
+    )
+    _assert(
+        not any("minor safety" in constraint.lower() for constraint in adult_math_refinement.constraints),
+        "adult education refinement must not add minor safety constraints",
+    )
+    _assert(
+        not any("student data" in constraint.lower() for constraint in adult_math_refinement.constraints),
+        "adult education refinement must not add student data constraints",
+    )
+
+    equipment_financing_refinement = refine_idea_for_launcher("Bank for equipment financing")
+    _assert(
+        not any("financial advice" in constraint.lower() for constraint in equipment_financing_refinement.constraints),
+        "equipment financing wording alone should not add fintech advice constraints",
+    )
+
+    developer_audit_log_refinement = refine_idea_for_launcher("audit log for developer CLI")
+    _assert(
+        developer_audit_log_refinement.recommended_profile == "developer_tool",
+        "developer audit-log wording should not be forced to enterprise_b2b",
+    )
+
 
 def test_run_demo_batch_helper_support() -> None:
     input_dir = _smoke_artifact_path("smoke-demo-batch-inputs")

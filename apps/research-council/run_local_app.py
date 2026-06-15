@@ -82,6 +82,119 @@ INDUSTRIAL_AUTOMATION_SIGNALS = (
     ("멈추", 3),
     ("원인", 2),
 )
+HEALTHCARE_SIGNALS = (
+    ("healthcare", 4),
+    ("home health", 5),
+    ("health", 2),
+    ("clinical", 4),
+    ("patient", 4),
+    ("nurse", 4),
+    ("medication", 4),
+    ("wound", 4),
+    ("caregiver", 3),
+    ("elderly", 3),
+    ("care", 1),
+)
+HEALTHCARE_CONSTRAINTS = (
+    "Keep privacy and sensitive health information boundaries explicit",
+    "Require human review before any clinical, medication, wound, or care recommendation",
+    "Do not treat outputs as diagnosis, treatment, or clinical proof",
+    "Validate care workflow safety with caregivers or qualified professionals",
+)
+EDUCATION_SIGNALS = (
+    ("education", 4),
+    ("student", 4),
+    ("teacher", 4),
+    ("school", 3),
+    ("middle school", 5),
+    ("minor", 4),
+    ("parent", 3),
+    ("tutor", 3),
+    ("math", 3),
+    ("learning", 3),
+    ("practice drills", 3),
+)
+EDUCATION_CONSTRAINTS = (
+    "Protect student data and classroom privacy",
+    "Keep minor safety and parent/teacher oversight explicit",
+    "Validate learning efficacy before making educational outcome claims",
+    "Check teacher, parent, and student workflow fit separately",
+)
+ADULT_LEARNING_SIGNALS = (
+    "adult",
+    "adults",
+)
+MINOR_EDUCATION_CONTEXT_SIGNALS = (
+    "student",
+    "students",
+    "teacher",
+    "school",
+    "middle school",
+    "minor",
+    "parent",
+    "child",
+    "children",
+    "kid",
+    "kids",
+    "classroom",
+)
+ADULT_EDUCATION_CONSTRAINTS = (
+    "Validate learning efficacy before making educational outcome claims",
+    "Check adult learner workflow and support needs separately",
+)
+FINTECH_SIGNALS = (
+    ("fintech", 5),
+    ("bank", 4),
+    ("transaction", 3),
+    ("subscription", 3),
+    ("debt", 4),
+    ("payoff", 3),
+    ("finance", 4),
+    ("financial", 4),
+    ("gig worker", 3),
+    ("budget", 3),
+)
+FINTECH_CONSTRAINTS = (
+    "Keep financial advice boundaries explicit",
+    "Protect bank, transaction, and personal finance privacy",
+    "Validate recommendations before suggesting debt, subscription, or budgeting actions",
+    "Treat outputs as planning support, not financial, legal, or investment advice",
+)
+LOGISTICS_SIGNALS = (
+    ("logistics", 5),
+    ("route", 4),
+    ("fleet", 4),
+    ("delivery", 4),
+    ("driver", 3),
+    ("dispatch", 4),
+    ("package", 3),
+    ("traffic", 3),
+    ("late deliveries", 3),
+)
+LOGISTICS_CONSTRAINTS = (
+    "Separate planning output from live operations decisions",
+    "Validate routing data quality, latency, and exception handling",
+    "Check driver workflow, dispatch handoff, and operational accountability",
+    "Do not assume prediction accuracy without historical route and delivery data",
+)
+AUDIT_COMPLIANCE_SIGNALS = (
+    ("audit", 5),
+    ("evidence readiness", 5),
+    ("policy controls", 5),
+    ("controls", 3),
+    ("compliance", 4),
+    ("approvals", 3),
+    ("evidence owners", 4),
+    ("screenshots", 2),
+    ("logs", 2),
+    ("quarterly audits", 4),
+)
+AUDIT_COMPLIANCE_CONSTRAINTS = (
+    "Keep audit evidence ownership and human approval boundaries explicit",
+    "Do not treat generated output as compliance proof",
+    "Validate control mapping, evidence freshness, and reviewer workflow separately",
+    "Account for enterprise rollout, security review, and audit-log requirements",
+)
 
 
 @dataclass(frozen=True)
@@ -249,7 +362,11 @@ def _generic_refinement(idea: str) -> IdeaRefinement:
             "context": DEFAULT_CONTEXT,
         }
     )
-    recommended_profile = selection.selected_profile.id
+    selected_profile_id = selection.selected_profile.id
+    recommended_profile = selected_profile_id
+    audit_compliance_matched = _matches_signal_group(idea, AUDIT_COMPLIANCE_SIGNALS)
+    if audit_compliance_matched:
+        recommended_profile = "enterprise_b2b"
     alternative_profiles = _top_alternative_profiles(
         selection.score_by_profile,
         recommended_profile,
@@ -259,22 +376,25 @@ def _generic_refinement(idea: str) -> IdeaRefinement:
         recommended_profile=recommended_profile,
         selected_by=selection.selected_by,
     )
+    if audit_compliance_matched and recommended_profile != selected_profile_id:
+        profile_confidence = "medium"
+    elif recommended_profile == "ai_saas" and _matches_domain_specific_constraint_group(idea):
+        profile_confidence = "low"
     return IdeaRefinement(
         goal=_goal_for_recommended_profile(recommended_profile),
-        context=(
-            "The user supplied a raw idea for local Research Council refinement: "
-            f"{_clip_text(idea, 240)}. The report should distinguish assumptions, "
-            "missing evidence, risks, and minimum viable experiments from validated "
-            "proof."
+        context=_generic_context(idea),
+        constraints=_generic_constraints_for_idea(idea),
+        provided_evidence=(
+            f"User-provided raw idea: {_trim_terminal_punctuation(_clip_text(idea, 240))}.",
         ),
-        constraints=REFINEMENT_BASE_CONSTRAINTS,
-        provided_evidence=(f"User-provided raw idea: {_clip_text(idea, 240)}",),
         recommended_profile=recommended_profile,
         alternative_profiles=alternative_profiles,
         profile_confidence=profile_confidence,
-        profile_rationale=(
-            f"Existing deterministic profile scoring selected {recommended_profile} "
-            f"by {selection.selected_by}."
+        profile_rationale=_generic_profile_rationale(
+            selected_profile_id=selected_profile_id,
+            recommended_profile=recommended_profile,
+            selected_by=selection.selected_by,
+            audit_compliance_matched=audit_compliance_matched,
         ),
     )
 
@@ -301,7 +421,77 @@ def _goal_for_recommended_profile(profile_id: str) -> str:
             "viable MVP, including technical feasibility, safety, deployment, and "
             "operator workflow risks."
         )
+    if profile_id == "consumer_app":
+        return (
+            "Evaluate whether this consumer app idea can become a viable MVP, including "
+            "target user need, retention loop, social or habit behavior, privacy, and "
+            "monetization risks."
+        )
     return DEFAULT_GOAL
+
+
+def _generic_context(idea: str) -> str:
+    clipped_idea = _trim_terminal_punctuation(_clip_text(idea, 240))
+    return (
+        f"Raw idea for local Research Council refinement: {clipped_idea}. "
+        "The report should distinguish assumptions, missing evidence, risks, and "
+        "minimum viable experiments from validated proof."
+    )
+
+
+def _generic_constraints_for_idea(idea: str) -> tuple[str, ...]:
+    constraints: list[str] = list(REFINEMENT_BASE_CONSTRAINTS)
+    if _matches_signal_group(idea, HEALTHCARE_SIGNALS):
+        constraints.extend(HEALTHCARE_CONSTRAINTS)
+    if _matches_signal_group(idea, EDUCATION_SIGNALS):
+        constraints.extend(_education_constraints_for_idea(idea))
+    if _matches_signal_group(idea, FINTECH_SIGNALS):
+        constraints.extend(FINTECH_CONSTRAINTS)
+    if _matches_signal_group(idea, LOGISTICS_SIGNALS):
+        constraints.extend(LOGISTICS_CONSTRAINTS)
+    if _matches_signal_group(idea, AUDIT_COMPLIANCE_SIGNALS):
+        constraints.extend(AUDIT_COMPLIANCE_CONSTRAINTS)
+    return _unique_ordered(constraints)
+
+
+def _education_constraints_for_idea(idea: str) -> tuple[str, ...]:
+    if _any_signal_matches(idea, ADULT_LEARNING_SIGNALS) and not _any_signal_matches(
+        idea,
+        MINOR_EDUCATION_CONTEXT_SIGNALS,
+    ):
+        return ADULT_EDUCATION_CONSTRAINTS
+    return EDUCATION_CONSTRAINTS
+
+
+def _matches_domain_specific_constraint_group(idea: str) -> bool:
+    return any(
+        _matches_signal_group(idea, signals)
+        for signals in (
+            HEALTHCARE_SIGNALS,
+            EDUCATION_SIGNALS,
+            FINTECH_SIGNALS,
+            LOGISTICS_SIGNALS,
+        )
+    )
+
+
+def _generic_profile_rationale(
+    *,
+    selected_profile_id: str,
+    recommended_profile: str,
+    selected_by: str,
+    audit_compliance_matched: bool,
+) -> str:
+    if audit_compliance_matched and recommended_profile != selected_profile_id:
+        return (
+            f"Existing deterministic profile scoring selected {selected_profile_id} "
+            f"by {selected_by}, but audit/control/compliance signals were found, so "
+            "the launcher recommends enterprise_b2b as the editable GUI profile."
+        )
+    return (
+        f"Existing deterministic profile scoring selected {recommended_profile} "
+        f"by {selected_by}."
+    )
 
 
 def _top_alternative_profiles(
@@ -357,6 +547,29 @@ def _profile_confidence(
     if selected_score >= 4:
         return "medium"
     return "low"
+
+
+def _matches_signal_group(
+    text: str,
+    signals: tuple[tuple[str, int], ...],
+    *,
+    min_matches: int = 2,
+    min_score: int = 6,
+) -> bool:
+    matched_signals, signal_score = _matched_weighted_signals(text, signals)
+    return len(matched_signals) >= min_matches and signal_score >= min_score
+
+
+def _unique_ordered(values: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        cleaned = _clean_text(value)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        unique.append(cleaned)
+    return tuple(unique)
 
 
 def _industrial_provided_evidence(idea: str) -> tuple[str, ...]:
@@ -419,6 +632,10 @@ def _clip_text(value: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3].rstrip() + "..."
+
+
+def _trim_terminal_punctuation(value: str) -> str:
+    return _clean_text(value).rstrip(".!?。！？")
 
 
 def allocate_run_dir(output_root: Path) -> Path:
