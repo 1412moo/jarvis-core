@@ -1148,6 +1148,116 @@ def test_run_local_app_idea_refinement_helper() -> None:
         "developer audit-log wording should not be forced to enterprise_b2b",
     )
 
+    korean_care_refinement = refine_idea_for_launcher(
+        "간병 가족이 욕창 사진, 복약, 식사, 배변, 병원 전달사항을 기록하고 "
+        "간호사/가족에게 요약 공유하는 앱"
+    )
+    _assert(
+        any("sensitive health information" in constraint.lower() for constraint in korean_care_refinement.constraints),
+        "Korean care refinement should add healthcare privacy constraints",
+    )
+    _assert(
+        any("clinical" in constraint.lower() for constraint in korean_care_refinement.constraints),
+        "Korean care refinement should add clinical boundary constraints",
+    )
+    _assert(
+        len(korean_care_refinement.provided_evidence) == 1
+        and korean_care_refinement.provided_evidence[0].startswith("User-provided raw idea:"),
+        "Korean care refinement should not invent provided evidence",
+    )
+
+    korean_education_refinement = refine_idea_for_launcher(
+        "중학생 수학 오답을 분석해 개인별 문제를 추천하는 학습 앱"
+    )
+    _assert(
+        any("student data" in constraint.lower() for constraint in korean_education_refinement.constraints),
+        "Korean education refinement should add student data constraints",
+    )
+    _assert(
+        any("minor safety" in constraint.lower() for constraint in korean_education_refinement.constraints),
+        "Korean education refinement should add minor safety constraints",
+    )
+    _assert(
+        any("learning efficacy" in constraint.lower() for constraint in korean_education_refinement.constraints),
+        "Korean education refinement should add learning efficacy constraints",
+    )
+
+    korean_fintech_refinement = refine_idea_for_launcher(
+        "은행 거래내역을 업로드하면 구독료, 소비패턴, 부채상환 계획을 정리해주는 개인 금융 코치"
+    )
+    _assert(
+        any("financial advice" in constraint.lower() for constraint in korean_fintech_refinement.constraints),
+        "Korean fintech refinement should add financial advice constraints",
+    )
+    _assert(
+        any("personal finance privacy" in constraint.lower() for constraint in korean_fintech_refinement.constraints),
+        "Korean fintech refinement should add privacy constraints",
+    )
+    _assert(
+        korean_fintech_refinement.profile_confidence == "low",
+        "Korean fintech refinement should keep profile confidence conservative",
+    )
+
+    korean_logistics_refinement = refine_idea_for_launcher(
+        "배달기사 동선과 주문 밀집도를 보고 소규모 배달업체의 경로를 추천하는 서비스"
+    )
+    _assert(
+        any("live operations" in constraint.lower() for constraint in korean_logistics_refinement.constraints),
+        "Korean logistics refinement should add live operations constraints",
+    )
+    _assert(
+        any("routing data quality" in constraint.lower() for constraint in korean_logistics_refinement.constraints),
+        "Korean logistics refinement should add routing data quality constraints",
+    )
+    _assert(
+        any("driver workflow" in constraint.lower() for constraint in korean_logistics_refinement.constraints),
+        "Korean logistics refinement should add driver workflow constraints",
+    )
+
+    korean_audit_refinement = refine_idea_for_launcher(
+        "내부감사 준비를 위해 승인내역, 스크린샷, 로그, 정책 증거를 정리하는 "
+        "evidence readiness assistant"
+    )
+    _assert(
+        korean_audit_refinement.recommended_profile == "enterprise_b2b"
+        or korean_audit_refinement.alternative_profiles[:1] == ("enterprise_b2b",),
+        "Korean audit refinement should surface enterprise_b2b",
+    )
+    _assert(
+        any("compliance proof" in constraint.lower() for constraint in korean_audit_refinement.constraints),
+        "Korean audit refinement should add compliance proof boundary constraints",
+    )
+
+    korean_consumer_refinement = refine_idea_for_launcher(
+        "친구끼리 모임 일정 후보를 올리고 투표/비용정산까지 하는 모바일 앱"
+    )
+    _assert(
+        korean_consumer_refinement.recommended_profile == "consumer_app"
+        or korean_consumer_refinement.alternative_profiles[:1] == ("consumer_app",),
+        "Korean consumer refinement should surface consumer_app",
+    )
+    _assert(
+        "consumer app idea" in korean_consumer_refinement.goal,
+        "Korean consumer refinement should use the consumer-specific goal",
+    )
+
+    korean_sensor_refinement = refine_idea_for_launcher(
+        "병원 냉장고 백신/약품 온도를 감지하고 이상 알림을 보내는 센서 장치"
+    )
+    _assert(
+        korean_sensor_refinement.recommended_profile == "hardware_device"
+        or korean_sensor_refinement.alternative_profiles[:1] == ("hardware_device",),
+        "Korean sensor refinement should surface hardware_device",
+    )
+    _assert(
+        any("alert reliability" in constraint.lower() for constraint in korean_sensor_refinement.constraints),
+        "Korean sensor refinement should add alert reliability constraints",
+    )
+    _assert(
+        any("cold-chain safety" in constraint.lower() for constraint in korean_sensor_refinement.constraints),
+        "Korean sensor refinement should add cold-chain safety constraints",
+    )
+
 
 def test_run_demo_batch_helper_support() -> None:
     input_dir = _smoke_artifact_path("smoke-demo-batch-inputs")

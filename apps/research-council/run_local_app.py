@@ -94,6 +94,23 @@ HEALTHCARE_SIGNALS = (
     ("caregiver", 3),
     ("elderly", 3),
     ("care", 1),
+    ("간병", 4),
+    ("욕창", 4),
+    ("복약", 4),
+    ("약", 1),
+    ("약품", 4),
+    ("백신", 4),
+    ("환자", 4),
+    ("병원", 4),
+    ("간호사", 4),
+    ("요양", 4),
+    ("보호자", 3),
+    ("치매", 4),
+    ("노인", 3),
+    ("재활", 4),
+    ("가족 공유", 3),
+    ("병원 전달사항", 5),
+    ("홈케어", 4),
 )
 HEALTHCARE_CONSTRAINTS = (
     "Keep privacy and sensitive health information boundaries explicit",
@@ -113,6 +130,19 @@ EDUCATION_SIGNALS = (
     ("math", 3),
     ("learning", 3),
     ("practice drills", 3),
+    ("학생", 4),
+    ("중학생", 5),
+    ("고등학생", 5),
+    ("초등학생", 5),
+    ("학습", 4),
+    ("오답", 4),
+    ("문제 추천", 4),
+    ("문제추천", 4),
+    ("교사", 4),
+    ("학부모", 4),
+    ("교육", 4),
+    ("튜터", 3),
+    ("수학", 3),
 )
 EDUCATION_CONSTRAINTS = (
     "Protect student data and classroom privacy",
@@ -137,6 +167,13 @@ MINOR_EDUCATION_CONTEXT_SIGNALS = (
     "kid",
     "kids",
     "classroom",
+    "학생",
+    "중학생",
+    "고등학생",
+    "초등학생",
+    "교사",
+    "학부모",
+    "학교",
 )
 ADULT_EDUCATION_CONSTRAINTS = (
     "Validate learning efficacy before making educational outcome claims",
@@ -153,6 +190,18 @@ FINTECH_SIGNALS = (
     ("financial", 4),
     ("gig worker", 3),
     ("budget", 3),
+    ("은행", 4),
+    ("계좌", 4),
+    ("거래내역", 4),
+    ("구독료", 3),
+    ("소비패턴", 3),
+    ("부채", 4),
+    ("상환", 3),
+    ("대출", 4),
+    ("투자", 4),
+    ("자산", 4),
+    ("금융", 4),
+    ("개인 금융", 5),
 )
 FINTECH_CONSTRAINTS = (
     "Keep financial advice boundaries explicit",
@@ -170,6 +219,17 @@ LOGISTICS_SIGNALS = (
     ("package", 3),
     ("traffic", 3),
     ("late deliveries", 3),
+    ("배달", 4),
+    ("배송", 4),
+    ("기사", 3),
+    ("배달기사", 5),
+    ("동선", 4),
+    ("경로", 4),
+    ("주문", 3),
+    ("배차", 4),
+    ("물류", 5),
+    ("차량", 3),
+    ("운송", 4),
 )
 LOGISTICS_CONSTRAINTS = (
     "Separate planning output from live operations decisions",
@@ -188,12 +248,62 @@ AUDIT_COMPLIANCE_SIGNALS = (
     ("screenshots", 2),
     ("logs", 2),
     ("quarterly audits", 4),
+    ("내부감사", 5),
+    ("감사", 4),
+    ("통제", 4),
+    ("승인내역", 4),
+    ("승인", 3),
+    ("증적", 4),
+    ("증거", 3),
+    ("정책 증거", 5),
+    ("정책증거", 5),
+    ("컴플라이언스", 4),
+    ("감사준비", 5),
 )
 AUDIT_COMPLIANCE_CONSTRAINTS = (
     "Keep audit evidence ownership and human approval boundaries explicit",
     "Do not treat generated output as compliance proof",
     "Validate control mapping, evidence freshness, and reviewer workflow separately",
     "Account for enterprise rollout, security review, and audit-log requirements",
+)
+CONSUMER_APP_SIGNALS = (
+    ("mobile app", 4),
+    ("friends", 3),
+    ("vote", 3),
+    ("split costs", 3),
+    ("weekend activities", 3),
+    ("모바일 앱", 5),
+    ("친구", 4),
+    ("모임", 4),
+    ("투표", 4),
+    ("정산", 3),
+    ("비용정산", 5),
+    ("일정", 3),
+    ("커뮤니티", 3),
+    ("동호회", 3),
+)
+HARDWARE_SENSOR_SIGNALS = (
+    ("sensor", 5),
+    ("device", 4),
+    ("temperature", 4),
+    ("alert", 3),
+    ("refrigerator", 4),
+    ("vaccine", 5),
+    ("센서", 5),
+    ("장치", 4),
+    ("온도", 4),
+    ("냉장고", 4),
+    ("백신", 5),
+    ("약품", 5),
+    ("이상 알림", 4),
+    ("감지", 3),
+    ("알림", 3),
+)
+COLD_CHAIN_SENSOR_CONSTRAINTS = (
+    "Validate sensor calibration, temperature threshold, and alert reliability",
+    "Do not assume vaccine, medication, or cold-chain safety without measured logs",
+    "Plan bench and field checks for false alarms, missed alerts, and handoff workflow",
+    "Require human review for medication, vaccine, or clinical storage decisions",
 )
 
 
@@ -365,8 +475,14 @@ def _generic_refinement(idea: str) -> IdeaRefinement:
     selected_profile_id = selection.selected_profile.id
     recommended_profile = selected_profile_id
     audit_compliance_matched = _matches_signal_group(idea, AUDIT_COMPLIANCE_SIGNALS)
+    hardware_sensor_matched = _matches_signal_group(idea, HARDWARE_SENSOR_SIGNALS)
+    consumer_app_matched = _matches_signal_group(idea, CONSUMER_APP_SIGNALS)
     if audit_compliance_matched:
         recommended_profile = "enterprise_b2b"
+    elif hardware_sensor_matched:
+        recommended_profile = "hardware_device"
+    elif consumer_app_matched:
+        recommended_profile = "consumer_app"
     alternative_profiles = _top_alternative_profiles(
         selection.score_by_profile,
         recommended_profile,
@@ -377,6 +493,11 @@ def _generic_refinement(idea: str) -> IdeaRefinement:
         selected_by=selection.selected_by,
     )
     if audit_compliance_matched and recommended_profile != selected_profile_id:
+        profile_confidence = "medium"
+    elif (
+        (hardware_sensor_matched or consumer_app_matched)
+        and recommended_profile != selected_profile_id
+    ):
         profile_confidence = "medium"
     elif recommended_profile == "ai_saas" and _matches_domain_specific_constraint_group(idea):
         profile_confidence = "low"
@@ -395,6 +516,8 @@ def _generic_refinement(idea: str) -> IdeaRefinement:
             recommended_profile=recommended_profile,
             selected_by=selection.selected_by,
             audit_compliance_matched=audit_compliance_matched,
+            hardware_sensor_matched=hardware_sensor_matched,
+            consumer_app_matched=consumer_app_matched,
         ),
     )
 
@@ -451,6 +574,8 @@ def _generic_constraints_for_idea(idea: str) -> tuple[str, ...]:
         constraints.extend(LOGISTICS_CONSTRAINTS)
     if _matches_signal_group(idea, AUDIT_COMPLIANCE_SIGNALS):
         constraints.extend(AUDIT_COMPLIANCE_CONSTRAINTS)
+    if _matches_signal_group(idea, HARDWARE_SENSOR_SIGNALS):
+        constraints.extend(COLD_CHAIN_SENSOR_CONSTRAINTS)
     return _unique_ordered(constraints)
 
 
@@ -471,6 +596,7 @@ def _matches_domain_specific_constraint_group(idea: str) -> bool:
             EDUCATION_SIGNALS,
             FINTECH_SIGNALS,
             LOGISTICS_SIGNALS,
+            HARDWARE_SENSOR_SIGNALS,
         )
     )
 
@@ -481,12 +607,26 @@ def _generic_profile_rationale(
     recommended_profile: str,
     selected_by: str,
     audit_compliance_matched: bool,
+    hardware_sensor_matched: bool,
+    consumer_app_matched: bool,
 ) -> str:
     if audit_compliance_matched and recommended_profile != selected_profile_id:
         return (
             f"Existing deterministic profile scoring selected {selected_profile_id} "
             f"by {selected_by}, but audit/control/compliance signals were found, so "
             "the launcher recommends enterprise_b2b as the editable GUI profile."
+        )
+    if hardware_sensor_matched and recommended_profile != selected_profile_id:
+        return (
+            f"Existing deterministic profile scoring selected {selected_profile_id} "
+            f"by {selected_by}, but hardware/sensor signals were found, so the "
+            "launcher recommends hardware_device as the editable GUI profile."
+        )
+    if consumer_app_matched and recommended_profile != selected_profile_id:
+        return (
+            f"Existing deterministic profile scoring selected {selected_profile_id} "
+            f"by {selected_by}, but consumer app signals were found, so the "
+            "launcher recommends consumer_app as the editable GUI profile."
         )
     return (
         f"Existing deterministic profile scoring selected {recommended_profile} "
@@ -613,6 +753,9 @@ def _keyword_matches(text: str, keyword: str) -> bool:
     normalized_keyword = _clean_text(keyword).lower()
     if not normalized_keyword:
         return False
+    if len(normalized_keyword) == 1 and not normalized_keyword.isascii():
+        pattern = r"(?<!\S)" + re.escape(normalized_keyword) + r"(?!\S)"
+        return re.search(pattern, normalized_text) is not None
     if re.fullmatch(r"[a-z0-9 ]+", normalized_keyword):
         pattern = (
             r"(?<![a-z0-9])"
