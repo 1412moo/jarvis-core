@@ -1136,6 +1136,16 @@ def test_run_local_app_idea_refinement_helper() -> None:
         "adult education refinement must not add student data constraints",
     )
 
+    korean_adult_math_refinement = refine_idea_for_launcher("성인 대상 수학 튜터 앱")
+    _assert(
+        any("adult learner workflow" in constraint.lower() for constraint in korean_adult_math_refinement.constraints),
+        "Korean adult education refinement should keep adult learner workflow constraints",
+    )
+    _assert(
+        not any("minor safety" in constraint.lower() for constraint in korean_adult_math_refinement.constraints),
+        "Korean adult education refinement must not add minor safety constraints",
+    )
+
     equipment_financing_refinement = refine_idea_for_launcher("Bank for equipment financing")
     _assert(
         not any("financial advice" in constraint.lower() for constraint in equipment_financing_refinement.constraints),
@@ -1256,6 +1266,91 @@ def test_run_local_app_idea_refinement_helper() -> None:
     _assert(
         any("cold-chain safety" in constraint.lower() for constraint in korean_sensor_refinement.constraints),
         "Korean sensor refinement should add cold-chain safety constraints",
+    )
+
+    korean_triage_refinement = refine_idea_for_launcher(
+        "병원 예약 전 증상 문진을 정리해 접수 직원과 의사에게 전달하는 서비스"
+    )
+    _assert(
+        any("sensitive health information" in constraint.lower() for constraint in korean_triage_refinement.constraints),
+        "Korean symptom triage refinement should add healthcare privacy constraints",
+    )
+    _assert(
+        any("clinical" in constraint.lower() for constraint in korean_triage_refinement.constraints),
+        "Korean symptom triage refinement should add clinical boundary constraints",
+    )
+
+    korean_pharmacy_refinement = refine_idea_for_launcher(
+        "약국에서 복약지도 내용을 환자별로 요약 저장하고 재방문 때 확인하는 도구"
+    )
+    _assert(
+        any("medication" in constraint.lower() for constraint in korean_pharmacy_refinement.constraints),
+        "Korean pharmacy refinement should add medication safety constraints",
+    )
+
+    korean_academy_refinement = refine_idea_for_launcher(
+        "학원에서 학생별 출결, 숙제, 상담 이력을 부모에게 요약 전송하는 앱"
+    )
+    _assert(
+        any("student data" in constraint.lower() for constraint in korean_academy_refinement.constraints),
+        "Korean academy refinement should add student data constraints",
+    )
+    _assert(
+        any("minor safety" in constraint.lower() for constraint in korean_academy_refinement.constraints),
+        "Korean academy refinement should add minor safety constraints",
+    )
+
+    korean_factory_sensor_refinement = refine_idea_for_launcher(
+        "공장 설비의 센서 로그를 분석해 이상 징후와 정비 우선순위를 알려주는 도구"
+    )
+    _assert(
+        korean_factory_sensor_refinement.recommended_profile == "hardware_device",
+        "Korean factory sensor refinement should use the industrial hardware fallback",
+    )
+    _assert(
+        any("PLC 데이터" in constraint for constraint in korean_factory_sensor_refinement.constraints),
+        "Korean factory sensor refinement should keep missing equipment logs explicit",
+    )
+    _assert(
+        not any("commissioning" in evidence.lower() for evidence in korean_factory_sensor_refinement.provided_evidence),
+        "Korean factory maintenance refinement should not invent setup or commissioning evidence",
+    )
+
+    korean_cashflow_refinement = refine_idea_for_launcher(
+        "자영업자의 카드매출과 고정비를 분석해 다음 달 현금흐름을 예측하는 서비스"
+    )
+    _assert(
+        any("cash-flow" in constraint.lower() for constraint in korean_cashflow_refinement.constraints),
+        "Korean SMB finance refinement should add cash-flow planning constraints",
+    )
+    _assert(
+        any("business finance data privacy" in constraint.lower() for constraint in korean_cashflow_refinement.constraints),
+        "Korean SMB finance refinement should add business finance privacy constraints",
+    )
+
+    korean_menu_price_refinement = refine_idea_for_launcher(
+        "음식점 원가와 판매량을 기반으로 메뉴 가격 조정을 제안하는 서비스"
+    )
+    _assert(
+        any("cash-flow" in constraint.lower() for constraint in korean_menu_price_refinement.constraints),
+        "Korean menu pricing refinement should add finance-operations planning constraints",
+    )
+
+    korean_air_quality_sensor_refinement = refine_idea_for_launcher(
+        "실내 공기질 센서를 이용해 어린이집 환기 알림을 보내는 장치"
+    )
+    _assert(
+        korean_air_quality_sensor_refinement.recommended_profile == "hardware_device"
+        or korean_air_quality_sensor_refinement.alternative_profiles[:1] == ("hardware_device",),
+        "Korean air-quality sensor refinement should surface hardware_device",
+    )
+    _assert(
+        any("sensor calibration" in constraint.lower() for constraint in korean_air_quality_sensor_refinement.constraints),
+        "Korean air-quality sensor refinement should add generic sensor constraints",
+    )
+    _assert(
+        not any("cold-chain" in constraint.lower() for constraint in korean_air_quality_sensor_refinement.constraints),
+        "Korean air-quality sensor refinement should not add cold-chain constraints",
     )
 
 

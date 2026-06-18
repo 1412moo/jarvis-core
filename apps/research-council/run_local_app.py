@@ -67,9 +67,12 @@ INDUSTRIAL_AUTOMATION_SIGNALS = (
     ("fault", 3),
     ("downtime", 4),
     ("plc", 4),
+    ("maintenance", 3),
+    ("sensor log", 4),
     ("장비", 3),
     ("설비", 3),
     ("제조", 3),
+    ("공장", 3),
     ("공정", 3),
     ("생산", 3),
     ("자동화", 4),
@@ -81,6 +84,12 @@ INDUSTRIAL_AUTOMATION_SIGNALS = (
     ("정지", 3),
     ("멈추", 3),
     ("원인", 2),
+    ("정비", 3),
+    ("유지보수", 3),
+    ("이상 징후", 4),
+    ("센서 로그", 4),
+    ("생산라인", 4),
+    ("설비 로그", 4),
 )
 HEALTHCARE_SIGNALS = (
     ("healthcare", 4),
@@ -111,6 +120,14 @@ HEALTHCARE_SIGNALS = (
     ("가족 공유", 3),
     ("병원 전달사항", 5),
     ("홈케어", 4),
+    ("증상", 4),
+    ("문진", 4),
+    ("의사", 4),
+    ("약국", 4),
+    ("복약지도", 5),
+    ("접종", 4),
+    ("진료", 4),
+    ("처방", 4),
 )
 HEALTHCARE_CONSTRAINTS = (
     "Keep privacy and sensitive health information boundaries explicit",
@@ -143,6 +160,14 @@ EDUCATION_SIGNALS = (
     ("교육", 4),
     ("튜터", 3),
     ("수학", 3),
+    ("학원", 4),
+    ("출결", 4),
+    ("숙제", 4),
+    ("부모", 3),
+    ("상담", 3),
+    ("상담 이력", 4),
+    ("생기부", 4),
+    ("진로", 3),
 )
 EDUCATION_CONSTRAINTS = (
     "Protect student data and classroom privacy",
@@ -153,6 +178,9 @@ EDUCATION_CONSTRAINTS = (
 ADULT_LEARNING_SIGNALS = (
     "adult",
     "adults",
+    "성인",
+    "성인 대상",
+    "성인용",
 )
 MINOR_EDUCATION_CONTEXT_SIGNALS = (
     "student",
@@ -174,6 +202,8 @@ MINOR_EDUCATION_CONTEXT_SIGNALS = (
     "교사",
     "학부모",
     "학교",
+    "학원",
+    "부모",
 )
 ADULT_EDUCATION_CONSTRAINTS = (
     "Validate learning efficacy before making educational outcome claims",
@@ -208,6 +238,34 @@ FINTECH_CONSTRAINTS = (
     "Protect bank, transaction, and personal finance privacy",
     "Validate recommendations before suggesting debt, subscription, or budgeting actions",
     "Treat outputs as planning support, not financial, legal, or investment advice",
+)
+FINANCE_OPERATIONS_SIGNALS = (
+    ("card sales", 4),
+    ("cash flow", 4),
+    ("fixed cost", 3),
+    ("receipt", 3),
+    ("tax", 4),
+    ("insurance", 4),
+    ("claim", 3),
+    ("카드매출", 4),
+    ("현금흐름", 4),
+    ("고정비", 3),
+    ("원가", 3),
+    ("가격", 2),
+    ("메뉴 가격", 4),
+    ("판매량", 3),
+    ("세금", 4),
+    ("보험", 4),
+    ("청구", 3),
+    ("영수증", 4),
+    ("미수금", 4),
+    ("지출", 3),
+)
+FINANCE_OPERATIONS_CONSTRAINTS = (
+    "Keep cash-flow, pricing, tax, insurance, and receivables guidance as planning support",
+    "Protect sales, receipt, claim, and business finance data privacy",
+    "Validate forecasts and recommendations against historical revenue, cost, and inventory data",
+    "Separate owner decision-making from automated pricing, ordering, or payment actions",
 )
 LOGISTICS_SIGNALS = (
     ("logistics", 5),
@@ -287,22 +345,37 @@ HARDWARE_SENSOR_SIGNALS = (
     ("device", 4),
     ("temperature", 4),
     ("alert", 3),
-    ("refrigerator", 4),
-    ("vaccine", 5),
+    ("measurement", 3),
+    ("monitor", 3),
     ("센서", 5),
     ("장치", 4),
     ("온도", 4),
-    ("냉장고", 4),
-    ("백신", 5),
-    ("약품", 5),
     ("이상 알림", 4),
     ("감지", 3),
     ("알림", 3),
+    ("측정", 3),
+)
+COLD_CHAIN_SENSOR_SIGNALS = (
+    ("cold-chain", 5),
+    ("cold storage", 5),
+    ("storage temperature", 4),
+    ("refrigerator", 4),
+    ("freezer", 4),
+    ("vaccine", 5),
+    ("백신", 5),
+    ("약품", 5),
+    ("냉장고", 4),
+    ("냉동", 4),
+    ("보관 온도", 4),
+)
+GENERIC_SENSOR_CONSTRAINTS = (
+    "Validate sensor calibration, temperature threshold, and alert reliability",
+    "Separate sensor output from live safety or operations decisions",
+    "Plan bench and field checks for false alarms, missed alerts, and handoff workflow",
 )
 COLD_CHAIN_SENSOR_CONSTRAINTS = (
-    "Validate sensor calibration, temperature threshold, and alert reliability",
     "Do not assume vaccine, medication, or cold-chain safety without measured logs",
-    "Plan bench and field checks for false alarms, missed alerts, and handoff workflow",
+    "Validate cold-chain storage thresholds, excursion handling, and alert escalation",
     "Require human review for medication, vaccine, or clinical storage decisions",
 )
 
@@ -475,7 +548,10 @@ def _generic_refinement(idea: str) -> IdeaRefinement:
     selected_profile_id = selection.selected_profile.id
     recommended_profile = selected_profile_id
     audit_compliance_matched = _matches_signal_group(idea, AUDIT_COMPLIANCE_SIGNALS)
-    hardware_sensor_matched = _matches_signal_group(idea, HARDWARE_SENSOR_SIGNALS)
+    hardware_sensor_matched = _matches_signal_group(
+        idea,
+        HARDWARE_SENSOR_SIGNALS,
+    ) or _matches_signal_group(idea, COLD_CHAIN_SENSOR_SIGNALS)
     consumer_app_matched = _matches_signal_group(idea, CONSUMER_APP_SIGNALS)
     if audit_compliance_matched:
         recommended_profile = "enterprise_b2b"
@@ -570,11 +646,15 @@ def _generic_constraints_for_idea(idea: str) -> tuple[str, ...]:
         constraints.extend(_education_constraints_for_idea(idea))
     if _matches_signal_group(idea, FINTECH_SIGNALS):
         constraints.extend(FINTECH_CONSTRAINTS)
+    if _matches_signal_group(idea, FINANCE_OPERATIONS_SIGNALS):
+        constraints.extend(FINANCE_OPERATIONS_CONSTRAINTS)
     if _matches_signal_group(idea, LOGISTICS_SIGNALS):
         constraints.extend(LOGISTICS_CONSTRAINTS)
     if _matches_signal_group(idea, AUDIT_COMPLIANCE_SIGNALS):
         constraints.extend(AUDIT_COMPLIANCE_CONSTRAINTS)
     if _matches_signal_group(idea, HARDWARE_SENSOR_SIGNALS):
+        constraints.extend(GENERIC_SENSOR_CONSTRAINTS)
+    if _matches_signal_group(idea, COLD_CHAIN_SENSOR_SIGNALS):
         constraints.extend(COLD_CHAIN_SENSOR_CONSTRAINTS)
     return _unique_ordered(constraints)
 
@@ -595,8 +675,10 @@ def _matches_domain_specific_constraint_group(idea: str) -> bool:
             HEALTHCARE_SIGNALS,
             EDUCATION_SIGNALS,
             FINTECH_SIGNALS,
+            FINANCE_OPERATIONS_SIGNALS,
             LOGISTICS_SIGNALS,
             HARDWARE_SENSOR_SIGNALS,
+            COLD_CHAIN_SENSOR_SIGNALS,
         )
     )
 
@@ -713,8 +795,8 @@ def _unique_ordered(values: list[str]) -> tuple[str, ...]:
 
 
 def _industrial_provided_evidence(idea: str) -> tuple[str, ...]:
-    evidence = ["사용자가 제공한 SI/제조 장비 셋업/운영 문제 설명."]
-    if _any_signal_matches(idea, ("setup", "셋업", "장비", "설비")):
+    evidence = ["사용자가 제공한 SI/제조 장비 운영 문제 설명."]
+    if _any_signal_matches(idea, ("setup", "셋업", "commissioning")):
         evidence.append(
             "장비 셋업 또는 commissioning 후 현장 검증이 필요하다는 사용자 설명."
         )
