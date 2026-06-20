@@ -1,0 +1,73 @@
+{
+  "input_type": "daily_ai_radar_curated_metadata",
+  "radar_date": "2026-06-18",
+  "operator": "sample-fixture",
+  "notes": "Deterministic fixture only. Items are manually supplied metadata examples, not verified latest facts. No web calls were made and no source bodies are stored.",
+  "items": [
+    {
+      "item_id": "radar-001",
+      "observed_date": "2026-06-18",
+      "source_name": "Manual Agent Skills note",
+      "source_type": "fixture",
+      "source_url_or_ref": "source_ref:agent-skills-style-update",
+      "title": "Agent Skills style update",
+      "summary": "Fixture metadata describing a possible pattern for turning repeated Jarvis workflows into reusable skill instructions.",
+      "claimed_capability": "Reusable task procedures could make repeated personal assistant work more reliable and easier to delegate.",
+      "area": "agent_skills",
+      "evidence_level": "manual_summary",
+      "notes": "No external source body included. Treat as a workflow design candidate, not a verified platform update."
+    },
+    {
+      "item_id": "radar-002",
+      "observed_date": "2026-06-18",
+      "source_name": "Manual Hermes Agent note",
+      "source_type": "fixture",
+      "source_url_or_ref": "source_ref:hermes-agent-skill-learning-loop",
+      "title": "Hermes Agent skill learning loop",
+      "summary": "Fixture metadata describing an agent loop that could observe repeated tasks and propose skill improvements.",
+      "claimed_capability": "An agent may suggest new skills from repeated task patterns while keeping approval gates visible.",
+      "area": "hermes",
+      "evidence_level": "unverified_claim",
+      "notes": "High self-improvement relevance, but evidence and safety boundaries are unknown."
+    },
+    {
+      "item_id": "radar-003",
+      "observed_date": "2026-06-18",
+      "source_name": "Manual MCP security note",
+      "source_type": "fixture",
+      "source_url_or_ref": "source_ref:mcp-permission-security-pattern",
+      "title": "MCP permission and security pattern",
+      "summary": "Fixture metadata describing a possible permission boundary for tool servers and agent actions.",
+      "claimed_capability": "Permission-aware MCP patterns could make tool access clearer and safer for Jarvis integrations.",
+      "area": "mcp",
+      "evidence_level": "manual_summary",
+      "notes": "Security-sensitive. Requires human review before any integration design."
+    },
+    {
+      "item_id": "radar-004",
+      "observed_date": "2026-06-18",
+      "source_name": "Manual LangGraph state note",
+      "source_type": "fixture",
+      "source_url_or_ref": "source_ref:langgraph-state-persistence-pattern",
+      "title": "LangGraph state persistence pattern",
+      "summary": "Fixture metadata describing state persistence as a way to make long-running agent workflows easier to inspect.",
+      "claimed_capability": "Persistent state could help Jarvis track multi-step work across sessions.",
+      "area": "langgraph",
+      "evidence_level": "manual_summary",
+      "notes": "Potentially relevant, but may be heavier than current Jarvis-Core document-first architecture."
+    },
+    {
+      "item_id": "radar-005",
+      "observed_date": "2026-06-18",
+      "source_name": "Manual Anthropic discussion note",
+      "source_type": "fixture",
+      "source_url_or_ref": "source_ref:anthropic-recursive-self-improvement-discussion",
+      "title": "Anthropic recursive self-improvement discussion",
+      "summary": "Fixture metadata describing a discussion about recursive self-improvement risks and controls.",
+      "claimed_capability": "Recursive self-improvement discussions may provide cautionary guardrails for Jarvis autonomy.",
+      "area": "anthropic",
+      "evidence_level": "research_discussion",
+      "notes": "Useful as governance context, but not an implementation candidate in this fixture."
+    }
+  ]
+}
