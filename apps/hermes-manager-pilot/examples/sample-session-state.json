@@ -1,0 +1,46 @@
+{
+  "session_type": "hermes_manager_session_state",
+  "version": "0.2",
+  "repo": "C:\\work\\jarvis-core",
+  "branch": "main",
+  "head": "8bc6b12",
+  "working_tree_status": "Sample fixture only. The expected pre-existing untracked file is jarvis.bat, and it must remain untouched.",
+  "current_goal": "Implement Hermes Manager Pilot v0.2 as a local deterministic session and prompt renderer.",
+  "active_task": "Add local JSON validation, Codex prompt renderers, checkpoint summary renderer, sample fixtures, and smoke tests.",
+  "blocked_by": "",
+  "last_codex_prompt": "User requested v0.2 design and implementation. The request explicitly excludes Hermes runtime integration, automatic Codex or ChatGPT calls, auto commit, auto push, web search, scheduler, database, Discord command, and repo modification outside the scoped files.",
+  "last_codex_result_summary": "No external Hermes, Codex, or ChatGPT execution is represented by this fixture. Rendered artifacts are local deterministic examples only.",
+  "validation_commands": [
+    "python -B -m py_compile apps\\hermes-manager-pilot\\run_demo.py apps\\hermes-manager-pilot\\run_smoke_tests.py apps\\hermes-manager-pilot\\hermes_manager_pilot\\schemas.py apps\\hermes-manager-pilot\\hermes_manager_pilot\\pipeline.py apps\\hermes-manager-pilot\\hermes_manager_pilot\\prompt_renderer.py",
+    "python -B apps\\hermes-manager-pilot\\run_smoke_tests.py",
+    "python -B apps\\research-council\\run_smoke_tests.py",
+    "python -B apps\\daily-ai-radar\\run_smoke_tests.py",
+    "git diff --check"
+  ],
+  "files_touched": [
+    "apps/hermes-manager-pilot/README.md",
+    "apps/hermes-manager-pilot/hermes_manager_pilot/__init__.py",
+    "apps/hermes-manager-pilot/hermes_manager_pilot/schemas.py",
+    "apps/hermes-manager-pilot/hermes_manager_pilot/pipeline.py",
+    "apps/hermes-manager-pilot/hermes_manager_pilot/prompt_renderer.py",
+    "apps/hermes-manager-pilot/examples/sample-session-state.json",
+    "apps/hermes-manager-pilot/examples/sample-rendered-implementation-prompt.md",
+    "apps/hermes-manager-pilot/examples/sample-rendered-review-prompt.md",
+    "apps/hermes-manager-pilot/examples/sample-rendered-commit-prompt.md",
+    "apps/hermes-manager-pilot/examples/sample-checkpoint-summary.md",
+    "apps/hermes-manager-pilot/run_demo.py",
+    "apps/hermes-manager-pilot/run_smoke_tests.py"
+  ],
+  "target_files": [
+    "apps/hermes-manager-pilot/"
+  ],
+  "protected_paths": [
+    "jarvis.bat"
+  ],
+  "commit_allowed": false,
+  "push_allowed": false,
+  "human_approval_required": true,
+  "human_approval_granted": false,
+  "next_action": "PROMPT_FOR_CODEX",
+  "commit_message": "hermes-manager-pilot: add local prompt renderer"
+}

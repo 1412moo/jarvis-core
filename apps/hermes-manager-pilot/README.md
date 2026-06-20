@@ -115,6 +115,52 @@ user goal
 
 The v0.1 module is documentation-only. It does not automate this flow.
 
+## v0.2 Local Renderer Usage
+
+v0.2 adds a local deterministic session and prompt renderer. It reads a local
+session state JSON file, validates the management boundary, and renders one
+Markdown artifact to stdout unless an output path is explicitly supplied.
+
+It still does not install or run Hermes, call Codex, call ChatGPT, use a network
+or API, create tasks, apply source-code changes, commit, push, schedule
+background work, or integrate with MCP/A2A/Discord/DB systems.
+
+Render an implementation prompt to stdout:
+
+```powershell
+python -B apps\hermes-manager-pilot\run_demo.py `
+  --input apps\hermes-manager-pilot\examples\sample-session-state.json `
+  --mode implementation-prompt
+```
+
+Render a checkpoint summary only when an output path is explicitly supplied:
+
+```powershell
+python -B apps\hermes-manager-pilot\run_demo.py `
+  --input apps\hermes-manager-pilot\examples\sample-session-state.json `
+  --mode checkpoint-summary `
+  --output C:\work\hermes-checkpoint.md
+```
+
+Supported modes:
+
+- `implementation-prompt`
+- `review-prompt`
+- `commit-prompt`
+- `checkpoint-summary`
+
+Run the local smoke tests:
+
+```powershell
+python -B apps\hermes-manager-pilot\run_smoke_tests.py
+```
+
+The sample fixture keeps `commit_allowed=false`, `push_allowed=false`,
+`human_approval_required=true`, and `human_approval_granted=false`. A commit
+prompt rendered from that fixture is a refusal boundary, not commit approval.
+Even if `commit_allowed=true`, v0.2 renders an approval-needed boundary until
+`human_approval_granted=true` is explicitly present in the local session state.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).
