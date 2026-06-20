@@ -86,6 +86,42 @@ curated source metadata
 The optional handoff is descriptive in v0.1. No task file is created, no code is
 changed, and no integration is executed by Daily AI Radar itself.
 
+## v0.2 Local Renderer Usage
+
+v0.2 adds a local deterministic Markdown renderer for curated metadata JSON. It
+does not add a crawler, scheduler, LLM/API call, Discord command, database,
+automatic task creation, automatic code modification, auto commit, auto push, or
+real Hermes/MCP/A2A integration.
+
+Render the sample fixture to stdout:
+
+```powershell
+python -B apps\daily-ai-radar\run_demo.py `
+  --input apps\daily-ai-radar\examples\sample-input.json
+```
+
+Write a report only when an output path is explicitly supplied:
+
+```powershell
+python -B apps\daily-ai-radar\run_demo.py `
+  --input apps\daily-ai-radar\examples\sample-input.json `
+  --output C:\work\daily-ai-radar-sample.md
+```
+
+Optionally override the radar date without reading the current clock:
+
+```powershell
+python -B apps\daily-ai-radar\run_demo.py `
+  --input apps\daily-ai-radar\examples\sample-input.json `
+  --radar-date 2026-06-20
+```
+
+Run the local smoke tests:
+
+```powershell
+python -B apps\daily-ai-radar\run_smoke_tests.py
+```
+
 ## Approval Boundary
 
 Daily AI Radar reports are not implementation approval. A candidate must pass
