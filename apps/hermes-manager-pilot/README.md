@@ -1,7 +1,8 @@
 # Hermes Manager Pilot
 
-Hermes Manager Pilot is a v0.1 design-only app module for testing Hermes as a
-middle manager in the Jarvis-Core development workflow.
+Hermes Manager Pilot is a Jarvis-Core app module for testing Hermes as a middle
+manager in the Jarvis-Core development workflow. It started as a v0.1
+design-only contract and now includes local-only v0.2/v0.3 helper tools.
 
 Hermes is not a coding worker. Hermes does not replace Codex. Hermes helps
 manage Codex work by preserving context, waiting for responses, summarizing
@@ -160,6 +161,32 @@ The sample fixture keeps `commit_allowed=false`, `push_allowed=false`,
 prompt rendered from that fixture is a refusal boundary, not commit approval.
 Even if `commit_allowed=true`, v0.2 renders an approval-needed boundary until
 `human_approval_granted=true` is explicitly present in the local session state.
+
+## v0.3 Local GUI Launcher
+
+v0.3 adds a local-only tkinter launcher around the existing session validator
+and prompt renderer. It helps fill session fields, render prompts, copy output,
+and explicitly save or load a session JSON file.
+
+It still does not run Hermes, call Codex, call ChatGPT, use the network, create
+tasks, apply source-code changes, commit, push, schedule background work, or
+integrate with MCP/A2A/Discord/DB systems.
+
+Start the GUI:
+
+```powershell
+python -B apps\hermes-manager-pilot\run_local_app.py
+```
+
+Run the GUI helper self-test without opening a window:
+
+```powershell
+python -B apps\hermes-manager-pilot\run_local_app.py --self-test
+```
+
+The GUI keeps `push_allowed=false`, includes `jarvis.bat` in default protected
+paths, and separates `commit_allowed` from `human_approval_granted`. Without
+granted human approval, generated commit prompts remain a no-commit boundary.
 
 ## Contract
 
