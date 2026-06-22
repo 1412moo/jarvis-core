@@ -1,6 +1,6 @@
 # Codex Commit Prompt
 
-This is a Hermes Manager Pilot v0.2 conservative commit boundary.
+This is a Hermes Manager Pilot conservative commit boundary.
 
 ## Commit Authorization
 

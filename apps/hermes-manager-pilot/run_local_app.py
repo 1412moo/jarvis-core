@@ -15,6 +15,7 @@ from hermes_manager_pilot.schemas import ValidationError, normalize_session_stat
 
 APP_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = APP_ROOT.parent.parent
+DEFAULT_COMMIT_MESSAGE = "hermes-manager-pilot: update local workflow"
 
 DEFAULT_VALIDATION_COMMANDS = (
     "python -B -m py_compile apps\\hermes-manager-pilot\\run_local_app.py apps\\hermes-manager-pilot\\run_demo.py apps\\hermes-manager-pilot\\run_smoke_tests.py apps\\hermes-manager-pilot\\hermes_manager_pilot\\schemas.py apps\\hermes-manager-pilot\\hermes_manager_pilot\\pipeline.py apps\\hermes-manager-pilot\\hermes_manager_pilot\\prompt_renderer.py",
@@ -59,7 +60,7 @@ def default_session_state() -> dict[str, Any]:
         "human_approval_required": True,
         "human_approval_granted": False,
         "next_action": "PROMPT_FOR_CODEX",
-        "commit_message": "hermes-manager-pilot: update local workflow",
+        "commit_message": DEFAULT_COMMIT_MESSAGE,
     }
 
 
@@ -138,6 +139,25 @@ def load_git_status(repo_path: str | Path) -> dict[str, str]:
     }
 
 
+def refresh_payload_git_status(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of payload with read-only git status fields refreshed."""
+
+    refreshed = dict(payload)
+    git_state = load_git_status(refreshed.get("repo", ""))
+    refreshed.update(git_state)
+    return refreshed
+
+
+def reset_approval_flags(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of payload with commit approval flags cleared."""
+
+    reset_payload = dict(payload)
+    reset_payload["commit_allowed"] = False
+    reset_payload["human_approval_granted"] = False
+    reset_payload["push_allowed"] = False
+    return reset_payload
+
+
 def launch_gui() -> None:
     """Launch the local tkinter GUI."""
 
@@ -211,11 +231,12 @@ def launch_gui() -> None:
     codex_frame = tk.LabelFrame(left, text="Codex Result")
     codex_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=4)
     codex_frame.columnconfigure(1, weight=1)
-    add_labeled_text(codex_frame, "Last Codex prompt summary", "last_codex_prompt", 0, 3)
-    add_labeled_text(codex_frame, "Last Codex result summary", "last_codex_result_summary", 1, 4)
+    add_labeled_text(codex_frame, "Last prompt/action summary", "last_codex_prompt", 0, 3)
+    add_labeled_text(codex_frame, "Latest Codex result summary", "last_codex_result_summary", 1, 4)
 
     approval_frame = tk.LabelFrame(left, text="Approval")
     approval_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=4)
+    approval_frame.columnconfigure(1, weight=1)
     tk.Checkbutton(approval_frame, text="commit_allowed", variable=commit_allowed_var).grid(
         row=0,
         column=0,
@@ -233,6 +254,7 @@ def launch_gui() -> None:
         text="human_approval_required is always true. push_allowed is always false. Commit prompt requires explicit user approval.",
         anchor="w",
     ).grid(row=1, column=0, columnspan=2, sticky="w", padx=4, pady=2)
+    add_labeled_entry(approval_frame, "Commit message", "commit_message", 2)
 
     buttons_frame = tk.Frame(right)
     buttons_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
@@ -247,6 +269,7 @@ def launch_gui() -> None:
     tk.Button(buttons_frame, text="Save Session", command=lambda: _gui_save_session()).grid(row=1, column=1, sticky="ew", padx=2, pady=2)
     tk.Button(buttons_frame, text="Load Session", command=lambda: _gui_load_session()).grid(row=1, column=2, sticky="ew", padx=2, pady=2)
     tk.Button(buttons_frame, text="Clear Output", command=lambda: _set_output("")).grid(row=1, column=3, sticky="ew", padx=2, pady=2)
+    tk.Button(buttons_frame, text="Reset Approval", command=lambda: _gui_reset_approval()).grid(row=2, column=0, sticky="ew", padx=2, pady=2)
 
     output = ScrolledText(right, width=90, height=40, wrap=tk.WORD)
     output.grid(row=1, column=0, sticky="nsew")
@@ -267,12 +290,27 @@ def launch_gui() -> None:
     def _gui_generate(next_action: str, mode: str) -> None:
         try:
             payload = _payload_from_form(next_action)
+            if mode == "checkpoint-summary":
+                payload = refresh_payload_git_status(payload)
+                _set_field("branch", payload["branch"])
+                _set_field("head", payload["head"])
+                _set_field("working_tree_status", payload["working_tree_status"])
             rendered = render_from_payload(payload, mode)
             _set_output(rendered)
-            status_var.set(f"Rendered {mode}. No external call was made.")
+            if mode == "checkpoint-summary":
+                status_var.set(
+                    "Rendered checkpoint-summary after read-only git refresh. Consider Reset Approval before the next task."
+                )
+            else:
+                status_var.set(f"Rendered {mode}. No external call was made.")
         except ValidationError as exc:
             _set_output(f"Validation error: {exc}\n")
             status_var.set("Validation failed. Fix the form values and try again.")
+
+    def _gui_reset_approval() -> None:
+        commit_allowed_var.set(False)
+        human_approval_granted_var.set(False)
+        status_var.set("Approval flags reset. commit_allowed=false and human_approval_granted=false.")
 
     def _gui_copy_output() -> None:
         try:
@@ -336,7 +374,7 @@ def launch_gui() -> None:
             "human_approval_required": True,
             "human_approval_granted": bool(human_approval_granted_var.get()),
             "next_action": next_action,
-            "commit_message": "hermes-manager-pilot: update local workflow",
+            "commit_message": _field_value("commit_message") or DEFAULT_COMMIT_MESSAGE,
         }
         return payload
 
@@ -355,6 +393,7 @@ def launch_gui() -> None:
         _set_field("files_touched", "\n".join(normalized.files_touched))
         _set_field("target_files", "\n".join(normalized.target_files))
         _set_field("protected_paths", "\n".join(normalized.protected_paths))
+        _set_field("commit_message", normalized.commit_message or DEFAULT_COMMIT_MESSAGE)
         commit_allowed_var.set(normalized.commit_allowed)
         human_approval_granted_var.set(normalized.human_approval_granted)
 
@@ -394,9 +433,11 @@ def run_self_test() -> None:
 
     implementation_prompt = render_from_payload({**payload, "next_action": "PROMPT_FOR_CODEX"}, "implementation-prompt")
     _assert("# Codex Implementation Prompt" in implementation_prompt, "implementation prompt missing")
+    _assert("v0.2 draft" not in implementation_prompt, "implementation prompt header should not include fixed v0.2 draft")
 
     review_prompt = render_from_payload({**payload, "next_action": "REVIEW_REQUEST"}, "review-prompt")
     _assert("# Codex Review Prompt" in review_prompt, "review prompt missing")
+    _assert("v0.2 review draft" not in review_prompt, "review prompt header should not include fixed v0.2 draft")
 
     commit_refusal = render_from_payload({**payload, "next_action": "COMMIT_REQUEST"}, "commit-prompt")
     _assert("Do not commit." in commit_refusal, "commit_allowed=false should refuse commit")
@@ -419,6 +460,7 @@ def run_self_test() -> None:
             "next_action": "COMMIT_REQUEST",
             "commit_allowed": True,
             "human_approval_granted": True,
+            "commit_message": "hermes-manager-pilot: polish GUI dogfooding",
         },
         "commit-prompt",
     )
@@ -427,11 +469,37 @@ def run_self_test() -> None:
         "Run `git diff --cached --check`.",
         "jarvis.bat",
         "Validation Commands",
+        "hermes-manager-pilot: polish GUI dogfooding",
     ):
         _assert(expected in approved_commit_prompt, f"approved commit prompt missing: {expected}")
+    _assert("v0.2 commit draft" not in approved_commit_prompt, "commit prompt header should not include fixed v0.2 draft")
 
-    checkpoint_summary = render_from_payload({**payload, "next_action": "STATUS_SUMMARY"}, "checkpoint-summary")
+    default_commit_prompt = render_from_payload(
+        {
+            **payload,
+            "next_action": "COMMIT_REQUEST",
+            "commit_allowed": True,
+            "human_approval_granted": True,
+            "commit_message": "",
+        },
+        "commit-prompt",
+    )
+    _assert(
+        DEFAULT_COMMIT_MESSAGE in default_commit_prompt or "<approved commit message>" in default_commit_prompt,
+        "empty commit message should use a safe default or placeholder",
+    )
+
+    refreshed_payload = refresh_payload_git_status({**payload, "next_action": "STATUS_SUMMARY"})
+    _assert(refreshed_payload["head"] != "unknown", "checkpoint refresh should update head")
+    checkpoint_summary = render_from_payload(refreshed_payload, "checkpoint-summary")
     _assert("# Hermes Manager Pilot Checkpoint Summary" in checkpoint_summary, "checkpoint summary missing")
+
+    reset_payload = reset_approval_flags(
+        {**payload, "commit_allowed": True, "human_approval_granted": True, "push_allowed": False}
+    )
+    _assert(reset_payload["commit_allowed"] is False, "reset approval should clear commit_allowed")
+    _assert(reset_payload["human_approval_granted"] is False, "reset approval should clear human approval")
+    _assert(reset_payload["push_allowed"] is False, "reset approval should keep push_allowed false")
 
     protected_payload = {**payload, "files_touched": ["jarvis.bat"]}
     _assert_raises(lambda: render_from_payload(protected_payload, "implementation-prompt"), "protected path should fail")

@@ -1,6 +1,6 @@
 # Codex Review Prompt
 
-This is a Hermes Manager Pilot v0.2 review draft. It is not an automatic Codex invocation.
+This is a Hermes Manager Pilot review prompt draft. It is not an automatic Codex invocation.
 
 ## Session
 

@@ -35,7 +35,7 @@ def render_implementation_prompt(session: SessionState) -> str:
     lines = [
         "# Codex Implementation Prompt",
         "",
-        "This is a Hermes Manager Pilot v0.2 draft. It is not an automatic Codex invocation.",
+        "This is a Hermes Manager Pilot prompt draft. It is not an automatic Codex invocation.",
         "",
         "## Session",
         "",
@@ -106,7 +106,7 @@ def render_review_prompt(session: SessionState) -> str:
     lines = [
         "# Codex Review Prompt",
         "",
-        "This is a Hermes Manager Pilot v0.2 review draft. It is not an automatic Codex invocation.",
+        "This is a Hermes Manager Pilot review prompt draft. It is not an automatic Codex invocation.",
         "",
         "## Session",
         "",
@@ -171,7 +171,7 @@ def render_commit_prompt(session: SessionState) -> str:
     lines = [
         "# Codex Commit Prompt",
         "",
-        "This is a Hermes Manager Pilot v0.2 commit draft. Use it only after explicit user approval.",
+        "This is a Hermes Manager Pilot commit prompt draft. Use it only after explicit user approval.",
         "",
         "## Commit Authorization",
         "",
@@ -295,7 +295,7 @@ def _render_commit_refusal(session: SessionState) -> str:
     lines = [
         "# Codex Commit Prompt",
         "",
-        "This is a Hermes Manager Pilot v0.2 conservative commit boundary.",
+        "This is a Hermes Manager Pilot conservative commit boundary.",
         "",
         "## Commit Authorization",
         "",
@@ -337,7 +337,7 @@ def _render_commit_approval_required(session: SessionState) -> str:
     lines = [
         "# Codex Commit Prompt",
         "",
-        "This is a Hermes Manager Pilot v0.2 approval boundary, not a commit instruction.",
+        "This is a Hermes Manager Pilot approval boundary, not a commit instruction.",
         "",
         "## Commit Authorization",
         "",

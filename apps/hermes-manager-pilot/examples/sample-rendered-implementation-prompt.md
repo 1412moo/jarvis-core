@@ -1,6 +1,6 @@
 # Codex Implementation Prompt
 
-This is a Hermes Manager Pilot v0.2 draft. It is not an automatic Codex invocation.
+This is a Hermes Manager Pilot prompt draft. It is not an automatic Codex invocation.
 
 ## Session
 

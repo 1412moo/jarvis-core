@@ -187,17 +187,25 @@ python -B apps\hermes-manager-pilot\run_local_app.py --self-test
 The GUI keeps `push_allowed=false`, includes `jarvis.bat` in default protected
 paths, and separates `commit_allowed` from `human_approval_granted`. Without
 granted human approval, generated commit prompts remain a no-commit boundary.
+Use the commit message field before generating a commit prompt. Use Reset
+Approval after a commit so approval flags do not carry into the next task.
 
 ## Using The GUI For Codex Workflow
 
 Use the GUI as a local prompt drafting surface for the existing ChatGPT/Codex
 loop. Load git status, describe the task and expected files, then generate an
 implementation prompt for the user to copy into Codex. After Codex responds,
-paste the result summary back into the GUI and generate a review prompt.
+paste the latest Codex result summary back into the GUI and generate a review
+prompt.
+
+Use `Last prompt/action summary` for the most recent prompt, commit result, or
+workflow note. Use `Latest Codex result summary` for the newest Codex output
+that should be reviewed or checkpointed.
 
 Generate a commit prompt only after explicit user approval. The GUI does not
 call Codex, call ChatGPT, run Hermes, create tasks, modify files, commit, push,
-or add live integrations.
+or add live integrations. Before checkpoint summaries, the GUI refreshes git
+status with read-only commands so the HEAD field is less likely to be stale.
 
 ## Contract
 
