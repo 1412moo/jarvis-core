@@ -188,6 +188,17 @@ The GUI keeps `push_allowed=false`, includes `jarvis.bat` in default protected
 paths, and separates `commit_allowed` from `human_approval_granted`. Without
 granted human approval, generated commit prompts remain a no-commit boundary.
 
+## Using The GUI For Codex Workflow
+
+Use the GUI as a local prompt drafting surface for the existing ChatGPT/Codex
+loop. Load git status, describe the task and expected files, then generate an
+implementation prompt for the user to copy into Codex. After Codex responds,
+paste the result summary back into the GUI and generate a review prompt.
+
+Generate a commit prompt only after explicit user approval. The GUI does not
+call Codex, call ChatGPT, run Hermes, create tasks, modify files, commit, push,
+or add live integrations.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).
