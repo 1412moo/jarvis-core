@@ -165,8 +165,9 @@ Even if `commit_allowed=true`, v0.2 renders an approval-needed boundary until
 ## v0.3 Local GUI Launcher
 
 v0.3 adds a local-only tkinter launcher around the existing session validator
-and prompt renderer. It helps fill session fields, render prompts, copy output,
-and explicitly save or load a session JSON file.
+and prompt renderer. It uses a workflow guide plus `Primary`, `Advanced`, and
+`Output` tabs so normal use starts with task description instead of raw session
+state.
 
 It still does not run Hermes, call Codex, call ChatGPT, use the network, create
 tasks, apply source-code changes, commit, push, schedule background work, or
@@ -187,16 +188,21 @@ python -B apps\hermes-manager-pilot\run_local_app.py --self-test
 The GUI keeps `push_allowed=false`, includes `jarvis.bat` in default protected
 paths, and separates `commit_allowed` from `human_approval_granted`. Without
 granted human approval, generated commit prompts remain a no-commit boundary.
-Use the commit message field before generating a commit prompt. Use Reset
-Approval after a commit so approval flags do not carry into the next task.
 
 ## Using The GUI For Codex Workflow
 
 Use the GUI as a local prompt drafting surface for the existing ChatGPT/Codex
-loop. Load git status, describe the task and expected files, then generate an
-implementation prompt for the user to copy into Codex. After Codex responds,
-paste the latest Codex result summary back into the GUI and generate a review
-prompt.
+loop:
+
+1. Load Git Status.
+2. Describe the task in `Current goal`, `Active task`, and expected files.
+3. Generate Implementation Prompt and copy it into Codex.
+4. Paste the Codex result into `Latest Codex result summary`.
+5. Generate Review Prompt.
+6. Approve commit only when ready.
+7. Enter a commit message and generate Commit Prompt.
+8. Generate Checkpoint Summary after the commit result is known.
+9. Reset Approval before the next task.
 
 Use `Last prompt/action summary` for the most recent prompt, commit result, or
 workflow note. Use `Latest Codex result summary` for the newest Codex output

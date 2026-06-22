@@ -16,6 +16,22 @@ from hermes_manager_pilot.schemas import ValidationError, normalize_session_stat
 APP_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = APP_ROOT.parent.parent
 DEFAULT_COMMIT_MESSAGE = "hermes-manager-pilot: update local workflow"
+WORKFLOW_STEPS = (
+    "1. Describe Task",
+    "2. Generate Implementation Prompt",
+    "3. Paste Codex Result",
+    "4. Generate Review Prompt",
+    "5. Approve Commit",
+    "6. Generate Commit Prompt",
+    "7. Checkpoint",
+)
+LAYOUT_TABS = ("Primary", "Advanced", "Output")
+ARTIFACT_LABELS = {
+    "implementation-prompt": "Implementation Prompt",
+    "review-prompt": "Review Prompt",
+    "commit-prompt": "Commit Prompt",
+    "checkpoint-summary": "Checkpoint Summary",
+}
 
 DEFAULT_VALIDATION_COMMANDS = (
     "python -B -m py_compile apps\\hermes-manager-pilot\\run_local_app.py apps\\hermes-manager-pilot\\run_demo.py apps\\hermes-manager-pilot\\run_smoke_tests.py apps\\hermes-manager-pilot\\hermes_manager_pilot\\schemas.py apps\\hermes-manager-pilot\\hermes_manager_pilot\\pipeline.py apps\\hermes-manager-pilot\\hermes_manager_pilot\\prompt_renderer.py",
@@ -158,124 +174,221 @@ def reset_approval_flags(payload: dict[str, Any]) -> dict[str, Any]:
     return reset_payload
 
 
+def workflow_steps_text() -> str:
+    """Return the visible workflow guide shown by the GUI."""
+
+    return " -> ".join(WORKFLOW_STEPS)
+
+
+def layout_tab_names() -> tuple[str, ...]:
+    """Return the main GUI tab names for self-test coverage."""
+
+    return LAYOUT_TABS
+
+
+def instruction_for_mode(mode: str) -> str:
+    """Return the next-action instruction shown after rendering a mode."""
+
+    if mode == "implementation-prompt":
+        return "Step 2: Copy the implementation prompt into Codex, then paste the Codex result summary."
+    if mode == "review-prompt":
+        return "Step 4: Copy the review prompt into Codex, then decide whether a commit is ready."
+    if mode == "commit-prompt":
+        return "Step 6: Commit prompt requires explicit approval. This GUI never commits."
+    if mode == "checkpoint-summary":
+        return "Step 7: Checkpoint generated after read-only git refresh. Reset approval before the next task."
+    return "Step 1: Describe the task, then generate an implementation prompt."
+
+
 def launch_gui() -> None:
     """Launch the local tkinter GUI."""
 
     import tkinter as tk
-    from tkinter import filedialog, messagebox
+    from tkinter import filedialog, messagebox, ttk
     from tkinter.scrolledtext import ScrolledText
 
     root = tk.Tk()
     root.title("Hermes Manager Pilot v0.3")
-    root.geometry("1180x860")
+    root.geometry("1360x920")
+    root.minsize(980, 700)
 
     text_fields: dict[str, tk.Entry | ScrolledText] = {}
     commit_allowed_var = tk.BooleanVar(value=False)
     human_approval_granted_var = tk.BooleanVar(value=False)
-    status_var = tk.StringVar(value="Ready. Local-only renderer; no Codex, ChatGPT, Hermes, commit, push, or network call.")
+    artifact_var = tk.StringVar(value="No artifact generated yet")
+    instruction_var = tk.StringVar(value=instruction_for_mode(""))
+    status_var = tk.StringVar(
+        value="Ready. Local-only renderer; no Codex, ChatGPT, Hermes, commit, push, or network call."
+    )
 
-    def add_labeled_entry(parent: tk.Widget, label: str, key: str, row: int, width: int = 90) -> None:
-        tk.Label(parent, text=label, anchor="w").grid(row=row, column=0, sticky="w", padx=4, pady=2)
+    def add_labeled_entry(
+        parent: tk.Widget,
+        label: str,
+        key: str,
+        row: int,
+        hint: str = "",
+        width: int = 90,
+    ) -> None:
+        label_text = f"{label}\n{hint}" if hint else label
+        tk.Label(parent, text=label_text, anchor="nw", justify=tk.LEFT).grid(
+            row=row,
+            column=0,
+            sticky="nw",
+            padx=6,
+            pady=4,
+        )
         entry = tk.Entry(parent, width=width)
-        entry.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
+        entry.grid(row=row, column=1, sticky="ew", padx=6, pady=4)
         text_fields[key] = entry
 
-    def add_labeled_text(parent: tk.Widget, label: str, key: str, row: int, height: int) -> None:
-        tk.Label(parent, text=label, anchor="nw").grid(row=row, column=0, sticky="nw", padx=4, pady=2)
+    def add_labeled_text(
+        parent: tk.Widget,
+        label: str,
+        key: str,
+        row: int,
+        height: int,
+        hint: str = "",
+    ) -> None:
+        label_text = f"{label}\n{hint}" if hint else label
+        tk.Label(parent, text=label_text, anchor="nw", justify=tk.LEFT).grid(
+            row=row,
+            column=0,
+            sticky="nw",
+            padx=6,
+            pady=4,
+        )
         text = ScrolledText(parent, width=90, height=height, wrap=tk.WORD)
-        text.grid(row=row, column=1, sticky="nsew", padx=4, pady=2)
+        text.grid(row=row, column=1, sticky="nsew", padx=6, pady=4)
         text_fields[key] = text
 
-    container = tk.Frame(root)
-    container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-    container.columnconfigure(0, weight=1)
-    container.columnconfigure(1, weight=1)
-    container.rowconfigure(0, weight=1)
+    def make_scrollable_tab(tab_name: str) -> tuple[tk.Frame, tk.Frame]:
+        tab = tk.Frame(notebook)
+        notebook.add(tab, text=tab_name)
+        canvas = tk.Canvas(tab, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(tab, orient=tk.VERTICAL, command=canvas.yview)
+        content = tk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        content.columnconfigure(1, weight=1)
 
-    left = tk.Frame(container)
-    left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-    left.columnconfigure(1, weight=1)
+        def _resize_canvas(event: tk.Event) -> None:
+            canvas.itemconfigure(window_id, width=event.width)
 
-    right = tk.Frame(container)
-    right.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-    right.columnconfigure(0, weight=1)
-    right.rowconfigure(1, weight=1)
+        content.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", _resize_canvas)
+        return tab, content
 
-    repo_frame = tk.LabelFrame(left, text="Repo Status")
-    repo_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=4)
+    top = tk.Frame(root)
+    top.pack(fill=tk.X, padx=10, pady=(10, 6))
+
+    tk.Label(top, text="Workflow", font=("TkDefaultFont", 10, "bold"), anchor="w").pack(fill=tk.X)
+    tk.Label(top, text=workflow_steps_text(), anchor="w", justify=tk.LEFT).pack(fill=tk.X, pady=(2, 4))
+    tk.Label(top, textvariable=instruction_var, anchor="w", justify=tk.LEFT).pack(fill=tk.X)
+
+    action_bar = tk.Frame(top)
+    action_bar.pack(fill=tk.X, pady=(8, 0))
+    for index in range(5):
+        action_bar.columnconfigure(index, weight=1)
+
+    tk.Button(action_bar, text="1. Load Git Status", command=lambda: _gui_load_git_status()).grid(row=0, column=0, sticky="ew", padx=2, pady=2)
+    tk.Button(action_bar, text="2. Generate Implementation Prompt", command=lambda: _gui_generate("PROMPT_FOR_CODEX", "implementation-prompt")).grid(row=0, column=1, sticky="ew", padx=2, pady=2)
+    tk.Button(action_bar, text="3. Generate Review Prompt", command=lambda: _gui_generate("REVIEW_REQUEST", "review-prompt")).grid(row=0, column=2, sticky="ew", padx=2, pady=2)
+    tk.Button(action_bar, text="4. Generate Commit Prompt", command=lambda: _gui_generate("COMMIT_REQUEST", "commit-prompt")).grid(row=0, column=3, sticky="ew", padx=2, pady=2)
+    tk.Button(action_bar, text="5. Generate Checkpoint Summary", command=lambda: _gui_generate("STATUS_SUMMARY", "checkpoint-summary")).grid(row=0, column=4, sticky="ew", padx=2, pady=2)
+    tk.Button(action_bar, text="Copy Output", command=lambda: _gui_copy_output()).grid(row=1, column=0, sticky="ew", padx=2, pady=2)
+    tk.Button(action_bar, text="Clear Output", command=lambda: _set_output("")).grid(row=1, column=1, sticky="ew", padx=2, pady=2)
+    tk.Button(action_bar, text="Save Session", command=lambda: _gui_save_session()).grid(row=1, column=2, sticky="ew", padx=2, pady=2)
+    tk.Button(action_bar, text="Load Session", command=lambda: _gui_load_session()).grid(row=1, column=3, sticky="ew", padx=2, pady=2)
+    tk.Button(action_bar, text="Reset Approval", command=lambda: _gui_reset_approval()).grid(row=1, column=4, sticky="ew", padx=2, pady=2)
+
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+
+    primary_tab, primary = make_scrollable_tab("Primary")
+    advanced_tab, advanced = make_scrollable_tab("Advanced")
+    output_tab = tk.Frame(notebook)
+    notebook.add(output_tab, text="Output")
+    output_tab.columnconfigure(0, weight=1)
+    output_tab.rowconfigure(1, weight=1)
+
+    primary_frame = tk.LabelFrame(primary, text="Describe Task And Paste Results")
+    primary_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+    primary_frame.columnconfigure(1, weight=1)
+    add_labeled_text(primary_frame, "Current goal", "current_goal", 0, 3, "Big purpose for this workflow")
+    add_labeled_text(primary_frame, "Active task", "active_task", 1, 4, "Concrete change Codex should make")
+    add_labeled_text(primary_frame, "Files touched / planned", "files_touched", 2, 3, "One path per line")
+    add_labeled_text(primary_frame, "Target files", "target_files", 3, 2, "Allowed scope for Codex")
+    add_labeled_text(
+        primary_frame,
+        "Latest Codex result summary",
+        "last_codex_result_summary",
+        4,
+        5,
+        "Paste Codex implementation, review, or commit result here",
+    )
+    add_labeled_text(primary_frame, "Validation commands", "validation_commands", 5, 6, "Commands Codex should run")
+    add_labeled_entry(primary_frame, "Commit message", "commit_message", 6, "Used only in generated commit prompts")
+
+    repo_frame = tk.LabelFrame(advanced, text="Repo Status")
+    repo_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
     repo_frame.columnconfigure(1, weight=1)
     add_labeled_entry(repo_frame, "Repo path", "repo", 0)
     add_labeled_entry(repo_frame, "Branch", "branch", 1)
     add_labeled_entry(repo_frame, "HEAD", "head", 2)
     add_labeled_text(repo_frame, "Working tree status", "working_tree_status", 3, 4)
     add_labeled_text(repo_frame, "Protected paths", "protected_paths", 4, 2)
+    add_labeled_entry(repo_frame, "Blocked by", "blocked_by", 5)
 
-    tk.Button(repo_frame, text="Load Git Status", command=lambda: _gui_load_git_status()).grid(
-        row=5,
-        column=1,
-        sticky="e",
-        padx=4,
-        pady=4,
+    context_frame = tk.LabelFrame(advanced, text="Context And Approval")
+    context_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
+    context_frame.columnconfigure(1, weight=1)
+    add_labeled_text(
+        context_frame,
+        "Last prompt/action summary",
+        "last_codex_prompt",
+        0,
+        4,
+        "Most recent prompt, commit result, or workflow note",
     )
-
-    task_frame = tk.LabelFrame(left, text="Task")
-    task_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=4)
-    task_frame.columnconfigure(1, weight=1)
-    add_labeled_text(task_frame, "Current goal", "current_goal", 0, 3)
-    add_labeled_text(task_frame, "Active task", "active_task", 1, 3)
-    add_labeled_text(task_frame, "Files touched", "files_touched", 2, 3)
-    add_labeled_text(task_frame, "Target files", "target_files", 3, 2)
-    add_labeled_text(task_frame, "Validation commands", "validation_commands", 4, 5)
-    add_labeled_entry(task_frame, "Blocked by", "blocked_by", 5)
-
-    codex_frame = tk.LabelFrame(left, text="Codex Result")
-    codex_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=4)
-    codex_frame.columnconfigure(1, weight=1)
-    add_labeled_text(codex_frame, "Last prompt/action summary", "last_codex_prompt", 0, 3)
-    add_labeled_text(codex_frame, "Latest Codex result summary", "last_codex_result_summary", 1, 4)
-
-    approval_frame = tk.LabelFrame(left, text="Approval")
-    approval_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=4)
-    approval_frame.columnconfigure(1, weight=1)
-    tk.Checkbutton(approval_frame, text="commit_allowed", variable=commit_allowed_var).grid(
-        row=0,
+    tk.Checkbutton(context_frame, text="Commit Allowed", variable=commit_allowed_var).grid(
+        row=1,
         column=0,
         sticky="w",
-        padx=4,
-        pady=2,
+        padx=6,
+        pady=4,
     )
     tk.Checkbutton(
-        approval_frame,
-        text="human_approval_granted",
+        context_frame,
+        text="Human Approval Granted",
         variable=human_approval_granted_var,
-    ).grid(row=0, column=1, sticky="w", padx=4, pady=2)
+    ).grid(row=1, column=1, sticky="w", padx=6, pady=4)
     tk.Label(
-        approval_frame,
-        text="human_approval_required is always true. push_allowed is always false. Commit prompt requires explicit user approval.",
+        context_frame,
+        text="Commit prompt requires explicit user approval. This GUI never commits and never pushes.",
         anchor="w",
-    ).grid(row=1, column=0, columnspan=2, sticky="w", padx=4, pady=2)
-    add_labeled_entry(approval_frame, "Commit message", "commit_message", 2)
+        justify=tk.LEFT,
+    ).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=4)
 
-    buttons_frame = tk.Frame(right)
-    buttons_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-    for index in range(4):
-        buttons_frame.columnconfigure(index, weight=1)
-
-    tk.Button(buttons_frame, text="Generate Implementation Prompt", command=lambda: _gui_generate("PROMPT_FOR_CODEX", "implementation-prompt")).grid(row=0, column=0, sticky="ew", padx=2, pady=2)
-    tk.Button(buttons_frame, text="Generate Review Prompt", command=lambda: _gui_generate("REVIEW_REQUEST", "review-prompt")).grid(row=0, column=1, sticky="ew", padx=2, pady=2)
-    tk.Button(buttons_frame, text="Generate Commit Prompt", command=lambda: _gui_generate("COMMIT_REQUEST", "commit-prompt")).grid(row=0, column=2, sticky="ew", padx=2, pady=2)
-    tk.Button(buttons_frame, text="Generate Checkpoint Summary", command=lambda: _gui_generate("STATUS_SUMMARY", "checkpoint-summary")).grid(row=0, column=3, sticky="ew", padx=2, pady=2)
-    tk.Button(buttons_frame, text="Copy Output", command=lambda: _gui_copy_output()).grid(row=1, column=0, sticky="ew", padx=2, pady=2)
-    tk.Button(buttons_frame, text="Save Session", command=lambda: _gui_save_session()).grid(row=1, column=1, sticky="ew", padx=2, pady=2)
-    tk.Button(buttons_frame, text="Load Session", command=lambda: _gui_load_session()).grid(row=1, column=2, sticky="ew", padx=2, pady=2)
-    tk.Button(buttons_frame, text="Clear Output", command=lambda: _set_output("")).grid(row=1, column=3, sticky="ew", padx=2, pady=2)
-    tk.Button(buttons_frame, text="Reset Approval", command=lambda: _gui_reset_approval()).grid(row=2, column=0, sticky="ew", padx=2, pady=2)
-
-    output = ScrolledText(right, width=90, height=40, wrap=tk.WORD)
-    output.grid(row=1, column=0, sticky="nsew")
+    tk.Label(output_tab, textvariable=artifact_var, font=("TkDefaultFont", 11, "bold"), anchor="w").grid(
+        row=0,
+        column=0,
+        sticky="ew",
+        padx=8,
+        pady=(8, 4),
+    )
+    output = ScrolledText(output_tab, width=110, height=38, wrap=tk.WORD)
+    output.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
+    output_buttons = tk.Frame(output_tab)
+    output_buttons.grid(row=2, column=0, sticky="ew", padx=8, pady=8)
+    output_buttons.columnconfigure(0, weight=1)
+    output_buttons.columnconfigure(1, weight=1)
+    tk.Button(output_buttons, text="Copy Output", command=lambda: _gui_copy_output()).grid(row=0, column=0, sticky="ew", padx=2)
+    tk.Button(output_buttons, text="Clear Output", command=lambda: _set_output("")).grid(row=0, column=1, sticky="ew", padx=2)
 
     status = tk.Label(root, textvariable=status_var, anchor="w")
-    status.pack(fill=tk.X, padx=8, pady=(0, 8))
+    status.pack(fill=tk.X, padx=10, pady=(0, 8))
 
     def _gui_load_git_status() -> None:
         try:
@@ -284,6 +397,7 @@ def launch_gui() -> None:
             _set_field("head", git_state["head"])
             _set_field("working_tree_status", git_state["working_tree_status"])
             status_var.set("Loaded read-only git status.")
+            instruction_var.set("Step 1: Describe the task, then generate an implementation prompt.")
         except (OSError, subprocess.SubprocessError, ValidationError) as exc:
             status_var.set(f"Git status load failed; manual entry is still allowed: {exc}")
 
@@ -297,6 +411,9 @@ def launch_gui() -> None:
                 _set_field("working_tree_status", payload["working_tree_status"])
             rendered = render_from_payload(payload, mode)
             _set_output(rendered)
+            artifact_var.set(ARTIFACT_LABELS[mode])
+            instruction_var.set(instruction_for_mode(mode))
+            notebook.select(output_tab)
             if mode == "checkpoint-summary":
                 status_var.set(
                     "Rendered checkpoint-summary after read-only git refresh. Consider Reset Approval before the next task."
@@ -310,6 +427,7 @@ def launch_gui() -> None:
     def _gui_reset_approval() -> None:
         commit_allowed_var.set(False)
         human_approval_granted_var.set(False)
+        instruction_var.set("Step 1: Approval reset. Describe the next task or generate a new implementation prompt.")
         status_var.set("Approval flags reset. commit_allowed=false and human_approval_granted=false.")
 
     def _gui_copy_output() -> None:
@@ -347,6 +465,8 @@ def launch_gui() -> None:
         try:
             payload = load_session_file(path)
             _populate_form(payload)
+            notebook.select(primary_tab)
+            instruction_var.set("Step 1: Session loaded. Review the task, then generate the next prompt.")
             status_var.set(f"Session loaded: {path}")
         except ValidationError as exc:
             messagebox.showerror("Load failed", str(exc))
@@ -418,6 +538,8 @@ def launch_gui() -> None:
     def _set_output(text: str) -> None:
         output.delete("1.0", tk.END)
         output.insert("1.0", text)
+        if not text:
+            artifact_var.set("No artifact generated yet")
 
     _populate_form(default_session_state())
     root.mainloop()
@@ -430,6 +552,17 @@ def run_self_test() -> None:
     payload = default_session_state()
     _assert("jarvis.bat" in payload["protected_paths"], "default protected_paths must include jarvis.bat")
     _assert(payload["push_allowed"] is False, "default push_allowed must be false")
+    _assert(layout_tab_names() == ("Primary", "Advanced", "Output"), "layout tabs should be primary/advanced/output")
+    _assert("Describe Task" in workflow_steps_text(), "workflow guide should include describe task")
+    _assert("Checkpoint" in workflow_steps_text(), "workflow guide should include checkpoint")
+    _assert(
+        "Copy the implementation prompt" in instruction_for_mode("implementation-prompt"),
+        "implementation instruction should guide next action",
+    )
+    _assert(
+        "Reset approval" in instruction_for_mode("checkpoint-summary"),
+        "checkpoint instruction should remind approval reset",
+    )
 
     implementation_prompt = render_from_payload({**payload, "next_action": "PROMPT_FOR_CODEX"}, "implementation-prompt")
     _assert("# Codex Implementation Prompt" in implementation_prompt, "implementation prompt missing")
