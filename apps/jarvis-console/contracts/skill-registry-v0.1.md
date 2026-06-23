@@ -36,6 +36,9 @@ Each skill entry must include:
 - `commands`
 - `local_url`
 - `app_path`
+- `docs`
+- `tests`
+- `examples`
 - `tags`
 - `route_keywords`
 - `safety_notes`
@@ -48,10 +51,18 @@ The `commands` object must include:
 
 Command values may be empty for planned skills.
 
+The `docs`, `tests`, and `examples` fields must be lists of text values.
+They are detail metadata for display only. Test command values follow the same
+display-only safety rule as `commands`.
+
+The `docs` and `examples` values must be local repo-relative paths using
+forward slashes. Absolute paths, parent traversal, Windows drive paths, and
+external URLs are not allowed.
+
 ## Optional Fields
 
-No optional fields are defined in v0.1. Future versions may add fields, but
-unknown fields should not grant new behavior or permissions.
+No optional behavior-granting fields are defined in v0.1. Future versions may
+add fields, but unknown fields should not grant new behavior or permissions.
 
 ## Allowed Status Values
 

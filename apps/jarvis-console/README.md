@@ -5,12 +5,13 @@ main UI. It is meant to feel closer to a ChatGPT/Codex-style command surface
 than a collection of separate files, CLI commands, and JSON fixtures.
 
 v0.1 is intentionally small. It shows the future console shape, skill tabs,
-deterministic skill suggestions, and safety boundaries. It does not run the
-other Jarvis apps automatically.
+deterministic skill suggestions, skill detail metadata, and safety boundaries.
+It does not run the other Jarvis apps automatically.
 
-Skill cards and command suggestions are loaded from the read-only
-`skills.json` registry. The registry is display and routing metadata only; it
-does not grant execution permission.
+Skill cards, skill details, and command suggestions are loaded from the
+read-only `skills.json` registry. The registry is display and routing metadata
+only; it does not grant execution permission. Copy command buttons copy text to
+the clipboard only.
 
 ## Run
 
@@ -65,9 +66,11 @@ Included:
 - Chat / Command input.
 - Deterministic keyword-based skill suggestion.
 - Skill cards loaded from `skills.json`.
+- Skill detail view for docs, tests, commands, safety notes, and non-goals.
+- Copy command buttons that never execute commands.
 - Read-only skill registry validation.
 - Local-only safety banner.
-- Status and suggestion API endpoints.
+- Status, skill detail, and suggestion API endpoints.
 - Self-test and smoke test.
 
 ## Non-Goals

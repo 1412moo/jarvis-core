@@ -201,9 +201,16 @@ textarea {
   color: var(--muted);
 }
 
+.skill-browser {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.85fr) minmax(300px, 1.15fr);
+  gap: 14px;
+  align-items: start;
+}
+
 .skill-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 
@@ -215,11 +222,28 @@ textarea {
   background: #fbfcfd;
 }
 
-.skill-card h3 {
-  margin: 10px 0 8px;
+.skill-card {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
 }
 
-.skill-card p {
+.skill-card:hover,
+.skill-card:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.skill-card-title {
+  display: block;
+  margin: 10px 0 8px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.skill-card-description {
+  display: block;
+  margin-bottom: 12px;
   color: var(--muted);
 }
 
@@ -262,6 +286,78 @@ code {
   display: block;
   color: var(--muted);
   font-weight: 700;
+}
+
+.skill-detail-panel {
+  min-height: 360px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.detail-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detail-heading h3 {
+  margin: 4px 0 0;
+  font-size: 1.3rem;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.detail-grid div,
+.detail-section {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.detail-grid dt,
+.detail-section h4 {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.detail-grid dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.command-row {
+  margin-top: 10px;
+}
+
+.command-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.copy-command {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--accent-dark);
+  cursor: pointer;
+}
+
+.copy-command:hover,
+.copy-command:focus-visible {
+  border-color: var(--accent);
+  outline: none;
 }
 
 .command-label {
@@ -376,6 +472,11 @@ a {
   }
 
   .skill-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .skill-browser,
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -7,9 +7,9 @@ import inspect
 import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 import webbrowser
 
 
@@ -32,6 +32,9 @@ REQUIRED_SKILL_FIELDS = {
     "commands",
     "local_url",
     "app_path",
+    "docs",
+    "tests",
+    "examples",
     "tags",
     "route_keywords",
     "safety_notes",
@@ -153,7 +156,7 @@ def validate_registry(registry: dict[str, Any]) -> None:
         if local_url and not local_url.startswith("http://127.0.0.1"):
             raise RegistryError(f"{skill_id} local_url must be local-only")
 
-        for field in ("tags", "route_keywords", "safety_notes", "non_goals"):
+        for field in ("tags", "route_keywords", "safety_notes", "non_goals", "docs", "tests", "examples"):
             value = skill[field]
             if not isinstance(value, list):
                 raise RegistryError(f"{skill_id} {field} must be a list")
@@ -161,6 +164,15 @@ def validate_registry(registry: dict[str, Any]) -> None:
                 raise RegistryError(f"{skill_id} route_keywords must not be empty")
             if not all(isinstance(item, str) for item in value):
                 raise RegistryError(f"{skill_id} {field} entries must be text")
+            if field in {"docs", "examples"}:
+                for path_value in value:
+                    validate_registry_path(skill_id, field, path_value)
+            if field == "tests":
+                for test_command in value:
+                    validate_display_command(skill_id, "test command", test_command)
+
+        if skill["status"] == "available" and not (skill["docs"] or skill["tests"] or skill["safe_next_action"]):
+            raise RegistryError(f"{skill_id} available skills need docs, tests, or safe_next_action")
 
 
 def _required_text(skill: dict[str, Any], field: str) -> str:
@@ -181,10 +193,38 @@ def validate_display_command(skill_id: str, command_name: str, command: str) -> 
         raise RegistryError(f"{skill_id} {command_name} must not contain network URLs")
 
 
+def validate_registry_path(skill_id: str, field: str, path_value: str) -> None:
+    """Validate a metadata path as local, repo-relative display text."""
+
+    if not path_value.strip():
+        raise RegistryError(f"{skill_id} {field} entries must not be empty")
+    lowered = path_value.lower()
+    path = PurePosixPath(path_value)
+    if (
+        "http://" in lowered
+        or "https://" in lowered
+        or "\\" in path_value
+        or ":" in path_value
+        or path.is_absolute()
+        or path_value.startswith("~")
+        or ".." in path.parts
+    ):
+        raise RegistryError(f"{skill_id} {field} entries must be local repo-relative paths")
+
+
 def registry_skills() -> list[dict[str, Any]]:
     """Return validated skill list from the registry."""
 
     return list(load_registry()["skills"])
+
+
+def skill_detail(skill_id: str) -> dict[str, Any] | None:
+    """Return one registry skill by id without mutating registry state."""
+
+    for skill in registry_skills():
+        if skill["skill_id"] == skill_id:
+            return dict(skill)
+    return None
 
 
 def status_payload() -> dict[str, Any]:
@@ -261,12 +301,21 @@ def parse_json_body(raw_body: bytes) -> tuple[int, dict[str, Any]]:
     return HTTPStatus.OK, payload
 
 
-def handle_get_api(path: str) -> tuple[int, dict[str, Any]]:
+def handle_get_api(path: str, query: str = "") -> tuple[int, dict[str, Any]]:
     """Handle read-only GET API routes."""
 
     try:
         if path == "/api/status":
             return HTTPStatus.OK, status_payload()
+        if path == "/api/skill":
+            params = parse_qs(query)
+            skill_id = (params.get("skill_id") or [""])[0].strip()
+            if not skill_id:
+                return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing_skill_id"}
+            skill = skill_detail(skill_id)
+            if skill is None:
+                return HTTPStatus.NOT_FOUND, {"ok": False, "error": "unknown_skill"}
+            return HTTPStatus.OK, {"ok": True, "skill": skill}
     except RegistryError as exc:
         return HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)}
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
@@ -294,9 +343,10 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "local_clients_only"})
             return
 
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path.startswith("/api/"):
-            status, payload = handle_get_api(path)
+            status, payload = handle_get_api(path, parsed.query)
             self._send_json(status, payload)
             return
 
@@ -399,6 +449,10 @@ def run_self_test() -> None:
         assert set(skill["commands"]).issuperset(REQUIRED_COMMAND_FIELDS)
         for command in skill["commands"].values():
             validate_display_command(skill["skill_id"], "self-test", command)
+        for test_command in skill["tests"]:
+            validate_display_command(skill["skill_id"], "self-test", test_command)
+        if skill["status"] == "available":
+            assert skill["docs"] or skill["tests"] or skill["safe_next_action"]
         if skill["local_url"]:
             assert skill["local_url"].startswith("http://127.0.0.1")
 
@@ -425,6 +479,24 @@ def run_self_test() -> None:
         else:
             raise AssertionError(f"dangerous command was not rejected: {command}")
 
+    bad_paths = (
+        "",
+        "https://example.com/doc",
+        "http://example.com/doc",
+        "C:/work/file.md",
+        "/absolute/file.md",
+        "../outside.md",
+        "apps\\jarvis-console\\README.md",
+        "~/secret.md",
+    )
+    for path_value in bad_paths:
+        try:
+            validate_registry_path("bad_skill", "docs", path_value)
+        except RegistryError:
+            pass
+        else:
+            raise AssertionError(f"unsafe registry path was not rejected: {path_value}")
+
     assert suggest_skill("idea MVP validation")["recommended_skill"] == "research_council"
     assert suggest_skill("Codex commit review")["recommended_skill"] == "hermes_manager"
     assert suggest_skill("MCP Agent Skills new technology")["recommended_skill"] == "daily_ai_radar"
@@ -440,9 +512,23 @@ def run_self_test() -> None:
     assert {"research_council", "daily_ai_radar", "hermes_manager"}.issubset(skill_ids)
     assert len(status["skills"]) == 6
     assert "jarvis.bat" in status["protected_paths"]
+    assert all({"docs", "tests", "examples"}.issubset(skill) for skill in status["skills"])
     hermes_commands = suggest_skill("Codex commit review")["commands"]
     assert "apps/hermes-manager-pilot/run_web_app.py" in hermes_commands["git_bash"]
     assert "apps\\hermes-manager-pilot\\run_web_app.py" in hermes_commands["powershell"]
+    skill_code, skill_response = handle_get_api("/api/skill", "skill_id=research_council")
+    assert skill_code == HTTPStatus.OK
+    assert skill_response["skill"]["skill_id"] == "research_council"
+    assert skill_response["skill"]["docs"]
+    assert skill_response["skill"]["tests"]
+    for skill_id in ("research_council", "daily_ai_radar", "hermes_manager"):
+        detail_code, detail_response = handle_get_api("/api/skill", f"skill_id={skill_id}")
+        assert detail_code == HTTPStatus.OK
+        detail = detail_response["skill"]
+        assert detail["docs"] and detail["tests"]
+        assert set(detail["commands"]).issuperset(REQUIRED_COMMAND_FIELDS)
+    assert handle_get_api("/api/skill")[0] == HTTPStatus.BAD_REQUEST
+    assert handle_get_api("/api/skill", "skill_id=missing")[0] == HTTPStatus.NOT_FOUND
 
     html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "Chat / Command" in html
@@ -454,6 +540,7 @@ def run_self_test() -> None:
     assert "Memory / Skills" in html
     assert "Settings" in html
     assert "skillGrid" in html
+    assert "skillDetail" in html
     assert "Safety mode: Jarvis only recommends. It does not run tools." in html
     assert "Local-only" in html
     assert "No automatic Codex / ChatGPT / Hermes invocation" in html
@@ -463,12 +550,19 @@ def run_self_test() -> None:
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
     assert "fetch(" in app_js
     assert "/api/status" in app_js
+    assert "/api/skill" in app_js
     assert "renderSkillCards" in app_js
+    assert "renderSkillDetail" in app_js
+    assert "navigator.clipboard.writeText" in app_js
+    assert "copy-command" in app_js
     assert "Git Bash" in app_js
     assert "PowerShell" in app_js
     assert "http://" not in app_js
     assert "https://" not in app_js
     assert "cdn" not in app_js.lower()
+    assert "child_process" not in app_js
+    assert "exec(" not in app_js
+    assert "spawn(" not in app_js
 
     styles = (WEB_ROOT / "styles.css").read_text(encoding="utf-8")
     assert "http://" not in styles

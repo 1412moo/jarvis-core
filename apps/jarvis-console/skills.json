@@ -20,6 +20,18 @@
       },
       "local_url": "",
       "app_path": "apps/research-council/",
+      "docs": [
+        "apps/research-council/README.md",
+        "apps/research-council/governance.md",
+        "apps/research-council/contracts/research-council-mvp.md"
+      ],
+      "tests": [
+        "python -B apps/research-council/run_smoke_tests.py",
+        "python -B apps/research-council/run_golden_cases.py"
+      ],
+      "examples": [
+        "apps/research-council/examples/"
+      ],
       "tags": [
         "idea",
         "mvp",
@@ -71,6 +83,18 @@
       },
       "local_url": "",
       "app_path": "apps/daily-ai-radar/",
+      "docs": [
+        "apps/daily-ai-radar/README.md",
+        "apps/daily-ai-radar/governance.md",
+        "apps/daily-ai-radar/contracts/daily-ai-radar-mvp.md"
+      ],
+      "tests": [
+        "python -B apps/daily-ai-radar/run_smoke_tests.py"
+      ],
+      "examples": [
+        "apps/daily-ai-radar/examples/sample-input.json",
+        "apps/daily-ai-radar/examples/sample-report.md"
+      ],
       "tags": [
         "ai tech",
         "mcp",
@@ -129,6 +153,19 @@
       },
       "local_url": "http://127.0.0.1:8787/",
       "app_path": "apps/hermes-manager-pilot/",
+      "docs": [
+        "apps/hermes-manager-pilot/README.md",
+        "apps/hermes-manager-pilot/governance.md",
+        "apps/hermes-manager-pilot/contracts/hermes-manager-pilot-v0.1.md"
+      ],
+      "tests": [
+        "python -B apps/hermes-manager-pilot/run_smoke_tests.py",
+        "python -B apps/hermes-manager-pilot/run_web_app.py --self-test"
+      ],
+      "examples": [
+        "apps/hermes-manager-pilot/examples/sample-session-state.json",
+        "apps/hermes-manager-pilot/examples/sample-rendered-implementation-prompt.md"
+      ],
       "tags": [
         "codex",
         "commit",
@@ -180,6 +217,14 @@
       },
       "local_url": "",
       "app_path": "",
+      "docs": [
+        "docs/jarvis-console.md",
+        "apps/jarvis-console/contracts/skill-registry-v0.1.md"
+      ],
+      "tests": [
+        "python -B apps/jarvis-console/run_smoke_tests.py"
+      ],
+      "examples": [],
       "tags": [
         "memory",
         "skill",
@@ -222,6 +267,14 @@
       },
       "local_url": "",
       "app_path": "",
+      "docs": [
+        "docs/jarvis-console.md",
+        "apps/jarvis-console/contracts/skill-registry-v0.1.md"
+      ],
+      "tests": [
+        "python -B apps/jarvis-console/run_smoke_tests.py"
+      ],
+      "examples": [],
       "tags": [
         "tasks",
         "reports",
@@ -262,6 +315,18 @@
       },
       "local_url": "",
       "app_path": "",
+      "docs": [
+        "docs/jarvis-console.md",
+        "apps/jarvis-console/README.md",
+        "apps/jarvis-console/contracts/skill-registry-v0.1.md"
+      ],
+      "tests": [
+        "python -B apps/jarvis-console/run_web_app.py --self-test",
+        "python -B apps/jarvis-console/run_smoke_tests.py"
+      ],
+      "examples": [
+        "apps/jarvis-console/skills.json"
+      ],
       "tags": [
         "settings",
         "safety",

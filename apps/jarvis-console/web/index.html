@@ -53,10 +53,15 @@
         <div class="panel-heading">
           <p class="eyebrow">Skills</p>
           <h2>Available Jarvis skill surfaces</h2>
-          <p>Each card is rendered from the read-only skill registry.</p>
+          <p>Each card is rendered from the read-only skill registry. Select a card to inspect details before taking manual action.</p>
         </div>
-        <div class="skill-grid" id="skillGrid">
-          <p class="muted">Loading skill registry...</p>
+        <div class="skill-browser">
+          <div class="skill-grid" id="skillGrid">
+            <p class="muted">Loading skill registry...</p>
+          </div>
+          <section class="skill-detail-panel" id="skillDetail" aria-label="Skill detail">
+            <p class="muted">Select a skill to inspect commands, docs, tests, safety notes, and non-goals.</p>
+          </section>
         </div>
       </section>
 
