@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hermes Manager Pilot</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>Hermes Manager Pilot</h1>
+      <p>Local-only. This UI does not call Codex, ChatGPT, Hermes, commit, push, or network.</p>
+    </div>
+    <button id="loadGitStatus" type="button" class="secondary-button">Load Git Status</button>
+  </header>
+
+  <main class="layout">
+    <aside class="step-panel" aria-label="Workflow steps">
+      <h2>Steps</h2>
+      <ol id="stepList">
+        <li data-step="1">Describe Task</li>
+        <li data-step="2">Confirm Scope</li>
+        <li data-step="3">Copy Task Prompt</li>
+        <li data-step="4">Paste Codex Result</li>
+        <li data-step="5">Copy Review Prompt</li>
+        <li data-step="6">Approve Commit</li>
+        <li data-step="7">Copy Commit Prompt</li>
+        <li data-step="8">Checkpoint</li>
+      </ol>
+    </aside>
+
+    <section class="action-card" aria-live="polite">
+      <div class="step-kicker" id="currentStepLabel">Step 1 of 8</div>
+      <h2 id="actionTitle">What do you want Codex to do?</h2>
+      <p id="actionHelp">Write one task. No automation is triggered.</p>
+
+      <section id="taskSection" class="step-section">
+        <label for="taskInput">What do you want Codex to do?</label>
+        <textarea id="taskInput" rows="6" placeholder="README에 Hermes GUI 사용법을 초보자도 이해하기 쉽게 추가해줘."></textarea>
+        <button id="prepareButton" type="button" class="primary-button">Prepare Session</button>
+      </section>
+
+      <section id="preparedSection" class="step-section hidden">
+        <p>Review the prepared scope. Confirm target files before creating a Codex prompt.</p>
+        <div class="summary-grid">
+          <div>
+            <span>Goal</span>
+            <strong id="summaryGoal">-</strong>
+          </div>
+          <div>
+            <span>Task</span>
+            <strong id="summaryTask">-</strong>
+          </div>
+          <div>
+            <span>Target files</span>
+            <textarea id="targetFilesInput" rows="3"></textarea>
+          </div>
+          <div>
+            <span>Validation commands</span>
+            <strong id="summaryValidation">-</strong>
+          </div>
+          <div>
+            <span>Commit message</span>
+            <input id="commitMessage" type="text" value="hermes-manager-pilot: add browser guided UI">
+          </div>
+        </div>
+        <p id="confirmationWarning" class="warning hidden">Confirm target files before creating a Codex prompt.</p>
+        <button id="continueToTaskPromptButton" type="button" class="primary-button">Continue To Task Prompt</button>
+      </section>
+
+      <section id="taskPromptSection" class="step-section hidden">
+        <p>Copy this task prompt and paste it into Codex.</p>
+        <div class="summary-grid compact-summary">
+          <div>
+            <span>Target files</span>
+            <strong id="taskPromptTargets">-</strong>
+          </div>
+          <div>
+            <span>Commit message</span>
+            <strong id="taskPromptCommitMessage">-</strong>
+          </div>
+        </div>
+        <button id="copyTaskPromptButton" type="button" class="primary-button">Copy Task Prompt for Codex</button>
+      </section>
+
+      <section id="resultSection" class="step-section hidden">
+        <label for="codexResult">Paste Codex result here</label>
+        <textarea id="codexResult" rows="10" placeholder="Use this after Codex answers."></textarea>
+        <div class="button-row">
+          <button id="pasteResultButton" type="button" class="secondary-button">Paste From Clipboard</button>
+          <button id="saveResultButton" type="button" class="primary-button">Save Result and Continue</button>
+        </div>
+      </section>
+
+      <section id="reviewSection" class="step-section hidden">
+        <p>Now ask Codex to review the result.</p>
+        <button id="copyReviewPromptButton" type="button" class="primary-button">Copy Review Prompt for Codex</button>
+      </section>
+
+      <section id="approvalSection" class="step-section hidden">
+        <p class="safety-note">This does not commit. It only allows creating a commit prompt.</p>
+        <label class="check-row"><input id="reviewedCheckbox" type="checkbox"> I reviewed the result</label>
+        <label class="check-row"><input id="approveCheckbox" type="checkbox"> I approve creating a commit prompt</label>
+        <button id="approveCommitButton" type="button" class="primary-button">Approve Commit Prompt</button>
+      </section>
+
+      <section id="commitSection" class="step-section hidden">
+        <button id="copyCommitPromptButton" type="button" class="primary-button">Copy Commit Prompt for Codex</button>
+      </section>
+
+      <section id="checkpointSection" class="step-section hidden">
+        <p>After commit, paste the commit result and save a checkpoint.</p>
+        <div class="button-row">
+          <button id="checkpointButton" type="button" class="primary-button">Create Checkpoint Summary</button>
+          <button id="resetApprovalButton" type="button" class="secondary-button">Reset Approval</button>
+        </div>
+      </section>
+    </section>
+
+    <aside class="output-panel">
+      <div class="output-header">
+        <h2>Generated Output</h2>
+        <span id="artifactTitle">No artifact yet</span>
+      </div>
+      <textarea id="generatedOutput" readonly></textarea>
+      <div class="button-row">
+        <button id="copyOutputButton" type="button" class="secondary-button">Copy Output</button>
+        <button id="clearOutputButton" type="button" class="secondary-button">Clear Output</button>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="status-bar" id="statusBar">Ready. Enter one task to begin.</footer>
+  <script src="/web/app.js"></script>
+</body>
+</html>

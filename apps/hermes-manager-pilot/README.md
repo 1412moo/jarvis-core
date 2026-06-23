@@ -213,6 +213,63 @@ call Codex, call ChatGPT, run Hermes, create tasks, modify files, commit, push,
 or add live integrations. Before checkpoint summaries, the GUI refreshes git
 status with read-only commands so the HEAD field is less likely to be stale.
 
+## v0.4 Browser Guided UI
+
+Recommended: use the browser guided UI for normal Codex workflow prompting.
+The tkinter launcher remains a local legacy helper, but the browser UI is
+designed around one current action and an always-visible generated output
+panel.
+
+Start the local browser UI:
+
+```powershell
+python -B apps\hermes-manager-pilot\run_web_app.py
+```
+
+Run without opening a browser automatically:
+
+```powershell
+python -B apps\hermes-manager-pilot\run_web_app.py --no-browser
+```
+
+Choose a local port:
+
+```powershell
+python -B apps\hermes-manager-pilot\run_web_app.py --port 8788
+```
+
+Run the browser UI self-test:
+
+```powershell
+python -B apps\hermes-manager-pilot\run_web_app.py --self-test
+```
+
+The server binds to `127.0.0.1` only. It serves local HTML/CSS/JS and exposes
+local-only endpoints for preparing session metadata, rendering prompts,
+validating session data, and reading git status with read-only commands.
+
+Browser guided workflow:
+
+1. Describe the task in `What do you want Codex to do?`.
+2. Click `Prepare Session`.
+3. Confirm the prepared scope. Review the target files, validation command
+   count, and suggested commit message. If `NEEDS_USER_CONFIRMATION` appears,
+   replace it with the exact intended path before continuing.
+4. Click `Continue To Task Prompt`.
+5. Click `Copy Task Prompt for Codex`.
+6. Paste the generated prompt into Codex.
+7. Paste Codex's result back into the browser UI.
+8. Click `Copy Review Prompt for Codex`.
+9. Approve commit prompt generation only after review passes.
+10. Click `Copy Commit Prompt for Codex`.
+11. Paste the commit result back and create a checkpoint summary.
+12. Reset approval before starting the next task.
+
+The browser UI does not call Codex, call ChatGPT, run Hermes, use external
+network services, modify repository files, run `git add`, commit, or push.
+Commit approval only changes local session state so a commit prompt can be
+rendered for the user to paste into Codex.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).
