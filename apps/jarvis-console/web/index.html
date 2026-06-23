@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jarvis Console</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <header class="top-banner">
+    <div>
+      <p class="eyebrow">Jarvis Console v0.1</p>
+      <h1>Jarvis Console</h1>
+      <p class="safety-summary">Safety mode: Jarvis only recommends. It does not run tools.</p>
+    </div>
+    <div class="safety-strip" aria-label="Safety boundary">
+      <span>Local-only</span>
+      <span>No automatic Codex / ChatGPT / Hermes invocation</span>
+      <span>No commit or push</span>
+      <span>No external network/API/LLM calls</span>
+      <span>Human approval required before implementation</span>
+    </div>
+  </header>
+
+  <main class="console-layout">
+    <aside class="sidebar" aria-label="Jarvis Console tabs">
+      <button class="tab-button active" type="button" data-tab="chat">Chat / Command</button>
+      <button class="tab-button" type="button" data-tab="skills">Skills</button>
+      <button class="tab-button" type="button" data-tab="hermes">Hermes Manager</button>
+      <button class="tab-button" type="button" data-tab="research">Research Council</button>
+      <button class="tab-button" type="button" data-tab="radar">Daily AI Radar</button>
+      <button class="tab-button" type="button" data-tab="tasks">Tasks / Reports</button>
+      <button class="tab-button" type="button" data-tab="memory">Memory / Skills</button>
+      <button class="tab-button" type="button" data-tab="settings">Settings</button>
+    </aside>
+
+    <section class="workspace" aria-live="polite">
+      <section class="tab-panel" id="tab-chat">
+        <div class="panel-heading">
+          <p class="eyebrow">Chat / Command</p>
+          <h2>What do you want Jarvis to help with?</h2>
+          <p>Jarvis suggests a skill with deterministic keyword rules. It does not run the skill.</p>
+        </div>
+        <label for="commandInput">Command</label>
+        <textarea id="commandInput" rows="7" placeholder="Example: I want to validate this MVP idea before asking Codex to build it."></textarea>
+        <button id="suggestButton" class="primary-button" type="button">Suggest Skill</button>
+        <div class="result-box" id="suggestionBox">
+          <p class="muted">No suggestion yet.</p>
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-skills">
+        <div class="panel-heading">
+          <p class="eyebrow">Skills</p>
+          <h2>Available Jarvis skill surfaces</h2>
+          <p>Each card shows purpose, status, manual next action, and the no-automation boundary.</p>
+        </div>
+        <div class="skill-grid">
+          <article class="skill-card" data-skill="research_council">
+            <span class="status available">available</span>
+            <h3>Research Council</h3>
+            <p>Idea validation, MVP risk analysis, evidence gaps, and experiment plans.</p>
+            <span class="command-label">Git Bash</span>
+            <code>python -B apps/research-council/run_local_app.py</code>
+            <span class="command-label">PowerShell</span>
+            <code>python -B apps\research-council\run_local_app.py</code>
+            <strong>Does not auto-run from Jarvis Console.</strong>
+          </article>
+          <article class="skill-card" data-skill="daily_ai_radar">
+            <span class="status available">available</span>
+            <h3>Daily AI Radar</h3>
+            <p>Curated AI/agent technology candidate reports for Jarvis improvement review.</p>
+            <span class="command-label">Git Bash</span>
+            <code>python -B apps/daily-ai-radar/run_demo.py --input apps/daily-ai-radar/examples/sample-input.json</code>
+            <span class="command-label">PowerShell</span>
+            <code>python -B apps\daily-ai-radar\run_demo.py --input apps\daily-ai-radar\examples\sample-input.json</code>
+            <strong>Does not fetch sources automatically.</strong>
+          </article>
+          <article class="skill-card" data-skill="hermes_manager">
+            <span class="status available">available</span>
+            <h3>Hermes Manager</h3>
+            <p>Codex workflow management, prompt drafting, review prompts, commit prompts, and checkpoints.</p>
+            <span class="command-label">Git Bash</span>
+            <code>python -B apps/hermes-manager-pilot/run_web_app.py</code>
+            <span class="command-label">PowerShell</span>
+            <code>python -B apps\hermes-manager-pilot\run_web_app.py</code>
+            <strong>Does not call Codex or commit.</strong>
+          </article>
+          <article class="skill-card" data-skill="memory_skills">
+            <span class="status planned">planned</span>
+            <h3>Future Skills</h3>
+            <p>Repeated workflow candidates, approved skills, and Jarvis operating rules.</p>
+            <code>proposal only</code>
+            <strong>Skill candidates are not automatically installed.</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-hermes">
+        <div class="panel-heading">
+          <p class="eyebrow">Hermes Manager</p>
+          <h2>Codex workflow middle manager</h2>
+          <p>Use Hermes Manager separately for guided Codex prompt, review, commit prompt, and checkpoint workflows.</p>
+        </div>
+        <div class="command-card">
+          <span>Git Bash</span>
+          <code>python -B apps/hermes-manager-pilot/run_web_app.py</code>
+          <span>PowerShell</span>
+          <code>python -B apps\hermes-manager-pilot\run_web_app.py</code>
+        </div>
+        <div class="command-card">
+          <span>Local URL after running it separately</span>
+          <a href="http://127.0.0.1:8787/" rel="noreferrer">http://127.0.0.1:8787/</a>
+        </div>
+        <p class="safety-note">Jarvis Console does not start the Hermes Manager server, embed it, or call Codex automatically.</p>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-research">
+        <div class="panel-heading">
+          <p class="eyebrow">Research Council</p>
+          <h2>Idea validation and experiment planning</h2>
+          <p>Use Research Council when an idea, MVP, or business assumption needs structured critique.</p>
+        </div>
+        <div class="command-card">
+          <span>Git Bash</span>
+          <code>python -B apps/research-council/run_local_app.py</code>
+          <span>PowerShell</span>
+          <code>python -B apps\research-council\run_local_app.py</code>
+        </div>
+        <p class="safety-note">Research Council reports are decision support. They are not final proof or implementation approval.</p>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-radar">
+        <div class="panel-heading">
+          <p class="eyebrow">Daily AI Radar</p>
+          <h2>AI and agent technology scouting</h2>
+          <p>Use curated source metadata to produce a bounded Jarvis improvement candidate report.</p>
+        </div>
+        <div class="command-card">
+          <span>Git Bash</span>
+          <code>python -B apps/daily-ai-radar/run_demo.py --input apps/daily-ai-radar/examples/sample-input.json</code>
+          <span>PowerShell</span>
+          <code>python -B apps\daily-ai-radar\run_demo.py --input apps\daily-ai-radar\examples\sample-input.json</code>
+        </div>
+        <div class="command-card">
+          <span>Sample files</span>
+          <code>apps\daily-ai-radar\examples\sample-input.json</code>
+          <code>apps\daily-ai-radar\examples\sample-report.md</code>
+        </div>
+        <p class="safety-note">Daily AI Radar does not collect sources automatically and its recommendations do not become implementation tasks automatically.</p>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-tasks">
+        <div class="panel-heading">
+          <p class="eyebrow">Tasks / Reports</p>
+          <h2>Future approval and report queue</h2>
+          <p>Later versions can show approval-needed items, recent reports, and commit checkpoints here.</p>
+        </div>
+        <p class="placeholder">v0.1 does not mutate tasks or write reports from this console.</p>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-memory">
+        <div class="panel-heading">
+          <p class="eyebrow">Memory / Skills</p>
+          <h2>Future skill registry and operating memory</h2>
+          <p>Repeated workflows may become skill candidates after human review.</p>
+        </div>
+        <p class="placeholder">Skill candidates are proposals, not automatically installed or updated skills.</p>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-settings">
+        <div class="panel-heading">
+          <p class="eyebrow">Settings</p>
+          <h2>Local safety settings</h2>
+          <p>v0.1 has no secrets storage and no connector setup.</p>
+        </div>
+        <dl class="settings-list">
+          <div>
+            <dt>Mode</dt>
+            <dd>local-only</dd>
+          </div>
+          <div>
+            <dt>Protected paths</dt>
+            <dd><code>jarvis.bat</code></dd>
+          </div>
+          <div>
+            <dt>Future connectors</dt>
+            <dd>placeholder only; no MCP/A2A/Discord/API integration</dd>
+          </div>
+        </dl>
+      </section>
+    </section>
+
+    <aside class="status-panel">
+      <h2>Current Status</h2>
+      <p id="statusText">Ready. Suggestions are local and deterministic.</p>
+      <h3>Suggested Next Action</h3>
+      <p id="nextActionText">Describe a goal in Chat / Command.</p>
+      <h3>Safety Notes</h3>
+      <ul>
+        <li>No automation is triggered by suggestions.</li>
+        <li>Commands are instructions for manual use.</li>
+        <li>Commit and push always require separate approval.</li>
+        <li>External actions are out of scope for v0.1.</li>
+      </ul>
+    </aside>
+  </main>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
