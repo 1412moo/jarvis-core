@@ -1,0 +1,290 @@
+{
+  "registry_version": "0.1",
+  "registry_type": "jarvis_console_skill_registry",
+  "read_only": true,
+  "protected_paths": [
+    "jarvis.bat"
+  ],
+  "skills": [
+    {
+      "skill_id": "research_council",
+      "display_name": "Research Council",
+      "status": "available",
+      "category": "validation",
+      "purpose": "Idea validation and MVP risk analysis.",
+      "short_description": "Evaluate ideas, evidence gaps, risks, and minimum experiments.",
+      "safe_next_action": "Run the Research Council local launcher or prepare a bounded research input.",
+      "commands": {
+        "git_bash": "python -B apps/research-council/run_local_app.py",
+        "powershell": "python -B apps\\research-council\\run_local_app.py"
+      },
+      "local_url": "",
+      "app_path": "apps/research-council/",
+      "tags": [
+        "idea",
+        "mvp",
+        "validation",
+        "evidence",
+        "experiment"
+      ],
+      "route_keywords": [
+        "idea",
+        "mvp",
+        "validate",
+        "validation",
+        "experiment",
+        "evidence",
+        "risk",
+        "business",
+        "startup",
+        "assumption",
+        "research council",
+        "\uc544\uc774\ub514\uc5b4",
+        "\uac80\uc99d",
+        "\uc2e4\ud5d8",
+        "\uc99d\uac70",
+        "\ub9ac\uc2a4\ud06c",
+        "\uc0ac\uc5c5\uc131",
+        "\uc0ac\uc5c5",
+        "\uac00\uc124"
+      ],
+      "safety_notes": [
+        "Research Council reports are decision support, not final proof.",
+        "Jarvis Console does not run Research Council automatically."
+      ],
+      "non_goals": [
+        "No automatic execution.",
+        "No implementation approval by report alone."
+      ]
+    },
+    {
+      "skill_id": "daily_ai_radar",
+      "display_name": "Daily AI Radar",
+      "status": "available",
+      "category": "scouting",
+      "purpose": "Scout new AI and agent technology candidates.",
+      "short_description": "Turn curated AI/agent metadata into Jarvis improvement candidate reports.",
+      "safe_next_action": "Prepare curated source metadata and run the Daily AI Radar renderer manually.",
+      "commands": {
+        "git_bash": "python -B apps/daily-ai-radar/run_demo.py --input apps/daily-ai-radar/examples/sample-input.json",
+        "powershell": "python -B apps\\daily-ai-radar\\run_demo.py --input apps\\daily-ai-radar\\examples\\sample-input.json"
+      },
+      "local_url": "",
+      "app_path": "apps/daily-ai-radar/",
+      "tags": [
+        "ai tech",
+        "mcp",
+        "agent skills",
+        "langgraph",
+        "a2a",
+        "hermes"
+      ],
+      "route_keywords": [
+        "ai technology",
+        "ai tech",
+        "new technology",
+        "new tech",
+        "mcp",
+        "a2a",
+        "hermes",
+        "agent skills",
+        "agent skill",
+        "langgraph",
+        "openai",
+        "openai agents",
+        "anthropic",
+        "framework",
+        "platform",
+        "daily radar",
+        "daily ai radar",
+        "technology scout",
+        "\uae30\uc220",
+        "\uc0c8 \uae30\uc220",
+        "\uae30\uc220\ub3d9\ud5a5",
+        "\ub3d9\ud5a5",
+        "\uc5d0\uc774\uc804\ud2b8",
+        "\ud504\ub808\uc784\uc6cc\ud06c"
+      ],
+      "safety_notes": [
+        "Daily AI Radar uses curated metadata only.",
+        "Radar recommendations do not become implementation tasks automatically."
+      ],
+      "non_goals": [
+        "No automatic source collection.",
+        "No web crawling.",
+        "No automatic implementation."
+      ]
+    },
+    {
+      "skill_id": "hermes_manager",
+      "display_name": "Hermes Manager",
+      "status": "available",
+      "category": "workflow",
+      "purpose": "Codex workflow management, prompt generation, review, and commit checkpoints.",
+      "short_description": "Prepare bounded Codex prompts and checkpoint summaries for human-approved workflows.",
+      "safe_next_action": "Open Hermes Manager separately, then copy/paste prompts manually.",
+      "commands": {
+        "git_bash": "python -B apps/hermes-manager-pilot/run_web_app.py",
+        "powershell": "python -B apps\\hermes-manager-pilot\\run_web_app.py"
+      },
+      "local_url": "http://127.0.0.1:8787/",
+      "app_path": "apps/hermes-manager-pilot/",
+      "tags": [
+        "codex",
+        "commit",
+        "review",
+        "git",
+        "repo",
+        "readme"
+      ],
+      "route_keywords": [
+        "codex",
+        "commit",
+        "review",
+        "readme",
+        "repo",
+        "repository",
+        "git",
+        "pull request",
+        "pr",
+        "task prompt",
+        "commit prompt",
+        "hermes manager",
+        "workflow manager",
+        "\ucee4\ubc0b",
+        "\ub9ac\ubdf0",
+        "\uc791\uc5c5\uad00\ub9ac",
+        "\uc800\uc7a5\uc18c"
+      ],
+      "safety_notes": [
+        "Hermes Manager coordinates workflow. It does not replace Codex.",
+        "Jarvis Console does not start Hermes Manager automatically."
+      ],
+      "non_goals": [
+        "No automatic Codex call.",
+        "No automatic commit or push.",
+        "No automatic server launch."
+      ]
+    },
+    {
+      "skill_id": "memory_skills",
+      "display_name": "Memory / Skills",
+      "status": "planned",
+      "category": "memory",
+      "purpose": "Manage repeated workflow and skill candidates.",
+      "short_description": "Future area for repeated workflows, approved skills, and Jarvis operating rules.",
+      "safe_next_action": "Capture the workflow as a proposal only; do not install or update a skill automatically.",
+      "commands": {
+        "git_bash": "",
+        "powershell": ""
+      },
+      "local_url": "",
+      "app_path": "",
+      "tags": [
+        "memory",
+        "skill",
+        "workflow"
+      ],
+      "route_keywords": [
+        "memory",
+        "skill",
+        "skills",
+        "repeated task",
+        "routine",
+        "workflow",
+        "operating rule",
+        "personal context",
+        "\uae30\uc5b5",
+        "\ubc18\ubcf5",
+        "\ubc18\ubcf5\uc791\uc5c5",
+        "\uc2a4\ud0ac",
+        "\uc6b4\uc601 \uaddc\uce59"
+      ],
+      "safety_notes": [
+        "Skill candidates are proposals, not automatically installed skills."
+      ],
+      "non_goals": [
+        "No automatic skill installation.",
+        "No automatic memory write."
+      ]
+    },
+    {
+      "skill_id": "tasks_reports",
+      "display_name": "Tasks / Reports",
+      "status": "planned",
+      "category": "system",
+      "purpose": "Show task status, approval-needed items, reports, and checkpoints.",
+      "short_description": "Future approval and report queue for Jarvis Console.",
+      "safe_next_action": "Use this as a placeholder for future task and report visibility.",
+      "commands": {
+        "git_bash": "",
+        "powershell": ""
+      },
+      "local_url": "",
+      "app_path": "",
+      "tags": [
+        "tasks",
+        "reports",
+        "checkpoint"
+      ],
+      "route_keywords": [
+        "task",
+        "tasks",
+        "report",
+        "reports",
+        "checkpoint",
+        "approval",
+        "\uc791\uc5c5",
+        "\ub9ac\ud3ec\ud2b8",
+        "\ubcf4\uace0\uc11c",
+        "\uccb4\ud06c\ud3ec\uc778\ud2b8",
+        "\uc2b9\uc778"
+      ],
+      "safety_notes": [
+        "v0.1 does not mutate tasks or write reports from this console."
+      ],
+      "non_goals": [
+        "No task mutation.",
+        "No report persistence from this console."
+      ]
+    },
+    {
+      "skill_id": "settings",
+      "display_name": "Settings",
+      "status": "planned",
+      "category": "system",
+      "purpose": "Show local-only settings, protected paths, and future connector placeholders.",
+      "short_description": "Read-only safety settings surface for Jarvis Console.",
+      "safe_next_action": "Review local-only settings and protected paths.",
+      "commands": {
+        "git_bash": "",
+        "powershell": ""
+      },
+      "local_url": "",
+      "app_path": "",
+      "tags": [
+        "settings",
+        "safety",
+        "protected paths"
+      ],
+      "route_keywords": [
+        "settings",
+        "safety",
+        "protected path",
+        "protected paths",
+        "jarvis.bat",
+        "\uc124\uc815",
+        "\uc548\uc804",
+        "\ubcf4\ud638 \uacbd\ub85c"
+      ],
+      "safety_notes": [
+        "Protected path: jarvis.bat.",
+        "No secrets storage in v0.1."
+      ],
+      "non_goals": [
+        "No connector setup.",
+        "No secrets storage."
+      ]
+    }
+  ]
+}

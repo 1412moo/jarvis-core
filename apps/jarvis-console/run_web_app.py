@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import inspect
 import json
-from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,148 +15,66 @@ import webbrowser
 
 APP_ROOT = Path(__file__).resolve().parent
 WEB_ROOT = APP_ROOT / "web"
+REGISTRY_PATH = APP_ROOT / "skills.json"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8790
 MAX_JSON_BODY_BYTES = 64_000
-PROTECTED_PATHS = ("jarvis.bat",)
-
-
-@dataclass(frozen=True)
-class SkillInfo:
-    skill_id: str
-    display_name: str
-    status: str
-    purpose: str
-    safe_next_action: str
-    commands: tuple[str, ...]
-    route_keywords: tuple[str, ...]
-
-
-SKILLS: tuple[SkillInfo, ...] = (
-    SkillInfo(
-        skill_id="hermes_manager",
-        display_name="Hermes Manager",
-        status="available",
-        purpose="Manage Codex/ChatGPT workflow prompts, reviews, commit prompts, and checkpoints.",
-        safe_next_action="Open Hermes Manager separately, then copy/paste prompts manually.",
-        commands=(
-            "Git Bash: python -B apps/hermes-manager-pilot/run_web_app.py",
-            "PowerShell: python -B apps\\hermes-manager-pilot\\run_web_app.py",
-        ),
-        route_keywords=(
-            "codex",
-            "commit",
-            "review",
-            "readme",
-            "repo",
-            "repository",
-            "git",
-            "pull request",
-            "pr",
-            "task prompt",
-            "commit prompt",
-            "hermes manager",
-            "workflow manager",
-            "\ucee4\ubc0b",
-            "\ub9ac\ubdf0",
-            "\uc791\uc5c5\uad00\ub9ac",
-            "\uc800\uc7a5\uc18c",
-        ),
-    ),
-    SkillInfo(
-        skill_id="research_council",
-        display_name="Research Council",
-        status="available",
-        purpose="Evaluate ideas, MVP assumptions, evidence gaps, risks, and experiment plans.",
-        safe_next_action="Run the Research Council local launcher or prepare a bounded research input.",
-        commands=(
-            "Git Bash: python -B apps/research-council/run_local_app.py",
-            "PowerShell: python -B apps\\research-council\\run_local_app.py",
-        ),
-        route_keywords=(
-            "idea",
-            "mvp",
-            "validate",
-            "validation",
-            "experiment",
-            "evidence",
-            "risk",
-            "business",
-            "startup",
-            "assumption",
-            "research council",
-            "\uc544\uc774\ub514\uc5b4",
-            "\uac80\uc99d",
-            "\uc2e4\ud5d8",
-            "\uc99d\uac70",
-            "\ub9ac\uc2a4\ud06c",
-            "\uc0ac\uc5c5",
-            "\uac00\uc124",
-        ),
-    ),
-    SkillInfo(
-        skill_id="daily_ai_radar",
-        display_name="Daily AI Radar",
-        status="available",
-        purpose="Scout curated AI, agent, framework, protocol, and platform technology candidates.",
-        safe_next_action="Prepare curated source metadata and run the Daily AI Radar renderer manually.",
-        commands=(
-            "Git Bash: python -B apps/daily-ai-radar/run_demo.py --input apps/daily-ai-radar/examples/sample-input.json",
-            "PowerShell: python -B apps\\daily-ai-radar\\run_demo.py --input apps\\daily-ai-radar\\examples\\sample-input.json",
-        ),
-        route_keywords=(
-            "ai technology",
-            "new technology",
-            "new tech",
-            "mcp",
-            "a2a",
-            "hermes",
-            "agent skills",
-            "agent skill",
-            "langgraph",
-            "openai agents",
-            "anthropic",
-            "framework",
-            "platform",
-            "daily radar",
-            "daily ai radar",
-            "technology scout",
-            "\uae30\uc220",
-            "\uc0c8 \uae30\uc220",
-            "\ub3d9\ud5a5",
-            "\uc5d0\uc774\uc804\ud2b8",
-            "\ud504\ub808\uc784\uc6cc\ud06c",
-        ),
-    ),
-    SkillInfo(
-        skill_id="memory_skills",
-        display_name="Memory / Skills",
-        status="planned",
-        purpose="Track repeated workflow candidates, approved skills, and Jarvis operating rules.",
-        safe_next_action="Capture the workflow as a proposal only; do not install or update a skill automatically.",
-        commands=(),
-        route_keywords=(
-            "memory",
-            "skill",
-            "skills",
-            "repeated task",
-            "routine",
-            "operating rule",
-            "personal context",
-            "\uae30\uc5b5",
-            "\ubc18\ubcf5",
-            "\uc2a4\ud0ac",
-            "\uc6b4\uc601 \uaddc\uce59",
-        ),
-    ),
+ALLOWED_STATUSES = {"available", "planned", "experimental"}
+ALLOWED_CATEGORIES = {"validation", "scouting", "workflow", "memory", "system"}
+REQUIRED_SKILL_FIELDS = {
+    "skill_id",
+    "display_name",
+    "status",
+    "category",
+    "purpose",
+    "short_description",
+    "safe_next_action",
+    "commands",
+    "local_url",
+    "app_path",
+    "tags",
+    "route_keywords",
+    "safety_notes",
+    "non_goals",
+}
+REQUIRED_COMMAND_FIELDS = {"git_bash", "powershell"}
+ROUTING_PRIORITY = {
+    "hermes_manager": 0,
+    "research_council": 1,
+    "daily_ai_radar": 2,
+    "memory_skills": 3,
+    "tasks_reports": 4,
+    "settings": 5,
+}
+FORBIDDEN_COMMAND_PATTERNS = (
+    "git" + " add",
+    "git" + " commit",
+    "git" + " push",
+    "git" + " checkout",
+    "git" + " reset",
+    "git" + " clean",
+    "git" + " rm",
+    "git" + " stash",
+    "cu" + "rl",
+    "w" + "get",
+    "invoke-" + "webrequest",
+    "invoke-" + "restmethod",
+    "start-" + "bitstransfer",
+    "bits" + "admin",
 )
+
+
+class RegistryError(ValueError):
+    """Raised when the read-only skill registry is malformed."""
+
 
 UNKNOWN_SUGGESTION = {
     "recommended_skill": "unknown",
     "display_name": "Manual choice needed",
     "reason": "No deterministic keyword rule matched the message.",
     "suggested_next_action": "Choose a skill manually from the sidebar and keep the approval boundary visible.",
-    "commands": [],
+    "commands": {"git_bash": "", "powershell": ""},
+    "matched_keywords": [],
 }
 
 STATIC_ROUTES = {
@@ -168,23 +85,112 @@ STATIC_ROUTES = {
 }
 
 
-def skill_payload(skill: SkillInfo) -> dict[str, Any]:
-    """Return public metadata for a skill card or API response."""
+def load_registry() -> dict[str, Any]:
+    """Load and validate the read-only skill registry."""
 
-    return {
-        "skill_id": skill.skill_id,
-        "display_name": skill.display_name,
-        "status": skill.status,
-        "purpose": skill.purpose,
-        "safe_next_action": skill.safe_next_action,
-        "commands": list(skill.commands),
-        "does_not_auto_run": True,
-    }
+    with REGISTRY_PATH.open("r", encoding="utf-8") as file:
+        registry = json.load(file)
+    validate_registry(registry)
+    return registry
+
+
+def validate_registry(registry: dict[str, Any]) -> None:
+    """Validate registry shape and safety boundaries deterministically."""
+
+    if not isinstance(registry, dict):
+        raise RegistryError("registry must be an object")
+    if registry.get("registry_type") != "jarvis_console_skill_registry":
+        raise RegistryError("registry_type must be jarvis_console_skill_registry")
+    if registry.get("read_only") is not True:
+        raise RegistryError("registry read_only must be true")
+
+    protected_paths = registry.get("protected_paths")
+    if not isinstance(protected_paths, list) or "jarvis.bat" not in protected_paths:
+        raise RegistryError("protected_paths must mention jarvis.bat")
+
+    skills = registry.get("skills")
+    if not isinstance(skills, list) or not skills:
+        raise RegistryError("skills must be a non-empty list")
+
+    seen_ids: set[str] = set()
+    for index, skill in enumerate(skills):
+        if not isinstance(skill, dict):
+            raise RegistryError(f"skill #{index} must be an object")
+        missing = REQUIRED_SKILL_FIELDS - set(skill)
+        if missing:
+            raise RegistryError(f"{skill.get('skill_id', index)} missing fields: {sorted(missing)}")
+
+        skill_id = _required_text(skill, "skill_id")
+        if skill_id in seen_ids:
+            raise RegistryError(f"duplicate skill_id: {skill_id}")
+        seen_ids.add(skill_id)
+
+        _required_text(skill, "display_name")
+        _required_text(skill, "purpose")
+        _required_text(skill, "short_description")
+        _required_text(skill, "safe_next_action")
+
+        if skill["status"] not in ALLOWED_STATUSES:
+            raise RegistryError(f"{skill_id} invalid status: {skill['status']}")
+        if skill["category"] not in ALLOWED_CATEGORIES:
+            raise RegistryError(f"{skill_id} invalid category: {skill['category']}")
+
+        commands = skill["commands"]
+        if not isinstance(commands, dict):
+            raise RegistryError(f"{skill_id} commands must be an object")
+        missing_commands = REQUIRED_COMMAND_FIELDS - set(commands)
+        if missing_commands:
+            raise RegistryError(f"{skill_id} missing command fields: {sorted(missing_commands)}")
+        for command_name in sorted(REQUIRED_COMMAND_FIELDS):
+            command = commands.get(command_name)
+            if not isinstance(command, str):
+                raise RegistryError(f"{skill_id} command {command_name} must be text")
+            validate_display_command(skill_id, command_name, command)
+
+        local_url = skill.get("local_url")
+        if not isinstance(local_url, str):
+            raise RegistryError(f"{skill_id} local_url must be text")
+        if local_url and not local_url.startswith("http://127.0.0.1"):
+            raise RegistryError(f"{skill_id} local_url must be local-only")
+
+        for field in ("tags", "route_keywords", "safety_notes", "non_goals"):
+            value = skill[field]
+            if not isinstance(value, list):
+                raise RegistryError(f"{skill_id} {field} must be a list")
+            if field == "route_keywords" and not value:
+                raise RegistryError(f"{skill_id} route_keywords must not be empty")
+            if not all(isinstance(item, str) for item in value):
+                raise RegistryError(f"{skill_id} {field} entries must be text")
+
+
+def _required_text(skill: dict[str, Any], field: str) -> str:
+    value = skill.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise RegistryError(f"{skill.get('skill_id', '<unknown>')} {field} is required")
+    return value
+
+
+def validate_display_command(skill_id: str, command_name: str, command: str) -> None:
+    """Validate a display-only command without executing it."""
+
+    lowered = command.lower()
+    for pattern in FORBIDDEN_COMMAND_PATTERNS:
+        if pattern in lowered:
+            raise RegistryError(f"{skill_id} {command_name} contains forbidden command text")
+    if "http://" in lowered or "https://" in lowered:
+        raise RegistryError(f"{skill_id} {command_name} must not contain network URLs")
+
+
+def registry_skills() -> list[dict[str, Any]]:
+    """Return validated skill list from the registry."""
+
+    return list(load_registry()["skills"])
 
 
 def status_payload() -> dict[str, Any]:
     """Return deterministic local console status metadata."""
 
+    registry = load_registry()
     return {
         "ok": True,
         "console": "jarvis-console",
@@ -192,7 +198,9 @@ def status_payload() -> dict[str, Any]:
         "mode": "local-only",
         "host": DEFAULT_HOST,
         "default_port": DEFAULT_PORT,
-        "protected_paths": list(PROTECTED_PATHS),
+        "protected_paths": registry["protected_paths"],
+        "registry_version": registry["registry_version"],
+        "registry_read_only": registry["read_only"],
         "safety": [
             "Safety mode: Jarvis only recommends. It does not run tools.",
             "Local-only",
@@ -201,7 +209,7 @@ def status_payload() -> dict[str, Any]:
             "No external network/API/LLM calls",
             "Human approval required before implementation",
         ],
-        "skills": [skill_payload(skill) for skill in SKILLS],
+        "skills": registry["skills"],
     }
 
 
@@ -212,29 +220,32 @@ def normalize_message(message: str) -> str:
 
 
 def suggest_skill(message: str) -> dict[str, Any]:
-    """Suggest one skill with deterministic keyword matching only."""
+    """Suggest one skill from registry keywords with deterministic matching."""
 
     normalized = normalize_message(message)
     if not normalized:
         return dict(UNKNOWN_SUGGESTION)
 
-    best_skill: SkillInfo | None = None
-    best_hits: list[str] = []
-    for skill in SKILLS:
-        hits = [keyword for keyword in skill.route_keywords if keyword in normalized]
-        if len(hits) > len(best_hits):
-            best_skill = skill
-            best_hits = hits
+    candidates: list[tuple[int, int, dict[str, Any], list[str]]] = []
+    for skill in registry_skills():
+        keywords = [keyword.lower() for keyword in skill["route_keywords"]]
+        hits = [keyword for keyword in keywords if keyword in normalized]
+        if hits:
+            priority = ROUTING_PRIORITY.get(skill["skill_id"], 99)
+            candidates.append((len(hits), -priority, skill, hits))
 
-    if best_skill is None or not best_hits:
+    if not candidates:
         return dict(UNKNOWN_SUGGESTION)
 
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    hit_count, _priority, skill, hits = candidates[0]
     return {
-        "recommended_skill": best_skill.skill_id,
-        "display_name": best_skill.display_name,
-        "reason": f"Matched deterministic keyword(s): {', '.join(best_hits[:5])}.",
-        "suggested_next_action": best_skill.safe_next_action,
-        "commands": list(best_skill.commands),
+        "recommended_skill": skill["skill_id"],
+        "display_name": skill["display_name"],
+        "reason": f"Matched deterministic keyword(s): {', '.join(hits[:5])}.",
+        "suggested_next_action": skill["safe_next_action"],
+        "commands": skill["commands"],
+        "matched_keywords": hits[:hit_count],
     }
 
 
@@ -253,17 +264,23 @@ def parse_json_body(raw_body: bytes) -> tuple[int, dict[str, Any]]:
 def handle_get_api(path: str) -> tuple[int, dict[str, Any]]:
     """Handle read-only GET API routes."""
 
-    if path == "/api/status":
-        return HTTPStatus.OK, status_payload()
+    try:
+        if path == "/api/status":
+            return HTTPStatus.OK, status_payload()
+    except RegistryError as exc:
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)}
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
 
 
 def handle_post_api(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Handle POST API routes without running external tools."""
 
-    if path == "/api/suggest-skill":
-        suggestion = suggest_skill(str(payload.get("message", "")))
-        return HTTPStatus.OK, {"ok": True, **suggestion}
+    try:
+        if path == "/api/suggest-skill":
+            suggestion = suggest_skill(str(payload.get("message", "")))
+            return HTTPStatus.OK, {"ok": True, **suggestion}
+    except RegistryError as exc:
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)}
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
 
 
@@ -369,24 +386,63 @@ def run_self_test() -> None:
     assert DEFAULT_HOST == "127.0.0.1", "server must bind to 127.0.0.1"
     assert DEFAULT_PORT == 8790, "default port must be 8790"
 
+    registry = load_registry()
+    assert registry["read_only"] is True
+    assert "jarvis.bat" in registry["protected_paths"]
+    assert len(registry["skills"]) == 6
+    assert len({skill["skill_id"] for skill in registry["skills"]}) == 6
+    for skill in registry["skills"]:
+        assert REQUIRED_SKILL_FIELDS.issubset(skill)
+        assert skill["status"] in ALLOWED_STATUSES
+        assert skill["category"] in ALLOWED_CATEGORIES
+        assert isinstance(skill["route_keywords"], list) and skill["route_keywords"]
+        assert set(skill["commands"]).issuperset(REQUIRED_COMMAND_FIELDS)
+        for command in skill["commands"].values():
+            validate_display_command(skill["skill_id"], "self-test", command)
+        if skill["local_url"]:
+            assert skill["local_url"].startswith("http://127.0.0.1")
+
+    bad_commands = (
+        "git" + " add .",
+        "git" + " commit -m test",
+        "git" + " push",
+        "git" + " checkout main",
+        "git" + " reset --hard",
+        "git" + " clean -fd",
+        "git" + " rm file",
+        "git" + " stash",
+        "cu" + "rl https://example.com",
+        "w" + "get https://example.com",
+        "powershell Invoke-" + "WebRequest https://example.com",
+        "powershell Invoke-" + "RestMethod https://example.com",
+        "Start-" + "BitsTransfer https://example.com",
+    )
+    for command in bad_commands:
+        try:
+            validate_display_command("bad_skill", "self-test", command)
+        except RegistryError:
+            pass
+        else:
+            raise AssertionError(f"dangerous command was not rejected: {command}")
+
     assert suggest_skill("idea MVP validation")["recommended_skill"] == "research_council"
     assert suggest_skill("Codex commit review")["recommended_skill"] == "hermes_manager"
     assert suggest_skill("MCP Agent Skills new technology")["recommended_skill"] == "daily_ai_radar"
     assert suggest_skill("remember this repeated workflow as a skill")["recommended_skill"] == "memory_skills"
     assert suggest_skill("make this better somehow")["recommended_skill"] == "unknown"
-    assert suggest_skill("\uac04\ub2e8\ud55c \uc544\uc774\ub514\uc5b4 MVP \uac80\uc99d\ud574\uc918")["recommended_skill"] == "research_council"
-    assert suggest_skill("Codex \ucee4\ubc0b \ub9ac\ubdf0 \ub3c4\uc640\uc918")["recommended_skill"] == "hermes_manager"
-    assert suggest_skill("MCP Agent Skills \uc0c8 \uae30\uc220 \ucc3e\uc544\ubd10")["recommended_skill"] == "daily_ai_radar"
-    assert suggest_skill("\ubc18\ubcf5 \uc791\uc5c5 skill\ub85c \uae30\uc5b5\ud574\uc918")["recommended_skill"] == "memory_skills"
+    assert suggest_skill("\uc544\uc774\ub514\uc5b4 MVP \uac80\uc99d")["recommended_skill"] == "research_council"
+    assert suggest_skill("Codex \ucee4\ubc0b \ub9ac\ubdf0")["recommended_skill"] == "hermes_manager"
+    assert suggest_skill("MCP Agent Skills \uc0c8 \uae30\uc220")["recommended_skill"] == "daily_ai_radar"
+    assert suggest_skill("\ubc18\ubcf5 \uc791\uc5c5 skill\ub85c \uae30\uc5b5")["recommended_skill"] == "memory_skills"
 
     status = status_payload()
     skill_ids = {skill["skill_id"] for skill in status["skills"]}
     assert {"research_council", "daily_ai_radar", "hermes_manager"}.issubset(skill_ids)
+    assert len(status["skills"]) == 6
     assert "jarvis.bat" in status["protected_paths"]
     hermes_commands = suggest_skill("Codex commit review")["commands"]
-    assert any(command.startswith("Git Bash:") for command in hermes_commands)
-    assert any("apps/hermes-manager-pilot/run_web_app.py" in command for command in hermes_commands)
-    assert any(command.startswith("PowerShell:") for command in hermes_commands)
+    assert "apps/hermes-manager-pilot/run_web_app.py" in hermes_commands["git_bash"]
+    assert "apps\\hermes-manager-pilot\\run_web_app.py" in hermes_commands["powershell"]
 
     html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "Chat / Command" in html
@@ -397,6 +453,7 @@ def run_self_test() -> None:
     assert "Tasks / Reports" in html
     assert "Memory / Skills" in html
     assert "Settings" in html
+    assert "skillGrid" in html
     assert "Safety mode: Jarvis only recommends. It does not run tools." in html
     assert "Local-only" in html
     assert "No automatic Codex / ChatGPT / Hermes invocation" in html
@@ -405,6 +462,10 @@ def run_self_test() -> None:
 
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
     assert "fetch(" in app_js
+    assert "/api/status" in app_js
+    assert "renderSkillCards" in app_js
+    assert "Git Bash" in app_js
+    assert "PowerShell" in app_js
     assert "http://" not in app_js
     assert "https://" not in app_js
     assert "cdn" not in app_js.lower()
@@ -425,10 +486,13 @@ def run_self_test() -> None:
         "git" + " add",
         "git" + " commit",
         "git" + " push",
+        "git" + " checkout",
         "git" + " reset",
         "git" + " clean",
         "git" + " rm",
         "git" + " stash",
+        "invoke-" + "webrequest",
+        "invoke-" + "restmethod",
     )
     assert all(pattern not in source for pattern in forbidden_source_patterns)
     assert inspect.getsource(run_server).count(DEFAULT_HOST) >= 1

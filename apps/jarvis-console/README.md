@@ -8,6 +8,10 @@ v0.1 is intentionally small. It shows the future console shape, skill tabs,
 deterministic skill suggestions, and safety boundaries. It does not run the
 other Jarvis apps automatically.
 
+Skill cards and command suggestions are loaded from the read-only
+`skills.json` registry. The registry is display and routing metadata only; it
+does not grant execution permission.
+
 ## Run
 
 Start the local browser shell:
@@ -60,7 +64,8 @@ Included:
 - Browser UI with sidebar tabs.
 - Chat / Command input.
 - Deterministic keyword-based skill suggestion.
-- Skill cards for current Jarvis app modules.
+- Skill cards loaded from `skills.json`.
+- Read-only skill registry validation.
 - Local-only safety banner.
 - Status and suggestion API endpoints.
 - Self-test and smoke test.
@@ -84,6 +89,9 @@ Out of scope for v0.1:
 - No auth or user accounts.
 
 ## Available Skills
+
+Skill metadata is defined in `skills.json`. The console reads that file at
+runtime and renders cards, commands, and deterministic route keywords from it.
 
 ### Hermes Manager
 
@@ -182,11 +190,12 @@ Protected path shown by default:
 
 Possible later phases:
 
-1. Add a deterministic skill registry file.
-2. Add read-only launch instructions generated from that registry.
-3. Add local report preview forms for existing deterministic renderers.
-4. Add an approval queue with explicit human approval states.
-5. Consider deeper worker handoff integration only after separate design and
+1. Add richer registry metadata such as icons, examples, and handoff contracts.
+2. Add local report preview forms for existing deterministic renderers.
+3. Add an approval queue with explicit human approval states.
+4. Consider deeper worker handoff integration only after separate design and
    review.
 
 See also [../../docs/jarvis-console.md](../../docs/jarvis-console.md).
+See the registry contract at
+[contracts/skill-registry-v0.1.md](contracts/skill-registry-v0.1.md).

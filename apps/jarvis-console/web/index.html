@@ -53,95 +53,40 @@
         <div class="panel-heading">
           <p class="eyebrow">Skills</p>
           <h2>Available Jarvis skill surfaces</h2>
-          <p>Each card shows purpose, status, manual next action, and the no-automation boundary.</p>
+          <p>Each card is rendered from the read-only skill registry.</p>
         </div>
-        <div class="skill-grid">
-          <article class="skill-card" data-skill="research_council">
-            <span class="status available">available</span>
-            <h3>Research Council</h3>
-            <p>Idea validation, MVP risk analysis, evidence gaps, and experiment plans.</p>
-            <span class="command-label">Git Bash</span>
-            <code>python -B apps/research-council/run_local_app.py</code>
-            <span class="command-label">PowerShell</span>
-            <code>python -B apps\research-council\run_local_app.py</code>
-            <strong>Does not auto-run from Jarvis Console.</strong>
-          </article>
-          <article class="skill-card" data-skill="daily_ai_radar">
-            <span class="status available">available</span>
-            <h3>Daily AI Radar</h3>
-            <p>Curated AI/agent technology candidate reports for Jarvis improvement review.</p>
-            <span class="command-label">Git Bash</span>
-            <code>python -B apps/daily-ai-radar/run_demo.py --input apps/daily-ai-radar/examples/sample-input.json</code>
-            <span class="command-label">PowerShell</span>
-            <code>python -B apps\daily-ai-radar\run_demo.py --input apps\daily-ai-radar\examples\sample-input.json</code>
-            <strong>Does not fetch sources automatically.</strong>
-          </article>
-          <article class="skill-card" data-skill="hermes_manager">
-            <span class="status available">available</span>
-            <h3>Hermes Manager</h3>
-            <p>Codex workflow management, prompt drafting, review prompts, commit prompts, and checkpoints.</p>
-            <span class="command-label">Git Bash</span>
-            <code>python -B apps/hermes-manager-pilot/run_web_app.py</code>
-            <span class="command-label">PowerShell</span>
-            <code>python -B apps\hermes-manager-pilot\run_web_app.py</code>
-            <strong>Does not call Codex or commit.</strong>
-          </article>
-          <article class="skill-card" data-skill="memory_skills">
-            <span class="status planned">planned</span>
-            <h3>Future Skills</h3>
-            <p>Repeated workflow candidates, approved skills, and Jarvis operating rules.</p>
-            <code>proposal only</code>
-            <strong>Skill candidates are not automatically installed.</strong>
-          </article>
+        <div class="skill-grid" id="skillGrid">
+          <p class="muted">Loading skill registry...</p>
         </div>
       </section>
 
       <section class="tab-panel hidden" id="tab-hermes">
         <div class="panel-heading">
           <p class="eyebrow">Hermes Manager</p>
-          <h2>Codex workflow middle manager</h2>
-          <p>Use Hermes Manager separately for guided Codex prompt, review, commit prompt, and checkpoint workflows.</p>
+          <h2 id="hermesTitle">Codex workflow middle manager</h2>
+          <p id="hermesDescription">Use Hermes Manager separately for guided Codex prompt, review, commit prompt, and checkpoint workflows.</p>
         </div>
-        <div class="command-card">
-          <span>Git Bash</span>
-          <code>python -B apps/hermes-manager-pilot/run_web_app.py</code>
-          <span>PowerShell</span>
-          <code>python -B apps\hermes-manager-pilot\run_web_app.py</code>
-        </div>
-        <div class="command-card">
-          <span>Local URL after running it separately</span>
-          <a href="http://127.0.0.1:8787/" rel="noreferrer">http://127.0.0.1:8787/</a>
-        </div>
+        <div id="hermesDetails"></div>
         <p class="safety-note">Jarvis Console does not start the Hermes Manager server, embed it, or call Codex automatically.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-research">
         <div class="panel-heading">
           <p class="eyebrow">Research Council</p>
-          <h2>Idea validation and experiment planning</h2>
-          <p>Use Research Council when an idea, MVP, or business assumption needs structured critique.</p>
+          <h2 id="researchTitle">Idea validation and experiment planning</h2>
+          <p id="researchDescription">Use Research Council when an idea, MVP, or business assumption needs structured critique.</p>
         </div>
-        <div class="command-card">
-          <span>Git Bash</span>
-          <code>python -B apps/research-council/run_local_app.py</code>
-          <span>PowerShell</span>
-          <code>python -B apps\research-council\run_local_app.py</code>
-        </div>
+        <div id="researchDetails"></div>
         <p class="safety-note">Research Council reports are decision support. They are not final proof or implementation approval.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-radar">
         <div class="panel-heading">
           <p class="eyebrow">Daily AI Radar</p>
-          <h2>AI and agent technology scouting</h2>
-          <p>Use curated source metadata to produce a bounded Jarvis improvement candidate report.</p>
+          <h2 id="radarTitle">AI and agent technology scouting</h2>
+          <p id="radarDescription">Use curated source metadata to produce a bounded Jarvis improvement candidate report.</p>
         </div>
-        <div class="command-card">
-          <span>Git Bash</span>
-          <code>python -B apps/daily-ai-radar/run_demo.py --input apps/daily-ai-radar/examples/sample-input.json</code>
-          <span>PowerShell</span>
-          <code>python -B apps\daily-ai-radar\run_demo.py --input apps\daily-ai-radar\examples\sample-input.json</code>
-        </div>
+        <div id="radarDetails"></div>
         <div class="command-card">
           <span>Sample files</span>
           <code>apps\daily-ai-radar\examples\sample-input.json</code>
@@ -153,27 +98,30 @@
       <section class="tab-panel hidden" id="tab-tasks">
         <div class="panel-heading">
           <p class="eyebrow">Tasks / Reports</p>
-          <h2>Future approval and report queue</h2>
-          <p>Later versions can show approval-needed items, recent reports, and commit checkpoints here.</p>
+          <h2 id="tasksTitle">Future approval and report queue</h2>
+          <p id="tasksDescription">Later versions can show approval-needed items, recent reports, and commit checkpoints here.</p>
         </div>
+        <div id="tasksDetails"></div>
         <p class="placeholder">v0.1 does not mutate tasks or write reports from this console.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-memory">
         <div class="panel-heading">
           <p class="eyebrow">Memory / Skills</p>
-          <h2>Future skill registry and operating memory</h2>
-          <p>Repeated workflows may become skill candidates after human review.</p>
+          <h2 id="memoryTitle">Future skill registry and operating memory</h2>
+          <p id="memoryDescription">Repeated workflows may become skill candidates after human review.</p>
         </div>
+        <div id="memoryDetails"></div>
         <p class="placeholder">Skill candidates are proposals, not automatically installed or updated skills.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-settings">
         <div class="panel-heading">
           <p class="eyebrow">Settings</p>
-          <h2>Local safety settings</h2>
-          <p>v0.1 has no secrets storage and no connector setup.</p>
+          <h2 id="settingsTitle">Local safety settings</h2>
+          <p id="settingsDescription">v0.1 has no secrets storage and no connector setup.</p>
         </div>
+        <div id="settingsDetails"></div>
         <dl class="settings-list">
           <div>
             <dt>Mode</dt>

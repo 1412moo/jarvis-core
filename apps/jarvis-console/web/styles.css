@@ -242,6 +242,11 @@ textarea {
   color: var(--planned);
 }
 
+.status.experimental {
+  background: #e9ecff;
+  color: #3946a3;
+}
+
 code {
   display: block;
   overflow-x: auto;
@@ -269,6 +274,12 @@ code {
 
 .command-list code + code {
   margin-top: 6px;
+}
+
+.metadata-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
 }
 
 .safety-note {

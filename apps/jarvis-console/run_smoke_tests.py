@@ -15,6 +15,11 @@ def main() -> None:
     assert status["ok"] is True
     assert status["console"] == "jarvis-console"
     assert status["mode"] == "local-only"
+    assert status["registry_read_only"] is True
+    assert len(status["skills"]) == 6
+    assert {skill["skill_id"] for skill in status["skills"]}.issuperset(
+        {"research_council", "daily_ai_radar", "hermes_manager"}
+    )
 
     suggestion_code, suggestion = run_web_app.handle_post_api(
         "/api/suggest-skill",
@@ -23,6 +28,8 @@ def main() -> None:
     assert suggestion_code == HTTPStatus.OK
     assert suggestion["ok"] is True
     assert suggestion["recommended_skill"] == "hermes_manager"
+    assert "git_bash" in suggestion["commands"]
+    assert "powershell" in suggestion["commands"]
 
     print("Jarvis Console smoke tests passed")
 
