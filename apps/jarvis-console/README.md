@@ -5,13 +5,13 @@ main UI. It is meant to feel closer to a ChatGPT/Codex-style command surface
 than a collection of separate files, CLI commands, and JSON fixtures.
 
 v0.1 is intentionally small. It shows the future console shape, skill tabs,
-deterministic skill suggestions, skill detail metadata, and safety boundaries.
-It does not run the other Jarvis apps automatically.
+deterministic skill suggestions, usage-card skill details, and safety
+boundaries. It does not run the other Jarvis apps automatically.
 
-Skill cards, skill details, and command suggestions are loaded from the
-read-only `skills.json` registry. The registry is display and routing metadata
-only; it does not grant execution permission. Copy command buttons copy text to
-the clipboard only.
+Skill cards, usage guides, and command suggestions are loaded from the read-only
+`skills.json` registry. The registry is display and routing metadata only; it
+does not grant execution permission. Copy command buttons copy text to the
+clipboard only.
 
 ## Run
 
@@ -66,7 +66,8 @@ Included:
 - Chat / Command input.
 - Deterministic keyword-based skill suggestion.
 - Skill cards loaded from `skills.json`.
-- Skill detail view for docs, tests, commands, safety notes, and non-goals.
+- Skill detail usage cards for what it does, when to use it, next action,
+  commands, docs, safety notes, and non-goals.
 - Copy command buttons that never execute commands.
 - Read-only skill registry validation.
 - Local-only safety banner.
@@ -95,6 +96,8 @@ Out of scope for v0.1:
 
 Skill metadata is defined in `skills.json`. The console reads that file at
 runtime and renders cards, commands, and deterministic route keywords from it.
+Skill Detail uses action guide metadata to show a short human workflow. Those
+steps are instructions for the user, not actions that Jarvis Console runs.
 
 ### Hermes Manager
 

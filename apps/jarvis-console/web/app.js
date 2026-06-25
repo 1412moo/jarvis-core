@@ -9,6 +9,7 @@ const skillGrid = document.getElementById("skillGrid");
 const skillDetail = document.getElementById("skillDetail");
 
 let registrySkills = [];
+let selectedSkillId = "";
 
 function activateTab(tabId) {
   tabs.forEach((button) => {
@@ -70,6 +71,13 @@ function commandMarkup(commands, options = {}) {
   ].join("");
 }
 
+function actionGuideMarkup(items) {
+  if (!items || !items.length) {
+    return "<p class=\"muted\">No action guide registered.</p>";
+  }
+  return `<ol class="action-guide">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol>`;
+}
+
 function renderSuggestion(data) {
   suggestionBox.innerHTML = `
     <div class="suggestion-header">
@@ -87,14 +95,18 @@ function renderSuggestion(data) {
 
 function renderSkillCards(skills) {
   skillGrid.innerHTML = skills
-    .map((skill) => `
-      <button class="skill-card" type="button" data-skill-id="${escapeHtml(skill.skill_id)}">
+    .map((skill) => {
+      const selected = skill.skill_id === selectedSkillId;
+      return `
+      <button class="skill-card ${selected ? "selected-skill" : ""}" type="button" data-skill-id="${escapeHtml(skill.skill_id)}" aria-pressed="${selected ? "true" : "false"}">
         <span class="status ${escapeHtml(skill.status)}">${escapeHtml(skill.status)}</span>
+        ${selected ? "<span class=\"selected-label\">Selected</span>" : ""}
         <span class="skill-card-title">${escapeHtml(skill.display_name)}</span>
         <span class="skill-card-description">${escapeHtml(skill.short_description || skill.purpose)}</span>
         <strong>View read-only details</strong>
       </button>
-    `)
+    `;
+    })
     .join("");
 }
 
@@ -103,34 +115,61 @@ function renderSkillDetail(skill) {
     return;
   }
 
+  selectedSkillId = skill.skill_id;
+  renderSkillCards(registrySkills);
+
+  const isPlanned = skill.status === "planned";
   const localUrl = skill.local_url
-    ? `<div class="detail-section"><h4>Local URL</h4><p><a href="${escapeHtml(skill.local_url)}" rel="noreferrer">${escapeHtml(skill.local_url)}</a></p></div>`
+    ? `<p class="local-url"><strong>Local URL:</strong> <a href="${escapeHtml(skill.local_url)}" rel="noreferrer">${escapeHtml(skill.local_url)}</a></p>`
     : "";
+  const commandIntro = isPlanned
+    ? "No command yet. This planned skill is not runnable from Jarvis Console."
+    : "Copy only; Jarvis does not run this command.";
+  const docsTitle = isPlanned ? "Reference docs" : "Docs / Guides";
+  const limitationTitle = isPlanned ? "Current limitation" : "Non-goals";
+  const evidenceMarkup = isPlanned
+    ? ""
+    : `
+      <div class="guide-subsection">
+        <h5>Smoke tests</h5>
+        ${listMarkup(skill.tests, "No tests registered.")}
+      </div>
+      <div class="guide-subsection">
+        <h5>Examples / Artifacts</h5>
+        ${listMarkup(skill.examples, "No examples registered.")}
+      </div>
+    `;
   skillDetail.innerHTML = `
     <div class="detail-heading">
       <div>
-        <p class="eyebrow">Skill Detail</p>
+        <p class="eyebrow">${isPlanned ? "Planned Skill" : "Skill Detail"}</p>
         <h3>${escapeHtml(skill.display_name)}</h3>
+        ${localUrl}
       </div>
       <span class="status ${escapeHtml(skill.status)}">${escapeHtml(skill.status)}</span>
     </div>
-    <p>${escapeHtml(skill.purpose)}</p>
-    <dl class="detail-grid">
-      <div><dt>Category</dt><dd>${escapeHtml(skill.category)}</dd></div>
-      <div><dt>App path</dt><dd>${escapeHtml(skill.app_path || "Not assigned yet")}</dd></div>
-      <div><dt>Safe next action</dt><dd>${escapeHtml(skill.safe_next_action)}</dd></div>
-    </dl>
-    <div class="detail-section">
+    <section class="usage-card">
+      <h4>What it does</h4>
+      <p>${escapeHtml(skill.purpose)}</p>
+    </section>
+    <section class="usage-card">
+      <h4>When to use</h4>
+      <p>${escapeHtml(skill.when_to_use)}</p>
+    </section>
+    <section class="usage-card primary-action-card">
+      <h4>Next action</h4>
+      <strong>${escapeHtml(skill.primary_next_action_label)}</strong>
+      <p>${escapeHtml(skill.primary_next_action_description)}</p>
+      ${actionGuideMarkup(skill.action_guide)}
+    </section>
+    <section class="usage-card">
       <h4>Commands</h4>
-      <p class="muted">Display-only. Copying a command only places text on the clipboard; Jarvis Console never runs it.</p>
+      <p class="muted">${escapeHtml(commandIntro)}</p>
       <div class="command-list">${commandMarkup(skill.commands, { copyable: true })}</div>
-    </div>
-    ${localUrl}
-    <div class="detail-section"><h4>Docs / Guides</h4>${listMarkup(skill.docs, "No docs registered.")}</div>
-    <div class="detail-section"><h4>Smoke Tests</h4>${listMarkup(skill.tests, "No tests registered.")}</div>
-    <div class="detail-section"><h4>Examples / Artifacts</h4>${listMarkup(skill.examples, "No examples registered.")}</div>
-    <div class="detail-section"><h4>Safety Notes</h4>${listMarkup(skill.safety_notes, "No safety notes registered.")}</div>
-    <div class="detail-section"><h4>Non-Goals</h4>${listMarkup(skill.non_goals, "No non-goals registered.")}</div>
+    </section>
+    <section class="usage-card"><h4>${docsTitle}</h4>${listMarkup(skill.docs, "No docs registered.")}${evidenceMarkup}</section>
+    <section class="usage-card safety-card"><h4>Safety notes</h4>${listMarkup(skill.safety_notes, "No safety notes registered.")}</section>
+    <section class="usage-card"><h4>${limitationTitle}</h4>${listMarkup(skill.non_goals, "No non-goals registered.")}</section>
   `;
 }
 
@@ -178,6 +217,7 @@ function renderSkillDetails(skillId, prefix) {
 
 function renderRegistry(status) {
   registrySkills = status.skills || [];
+  selectedSkillId = registrySkills[0]?.skill_id || "";
   renderSkillCards(registrySkills);
   if (registrySkills.length) {
     renderSkillDetail(registrySkills[0]);

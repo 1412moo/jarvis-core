@@ -33,6 +33,10 @@ Each skill entry must include:
 - `purpose`
 - `short_description`
 - `safe_next_action`
+- `when_to_use`
+- `primary_next_action_label`
+- `primary_next_action_description`
+- `action_guide`
 - `commands`
 - `local_url`
 - `app_path`
@@ -50,6 +54,14 @@ The `commands` object must include:
 - `powershell`
 
 Command values may be empty for planned skills.
+
+The `action_guide` field must be a non-empty list of text values. It is a
+human-facing usage guide only. It must not be treated as an executable workflow
+or permission to launch a skill.
+
+The `when_to_use`, `primary_next_action_label`, and
+`primary_next_action_description` fields are display metadata for the Skill
+Detail panel.
 
 The `docs`, `tests`, and `examples` fields must be lists of text values.
 They are detail metadata for display only. Test command values follow the same
@@ -115,6 +127,7 @@ No registry command may include:
 - `Invoke-WebRequest`
 - `Invoke-RestMethod`
 - `Start-BitsTransfer`
+- `bitsadmin`
 
 Commands must not be treated as trusted executable instructions. They are
 bounded display text.

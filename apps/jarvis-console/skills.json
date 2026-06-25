@@ -14,6 +14,18 @@
       "purpose": "Idea validation and MVP risk analysis.",
       "short_description": "Evaluate ideas, evidence gaps, risks, and minimum experiments.",
       "safe_next_action": "Run the Research Council local launcher or prepare a bounded research input.",
+      "when_to_use": "Use when an idea, MVP, product assumption, or business risk needs structured critique before implementation.",
+      "primary_next_action_label": "Validate an idea",
+      "primary_next_action_description": "Open Research Council manually, refine the idea, and generate a planning report.",
+      "action_guide": [
+        "Copy the Git Bash or PowerShell command.",
+        "Run the launcher manually.",
+        "Paste a raw idea.",
+        "Click the idea refinement control.",
+        "Review the refined input.",
+        "Run the report.",
+        "Treat the report as validation planning, not final proof."
+      ],
       "commands": {
         "git_bash": "python -B apps/research-council/run_local_app.py",
         "powershell": "python -B apps\\research-council\\run_local_app.py"
@@ -77,6 +89,16 @@
       "purpose": "Scout new AI and agent technology candidates.",
       "short_description": "Turn curated AI/agent metadata into Jarvis improvement candidate reports.",
       "safe_next_action": "Prepare curated source metadata and run the Daily AI Radar renderer manually.",
+      "when_to_use": "Use when curated AI, agent, protocol, or platform metadata should be reviewed as a Jarvis improvement candidate.",
+      "primary_next_action_label": "Review technology candidates",
+      "primary_next_action_description": "Run the deterministic sample renderer or prepare curated source metadata for a radar report.",
+      "action_guide": [
+        "Review or edit curated source metadata.",
+        "Run the demo command.",
+        "Read the generated radar report.",
+        "Treat recommendations as candidates, not implementation approval.",
+        "Send high-risk candidates to Research Council before implementation."
+      ],
       "commands": {
         "git_bash": "python -B apps/daily-ai-radar/run_demo.py --input apps/daily-ai-radar/examples/sample-input.json",
         "powershell": "python -B apps\\daily-ai-radar\\run_demo.py --input apps\\daily-ai-radar\\examples\\sample-input.json"
@@ -147,6 +169,18 @@
       "purpose": "Codex workflow management, prompt generation, review, and commit checkpoints.",
       "short_description": "Prepare bounded Codex prompts and checkpoint summaries for human-approved workflows.",
       "safe_next_action": "Open Hermes Manager separately, then copy/paste prompts manually.",
+      "when_to_use": "Use when a repo task needs a bounded Codex implementation prompt, review prompt, commit prompt, or checkpoint summary.",
+      "primary_next_action_label": "Open Hermes Manager",
+      "primary_next_action_description": "Start the Hermes Manager local browser UI manually and follow its guided Codex workflow.",
+      "action_guide": [
+        "Copy the Git Bash or PowerShell command.",
+        "Run it in your terminal.",
+        "Open the local URL shown below.",
+        "Describe the Codex task.",
+        "Copy the generated prompt into Codex.",
+        "Paste Codex results back into Hermes Manager.",
+        "Generate review and commit prompts only after explicit approval."
+      ],
       "commands": {
         "git_bash": "python -B apps/hermes-manager-pilot/run_web_app.py",
         "powershell": "python -B apps\\hermes-manager-pilot\\run_web_app.py"
@@ -211,6 +245,15 @@
       "purpose": "Manage repeated workflow and skill candidates.",
       "short_description": "Future area for repeated workflows, approved skills, and Jarvis operating rules.",
       "safe_next_action": "Capture the workflow as a proposal only; do not install or update a skill automatically.",
+      "when_to_use": "Use later when repeated workflows should become reviewed skill proposals.",
+      "primary_next_action_label": "Capture a proposal",
+      "primary_next_action_description": "Keep repeated workflows as proposals until a human approves skill creation.",
+      "action_guide": [
+        "Review repeated workflows.",
+        "Capture skill candidates as proposals.",
+        "Do not auto-install skills.",
+        "Wait for human approval before turning a proposal into a skill."
+      ],
       "commands": {
         "git_bash": "",
         "powershell": ""
@@ -261,6 +304,14 @@
       "purpose": "Show task status, approval-needed items, reports, and checkpoints.",
       "short_description": "Future approval and report queue for Jarvis Console.",
       "safe_next_action": "Use this as a placeholder for future task and report visibility.",
+      "when_to_use": "Use later when Jarvis Console has a local task and report queue.",
+      "primary_next_action_label": "Review placeholder",
+      "primary_next_action_description": "Treat this as a future surface; v0.1 does not mutate tasks or reports.",
+      "action_guide": [
+        "Review planned task/report concepts.",
+        "Do not mutate tasks in v0.1.",
+        "Use this as a future placeholder."
+      ],
       "commands": {
         "git_bash": "",
         "powershell": ""
@@ -309,6 +360,14 @@
       "purpose": "Show local-only settings, protected paths, and future connector placeholders.",
       "short_description": "Read-only safety settings surface for Jarvis Console.",
       "safe_next_action": "Review local-only settings and protected paths.",
+      "when_to_use": "Use when checking local-only assumptions, protected paths, and future connector placeholders.",
+      "primary_next_action_label": "Review safety settings",
+      "primary_next_action_description": "Confirm protected paths and local-only boundaries before expanding the console.",
+      "action_guide": [
+        "Review local-only safety assumptions.",
+        "Confirm protected paths such as jarvis.bat.",
+        "Do not store secrets."
+      ],
       "commands": {
         "git_bash": "",
         "powershell": ""

@@ -29,6 +29,10 @@ REQUIRED_SKILL_FIELDS = {
     "purpose",
     "short_description",
     "safe_next_action",
+    "when_to_use",
+    "primary_next_action_label",
+    "primary_next_action_description",
+    "action_guide",
     "commands",
     "local_url",
     "app_path",
@@ -132,6 +136,9 @@ def validate_registry(registry: dict[str, Any]) -> None:
         _required_text(skill, "purpose")
         _required_text(skill, "short_description")
         _required_text(skill, "safe_next_action")
+        _required_text(skill, "when_to_use")
+        _required_text(skill, "primary_next_action_label")
+        _required_text(skill, "primary_next_action_description")
 
         if skill["status"] not in ALLOWED_STATUSES:
             raise RegistryError(f"{skill_id} invalid status: {skill['status']}")
@@ -156,14 +163,27 @@ def validate_registry(registry: dict[str, Any]) -> None:
         if local_url and not local_url.startswith("http://127.0.0.1"):
             raise RegistryError(f"{skill_id} local_url must be local-only")
 
-        for field in ("tags", "route_keywords", "safety_notes", "non_goals", "docs", "tests", "examples"):
+        for field in (
+            "tags",
+            "route_keywords",
+            "safety_notes",
+            "non_goals",
+            "docs",
+            "tests",
+            "examples",
+            "action_guide",
+        ):
             value = skill[field]
             if not isinstance(value, list):
                 raise RegistryError(f"{skill_id} {field} must be a list")
             if field == "route_keywords" and not value:
                 raise RegistryError(f"{skill_id} route_keywords must not be empty")
+            if field == "action_guide" and not value:
+                raise RegistryError(f"{skill_id} action_guide must not be empty")
             if not all(isinstance(item, str) for item in value):
                 raise RegistryError(f"{skill_id} {field} entries must be text")
+            if any(not item.strip() for item in value):
+                raise RegistryError(f"{skill_id} {field} entries must not be empty")
             if field in {"docs", "examples"}:
                 for path_value in value:
                     validate_registry_path(skill_id, field, path_value)
@@ -445,6 +465,10 @@ def run_self_test() -> None:
         assert REQUIRED_SKILL_FIELDS.issubset(skill)
         assert skill["status"] in ALLOWED_STATUSES
         assert skill["category"] in ALLOWED_CATEGORIES
+        assert skill["when_to_use"]
+        assert skill["primary_next_action_label"]
+        assert skill["primary_next_action_description"]
+        assert isinstance(skill["action_guide"], list) and skill["action_guide"]
         assert isinstance(skill["route_keywords"], list) and skill["route_keywords"]
         assert set(skill["commands"]).issuperset(REQUIRED_COMMAND_FIELDS)
         for command in skill["commands"].values():
@@ -470,6 +494,7 @@ def run_self_test() -> None:
         "powershell Invoke-" + "WebRequest https://example.com",
         "powershell Invoke-" + "RestMethod https://example.com",
         "Start-" + "BitsTransfer https://example.com",
+        "bits" + "admin https://example.com",
     )
     for command in bad_commands:
         try:
@@ -512,7 +537,7 @@ def run_self_test() -> None:
     assert {"research_council", "daily_ai_radar", "hermes_manager"}.issubset(skill_ids)
     assert len(status["skills"]) == 6
     assert "jarvis.bat" in status["protected_paths"]
-    assert all({"docs", "tests", "examples"}.issubset(skill) for skill in status["skills"])
+    assert all({"docs", "tests", "examples", "action_guide", "when_to_use"}.issubset(skill) for skill in status["skills"])
     hermes_commands = suggest_skill("Codex commit review")["commands"]
     assert "apps/hermes-manager-pilot/run_web_app.py" in hermes_commands["git_bash"]
     assert "apps\\hermes-manager-pilot\\run_web_app.py" in hermes_commands["powershell"]
@@ -526,6 +551,8 @@ def run_self_test() -> None:
         assert detail_code == HTTPStatus.OK
         detail = detail_response["skill"]
         assert detail["docs"] and detail["tests"]
+        assert detail["action_guide"]
+        assert detail["primary_next_action_label"]
         assert set(detail["commands"]).issuperset(REQUIRED_COMMAND_FIELDS)
     assert handle_get_api("/api/skill")[0] == HTTPStatus.BAD_REQUEST
     assert handle_get_api("/api/skill", "skill_id=missing")[0] == HTTPStatus.NOT_FOUND
@@ -541,6 +568,7 @@ def run_self_test() -> None:
     assert "Settings" in html
     assert "skillGrid" in html
     assert "skillDetail" in html
+    assert "Select a skill to inspect commands" in html
     assert "Safety mode: Jarvis only recommends. It does not run tools." in html
     assert "Local-only" in html
     assert "No automatic Codex / ChatGPT / Hermes invocation" in html
@@ -553,6 +581,13 @@ def run_self_test() -> None:
     assert "/api/skill" in app_js
     assert "renderSkillCards" in app_js
     assert "renderSkillDetail" in app_js
+    assert "action_guide" in app_js
+    assert "What it does" in app_js
+    assert "When to use" in app_js
+    assert "Next action" in app_js
+    assert "Commands" in app_js
+    assert "selectedSkillId" in app_js
+    assert "selected-skill" in app_js
     assert "navigator.clipboard.writeText" in app_js
     assert "copy-command" in app_js
     assert "Git Bash" in app_js

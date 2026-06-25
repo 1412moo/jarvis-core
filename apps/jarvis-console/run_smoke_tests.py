@@ -20,7 +20,7 @@ def main() -> None:
     assert {skill["skill_id"] for skill in status["skills"]}.issuperset(
         {"research_council", "daily_ai_radar", "hermes_manager"}
     )
-    assert all({"docs", "tests", "examples"}.issubset(skill) for skill in status["skills"])
+    assert all({"docs", "tests", "examples", "action_guide", "when_to_use"}.issubset(skill) for skill in status["skills"])
 
     skill_code, skill_detail = run_web_app.handle_get_api("/api/skill", "skill_id=hermes_manager")
     assert skill_code == HTTPStatus.OK
@@ -28,6 +28,8 @@ def main() -> None:
     assert skill_detail["skill"]["skill_id"] == "hermes_manager"
     assert skill_detail["skill"]["docs"]
     assert skill_detail["skill"]["tests"]
+    assert skill_detail["skill"]["action_guide"]
+    assert skill_detail["skill"]["primary_next_action_label"] == "Open Hermes Manager"
 
     missing_skill_code, missing_skill = run_web_app.handle_get_api("/api/skill", "skill_id=missing")
     assert missing_skill_code == HTTPStatus.NOT_FOUND
