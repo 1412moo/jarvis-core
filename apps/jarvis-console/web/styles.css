@@ -197,6 +197,55 @@ textarea {
   margin: 0;
 }
 
+.suggestion-action-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.suggestion-action-panel h4 {
+  margin: 0 0 10px;
+}
+
+.suggestion-url {
+  margin-top: 10px;
+}
+
+.suggestion-url span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.secondary-action {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--accent-dark);
+  cursor: pointer;
+}
+
+.secondary-action:hover,
+.secondary-action:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.safety-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
 .muted {
   color: var(--muted);
 }

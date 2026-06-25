@@ -11,6 +11,10 @@ const skillDetail = document.getElementById("skillDetail");
 let registrySkills = [];
 let selectedSkillId = "";
 let recommendedSkillId = "";
+let registryLoadPromise = null;
+const LOCAL_URL_PREFIX = "http:" + "//127.0.0.1";
+const LOCAL_URL_PROTOCOL = "http:";
+const LOCAL_URL_HOSTNAME = "127.0.0.1";
 
 function activateTab(tabId) {
   tabs.forEach((button) => {
@@ -46,6 +50,23 @@ function copyCommandLabel(label) {
     PowerShell: "Copy PowerShell",
   };
   return labels[label] || `Copy ${label}`;
+}
+
+function localOnlyUrl(value) {
+  const url = String(value || "").trim();
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === LOCAL_URL_PROTOCOL && parsed.hostname === LOCAL_URL_HOSTNAME) {
+      return url.startsWith(LOCAL_URL_PREFIX) ? url : "";
+    }
+  } catch (_error) {
+    return "";
+  }
+  return "";
+}
+
+function skillById(skillId) {
+  return registrySkills.find((item) => item.skill_id === skillId);
 }
 
 function commandRow(label, command, copyable) {
@@ -91,13 +112,55 @@ function actionGuideMarkup(items) {
   return `<ol class="action-guide">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol>`;
 }
 
+function suggestedActionPanel(data, skill) {
+  const commands = data.commands || skill?.commands || {};
+  const localUrl = localOnlyUrl(skill?.local_url);
+  const gitBash = commands.git_bash || "";
+  const powershell = commands.powershell || "";
+  const localUrlButton = localUrl
+    ? `<button class="secondary-action open-local-url" type="button" data-local-url="${escapeHtml(localUrl)}">Open Local URL</button>`
+    : "";
+  const localUrlMarkup = localUrl
+    ? `
+      <div class="suggestion-url">
+        <span>Local URL</span>
+        <code>${escapeHtml(localUrl)}</code>
+        <p class="muted">This only opens the URL. It does not start the server.</p>
+      </div>
+    `
+    : "";
+
+  return `
+    <section class="suggestion-action-panel" aria-label="Suggested skill action panel">
+      <h4>Suggested Skill Action Panel</h4>
+      <p><strong>Recommended skill:</strong> ${escapeHtml(data.display_name || data.recommended_skill)}</p>
+      <p><strong>Why this skill was recommended:</strong> ${escapeHtml(data.reason)}</p>
+      <p><strong>Next action:</strong> ${escapeHtml(data.suggested_next_action)}</p>
+      <div class="command-list">${commandMarkup(commands)}</div>
+      ${localUrlMarkup}
+      <div class="suggestion-actions">
+        ${gitBash ? `<button class="copy-command" type="button" data-command="${escapeHtml(gitBash)}" aria-label="Copy Git Bash">Copy Git Bash</button>` : ""}
+        ${powershell ? `<button class="copy-command" type="button" data-command="${escapeHtml(powershell)}" aria-label="Copy PowerShell">Copy PowerShell</button>` : ""}
+        ${localUrlButton}
+        <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(data.recommended_skill)}">Open Skill Details</button>
+      </div>
+      <ul class="safety-list">
+        <li>Jarvis Console does not run this skill.</li>
+        <li>Commands are copy-only.</li>
+        <li>Opening a URL does not start the server.</li>
+      </ul>
+    </section>
+  `;
+}
+
 function renderSuggestion(data) {
   const skillId = data.recommended_skill || "";
   const hasRecommendedSkill = skillId && skillId !== "unknown";
   recommendedSkillId = hasRecommendedSkill ? skillId : "";
-  const detailButton = hasRecommendedSkill
-    ? `<button class="primary-button open-skill-details" type="button" data-skill-id="${escapeHtml(skillId)}">Open skill details</button>`
-    : "";
+  const skill = hasRecommendedSkill ? skillById(skillId) : null;
+  const actionPanel = hasRecommendedSkill
+    ? suggestedActionPanel(data, skill)
+    : "<p class=\"muted\">Choose a skill manually from the sidebar.</p>";
   suggestionBox.innerHTML = `
     <div class="suggestion-header">
       <span class="status available">${escapeHtml(skillId)}</span>
@@ -105,8 +168,7 @@ function renderSuggestion(data) {
     </div>
     <p><strong>Why:</strong> ${escapeHtml(data.reason)}</p>
     <p><strong>Suggested next action:</strong> ${escapeHtml(data.suggested_next_action)}</p>
-    ${detailButton}
-    <div class="command-list">${commandMarkup(data.commands)}</div>
+    ${actionPanel}
     <p class="safety-note">This is only a recommendation. Jarvis Console does not run this skill.</p>
   `;
   statusText.textContent = `Recommended skill: ${data.display_name || skillId}`;
@@ -272,6 +334,9 @@ async function suggestSkill() {
   }
 
   try {
+    if (!registrySkills.length && registryLoadPromise) {
+      await registryLoadPromise;
+    }
     const response = await fetch("/api/suggest-skill", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -324,6 +389,16 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const localUrlButton = event.target.closest(".open-local-url");
+  if (localUrlButton) {
+    const localUrl = localOnlyUrl(localUrlButton.dataset.localUrl);
+    if (localUrl) {
+      window.open(localUrl, "_blank", "noopener,noreferrer");
+      statusText.textContent = "Local URL opened. Jarvis Console did not start the server.";
+    }
+    return;
+  }
+
   const button = event.target.closest(".copy-command");
   if (!button) {
     return;
@@ -331,4 +406,4 @@ document.addEventListener("click", (event) => {
   copyCommand(button.dataset.command || "");
 });
 
-loadRegistryStatus();
+registryLoadPromise = loadRegistryStatus();

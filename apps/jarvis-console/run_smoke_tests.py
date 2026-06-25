@@ -48,8 +48,23 @@ def main() -> None:
 
     app_js = Path(__file__).resolve().parent.joinpath("web", "app.js").read_text(encoding="utf-8")
     assert "recommendedSkillId" in app_js
-    assert "Open skill details" in app_js
+    assert "Suggested Skill Action Panel" in app_js
+    assert "suggestion-action-panel" in app_js
+    assert "Open Skill Details" in app_js
     assert "open-skill-details" in app_js
+    assert "Open Local URL" in app_js
+    assert "open-local-url" in app_js
+    assert "localOnlyUrl" in app_js
+    assert "LOCAL_URL_PREFIX" in app_js
+    assert "LOCAL_URL_PROTOCOL" in app_js
+    assert "LOCAL_URL_HOSTNAME" in app_js
+    assert "new URL(url)" in app_js
+    assert "parsed.hostname === LOCAL_URL_HOSTNAME" in app_js
+    assert "window.open" in app_js
+    assert "noopener,noreferrer" in app_js
+    assert "This only opens the URL. It does not start the server." in app_js
+    assert "Commands are copy-only." in app_js
+    assert "Choose a skill manually from the sidebar." in app_js
     assert "Copy Git Bash" in app_js
     assert "Copy PowerShell" in app_js
     assert "navigator.clipboard.writeText(command)" in app_js
