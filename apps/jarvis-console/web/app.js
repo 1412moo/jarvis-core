@@ -10,6 +10,7 @@ const skillDetail = document.getElementById("skillDetail");
 
 let registrySkills = [];
 let selectedSkillId = "";
+let recommendedSkillId = "";
 
 function activateTab(tabId) {
   tabs.forEach((button) => {
@@ -18,6 +19,9 @@ function activateTab(tabId) {
   panels.forEach((panel) => {
     panel.classList.toggle("hidden", panel.id !== `tab-${tabId}`);
   });
+  if (tabId === "skills" && recommendedSkillId) {
+    loadSkillDetail(recommendedSkillId);
+  }
 }
 
 function escapeHtml(value) {
@@ -36,12 +40,21 @@ function listMarkup(items, emptyText) {
   return `<ul class="metadata-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
+function copyCommandLabel(label) {
+  const labels = {
+    "Git Bash": "Copy Git Bash",
+    PowerShell: "Copy PowerShell",
+  };
+  return labels[label] || `Copy ${label}`;
+}
+
 function commandRow(label, command, copyable) {
   if (!command) {
     return "";
   }
+  const copyLabel = copyCommandLabel(label);
   const copyButton = copyable
-    ? `<button class="copy-command" type="button" data-command="${escapeHtml(command)}">Copy</button>`
+    ? `<button class="copy-command" type="button" data-command="${escapeHtml(command)}" aria-label="${escapeHtml(copyLabel)}">${escapeHtml(copyLabel)}</button>`
     : "";
   return `
     <div class="command-row">
@@ -79,17 +92,24 @@ function actionGuideMarkup(items) {
 }
 
 function renderSuggestion(data) {
+  const skillId = data.recommended_skill || "";
+  const hasRecommendedSkill = skillId && skillId !== "unknown";
+  recommendedSkillId = hasRecommendedSkill ? skillId : "";
+  const detailButton = hasRecommendedSkill
+    ? `<button class="primary-button open-skill-details" type="button" data-skill-id="${escapeHtml(skillId)}">Open skill details</button>`
+    : "";
   suggestionBox.innerHTML = `
     <div class="suggestion-header">
-      <span class="status available">${escapeHtml(data.recommended_skill)}</span>
-      <h3>${escapeHtml(data.display_name || data.recommended_skill)}</h3>
+      <span class="status available">${escapeHtml(skillId)}</span>
+      <h3>${escapeHtml(data.display_name || skillId)}</h3>
     </div>
     <p><strong>Why:</strong> ${escapeHtml(data.reason)}</p>
     <p><strong>Suggested next action:</strong> ${escapeHtml(data.suggested_next_action)}</p>
+    ${detailButton}
     <div class="command-list">${commandMarkup(data.commands)}</div>
     <p class="safety-note">This is only a recommendation. Jarvis Console does not run this skill.</p>
   `;
-  statusText.textContent = `Recommended skill: ${data.display_name || data.recommended_skill}`;
+  statusText.textContent = `Recommended skill: ${data.display_name || skillId}`;
   nextActionText.textContent = data.suggested_next_action || "Choose manually.";
 }
 
@@ -297,6 +317,13 @@ skillGrid.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const detailButton = event.target.closest(".open-skill-details");
+  if (detailButton) {
+    recommendedSkillId = detailButton.dataset.skillId || "";
+    activateTab("skills");
+    return;
+  }
+
   const button = event.target.closest(".copy-command");
   if (!button) {
     return;

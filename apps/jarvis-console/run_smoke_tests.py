@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+from pathlib import Path
 
 import run_web_app
 
@@ -44,6 +45,17 @@ def main() -> None:
     assert suggestion["recommended_skill"] == "hermes_manager"
     assert "git_bash" in suggestion["commands"]
     assert "powershell" in suggestion["commands"]
+
+    app_js = Path(__file__).resolve().parent.joinpath("web", "app.js").read_text(encoding="utf-8")
+    assert "recommendedSkillId" in app_js
+    assert "Open skill details" in app_js
+    assert "open-skill-details" in app_js
+    assert "Copy Git Bash" in app_js
+    assert "Copy PowerShell" in app_js
+    assert "navigator.clipboard.writeText(command)" in app_js
+    assert ">Run<" not in app_js
+    assert ">Execute<" not in app_js
+    assert ">Start<" not in app_js
 
     print("Jarvis Console smoke tests passed")
 

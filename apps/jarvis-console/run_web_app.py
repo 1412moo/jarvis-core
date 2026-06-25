@@ -587,11 +587,20 @@ def run_self_test() -> None:
     assert "Next action" in app_js
     assert "Commands" in app_js
     assert "selectedSkillId" in app_js
+    assert "recommendedSkillId" in app_js
     assert "selected-skill" in app_js
+    assert "Open skill details" in app_js
+    assert "open-skill-details" in app_js
     assert "navigator.clipboard.writeText" in app_js
     assert "copy-command" in app_js
     assert "Git Bash" in app_js
     assert "PowerShell" in app_js
+    assert "Copy Git Bash" in app_js
+    assert "Copy PowerShell" in app_js
+    assert "aria-label" in app_js
+    assert ">Run<" not in app_js
+    assert ">Execute<" not in app_js
+    assert ">Start<" not in app_js
     assert "http://" not in app_js
     assert "https://" not in app_js
     assert "cdn" not in app_js.lower()
