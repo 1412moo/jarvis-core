@@ -117,6 +117,10 @@ function suggestedActionPanel(data, skill) {
   const localUrl = localOnlyUrl(skill?.local_url);
   const gitBash = commands.git_bash || "";
   const powershell = commands.powershell || "";
+  const thirdStep = localUrl ? "Open the local URL after the server starts." : "Follow the copied command output.";
+  const copyNextAction = localUrl
+    ? "Run it in your terminal, then open the local URL."
+    : "Run it in your terminal, then follow the copied command output.";
   const localUrlButton = localUrl
     ? `<button class="secondary-action open-local-url" type="button" data-local-url="${escapeHtml(localUrl)}">Open Local URL</button>`
     : "";
@@ -125,7 +129,7 @@ function suggestedActionPanel(data, skill) {
       <div class="suggestion-url">
         <span>Local URL</span>
         <code>${escapeHtml(localUrl)}</code>
-        <p class="muted">This only opens the URL. It does not start the server.</p>
+        <p class="muted">This only opens the URL. It does not start the server. Run the command first if the page does not load.</p>
       </div>
     `
     : "";
@@ -136,11 +140,19 @@ function suggestedActionPanel(data, skill) {
       <p><strong>Recommended skill:</strong> ${escapeHtml(data.display_name || data.recommended_skill)}</p>
       <p><strong>Why this skill was recommended:</strong> ${escapeHtml(data.reason)}</p>
       <p><strong>Next action:</strong> ${escapeHtml(data.suggested_next_action)}</p>
+      <div class="handoff-hint" aria-label="Next handoff">
+        <strong>Next handoff</strong>
+        <ol>
+          <li>Copy Git Bash or PowerShell command.</li>
+          <li>Run it in your terminal.</li>
+          <li>${escapeHtml(thirdStep)}</li>
+        </ol>
+      </div>
       <div class="command-list">${commandMarkup(commands)}</div>
       ${localUrlMarkup}
       <div class="suggestion-actions">
-        ${gitBash ? `<button class="copy-command" type="button" data-command="${escapeHtml(gitBash)}" aria-label="Copy Git Bash">Copy Git Bash</button>` : ""}
-        ${powershell ? `<button class="copy-command" type="button" data-command="${escapeHtml(powershell)}" aria-label="Copy PowerShell">Copy PowerShell</button>` : ""}
+        ${gitBash ? `<button class="copy-command" type="button" data-command="${escapeHtml(gitBash)}" data-copy-next-action="${escapeHtml(copyNextAction)}" aria-label="Copy Git Bash">Copy Git Bash</button>` : ""}
+        ${powershell ? `<button class="copy-command" type="button" data-command="${escapeHtml(powershell)}" data-copy-next-action="${escapeHtml(copyNextAction)}" aria-label="Copy PowerShell">Copy PowerShell</button>` : ""}
         ${localUrlButton}
         <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(data.recommended_skill)}">Open Skill Details</button>
       </div>
@@ -352,10 +364,12 @@ async function suggestSkill() {
   }
 }
 
-async function copyCommand(command) {
+async function copyCommand(command, nextAction = "") {
   try {
     await navigator.clipboard.writeText(command);
-    statusText.textContent = "Command copied. Jarvis Console did not run it.";
+    statusText.textContent = nextAction
+      ? `Command copied. ${nextAction} Jarvis Console does not run it for you.`
+      : "Command copied. Jarvis Console did not run it.";
   } catch (error) {
     statusText.textContent = `Copy failed: ${error.message}`;
   }
@@ -403,7 +417,7 @@ document.addEventListener("click", (event) => {
   if (!button) {
     return;
   }
-  copyCommand(button.dataset.command || "");
+  copyCommand(button.dataset.command || "", button.dataset.copyNextAction || "");
 });
 
 registryLoadPromise = loadRegistryStatus();

@@ -54,6 +54,15 @@ def main() -> None:
     assert "open-skill-details" in app_js
     assert "Open Local URL" in app_js
     assert "open-local-url" in app_js
+    assert "Next handoff" in app_js
+    assert "handoff-hint" in app_js
+    assert "Copy Git Bash or PowerShell command." in app_js
+    assert "Run it in your terminal." in app_js
+    assert "Open the local URL after the server starts." in app_js
+    assert "Follow the copied command output." in app_js
+    assert "Run the command first if the page does not load." in app_js
+    assert "data-copy-next-action" in app_js
+    assert "Jarvis Console does not run it for you." in app_js
     assert "localOnlyUrl" in app_js
     assert "LOCAL_URL_PREFIX" in app_js
     assert "LOCAL_URL_PROTOCOL" in app_js
