@@ -105,6 +105,28 @@ function commandMarkup(commands, options = {}) {
   ].join("");
 }
 
+function handoffStepsForSkill(skill, localUrl) {
+  const registeredSteps = Array.isArray(skill?.handoff_steps)
+    ? skill.handoff_steps.filter((step) => String(step || "").trim())
+    : [];
+  if (registeredSteps.length) {
+    return registeredSteps;
+  }
+  return [
+    "Copy Git Bash or PowerShell command.",
+    "Run it in your terminal.",
+    localUrl ? "Open the local URL after the server starts." : "Follow the copied command output.",
+  ];
+}
+
+function copyNextActionForHandoff(handoffSteps, localUrl) {
+  if (localUrl) {
+    return "Run it in your terminal, then open the local URL.";
+  }
+  const thirdStep = handoffSteps[2] || "follow the copied command output.";
+  return `Run it in your terminal, then ${thirdStep.charAt(0).toLowerCase()}${thirdStep.slice(1)}`;
+}
+
 function actionGuideMarkup(items) {
   if (!items || !items.length) {
     return "<p class=\"muted\">No action guide registered.</p>";
@@ -117,10 +139,8 @@ function suggestedActionPanel(data, skill) {
   const localUrl = localOnlyUrl(skill?.local_url);
   const gitBash = commands.git_bash || "";
   const powershell = commands.powershell || "";
-  const thirdStep = localUrl ? "Open the local URL after the server starts." : "Follow the copied command output.";
-  const copyNextAction = localUrl
-    ? "Run it in your terminal, then open the local URL."
-    : "Run it in your terminal, then follow the copied command output.";
+  const handoffSteps = handoffStepsForSkill(skill, localUrl);
+  const copyNextAction = copyNextActionForHandoff(handoffSteps, localUrl);
   const localUrlButton = localUrl
     ? `<button class="secondary-action open-local-url" type="button" data-local-url="${escapeHtml(localUrl)}">Open Local URL</button>`
     : "";
@@ -143,9 +163,7 @@ function suggestedActionPanel(data, skill) {
       <div class="handoff-hint" aria-label="Next handoff">
         <strong>Next handoff</strong>
         <ol>
-          <li>Copy Git Bash or PowerShell command.</li>
-          <li>Run it in your terminal.</li>
-          <li>${escapeHtml(thirdStep)}</li>
+          ${handoffSteps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
         </ol>
       </div>
       <div class="command-list">${commandMarkup(commands)}</div>

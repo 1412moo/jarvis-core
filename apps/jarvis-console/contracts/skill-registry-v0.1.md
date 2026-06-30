@@ -73,8 +73,10 @@ external URLs are not allowed.
 
 ## Optional Fields
 
-No optional behavior-granting fields are defined in v0.1. Future versions may
-add fields, but unknown fields should not grant new behavior or permissions.
+- `handoff_steps`: optional three-step display text for the Suggested Skill
+  Action Panel. It is copy-only guidance and must not grant execution behavior.
+
+Unknown fields should not grant new behavior or permissions.
 
 ## Allowed Status Values
 

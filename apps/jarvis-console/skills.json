@@ -26,6 +26,11 @@
         "Run the report.",
         "Treat the report as validation planning, not final proof."
       ],
+      "handoff_steps": [
+        "Copy the Git Bash or PowerShell command.",
+        "Run it in your terminal.",
+        "In the launcher, paste your idea, click Idea \uad6c\uccb4\ud654, then run the report."
+      ],
       "commands": {
         "git_bash": "python -B apps/research-council/run_local_app.py",
         "powershell": "python -B apps\\research-council\\run_local_app.py"
@@ -63,13 +68,27 @@
         "startup",
         "assumption",
         "research council",
+        "business idea",
+        "idea validation",
+        "mvp validation",
         "\uc544\uc774\ub514\uc5b4",
+        "\uc544\uc774\ub514\uc5b4 \uac80\uc99d",
         "\uac80\uc99d",
+        "\uac80\uc99d\ud574\uc918",
         "\uc2e4\ud5d8",
         "\uc99d\uac70",
         "\ub9ac\uc2a4\ud06c",
+        "\ucc3d\uc5c5",
+        "\ucc3d\uc5c5 \uc544\uc774\ub514\uc5b4",
         "\uc0ac\uc5c5\uc131",
+        "\uc0ac\uc5c5\uc131 \uac80\ud1a0",
+        "\uc2dc\uc7a5\uc131",
         "\uc0ac\uc5c5",
+        "\uc0ac\uc5c5 \uc544\uc774\ub514\uc5b4",
+        "\uc544\uc774\ud15c",
+        "\uc2dc\ubbac\ub808\uc774\uc158 \uc544\uc774\ub514\uc5b4",
+        "\uc81c\uc870\uc7a5\ube44",
+        "\uc7a5\ube44 \uc2dc\ubbac\ub808\uc774\uc158",
         "\uac00\uc124"
       ],
       "safety_notes": [

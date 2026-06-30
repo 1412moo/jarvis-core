@@ -191,6 +191,15 @@ def validate_registry(registry: dict[str, Any]) -> None:
                 for test_command in value:
                     validate_display_command(skill_id, "test command", test_command)
 
+        handoff_steps = skill.get("handoff_steps")
+        if handoff_steps is not None:
+            if not isinstance(handoff_steps, list) or len(handoff_steps) != 3:
+                raise RegistryError(f"{skill_id} handoff_steps must be a three-item list")
+            if not all(isinstance(item, str) for item in handoff_steps):
+                raise RegistryError(f"{skill_id} handoff_steps entries must be text")
+            if any(not item.strip() for item in handoff_steps):
+                raise RegistryError(f"{skill_id} handoff_steps entries must not be empty")
+
         if skill["status"] == "available" and not (skill["docs"] or skill["tests"] or skill["safe_next_action"]):
             raise RegistryError(f"{skill_id} available skills need docs, tests, or safe_next_action")
 
@@ -528,6 +537,10 @@ def run_self_test() -> None:
     assert suggest_skill("remember this repeated workflow as a skill")["recommended_skill"] == "memory_skills"
     assert suggest_skill("make this better somehow")["recommended_skill"] == "unknown"
     assert suggest_skill("\uc544\uc774\ub514\uc5b4 MVP \uac80\uc99d")["recommended_skill"] == "research_council"
+    assert suggest_skill("\uc81c\uc870\uc7a5\ube44 \uc2dc\ubbac\ub808\uc774\uc158 \uc544\uc774\ub514\uc5b4 \uac80\uc99d\ud574\uc918")["recommended_skill"] == "research_council"
+    assert suggest_skill("\ucc3d\uc5c5 \uc544\uc774\ub514\uc5b4 \uc0ac\uc5c5\uc131 \uac80\ud1a0\ud574\uc918")["recommended_skill"] == "research_council"
+    assert suggest_skill("\uc2dc\ubbac\ub808\uc774\uc158 \uac8c\uc784 \ucd94\ucc9c\ud574\uc918")["recommended_skill"] == "unknown"
+    assert suggest_skill("\uacc4\uc57d\uc11c \uac80\ud1a0 \uc571 \ucf54\ub4dc \uc218\uc815\ud574\uc918")["recommended_skill"] != "research_council"
     assert suggest_skill("Codex \ucee4\ubc0b \ub9ac\ubdf0")["recommended_skill"] == "hermes_manager"
     assert suggest_skill("MCP Agent Skills \uc0c8 \uae30\uc220")["recommended_skill"] == "daily_ai_radar"
     assert suggest_skill("\ubc18\ubcf5 \uc791\uc5c5 skill\ub85c \uae30\uc5b5")["recommended_skill"] == "memory_skills"
@@ -546,6 +559,7 @@ def run_self_test() -> None:
     assert skill_response["skill"]["skill_id"] == "research_council"
     assert skill_response["skill"]["docs"]
     assert skill_response["skill"]["tests"]
+    assert skill_response["skill"]["handoff_steps"][2] == "In the launcher, paste your idea, click Idea \uad6c\uccb4\ud654, then run the report."
     for skill_id in ("research_council", "daily_ai_radar", "hermes_manager"):
         detail_code, detail_response = handle_get_api("/api/skill", f"skill_id={skill_id}")
         assert detail_code == HTTPStatus.OK
@@ -589,6 +603,8 @@ def run_self_test() -> None:
     assert "selectedSkillId" in app_js
     assert "recommendedSkillId" in app_js
     assert "selected-skill" in app_js
+    assert "handoffStepsForSkill" in app_js
+    assert "copyNextActionForHandoff" in app_js
     assert "Suggested Skill Action Panel" in app_js
     assert "suggestion-action-panel" in app_js
     assert "Open Skill Details" in app_js
@@ -601,6 +617,7 @@ def run_self_test() -> None:
     assert "Run it in your terminal." in app_js
     assert "Open the local URL after the server starts." in app_js
     assert "Follow the copied command output." in app_js
+    assert "handoff_steps" in app_js
     assert "Run the command first if the page does not load." in app_js
     assert "data-copy-next-action" in app_js
     assert "Jarvis Console does not run it for you." in app_js
