@@ -118,6 +118,11 @@
         "Treat recommendations as candidates, not implementation approval.",
         "Send high-risk candidates to Research Council before implementation."
       ],
+      "handoff_steps": [
+        "Copy the Git Bash or PowerShell command.",
+        "Run it in your terminal.",
+        "Read the generated radar report and review Executive Summary, Candidate Highlights, and Governance Notes."
+      ],
       "commands": {
         "git_bash": "python -B apps/daily-ai-radar/run_demo.py --input apps/daily-ai-radar/examples/sample-input.json",
         "powershell": "python -B apps\\daily-ai-radar\\run_demo.py --input apps\\daily-ai-radar\\examples\\sample-input.json"
@@ -172,7 +177,8 @@
       ],
       "safety_notes": [
         "Daily AI Radar uses curated metadata only.",
-        "Radar recommendations do not become implementation tasks automatically."
+        "Radar recommendations do not become implementation tasks automatically.",
+        "Radar recommendations are candidates, not implementation approval."
       ],
       "non_goals": [
         "No automatic source collection.",

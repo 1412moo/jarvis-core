@@ -141,6 +141,9 @@ function suggestedActionPanel(data, skill) {
   const powershell = commands.powershell || "";
   const handoffSteps = handoffStepsForSkill(skill, localUrl);
   const copyNextAction = copyNextActionForHandoff(handoffSteps, localUrl);
+  const registeredSafetyNotes = Array.isArray(skill?.safety_notes)
+    ? skill.safety_notes.filter((note) => String(note || "").trim())
+    : [];
   const localUrlButton = localUrl
     ? `<button class="secondary-action open-local-url" type="button" data-local-url="${escapeHtml(localUrl)}">Open Local URL</button>`
     : "";
@@ -178,6 +181,7 @@ function suggestedActionPanel(data, skill) {
         <li>Jarvis Console does not run this skill.</li>
         <li>Commands are copy-only.</li>
         <li>Opening a URL does not start the server.</li>
+        ${registeredSafetyNotes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
       </ul>
     </section>
   `;

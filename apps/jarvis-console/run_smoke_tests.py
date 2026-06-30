@@ -35,6 +35,12 @@ def main() -> None:
     research_code, research_detail = run_web_app.handle_get_api("/api/skill", "skill_id=research_council")
     assert research_code == HTTPStatus.OK
     assert research_detail["skill"]["handoff_steps"][2] == "In the launcher, paste your idea, click Idea \uad6c\uccb4\ud654, then run the report."
+    daily_code, daily_detail = run_web_app.handle_get_api("/api/skill", "skill_id=daily_ai_radar")
+    assert daily_code == HTTPStatus.OK
+    assert daily_detail["skill"]["handoff_steps"][2] == (
+        "Read the generated radar report and review Executive Summary, Candidate Highlights, and Governance Notes."
+    )
+    assert "Radar recommendations are candidates, not implementation approval." in daily_detail["skill"]["safety_notes"]
 
     missing_skill_code, missing_skill = run_web_app.handle_get_api("/api/skill", "skill_id=missing")
     assert missing_skill_code == HTTPStatus.NOT_FOUND
@@ -63,6 +69,8 @@ def main() -> None:
     assert "recommendedSkillId" in app_js
     assert "handoffStepsForSkill" in app_js
     assert "copyNextActionForHandoff" in app_js
+    assert "registeredSafetyNotes" in app_js
+    assert "skill.safety_notes" in app_js
     assert "Suggested Skill Action Panel" in app_js
     assert "suggestion-action-panel" in app_js
     assert "Open Skill Details" in app_js

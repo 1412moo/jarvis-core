@@ -560,6 +560,12 @@ def run_self_test() -> None:
     assert skill_response["skill"]["docs"]
     assert skill_response["skill"]["tests"]
     assert skill_response["skill"]["handoff_steps"][2] == "In the launcher, paste your idea, click Idea \uad6c\uccb4\ud654, then run the report."
+    daily_code, daily_response = handle_get_api("/api/skill", "skill_id=daily_ai_radar")
+    assert daily_code == HTTPStatus.OK
+    assert daily_response["skill"]["handoff_steps"][2] == (
+        "Read the generated radar report and review Executive Summary, Candidate Highlights, and Governance Notes."
+    )
+    assert "Radar recommendations are candidates, not implementation approval." in daily_response["skill"]["safety_notes"]
     for skill_id in ("research_council", "daily_ai_radar", "hermes_manager"):
         detail_code, detail_response = handle_get_api("/api/skill", f"skill_id={skill_id}")
         assert detail_code == HTTPStatus.OK
@@ -605,6 +611,8 @@ def run_self_test() -> None:
     assert "selected-skill" in app_js
     assert "handoffStepsForSkill" in app_js
     assert "copyNextActionForHandoff" in app_js
+    assert "registeredSafetyNotes" in app_js
+    assert "skill.safety_notes" in app_js
     assert "Suggested Skill Action Panel" in app_js
     assert "suggestion-action-panel" in app_js
     assert "Open Skill Details" in app_js
