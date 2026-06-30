@@ -23,9 +23,23 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8790
 MAX_JSON_BODY_BYTES = 64_000
 OVERVIEW_ALLOWED_EXTENSIONS = {".json", ".md", ".txt"}
+OVERVIEW_SOURCE_AREAS = {
+    "docs",
+    "research_council",
+    "daily_ai_radar",
+    "hermes_manager",
+    "jarvis_console",
+    "tasks",
+    "reports",
+    "checkpoints",
+    "unknown",
+}
+OVERVIEW_ITEM_TYPES = {"task", "report", "checkpoint", "doc", "example", "config"}
 OVERVIEW_MAX_ITEMS_PER_DIRECTORY = 10
 OVERVIEW_MAX_TOTAL_ITEMS = 50
 OVERVIEW_SNIPPET_BYTES = 4096
+OVERVIEW_TITLE_MAX_CHARS = 140
+OVERVIEW_SUMMARY_MAX_CHARS = 220
 SECRET_LIKE_NAME_PARTS = ("secret", "token", "credential", "password", ".env")
 READ_ONLY_GIT_COMMANDS = {
     ("rev-parse", "--show-toplevel"),
@@ -390,32 +404,141 @@ def is_overview_candidate_path(path: Path, allowed_root: Path | None = None) -> 
 def read_overview_title(path: Path) -> str:
     """Read a small prefix and return a display-only title or first line."""
 
+    title, _summary = read_overview_title_and_summary(path)
+    return title
+
+
+def truncate_overview_text(value: str, max_chars: int) -> str:
+    """Return bounded display text for overview titles and summaries."""
+
+    text = " ".join(value.split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "..."
+
+
+def read_overview_title_and_summary(path: Path) -> tuple[str, str]:
+    """Read a small prefix and return display-only title and summary text."""
+
     try:
         with path.open("rb") as file:
             raw = file.read(OVERVIEW_SNIPPET_BYTES)
     except OSError:
-        return ""
+        return "", ""
     text = raw.decode("utf-8", errors="replace")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
+    title = ""
     if path.suffix.lower() == ".json" and lines and lines[0] in {"{", "["}:
-        return path.stem.replace("-", " ").replace("_", " ").title()
+        title = path.stem.replace("-", " ").replace("_", " ").title()
+        summary = "JSON metadata file."
+        return truncate_overview_text(title, OVERVIEW_TITLE_MAX_CHARS), summary
     for line in lines:
         if line.startswith("#"):
-            return line.lstrip("#").strip()
-    return lines[0] if lines else ""
+            title = line.lstrip("#").strip()
+            break
+    if not title and lines:
+        title = lines[0]
+    summary_candidates = [line.lstrip("#").strip() for line in lines if line.lstrip("#").strip() != title]
+    summary = summary_candidates[0] if summary_candidates else ""
+    return (
+        truncate_overview_text(title, OVERVIEW_TITLE_MAX_CHARS),
+        truncate_overview_text(summary, OVERVIEW_SUMMARY_MAX_CHARS),
+    )
+
+
+def infer_source_area(repo_path: str, directory: dict[str, str]) -> str:
+    """Classify overview files by source area without reading beyond metadata."""
+
+    directory_key = directory["key"]
+    lowered_path = repo_path.lower()
+    if directory_key == "memory_tasks":
+        return "tasks"
+    if directory_key == "reports":
+        return "reports"
+    if directory_key == "research_examples" or "research-council" in lowered_path:
+        return "research_council"
+    if directory_key == "daily_ai_radar_examples" or "daily-ai-radar" in lowered_path:
+        return "daily_ai_radar"
+    if directory_key == "hermes_examples" or "hermes-manager" in lowered_path:
+        return "hermes_manager"
+    if directory_key == "jarvis_console" or "jarvis-console" in lowered_path:
+        return "jarvis_console"
+    if directory_key == "docs":
+        return "docs"
+    return "unknown"
+
+
+def infer_item_type(repo_path: str, directory: dict[str, str]) -> str:
+    """Classify overview files as display metadata only."""
+
+    directory_key = directory["key"]
+    lowered_path = repo_path.lower()
+    name = PurePosixPath(repo_path).name.lower()
+    stem = PurePosixPath(repo_path).stem.lower()
+    if directory_key == "memory_tasks":
+        return "task"
+    if "checkpoint" in stem:
+        return "checkpoint"
+    if directory_key == "reports":
+        return "report"
+    if name in {"skills.json"}:
+        return "config"
+    if "contracts/" in lowered_path:
+        return "doc"
+    if directory_key in {"research_examples", "daily_ai_radar_examples", "hermes_examples"}:
+        if "report" in stem:
+            return "report"
+        return "example"
+    if directory_key == "jarvis_console" and PurePosixPath(repo_path).suffix.lower() == ".json":
+        return "config"
+    if directory_key == "docs":
+        return "doc"
+    return "doc"
+
+
+def overview_item_id(repo_path: str, source_area: str, item_type: str) -> str:
+    """Return a deterministic display key for one overview item."""
+
+    return f"{source_area}:{item_type}:{repo_path}"
+
+
+def overview_source_area_label(source_area: str) -> str:
+    labels = {
+        "docs": "Docs",
+        "research_council": "Research Council",
+        "daily_ai_radar": "Daily AI Radar",
+        "hermes_manager": "Hermes Manager",
+        "jarvis_console": "Jarvis Console",
+        "tasks": "Tasks",
+        "reports": "Reports",
+        "checkpoints": "Checkpoints",
+        "unknown": "Unknown",
+    }
+    return labels.get(source_area, "Unknown")
 
 
 def overview_file_item(path: Path, directory: dict[str, str]) -> dict[str, Any]:
     stat = path.stat()
+    repo_path = path.relative_to(REPO_ROOT).as_posix()
+    title, summary = read_overview_title_and_summary(path)
+    source_area = infer_source_area(repo_path, directory)
+    item_type = infer_item_type(repo_path, directory)
     return {
+        "item_id": overview_item_id(repo_path, source_area, item_type),
         "name": path.name,
-        "path": path.relative_to(REPO_ROOT).as_posix(),
+        "path": repo_path,
         "directory_key": directory["key"],
         "directory_label": directory["label"],
-        "title": read_overview_title(path),
+        "source_area": source_area,
+        "source_area_label": overview_source_area_label(source_area),
+        "item_type": item_type,
+        "title": title,
         "extension": path.suffix.lower(),
         "size_bytes": stat.st_size,
         "modified": stat.st_mtime,
+        "modified_time": stat.st_mtime,
+        "summary": summary,
+        "read_only": True,
     }
 
 
@@ -441,6 +564,45 @@ def discover_recent_items(directory_keys: tuple[str, ...], name_contains: str = 
         if len(items) >= OVERVIEW_MAX_TOTAL_ITEMS:
             break
     return items[:OVERVIEW_MAX_TOTAL_ITEMS]
+
+
+def filter_overview_items(items: list[dict[str, Any]], item_types: set[str] | None = None) -> list[dict[str, Any]]:
+    """Filter already discovered read-only items without touching the filesystem."""
+
+    if item_types is None:
+        return list(items)
+    return [item for item in items if item["item_type"] in item_types]
+
+
+def recent_group(group_id: str, title: str, empty_text: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return a grouped recent-item section for the overview dashboard."""
+
+    return {
+        "group_id": group_id,
+        "title": title,
+        "empty_text": empty_text,
+        "items": items[:OVERVIEW_MAX_TOTAL_ITEMS],
+        "read_only": True,
+    }
+
+
+def assert_overview_item_safety(item: dict[str, Any]) -> None:
+    """Validate one normalized overview item without touching the filesystem."""
+
+    repo_path = item["path"]
+    pure_path = PurePosixPath(repo_path)
+    assert item["read_only"] is True
+    assert item["source_area"] in OVERVIEW_SOURCE_AREAS
+    assert item["item_type"] in OVERVIEW_ITEM_TYPES
+    assert item["item_id"] == overview_item_id(repo_path, item["source_area"], item["item_type"])
+    assert repo_path
+    assert len(item["title"]) <= OVERVIEW_TITLE_MAX_CHARS
+    assert len(item["summary"]) <= OVERVIEW_SUMMARY_MAX_CHARS
+    assert "\\" not in repo_path
+    assert ":" not in repo_path
+    assert ".." not in pure_path.parts
+    assert not pure_path.is_absolute()
+    assert Path(repo_path).suffix in OVERVIEW_ALLOWED_EXTENSIONS
 
 
 def overview_skills_payload(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -470,8 +632,20 @@ def overview_payload() -> dict[str, Any]:
 
     registry = load_registry()
     tasks = discover_recent_items(("memory_tasks",))
-    reports = discover_recent_items(("reports", "research_examples", "daily_ai_radar_examples", "docs", "jarvis_console"))
-    checkpoints = discover_recent_items(("hermes_examples",), name_contains="checkpoint")
+    reports = filter_overview_items(
+        discover_recent_items(("reports", "research_examples", "daily_ai_radar_examples")),
+        {"report"},
+    )
+    checkpoints = discover_recent_items(("hermes_examples", "docs"), name_contains="checkpoint")
+    docs_examples = discover_recent_items(
+        ("docs", "research_examples", "daily_ai_radar_examples", "hermes_examples", "jarvis_console")
+    )
+    recent_groups = [
+        recent_group("tasks", "Recent Tasks", "No task index found yet.", tasks),
+        recent_group("reports", "Recent Reports", "No generated reports found yet.", reports),
+        recent_group("checkpoints", "Recent Checkpoints", "No checkpoint index found yet.", checkpoints),
+        recent_group("docs_examples", "Recent Docs / Examples", "No docs or examples found yet.", docs_examples),
+    ]
     return {
         "ok": True,
         "mode": "read-only",
@@ -480,9 +654,12 @@ def overview_payload() -> dict[str, Any]:
         "tasks": tasks,
         "reports": reports,
         "checkpoints": checkpoints,
+        "docs_examples": docs_examples,
+        "recent_groups": recent_groups,
         "notes": [
             "Read-only dashboard. Jarvis Console does not create or mutate tasks.",
             "Reports and checkpoints are discovered as existing local files only; none are generated here.",
+            "Recent items are read-only metadata from allowlisted local paths.",
             "Jarvis Console does not run skills, call Codex/ChatGPT/Hermes, or commit/push.",
             "Protected path remains visible: jarvis.bat.",
         ],
@@ -839,14 +1016,41 @@ def run_self_test() -> None:
     assert len(overview["tasks"]) <= OVERVIEW_MAX_TOTAL_ITEMS
     assert len(overview["reports"]) <= OVERVIEW_MAX_TOTAL_ITEMS
     assert len(overview["checkpoints"]) <= OVERVIEW_MAX_TOTAL_ITEMS
+    assert len(overview["docs_examples"]) <= OVERVIEW_MAX_TOTAL_ITEMS
+    assert [group["group_id"] for group in overview["recent_groups"]] == [
+        "tasks",
+        "reports",
+        "checkpoints",
+        "docs_examples",
+    ]
+    assert [group["title"] for group in overview["recent_groups"]] == [
+        "Recent Tasks",
+        "Recent Reports",
+        "Recent Checkpoints",
+        "Recent Docs / Examples",
+    ]
+    assert all(group["read_only"] is True for group in overview["recent_groups"])
     assert overview["discovery"]["max_items_per_directory"] == OVERVIEW_MAX_ITEMS_PER_DIRECTORY
     assert overview["discovery"]["max_total_items"] == OVERVIEW_MAX_TOTAL_ITEMS
     assert overview["discovery"]["allowed_extensions"] == sorted(OVERVIEW_ALLOWED_EXTENSIONS)
     assert ".git" in overview["discovery"]["excluded"]
     assert "__pycache__" in overview["discovery"]["excluded"]
     assert any(item["skill_id"] == "daily_ai_radar" for item in overview["skills"])
-    assert all(item["path"].split("/")[-1][0] != "." for section in ("tasks", "reports", "checkpoints") for item in overview[section])
-    assert all(Path(item["path"]).suffix in OVERVIEW_ALLOWED_EXTENSIONS for section in ("tasks", "reports", "checkpoints") for item in overview[section])
+    overview_items = [
+        item
+        for section in ("tasks", "reports", "checkpoints", "docs_examples")
+        for item in overview[section]
+    ]
+    overview_items.extend(item for group in overview["recent_groups"] for item in group["items"])
+    overview_items.extend(item for skill in overview["skills"] for item in skill["recent_items"])
+    assert overview_items
+    for item in overview_items:
+        assert item["path"].split("/")[-1][0] != "."
+        assert_overview_item_safety(item)
+    assert any(item["source_area"] == "jarvis_console" for item in overview["checkpoints"] + overview["docs_examples"])
+    assert any(item["item_type"] == "checkpoint" for item in overview["checkpoints"])
+    assert all(item["item_type"] == "task" for item in overview["tasks"])
+    assert all(item["item_type"] == "report" for item in overview["reports"])
 
     html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "Chat / Command" in html
@@ -875,6 +1079,13 @@ def run_self_test() -> None:
     assert "/api/skill" in app_js
     assert "/api/overview" in app_js
     assert "renderOverview" in app_js
+    assert "renderRecentGroups" in app_js
+    assert "normalizedOverviewItemsMarkup" in app_js
+    assert "Read-only metadata" in app_js
+    assert "overview-badge" in app_js
+    assert "Open file" not in app_js
+    assert "Edit file" not in app_js
+    assert "Delete file" not in app_js
     assert "loadOverview" in app_js
     assert "Refresh Overview" not in app_js
     assert "renderSkillCards" in app_js
@@ -942,6 +1153,8 @@ def run_self_test() -> None:
     assert "handoff-hint" in styles
     assert "overview-card" in styles
     assert "overview-list" in styles
+    assert "overview-badge" in styles
+    assert "normalized-overview-item" in styles
     assert "secondary-action" in styles
     assert "http://" not in styles
     assert "https://" not in styles

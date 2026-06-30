@@ -55,16 +55,45 @@ def main() -> None:
     assert len(overview["tasks"]) <= run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
     assert len(overview["reports"]) <= run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
     assert len(overview["checkpoints"]) <= run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
+    assert len(overview["docs_examples"]) <= run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
+    assert [group["group_id"] for group in overview["recent_groups"]] == [
+        "tasks",
+        "reports",
+        "checkpoints",
+        "docs_examples",
+    ]
+    assert [group["title"] for group in overview["recent_groups"]] == [
+        "Recent Tasks",
+        "Recent Reports",
+        "Recent Checkpoints",
+        "Recent Docs / Examples",
+    ]
+    assert all(group["read_only"] is True for group in overview["recent_groups"])
     assert overview["discovery"]["max_items_per_directory"] == run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
     assert overview["discovery"]["allowed_extensions"] == sorted(run_web_app.OVERVIEW_ALLOWED_EXTENSIONS)
     assert ".git" in overview["discovery"]["excluded"]
     assert "__pycache__" in overview["discovery"]["excluded"]
     assert any(skill["skill_id"] == "daily_ai_radar" for skill in overview["skills"])
+    overview_items = [
+        item
+        for section in ("tasks", "reports", "checkpoints", "docs_examples")
+        for item in overview[section]
+    ]
+    overview_items.extend(item for group in overview["recent_groups"] for item in group["items"])
+    overview_items.extend(item for skill in overview["skills"] for item in skill["recent_items"])
+    assert overview_items
+    for item in overview_items:
+        run_web_app.assert_overview_item_safety(item)
+    assert any(item["source_area"] == "jarvis_console" for item in overview["checkpoints"] + overview["docs_examples"])
+    assert any(item["item_type"] == "checkpoint" for item in overview["checkpoints"])
+    assert all(item["item_type"] == "task" for item in overview["tasks"])
+    assert all(item["item_type"] == "report" for item in overview["reports"])
     assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / "docs" / "sample.md") is True
     assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / "docs" / "sample.py") is False
     assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / ".git" / "config.txt") is False
     assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / "docs" / "__pycache__" / "sample.md") is False
     assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / "docs" / ".hidden.md") is False
+    assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / "docs" / "secret-plan.md") is False
     assert run_web_app.is_overview_candidate_path(
         run_web_app.REPO_ROOT / "docs" / "sample.md",
         run_web_app.REPO_ROOT / "reports",
@@ -106,6 +135,13 @@ def main() -> None:
     assert "copyNextActionForHandoff" in app_js
     assert "/api/overview" in app_js
     assert "renderOverview" in app_js
+    assert "renderRecentGroups" in app_js
+    assert "normalizedOverviewItemsMarkup" in app_js
+    assert "Read-only metadata" in app_js
+    assert "overview-badge" in app_js
+    assert "Open file" not in app_js
+    assert "Edit file" not in app_js
+    assert "Delete file" not in app_js
     assert "loadOverview" in app_js
     assert "registeredSafetyNotes" in app_js
     assert "skill.safety_notes" in app_js

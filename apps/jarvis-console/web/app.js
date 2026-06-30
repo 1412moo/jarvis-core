@@ -355,6 +355,29 @@ function formatModified(value) {
   return date.toLocaleString();
 }
 
+function sourceAreaLabel(item) {
+  if (item?.source_area_label) {
+    return item.source_area_label;
+  }
+  const labels = {
+    docs: "Docs",
+    research_council: "Research Council",
+    daily_ai_radar: "Daily AI Radar",
+    hermes_manager: "Hermes Manager",
+    jarvis_console: "Jarvis Console",
+    tasks: "Tasks",
+    reports: "Reports",
+    checkpoints: "Checkpoints",
+    unknown: "Unknown",
+  };
+  return labels[item?.source_area] || item?.directory_label || "Local file";
+}
+
+function itemTypeLabel(item) {
+  const value = String(item?.item_type || "doc").replaceAll("_", " ");
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function overviewItemsMarkup(items, emptyText) {
   if (!items || !items.length) {
     return `<p class="placeholder">${escapeHtml(emptyText)}</p>`;
@@ -370,6 +393,35 @@ function overviewItemsMarkup(items, emptyText) {
             <span>${escapeHtml(item.directory_label || "Local file")} · ${escapeHtml(formatModified(item.modified))} · ${escapeHtml(formatBytes(item.size_bytes))}</span>
           </div>
           <code>${escapeHtml(item.path)}</code>
+        </article>
+      `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function normalizedOverviewItemsMarkup(items, emptyText) {
+  if (!items || !items.length) {
+    return `<p class="placeholder">${escapeHtml(emptyText)}</p>`;
+  }
+  return `
+    <div class="overview-list">
+      ${items
+        .map(
+          (item) => `
+        <article class="overview-item normalized-overview-item">
+          <div class="overview-item-heading">
+            <strong>${escapeHtml(item.title || item.name)}</strong>
+            <div class="overview-badges">
+              <span class="overview-badge type-${escapeHtml(item.item_type || "doc")}">${escapeHtml(itemTypeLabel(item))}</span>
+              <span class="overview-badge source-area">${escapeHtml(sourceAreaLabel(item))}</span>
+              <span class="overview-badge read-only">Read-only</span>
+            </div>
+          </div>
+          ${item.summary ? `<p>${escapeHtml(item.summary)}</p>` : ""}
+          <code>${escapeHtml(item.path)}</code>
+          <span>${escapeHtml(formatModified(item.modified_time || item.modified))} | ${escapeHtml(formatBytes(item.size_bytes))}</span>
         </article>
       `,
         )
@@ -406,13 +458,37 @@ function renderOverviewSkills(skills) {
           <span class="status ${escapeHtml(skill.status)}">${escapeHtml(skill.status)}</span>
           <h4>${escapeHtml(skill.display_name)}</h4>
           <p>${escapeHtml(skill.safe_next_action)}</p>
-          ${overviewItemsMarkup(skill.recent_items, "No recent local examples found.")}
+          ${normalizedOverviewItemsMarkup(skill.recent_items, "No recent local examples found.")}
         </article>
       `,
         )
         .join("")}
     </div>
   `;
+}
+
+function renderRecentGroups(groups) {
+  if (!groups || !groups.length) {
+    return `
+      <section class="overview-card">
+        <h3>Recent Items</h3>
+        <p class="placeholder">No read-only recent item groups found yet.</p>
+      </section>
+    `;
+  }
+  return groups
+    .map(
+      (group) => `
+    <section class="overview-card recent-group-card">
+      <div class="overview-section-heading">
+        <h3>${escapeHtml(group.title)}</h3>
+        <span class="overview-badge read-only">Read-only metadata</span>
+      </div>
+      ${normalizedOverviewItemsMarkup(group.items, group.empty_text || "No recent items found yet.")}
+    </section>
+  `,
+    )
+    .join("");
 }
 
 function renderDiscoveryRules(discovery) {
@@ -453,18 +529,7 @@ function renderOverview(data) {
       <h3>Skill Status</h3>
       ${renderOverviewSkills(data.skills)}
     </section>
-    <section class="overview-card">
-      <h3>Recent Tasks</h3>
-      ${overviewItemsMarkup(data.tasks, "No task index found yet.")}
-    </section>
-    <section class="overview-card">
-      <h3>Recent Reports / Examples</h3>
-      ${overviewItemsMarkup(data.reports, "No report or example files found yet.")}
-    </section>
-    <section class="overview-card">
-      <h3>Checkpoints</h3>
-      ${overviewItemsMarkup(data.checkpoints, "No checkpoint examples found yet.")}
-    </section>
+    ${renderRecentGroups(data.recent_groups)}
     <section class="overview-card safety-card">
       <h3>Safety Notes</h3>
       ${listMarkup(data.notes, "No overview safety notes registered.")}
