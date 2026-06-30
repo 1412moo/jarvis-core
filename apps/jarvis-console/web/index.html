@@ -103,11 +103,14 @@
       <section class="tab-panel hidden" id="tab-tasks">
         <div class="panel-heading">
           <p class="eyebrow">Tasks / Reports</p>
-          <h2 id="tasksTitle">Future approval and report queue</h2>
-          <p id="tasksDescription">Later versions can show approval-needed items, recent reports, and commit checkpoints here.</p>
+          <h2 id="tasksTitle">Read-only operations dashboard</h2>
+          <p id="tasksDescription">Review current repo status, skill status, recent reports, and checkpoint candidates without creating or changing anything.</p>
         </div>
-        <div id="tasksDetails"></div>
-        <p class="placeholder">v0.1 does not mutate tasks or write reports from this console.</p>
+        <button id="refreshOverviewButton" class="secondary-action overview-refresh" type="button">Refresh Overview</button>
+        <div id="tasksDetails" class="overview-panel">
+          <p class="muted">Overview has not been loaded yet.</p>
+        </div>
+        <p class="safety-note">Read-only dashboard: Jarvis Console does not create tasks, generate reports, run skills, commit, or push.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-memory">

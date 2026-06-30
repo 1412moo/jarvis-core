@@ -5,20 +5,48 @@ from __future__ import annotations
 import argparse
 import inspect
 import json
+import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
+from subprocess import CalledProcessError, TimeoutExpired, run as run_process
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 import webbrowser
 
 
 APP_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = APP_ROOT.parents[1]
 WEB_ROOT = APP_ROOT / "web"
 REGISTRY_PATH = APP_ROOT / "skills.json"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8790
 MAX_JSON_BODY_BYTES = 64_000
+OVERVIEW_ALLOWED_EXTENSIONS = {".json", ".md", ".txt"}
+OVERVIEW_MAX_ITEMS_PER_DIRECTORY = 10
+OVERVIEW_MAX_TOTAL_ITEMS = 50
+OVERVIEW_SNIPPET_BYTES = 4096
+SECRET_LIKE_NAME_PARTS = ("secret", "token", "credential", "password", ".env")
+READ_ONLY_GIT_COMMANDS = {
+    ("rev-parse", "--show-toplevel"),
+    ("rev-parse", "--abbrev-ref", "HEAD"),
+    ("rev-parse", "HEAD"),
+    ("status", "--short"),
+}
+OVERVIEW_DIRECTORIES = (
+    {"key": "memory_tasks", "label": "Memory Tasks", "path": "memory/tasks"},
+    {"key": "reports", "label": "Reports", "path": "reports"},
+    {"key": "research_examples", "label": "Research Council Examples", "path": "apps/research-council/examples"},
+    {"key": "daily_ai_radar_examples", "label": "Daily AI Radar Examples", "path": "apps/daily-ai-radar/examples"},
+    {"key": "hermes_examples", "label": "Hermes Manager Examples", "path": "apps/hermes-manager-pilot/examples"},
+    {"key": "docs", "label": "Docs", "path": "docs"},
+    {"key": "jarvis_console", "label": "Jarvis Console", "path": "apps/jarvis-console"},
+)
+CORE_SKILL_RECENT_ITEM_KEYS = {
+    "research_council": ("research_examples",),
+    "daily_ai_radar": ("daily_ai_radar_examples",),
+    "hermes_manager": ("hermes_examples",),
+}
 ALLOWED_STATUSES = {"available", "planned", "experimental"}
 ALLOWED_CATEGORIES = {"validation", "scouting", "workflow", "memory", "system"}
 REQUIRED_SKILL_FIELDS = {
@@ -282,6 +310,195 @@ def status_payload() -> dict[str, Any]:
     }
 
 
+def validate_read_only_git_args(args: tuple[str, ...]) -> None:
+    """Allow only fixed read-only git commands for overview metadata."""
+
+    if args not in READ_ONLY_GIT_COMMANDS:
+        raise RegistryError("git command is not allowed for read-only overview")
+
+
+def run_read_only_git(args: tuple[str, ...]) -> str:
+    """Run a fixed read-only git command without shell expansion."""
+
+    validate_read_only_git_args(args)
+    try:
+        result = run_process(
+            ["git", *args],
+            cwd=REPO_ROOT,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+    except (CalledProcessError, TimeoutExpired, OSError) as exc:
+        raise RegistryError(f"read-only git status failed: {exc}") from exc
+    return result.stdout.strip()
+
+
+def repo_status_payload() -> dict[str, Any]:
+    """Return read-only repository status for the overview dashboard."""
+
+    head = run_read_only_git(("rev-parse", "HEAD"))
+    working_tree_status = run_read_only_git(("status", "--short"))
+    return {
+        "root": run_read_only_git(("rev-parse", "--show-toplevel")),
+        "branch": run_read_only_git(("rev-parse", "--abbrev-ref", "HEAD")),
+        "head": head,
+        "head_short": head[:7],
+        "working_tree_status": working_tree_status or "clean",
+        "protected_path_note": "jarvis.bat remains protected and must not be staged or modified by Jarvis Console.",
+        "read_only_git_commands": [
+            "git rev-parse --show-toplevel",
+            "git rev-parse --abbrev-ref HEAD",
+            "git rev-parse HEAD",
+            "git status --short",
+        ],
+    }
+
+
+def overview_directory_by_key() -> dict[str, dict[str, str]]:
+    return {item["key"]: item for item in OVERVIEW_DIRECTORIES}
+
+
+def is_overview_candidate_path(path: Path, allowed_root: Path | None = None) -> bool:
+    """Check path-only safety rules for overview file discovery."""
+
+    try:
+        resolved_path = path.resolve()
+        relative = resolved_path.relative_to(REPO_ROOT)
+    except ValueError:
+        return False
+    if allowed_root is not None:
+        try:
+            resolved_path.relative_to(allowed_root.resolve())
+        except ValueError:
+            return False
+    if path.suffix.lower() not in OVERVIEW_ALLOWED_EXTENSIONS:
+        return False
+    lowered_name = path.name.lower()
+    if any(part in lowered_name for part in SECRET_LIKE_NAME_PARTS):
+        return False
+    for part in relative.parts:
+        if part == ".git" or part == "__pycache__" or part.startswith("."):
+            return False
+    return True
+
+
+def read_overview_title(path: Path) -> str:
+    """Read a small prefix and return a display-only title or first line."""
+
+    try:
+        with path.open("rb") as file:
+            raw = file.read(OVERVIEW_SNIPPET_BYTES)
+    except OSError:
+        return ""
+    text = raw.decode("utf-8", errors="replace")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if path.suffix.lower() == ".json" and lines and lines[0] in {"{", "["}:
+        return path.stem.replace("-", " ").replace("_", " ").title()
+    for line in lines:
+        if line.startswith("#"):
+            return line.lstrip("#").strip()
+    return lines[0] if lines else ""
+
+
+def overview_file_item(path: Path, directory: dict[str, str]) -> dict[str, Any]:
+    stat = path.stat()
+    return {
+        "name": path.name,
+        "path": path.relative_to(REPO_ROOT).as_posix(),
+        "directory_key": directory["key"],
+        "directory_label": directory["label"],
+        "title": read_overview_title(path),
+        "extension": path.suffix.lower(),
+        "size_bytes": stat.st_size,
+        "modified": stat.st_mtime,
+    }
+
+
+def discover_recent_items(directory_keys: tuple[str, ...], name_contains: str = "") -> list[dict[str, Any]]:
+    """Discover recent display-only file metadata from fixed safe directories."""
+
+    directories = overview_directory_by_key()
+    items: list[dict[str, Any]] = []
+    for key in directory_keys:
+        directory = directories[key]
+        root = REPO_ROOT / directory["path"]
+        if not root.exists() or not root.is_dir():
+            continue
+        directory_items: list[dict[str, Any]] = []
+        for path in root.rglob("*"):
+            if not path.is_file() or not is_overview_candidate_path(path, root):
+                continue
+            if name_contains and name_contains.lower() not in path.name.lower():
+                continue
+            directory_items.append(overview_file_item(path, directory))
+        directory_items.sort(key=lambda item: (item["modified"], item["path"]), reverse=True)
+        items.extend(directory_items[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY])
+        if len(items) >= OVERVIEW_MAX_TOTAL_ITEMS:
+            break
+    return items[:OVERVIEW_MAX_TOTAL_ITEMS]
+
+
+def overview_skills_payload(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return core skill status cards with recent read-only artifacts."""
+
+    payload = []
+    for skill in skills:
+        skill_id = skill["skill_id"]
+        if skill_id not in CORE_SKILL_RECENT_ITEM_KEYS:
+            continue
+        payload.append(
+            {
+                "skill_id": skill_id,
+                "display_name": skill["display_name"],
+                "status": skill["status"],
+                "safe_next_action": skill["safe_next_action"],
+                "docs": skill["docs"],
+                "examples": skill["examples"],
+                "recent_items": discover_recent_items(CORE_SKILL_RECENT_ITEM_KEYS[skill_id])[:5],
+            }
+        )
+    return payload
+
+
+def overview_payload() -> dict[str, Any]:
+    """Return the read-only Tasks / Reports dashboard payload."""
+
+    registry = load_registry()
+    tasks = discover_recent_items(("memory_tasks",))
+    reports = discover_recent_items(("reports", "research_examples", "daily_ai_radar_examples", "docs", "jarvis_console"))
+    checkpoints = discover_recent_items(("hermes_examples",), name_contains="checkpoint")
+    return {
+        "ok": True,
+        "mode": "read-only",
+        "repo": repo_status_payload(),
+        "skills": overview_skills_payload(registry["skills"]),
+        "tasks": tasks,
+        "reports": reports,
+        "checkpoints": checkpoints,
+        "notes": [
+            "Read-only dashboard. Jarvis Console does not create or mutate tasks.",
+            "Reports and checkpoints are discovered as existing local files only; none are generated here.",
+            "Jarvis Console does not run skills, call Codex/ChatGPT/Hermes, or commit/push.",
+            "Protected path remains visible: jarvis.bat.",
+        ],
+        "discovery": {
+            "safe_directories": [
+                {"key": item["key"], "label": item["label"], "path": item["path"], "exists": (REPO_ROOT / item["path"]).is_dir()}
+                for item in OVERVIEW_DIRECTORIES
+            ],
+            "allowed_extensions": sorted(OVERVIEW_ALLOWED_EXTENSIONS),
+            "max_items_per_directory": OVERVIEW_MAX_ITEMS_PER_DIRECTORY,
+            "max_total_items": OVERVIEW_MAX_TOTAL_ITEMS,
+            "excluded": ["hidden files", ".git", "__pycache__", "secrets-like file names"],
+        },
+    }
+
+
 def normalize_message(message: str) -> str:
     """Normalize user text for deterministic keyword matching."""
 
@@ -336,6 +553,8 @@ def handle_get_api(path: str, query: str = "") -> tuple[int, dict[str, Any]]:
     try:
         if path == "/api/status":
             return HTTPStatus.OK, status_payload()
+        if path == "/api/overview":
+            return HTTPStatus.OK, overview_payload()
         if path == "/api/skill":
             params = parse_qs(query)
             skill_id = (params.get("skill_id") or [""])[0].strip()
@@ -531,6 +750,37 @@ def run_self_test() -> None:
         else:
             raise AssertionError(f"unsafe registry path was not rejected: {path_value}")
 
+    for args in READ_ONLY_GIT_COMMANDS:
+        validate_read_only_git_args(args)
+    bad_git_args = (
+        ("add", "."),
+        ("commit", "-m", "test"),
+        ("push",),
+        ("checkout", "main"),
+        ("reset", "--hard"),
+        ("clean", "-fd"),
+        ("rm", "file"),
+        ("stash",),
+    )
+    for args in bad_git_args:
+        try:
+            validate_read_only_git_args(args)
+        except RegistryError:
+            pass
+        else:
+            raise AssertionError(f"unsafe git args were not rejected: {args}")
+
+    assert is_overview_candidate_path(REPO_ROOT / "docs" / "sample.md") is True
+    assert is_overview_candidate_path(REPO_ROOT / "docs" / "sample.json") is True
+    assert is_overview_candidate_path(REPO_ROOT / "docs" / "sample.txt") is True
+    assert is_overview_candidate_path(REPO_ROOT / "docs" / "sample.py") is False
+    assert is_overview_candidate_path(REPO_ROOT / ".git" / "config.txt") is False
+    assert is_overview_candidate_path(REPO_ROOT / "docs" / "__pycache__" / "sample.md") is False
+    assert is_overview_candidate_path(REPO_ROOT / "docs" / ".hidden.md") is False
+    assert is_overview_candidate_path(REPO_ROOT / "docs" / "secret-plan.md") is False
+    assert is_overview_candidate_path(REPO_ROOT.parent / "outside.md") is False
+    assert is_overview_candidate_path(REPO_ROOT / "docs" / "sample.md", REPO_ROOT / "reports") is False
+
     assert suggest_skill("idea MVP validation")["recommended_skill"] == "research_council"
     assert suggest_skill("Codex commit review")["recommended_skill"] == "hermes_manager"
     assert suggest_skill("MCP Agent Skills new technology")["recommended_skill"] == "daily_ai_radar"
@@ -576,6 +826,27 @@ def run_self_test() -> None:
         assert set(detail["commands"]).issuperset(REQUIRED_COMMAND_FIELDS)
     assert handle_get_api("/api/skill")[0] == HTTPStatus.BAD_REQUEST
     assert handle_get_api("/api/skill", "skill_id=missing")[0] == HTTPStatus.NOT_FOUND
+    before_overview_status = run_read_only_git(("status", "--short"))
+    overview_code, overview = handle_get_api("/api/overview")
+    after_overview_status = run_read_only_git(("status", "--short"))
+    assert before_overview_status == after_overview_status
+    assert overview_code == HTTPStatus.OK
+    assert overview["ok"] is True
+    assert overview["mode"] == "read-only"
+    assert overview["repo"]["head_short"]
+    assert "jarvis.bat" in overview["repo"]["protected_path_note"]
+    assert overview["repo"]["working_tree_status"]
+    assert len(overview["tasks"]) <= OVERVIEW_MAX_TOTAL_ITEMS
+    assert len(overview["reports"]) <= OVERVIEW_MAX_TOTAL_ITEMS
+    assert len(overview["checkpoints"]) <= OVERVIEW_MAX_TOTAL_ITEMS
+    assert overview["discovery"]["max_items_per_directory"] == OVERVIEW_MAX_ITEMS_PER_DIRECTORY
+    assert overview["discovery"]["max_total_items"] == OVERVIEW_MAX_TOTAL_ITEMS
+    assert overview["discovery"]["allowed_extensions"] == sorted(OVERVIEW_ALLOWED_EXTENSIONS)
+    assert ".git" in overview["discovery"]["excluded"]
+    assert "__pycache__" in overview["discovery"]["excluded"]
+    assert any(item["skill_id"] == "daily_ai_radar" for item in overview["skills"])
+    assert all(item["path"].split("/")[-1][0] != "." for section in ("tasks", "reports", "checkpoints") for item in overview[section])
+    assert all(Path(item["path"]).suffix in OVERVIEW_ALLOWED_EXTENSIONS for section in ("tasks", "reports", "checkpoints") for item in overview[section])
 
     html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "Chat / Command" in html
@@ -594,11 +865,18 @@ def run_self_test() -> None:
     assert "No automatic Codex / ChatGPT / Hermes invocation" in html
     assert "What do you want Jarvis to help with?" in html
     assert "jarvis.bat" in html
+    assert "Refresh Overview" in html
+    assert "Read-only operations dashboard" in html
+    assert "does not create tasks" in html
 
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
     assert "fetch(" in app_js
     assert "/api/status" in app_js
     assert "/api/skill" in app_js
+    assert "/api/overview" in app_js
+    assert "renderOverview" in app_js
+    assert "loadOverview" in app_js
+    assert "Refresh Overview" not in app_js
     assert "renderSkillCards" in app_js
     assert "renderSkillDetail" in app_js
     assert "action_guide" in app_js
@@ -662,6 +940,8 @@ def run_self_test() -> None:
     assert "suggestion-action-panel" in styles
     assert "suggestion-actions" in styles
     assert "handoff-hint" in styles
+    assert "overview-card" in styles
+    assert "overview-list" in styles
     assert "secondary-action" in styles
     assert "http://" not in styles
     assert "https://" not in styles
@@ -673,7 +953,6 @@ def run_self_test() -> None:
     source = Path(__file__).read_text(encoding="utf-8")
     forbidden_source_patterns = (
         "shell" + "=True",
-        "sub" + "process",
         "os." + "system",
         "git" + " add",
         "git" + " commit",
@@ -687,6 +966,9 @@ def run_self_test() -> None:
         "invoke-" + "restmethod",
     )
     assert all(pattern not in source for pattern in forbidden_source_patterns)
+    assert ("shell" + "=True") not in source
+    assert "READ_ONLY_GIT_COMMANDS" in source
+    assert "run_read_only_git" in source
     assert inspect.getsource(run_server).count(DEFAULT_HOST) >= 1
     print("Jarvis Console browser shell self-test passed")
 

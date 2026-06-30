@@ -46,6 +46,37 @@ def main() -> None:
     assert missing_skill_code == HTTPStatus.NOT_FOUND
     assert missing_skill["error"] == "unknown_skill"
 
+    overview_code, overview = run_web_app.handle_get_api("/api/overview")
+    assert overview_code == HTTPStatus.OK
+    assert overview["ok"] is True
+    assert overview["mode"] == "read-only"
+    assert overview["repo"]["head_short"]
+    assert "jarvis.bat" in overview["repo"]["protected_path_note"]
+    assert len(overview["tasks"]) <= run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
+    assert len(overview["reports"]) <= run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
+    assert len(overview["checkpoints"]) <= run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
+    assert overview["discovery"]["max_items_per_directory"] == run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
+    assert overview["discovery"]["allowed_extensions"] == sorted(run_web_app.OVERVIEW_ALLOWED_EXTENSIONS)
+    assert ".git" in overview["discovery"]["excluded"]
+    assert "__pycache__" in overview["discovery"]["excluded"]
+    assert any(skill["skill_id"] == "daily_ai_radar" for skill in overview["skills"])
+    assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / "docs" / "sample.md") is True
+    assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / "docs" / "sample.py") is False
+    assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / ".git" / "config.txt") is False
+    assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / "docs" / "__pycache__" / "sample.md") is False
+    assert run_web_app.is_overview_candidate_path(run_web_app.REPO_ROOT / "docs" / ".hidden.md") is False
+    assert run_web_app.is_overview_candidate_path(
+        run_web_app.REPO_ROOT / "docs" / "sample.md",
+        run_web_app.REPO_ROOT / "reports",
+    ) is False
+    for args in (("add", "."), ("commit", "-m", "test"), ("push",), ("reset", "--hard")):
+        try:
+            run_web_app.validate_read_only_git_args(args)
+        except run_web_app.RegistryError:
+            pass
+        else:
+            raise AssertionError(f"unsafe git args were not rejected: {args}")
+
     suggestion_code, suggestion = run_web_app.handle_post_api(
         "/api/suggest-skill",
         {"message": "I need Codex to review a repo README before commit."},
@@ -66,9 +97,16 @@ def main() -> None:
     assert run_web_app.suggest_skill("\uc2dc\ubbac\ub808\uc774\uc158 \uac8c\uc784 \ucd94\ucc9c\ud574\uc918")["recommended_skill"] == "unknown"
 
     app_js = Path(__file__).resolve().parent.joinpath("web", "app.js").read_text(encoding="utf-8")
+    html = Path(__file__).resolve().parent.joinpath("web", "index.html").read_text(encoding="utf-8")
+    assert "Refresh Overview" in html
+    assert "Read-only operations dashboard" in html
+    assert "does not create tasks" in html
     assert "recommendedSkillId" in app_js
     assert "handoffStepsForSkill" in app_js
     assert "copyNextActionForHandoff" in app_js
+    assert "/api/overview" in app_js
+    assert "renderOverview" in app_js
+    assert "loadOverview" in app_js
     assert "registeredSafetyNotes" in app_js
     assert "skill.safety_notes" in app_js
     assert "Suggested Skill Action Panel" in app_js

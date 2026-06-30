@@ -7,6 +7,8 @@ const statusText = document.getElementById("statusText");
 const nextActionText = document.getElementById("nextActionText");
 const skillGrid = document.getElementById("skillGrid");
 const skillDetail = document.getElementById("skillDetail");
+const tasksDetails = document.getElementById("tasksDetails");
+const refreshOverviewButton = document.getElementById("refreshOverviewButton");
 
 let registrySkills = [];
 let selectedSkillId = "";
@@ -25,6 +27,9 @@ function activateTab(tabId) {
   });
   if (tabId === "skills" && recommendedSkillId) {
     loadSkillDetail(recommendedSkillId);
+  }
+  if (tabId === "tasks") {
+    loadOverview();
   }
 }
 
@@ -331,6 +336,162 @@ function renderSkillDetails(skillId, prefix) {
   }
 }
 
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatModified(value) {
+  const date = new Date(Number(value || 0) * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return "unknown time";
+  }
+  return date.toLocaleString();
+}
+
+function overviewItemsMarkup(items, emptyText) {
+  if (!items || !items.length) {
+    return `<p class="placeholder">${escapeHtml(emptyText)}</p>`;
+  }
+  return `
+    <div class="overview-list">
+      ${items
+        .map(
+          (item) => `
+        <article class="overview-item">
+          <div>
+            <strong>${escapeHtml(item.title || item.name)}</strong>
+            <span>${escapeHtml(item.directory_label || "Local file")} · ${escapeHtml(formatModified(item.modified))} · ${escapeHtml(formatBytes(item.size_bytes))}</span>
+          </div>
+          <code>${escapeHtml(item.path)}</code>
+        </article>
+      `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderRepoStatus(repo) {
+  const workingTree = repo?.working_tree_status || "unknown";
+  return `
+    <section class="overview-card repo-status-card">
+      <h3>Current Repo Status</h3>
+      <dl class="overview-facts">
+        <div><dt>Branch</dt><dd>${escapeHtml(repo?.branch || "unknown")}</dd></div>
+        <div><dt>HEAD</dt><dd>${escapeHtml(repo?.head_short || "unknown")}</dd></div>
+        <div><dt>Working tree</dt><dd><code>${escapeHtml(workingTree)}</code></dd></div>
+      </dl>
+      <p class="muted">${escapeHtml(repo?.protected_path_note || "jarvis.bat remains protected.")}</p>
+    </section>
+  `;
+}
+
+function renderOverviewSkills(skills) {
+  if (!skills || !skills.length) {
+    return "<p class=\"placeholder\">No skill status loaded.</p>";
+  }
+  return `
+    <div class="overview-skill-grid">
+      ${skills
+        .map(
+          (skill) => `
+        <article class="overview-skill-card">
+          <span class="status ${escapeHtml(skill.status)}">${escapeHtml(skill.status)}</span>
+          <h4>${escapeHtml(skill.display_name)}</h4>
+          <p>${escapeHtml(skill.safe_next_action)}</p>
+          ${overviewItemsMarkup(skill.recent_items, "No recent local examples found.")}
+        </article>
+      `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderDiscoveryRules(discovery) {
+  const directories = discovery?.safe_directories || [];
+  return `
+    <section class="overview-card">
+      <h3>Read-only Discovery Rules</h3>
+      <p class="muted">Jarvis Console lists metadata only from fixed safe directories. It does not edit, delete, generate, or execute files.</p>
+      <div class="overview-rule-grid">
+        <div>
+          <strong>Limits</strong>
+          <ul class="metadata-list">
+            <li>Max ${escapeHtml(discovery?.max_items_per_directory || "")} items per directory</li>
+            <li>Max ${escapeHtml(discovery?.max_total_items || "")} items total per discovery call</li>
+            <li>Extensions: ${escapeHtml((discovery?.allowed_extensions || []).join(", "))}</li>
+          </ul>
+        </div>
+        <div>
+          <strong>Safe directories</strong>
+          <ul class="metadata-list">
+            ${directories
+              .map((item) => `<li>${escapeHtml(item.path)} ${item.exists ? "" : "(missing)"}</li>`)
+              .join("")}
+          </ul>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderOverview(data) {
+  if (!tasksDetails) {
+    return;
+  }
+  tasksDetails.innerHTML = `
+    ${renderRepoStatus(data.repo)}
+    <section class="overview-card">
+      <h3>Skill Status</h3>
+      ${renderOverviewSkills(data.skills)}
+    </section>
+    <section class="overview-card">
+      <h3>Recent Tasks</h3>
+      ${overviewItemsMarkup(data.tasks, "No task index found yet.")}
+    </section>
+    <section class="overview-card">
+      <h3>Recent Reports / Examples</h3>
+      ${overviewItemsMarkup(data.reports, "No report or example files found yet.")}
+    </section>
+    <section class="overview-card">
+      <h3>Checkpoints</h3>
+      ${overviewItemsMarkup(data.checkpoints, "No checkpoint examples found yet.")}
+    </section>
+    <section class="overview-card safety-card">
+      <h3>Safety Notes</h3>
+      ${listMarkup(data.notes, "No overview safety notes registered.")}
+    </section>
+    ${renderDiscoveryRules(data.discovery)}
+  `;
+}
+
+async function loadOverview() {
+  if (!tasksDetails) {
+    return;
+  }
+  tasksDetails.innerHTML = "<p class=\"muted\">Loading read-only overview...</p>";
+  try {
+    const response = await fetch("/api/overview");
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderOverview(data);
+    statusText.textContent = "Read-only Tasks / Reports overview refreshed.";
+  } catch (error) {
+    tasksDetails.innerHTML = `<p class="safety-note">Overview failed: ${escapeHtml(error.message)}</p>`;
+    statusText.textContent = `Overview failed: ${error.message}`;
+  }
+}
+
 function renderRegistry(status) {
   registrySkills = status.skills || [];
   selectedSkillId = registrySkills[0]?.skill_id || "";
@@ -341,7 +502,6 @@ function renderRegistry(status) {
   renderSkillDetails("hermes_manager", "hermes");
   renderSkillDetails("research_council", "research");
   renderSkillDetails("daily_ai_radar", "radar");
-  renderSkillDetails("tasks_reports", "tasks");
   renderSkillDetails("memory_skills", "memory");
   renderSkillDetails("settings", "settings");
   statusText.textContent = `Ready. Loaded ${registrySkills.length} read-only registry skills.`;
@@ -402,6 +562,12 @@ tabs.forEach((button) => {
 });
 
 suggestButton.addEventListener("click", suggestSkill);
+
+if (refreshOverviewButton) {
+  refreshOverviewButton.addEventListener("click", () => {
+    loadOverview();
+  });
+}
 
 commandInput.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {

@@ -536,6 +536,90 @@ code {
   color: var(--muted);
 }
 
+.overview-refresh {
+  margin-bottom: 14px;
+}
+
+.overview-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.overview-card {
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.overview-card h3,
+.overview-skill-card h4 {
+  margin: 0 0 10px;
+}
+
+.overview-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.overview-facts div,
+.overview-skill-card,
+.overview-item {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.overview-facts dt {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.overview-facts dd {
+  margin: 0;
+}
+
+.overview-skill-grid,
+.overview-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.overview-rule-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.overview-skill-card p {
+  color: var(--muted);
+}
+
+.overview-list {
+  display: grid;
+  gap: 10px;
+}
+
+.overview-item {
+  display: grid;
+  gap: 8px;
+}
+
+.overview-item strong {
+  display: block;
+}
+
+.overview-item span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .settings-list {
   display: grid;
   gap: 12px;
