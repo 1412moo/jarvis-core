@@ -98,7 +98,43 @@ def main() -> None:
         run_web_app.REPO_ROOT / "docs" / "sample.md",
         run_web_app.REPO_ROOT / "reports",
     ) is False
-    for args in (("add", "."), ("commit", "-m", "test"), ("push",), ("reset", "--hard")):
+    history_code, history = run_web_app.handle_get_api("/api/history")
+    assert history_code == HTTPStatus.OK
+    assert history["ok"] is True
+    assert history["mode"] == "read-only"
+    assert history["repo"]["head_short"]
+    assert "root" not in history["repo"]
+    assert "jarvis.bat" in history["repo"]["protected_path_note"]
+    assert history["recent_commits"]
+    assert len(history["recent_commits"]) <= run_web_app.HISTORY_MAX_COMMITS
+    for commit in history["recent_commits"]:
+        run_web_app.assert_history_commit_safety(commit)
+    history_items = history["checkpoint_docs"] + history["related_items"]
+    assert history_items
+    for item in history_items:
+        run_web_app.assert_overview_item_safety(item)
+        assert run_web_app.is_history_candidate_name(Path(item["path"]))
+    assert any(item["path"] == "docs/jarvis-console-v0.1-checkpoint.md" for item in history["checkpoint_docs"])
+    assert [item["path"] for item in history["discovery"]["safe_directories"]] == [
+        "docs",
+        "apps/jarvis-console",
+        "apps/hermes-manager-pilot/examples",
+        "apps/daily-ai-radar/examples",
+    ]
+    assert ".git" in history["discovery"]["excluded"]
+    assert "__pycache__" in history["discovery"]["excluded"]
+    assert "This view is read-only." in history["notes"]
+    assert "It does not create commits or checkpoints." in history["notes"]
+
+    for args in (
+        ("add", "."),
+        ("commit", "-m", "test"),
+        ("push",),
+        ("reset", "--hard"),
+        ("tag", "v0.1"),
+        ("merge", "main"),
+        ("rebase", "main"),
+    ):
         try:
             run_web_app.validate_read_only_git_args(args)
         except run_web_app.RegistryError:
@@ -128,13 +164,19 @@ def main() -> None:
     app_js = Path(__file__).resolve().parent.joinpath("web", "app.js").read_text(encoding="utf-8")
     html = Path(__file__).resolve().parent.joinpath("web", "index.html").read_text(encoding="utf-8")
     assert "Refresh Overview" in html
+    assert "Refresh History" in html
+    assert "Checkpoints / History" in html
     assert "Read-only operations dashboard" in html
     assert "does not create tasks" in html
+    assert "does not create commits" in html
     assert "recommendedSkillId" in app_js
     assert "handoffStepsForSkill" in app_js
     assert "copyNextActionForHandoff" in app_js
     assert "/api/overview" in app_js
+    assert "/api/history" in app_js
     assert "renderOverview" in app_js
+    assert "renderHistory" in app_js
+    assert "renderRecentCommits" in app_js
     assert "renderRecentGroups" in app_js
     assert "normalizedOverviewItemsMarkup" in app_js
     assert "Read-only metadata" in app_js
@@ -143,6 +185,7 @@ def main() -> None:
     assert "Edit file" not in app_js
     assert "Delete file" not in app_js
     assert "loadOverview" in app_js
+    assert "loadHistory" in app_js
     assert "registeredSafetyNotes" in app_js
     assert "skill.safety_notes" in app_js
     assert "Suggested Skill Action Panel" in app_js

@@ -30,6 +30,7 @@
       <button class="tab-button" type="button" data-tab="research">Research Council</button>
       <button class="tab-button" type="button" data-tab="radar">Daily AI Radar</button>
       <button class="tab-button" type="button" data-tab="tasks">Tasks / Reports</button>
+      <button class="tab-button" type="button" data-tab="history">Checkpoints / History</button>
       <button class="tab-button" type="button" data-tab="memory">Memory / Skills</button>
       <button class="tab-button" type="button" data-tab="settings">Settings</button>
     </aside>
@@ -111,6 +112,19 @@
           <p class="muted">Overview has not been loaded yet.</p>
         </div>
         <p class="safety-note">Read-only dashboard: Jarvis Console does not create tasks, generate reports, run skills, commit, or push.</p>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-history">
+        <div class="panel-heading">
+          <p class="eyebrow">Checkpoints / History</p>
+          <h2 id="historyTitle">Read-only checkpoint and commit history</h2>
+          <p id="historyDescription">Review recent commits, checkpoint docs, and related report metadata without creating or changing anything.</p>
+        </div>
+        <button id="refreshHistoryButton" class="secondary-action overview-refresh" type="button">Refresh History</button>
+        <div id="historyDetails" class="overview-panel">
+          <p class="muted">History has not been loaded yet.</p>
+        </div>
+        <p class="safety-note">Read-only history: Jarvis Console does not create commits, tags, checkpoints, reports, or file mutations.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-memory">

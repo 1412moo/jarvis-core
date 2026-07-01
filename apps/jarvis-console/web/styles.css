@@ -678,6 +678,16 @@ code {
   overflow-wrap: anywhere;
 }
 
+.history-commit code,
+.history-commit-hash {
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.history-discovery-list li {
+  overflow-wrap: anywhere;
+}
+
 .settings-list {
   display: grid;
   gap: 12px;

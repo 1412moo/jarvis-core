@@ -40,12 +40,16 @@ OVERVIEW_MAX_TOTAL_ITEMS = 50
 OVERVIEW_SNIPPET_BYTES = 4096
 OVERVIEW_TITLE_MAX_CHARS = 140
 OVERVIEW_SUMMARY_MAX_CHARS = 220
+HISTORY_MAX_COMMITS = 10
+HISTORY_DIRECTORY_KEYS = ("docs", "jarvis_console", "hermes_examples", "daily_ai_radar_examples")
+HISTORY_NAME_MARKERS = ("checkpoint", "summary", "report")
 SECRET_LIKE_NAME_PARTS = ("secret", "token", "credential", "password", ".env")
 READ_ONLY_GIT_COMMANDS = {
     ("rev-parse", "--show-toplevel"),
     ("rev-parse", "--abbrev-ref", "HEAD"),
     ("rev-parse", "HEAD"),
     ("status", "--short"),
+    ("log", "--oneline", "-n", "10"),
 }
 OVERVIEW_DIRECTORIES = (
     {"key": "memory_tasks", "label": "Memory Tasks", "path": "memory/tasks"},
@@ -373,6 +377,19 @@ def repo_status_payload() -> dict[str, Any]:
     }
 
 
+def history_repo_payload() -> dict[str, Any]:
+    """Return repository metadata for the read-only history view."""
+
+    repo = repo_status_payload()
+    return {
+        "branch": repo["branch"],
+        "head": repo["head"],
+        "head_short": repo["head_short"],
+        "working_tree_status": repo["working_tree_status"],
+        "protected_path_note": repo["protected_path_note"],
+    }
+
+
 def overview_directory_by_key() -> dict[str, dict[str, str]]:
     return {item["key"]: item for item in OVERVIEW_DIRECTORIES}
 
@@ -566,6 +583,37 @@ def discover_recent_items(directory_keys: tuple[str, ...], name_contains: str = 
     return items[:OVERVIEW_MAX_TOTAL_ITEMS]
 
 
+def is_history_candidate_name(path: Path) -> bool:
+    """Return true for checkpoint/history display candidates by filename only."""
+
+    lowered = path.name.lower()
+    return any(marker in lowered for marker in HISTORY_NAME_MARKERS)
+
+
+def discover_history_items() -> list[dict[str, Any]]:
+    """Discover read-only checkpoint and history metadata from fixed safe directories."""
+
+    directories = overview_directory_by_key()
+    items: list[dict[str, Any]] = []
+    for key in HISTORY_DIRECTORY_KEYS:
+        directory = directories[key]
+        root = REPO_ROOT / directory["path"]
+        if not root.exists() or not root.is_dir():
+            continue
+        directory_items: list[dict[str, Any]] = []
+        for path in root.rglob("*"):
+            if not path.is_file() or not is_overview_candidate_path(path, root):
+                continue
+            if not is_history_candidate_name(path):
+                continue
+            directory_items.append(overview_file_item(path, directory))
+        directory_items.sort(key=lambda item: (item["modified"], item["path"]), reverse=True)
+        items.extend(directory_items[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY])
+        if len(items) >= OVERVIEW_MAX_TOTAL_ITEMS:
+            break
+    return items[:OVERVIEW_MAX_TOTAL_ITEMS]
+
+
 def filter_overview_items(items: list[dict[str, Any]], item_types: set[str] | None = None) -> list[dict[str, Any]]:
     """Filter already discovered read-only items without touching the filesystem."""
 
@@ -676,6 +724,85 @@ def overview_payload() -> dict[str, Any]:
     }
 
 
+def parse_recent_commits(raw_log: str) -> list[dict[str, Any]]:
+    """Parse fixed git log output into display-only commit cards."""
+
+    commits: list[dict[str, Any]] = []
+    for line in raw_log.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        hash_value, _, subject = text.partition(" ")
+        commits.append(
+            {
+                "item_id": f"commit:{hash_value}",
+                "hash": hash_value,
+                "subject": truncate_overview_text(subject or "(no subject)", OVERVIEW_TITLE_MAX_CHARS),
+                "read_only": True,
+            }
+        )
+        if len(commits) >= HISTORY_MAX_COMMITS:
+            break
+    return commits
+
+
+def assert_history_commit_safety(commit: dict[str, Any]) -> None:
+    """Validate one read-only commit card."""
+
+    assert commit["read_only"] is True
+    assert commit["item_id"] == f"commit:{commit['hash']}"
+    assert commit["hash"]
+    assert " " not in commit["hash"]
+    assert "\\" not in commit["hash"]
+    assert "/" not in commit["hash"]
+    assert len(commit["subject"]) <= OVERVIEW_TITLE_MAX_CHARS
+
+
+def history_payload() -> dict[str, Any]:
+    """Return the read-only Checkpoint / History view payload."""
+
+    history_items = discover_history_items()
+    checkpoint_docs = [
+        item
+        for item in history_items
+        if item["item_type"] == "checkpoint" or any(marker in item["name"].lower() for marker in ("checkpoint", "summary"))
+    ]
+    related_items = [item for item in history_items if item not in checkpoint_docs]
+    recent_commits = parse_recent_commits(run_read_only_git(("log", "--oneline", "-n", "10")))
+    return {
+        "ok": True,
+        "mode": "read-only",
+        "repo": history_repo_payload(),
+        "recent_commits": recent_commits,
+        "checkpoint_docs": checkpoint_docs[:OVERVIEW_MAX_TOTAL_ITEMS],
+        "related_items": related_items[:OVERVIEW_MAX_TOTAL_ITEMS],
+        "notes": [
+            "This view is read-only.",
+            "It does not create commits or checkpoints.",
+            "It does not push, tag, reset, checkout, merge, or rebase.",
+            "Checkpoint and report files are displayed as metadata only.",
+            "Protected path remains visible: jarvis.bat.",
+        ],
+        "discovery": {
+            "safe_directories": [
+                {
+                    "key": overview_directory_by_key()[key]["key"],
+                    "label": overview_directory_by_key()[key]["label"],
+                    "path": overview_directory_by_key()[key]["path"],
+                    "exists": (REPO_ROOT / overview_directory_by_key()[key]["path"]).is_dir(),
+                }
+                for key in HISTORY_DIRECTORY_KEYS
+            ],
+            "allowed_extensions": sorted(OVERVIEW_ALLOWED_EXTENSIONS),
+            "name_markers": list(HISTORY_NAME_MARKERS),
+            "max_commits": HISTORY_MAX_COMMITS,
+            "max_items_per_directory": OVERVIEW_MAX_ITEMS_PER_DIRECTORY,
+            "max_total_items": OVERVIEW_MAX_TOTAL_ITEMS,
+            "excluded": ["hidden files", ".git", "__pycache__", "secrets-like file names"],
+        },
+    }
+
+
 def normalize_message(message: str) -> str:
     """Normalize user text for deterministic keyword matching."""
 
@@ -732,6 +859,8 @@ def handle_get_api(path: str, query: str = "") -> tuple[int, dict[str, Any]]:
             return HTTPStatus.OK, status_payload()
         if path == "/api/overview":
             return HTTPStatus.OK, overview_payload()
+        if path == "/api/history":
+            return HTTPStatus.OK, history_payload()
         if path == "/api/skill":
             params = parse_qs(query)
             skill_id = (params.get("skill_id") or [""])[0].strip()
@@ -938,6 +1067,9 @@ def run_self_test() -> None:
         ("clean", "-fd"),
         ("rm", "file"),
         ("stash",),
+        ("tag", "v0.1"),
+        ("merge", "main"),
+        ("rebase", "main"),
     )
     for args in bad_git_args:
         try:
@@ -1051,6 +1183,42 @@ def run_self_test() -> None:
     assert any(item["item_type"] == "checkpoint" for item in overview["checkpoints"])
     assert all(item["item_type"] == "task" for item in overview["tasks"])
     assert all(item["item_type"] == "report" for item in overview["reports"])
+    before_history_status = run_read_only_git(("status", "--short"))
+    history_code, history = handle_get_api("/api/history")
+    after_history_status = run_read_only_git(("status", "--short"))
+    assert before_history_status == after_history_status
+    assert history_code == HTTPStatus.OK
+    assert history["ok"] is True
+    assert history["mode"] == "read-only"
+    assert history["repo"]["head_short"]
+    assert "root" not in history["repo"]
+    assert "jarvis.bat" in history["repo"]["protected_path_note"]
+    assert history["recent_commits"]
+    assert len(history["recent_commits"]) <= HISTORY_MAX_COMMITS
+    for commit in history["recent_commits"]:
+        assert_history_commit_safety(commit)
+    history_items = history["checkpoint_docs"] + history["related_items"]
+    assert history_items
+    for item in history_items:
+        assert_overview_item_safety(item)
+        assert is_history_candidate_name(Path(item["path"]))
+    assert any(item["path"] == "docs/jarvis-console-v0.1-checkpoint.md" for item in history["checkpoint_docs"])
+    assert any(item["read_only"] is True for item in history["checkpoint_docs"])
+    assert all("\\" not in item["path"] for item in history_items)
+    assert history["discovery"]["max_commits"] == HISTORY_MAX_COMMITS
+    assert history["discovery"]["allowed_extensions"] == sorted(OVERVIEW_ALLOWED_EXTENSIONS)
+    assert [item["path"] for item in history["discovery"]["safe_directories"]] == [
+        "docs",
+        "apps/jarvis-console",
+        "apps/hermes-manager-pilot/examples",
+        "apps/daily-ai-radar/examples",
+    ]
+    assert ".git" in history["discovery"]["excluded"]
+    assert "__pycache__" in history["discovery"]["excluded"]
+    assert "This view is read-only." in history["notes"]
+    assert "It does not create commits or checkpoints." in history["notes"]
+    assert is_history_candidate_name(REPO_ROOT / "docs" / "jarvis-console-v0.1-checkpoint.md") is True
+    assert is_history_candidate_name(REPO_ROOT / "docs" / "sample.md") is False
 
     html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "Chat / Command" in html
@@ -1059,6 +1227,7 @@ def run_self_test() -> None:
     assert "Research Council" in html
     assert "Daily AI Radar" in html
     assert "Tasks / Reports" in html
+    assert "Checkpoints / History" in html
     assert "Memory / Skills" in html
     assert "Settings" in html
     assert "skillGrid" in html
@@ -1070,15 +1239,20 @@ def run_self_test() -> None:
     assert "What do you want Jarvis to help with?" in html
     assert "jarvis.bat" in html
     assert "Refresh Overview" in html
+    assert "Refresh History" in html
     assert "Read-only operations dashboard" in html
     assert "does not create tasks" in html
+    assert "does not create commits" in html
 
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
     assert "fetch(" in app_js
     assert "/api/status" in app_js
     assert "/api/skill" in app_js
     assert "/api/overview" in app_js
+    assert "/api/history" in app_js
     assert "renderOverview" in app_js
+    assert "renderHistory" in app_js
+    assert "renderRecentCommits" in app_js
     assert "renderRecentGroups" in app_js
     assert "normalizedOverviewItemsMarkup" in app_js
     assert "Read-only metadata" in app_js
@@ -1087,7 +1261,9 @@ def run_self_test() -> None:
     assert "Edit file" not in app_js
     assert "Delete file" not in app_js
     assert "loadOverview" in app_js
+    assert "loadHistory" in app_js
     assert "Refresh Overview" not in app_js
+    assert "Refresh History" not in app_js
     assert "renderSkillCards" in app_js
     assert "renderSkillDetail" in app_js
     assert "action_guide" in app_js
@@ -1175,6 +1351,9 @@ def run_self_test() -> None:
         "git" + " clean",
         "git" + " rm",
         "git" + " stash",
+        "git" + " tag",
+        "git" + " merge",
+        "git" + " rebase",
         "invoke-" + "webrequest",
         "invoke-" + "restmethod",
     )

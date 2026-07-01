@@ -9,6 +9,8 @@ const skillGrid = document.getElementById("skillGrid");
 const skillDetail = document.getElementById("skillDetail");
 const tasksDetails = document.getElementById("tasksDetails");
 const refreshOverviewButton = document.getElementById("refreshOverviewButton");
+const historyDetails = document.getElementById("historyDetails");
+const refreshHistoryButton = document.getElementById("refreshHistoryButton");
 
 let registrySkills = [];
 let selectedSkillId = "";
@@ -30,6 +32,9 @@ function activateTab(tabId) {
   }
   if (tabId === "tasks") {
     loadOverview();
+  }
+  if (tabId === "history") {
+    loadHistory();
   }
 }
 
@@ -538,6 +543,95 @@ function renderOverview(data) {
   `;
 }
 
+function renderRecentCommits(commits) {
+  if (!commits || !commits.length) {
+    return "<p class=\"placeholder\">No recent commits found.</p>";
+  }
+  return `
+    <div class="overview-list">
+      ${commits
+        .map(
+          (commit) => `
+        <article class="overview-item history-commit">
+          <div class="overview-item-heading">
+            <strong>${escapeHtml(commit.subject || "(no subject)")}</strong>
+            <div class="overview-badges">
+              <span class="overview-badge read-only">Read-only</span>
+            </div>
+          </div>
+          <code class="history-commit-hash">${escapeHtml(commit.hash)}</code>
+        </article>
+      `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderHistoryDiscovery(discovery) {
+  const directories = discovery?.safe_directories || [];
+  return `
+    <section class="overview-card">
+      <h3>Read-only History Discovery</h3>
+      <p class="muted">Jarvis Console lists commit and checkpoint metadata only. It does not create commits, checkpoints, reports, or files.</p>
+      <div class="overview-rule-grid">
+        <div>
+          <strong>Limits</strong>
+          <ul class="metadata-list">
+            <li>Max ${escapeHtml(discovery?.max_commits || "")} commits</li>
+            <li>Max ${escapeHtml(discovery?.max_items_per_directory || "")} items per directory</li>
+            <li>Extensions: ${escapeHtml((discovery?.allowed_extensions || []).join(", "))}</li>
+            <li>Name markers: ${escapeHtml((discovery?.name_markers || []).join(", "))}</li>
+          </ul>
+        </div>
+        <div>
+          <strong>Safe directories</strong>
+          <ul class="metadata-list history-discovery-list">
+            ${directories
+              .map((item) => `<li>${escapeHtml(item.path)} ${item.exists ? "" : "(missing)"}</li>`)
+              .join("")}
+          </ul>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderHistory(data) {
+  if (!historyDetails) {
+    return;
+  }
+  historyDetails.innerHTML = `
+    ${renderRepoStatus(data.repo)}
+    <section class="overview-card">
+      <div class="overview-section-heading">
+        <h3>Recent Commits</h3>
+        <span class="overview-badge read-only">Read-only git log</span>
+      </div>
+      ${renderRecentCommits(data.recent_commits)}
+    </section>
+    <section class="overview-card">
+      <div class="overview-section-heading">
+        <h3>Checkpoint Docs</h3>
+        <span class="overview-badge read-only">Read-only metadata</span>
+      </div>
+      ${normalizedOverviewItemsMarkup(data.checkpoint_docs, "No checkpoint docs found yet.")}
+    </section>
+    <section class="overview-card">
+      <div class="overview-section-heading">
+        <h3>Related Reports / Examples</h3>
+        <span class="overview-badge read-only">Read-only metadata</span>
+      </div>
+      ${normalizedOverviewItemsMarkup(data.related_items, "No related reports or examples found yet.")}
+    </section>
+    <section class="overview-card safety-card">
+      <h3>Safety Notes</h3>
+      ${listMarkup(data.notes, "No history safety notes registered.")}
+    </section>
+    ${renderHistoryDiscovery(data.discovery)}
+  `;
+}
+
 async function loadOverview() {
   if (!tasksDetails) {
     return;
@@ -554,6 +648,25 @@ async function loadOverview() {
   } catch (error) {
     tasksDetails.innerHTML = `<p class="safety-note">Overview failed: ${escapeHtml(error.message)}</p>`;
     statusText.textContent = `Overview failed: ${error.message}`;
+  }
+}
+
+async function loadHistory() {
+  if (!historyDetails) {
+    return;
+  }
+  historyDetails.innerHTML = "<p class=\"muted\">Loading read-only history...</p>";
+  try {
+    const response = await fetch("/api/history");
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderHistory(data);
+    statusText.textContent = "Read-only Checkpoints / History refreshed.";
+  } catch (error) {
+    historyDetails.innerHTML = `<p class="safety-note">History failed: ${escapeHtml(error.message)}</p>`;
+    statusText.textContent = `History failed: ${error.message}`;
   }
 }
 
@@ -631,6 +744,12 @@ suggestButton.addEventListener("click", suggestSkill);
 if (refreshOverviewButton) {
   refreshOverviewButton.addEventListener("click", () => {
     loadOverview();
+  });
+}
+
+if (refreshHistoryButton) {
+  refreshHistoryButton.addEventListener("click", () => {
+    loadHistory();
   });
 }
 
