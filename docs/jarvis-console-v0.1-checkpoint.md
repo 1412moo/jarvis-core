@@ -1,135 +1,110 @@
-# Jarvis Console v0.1 Baseline Checkpoint
+# Jarvis Console v0.1 Checkpoint
 
-Date: 2026-06-30
+Last updated: 2026-06-30
 
-## 1. Summary
+## Summary
 
-Jarvis Console v0.1 now works as a local browser shell, skill hub, and
-read-only operations dashboard for Jarvis-Core.
+Jarvis Console v0.1 is the current local browser shell, skill hub, and read-only operations dashboard for Jarvis.
 
-The console provides:
+It provides:
 
-- Chat / Command input for deterministic skill suggestion.
-- Suggested Skill Action Panel for copy-only handoff guidance.
-- Skill Detail cards with usage guidance, commands, docs, safety notes, and
-  non-goals.
-- Tasks / Reports dashboard for read-only repo, skill, report, and checkpoint
-  visibility.
+- A local-only browser UI at `http://127.0.0.1:8790/`.
+- Chat / Command based skill suggestion.
+- Suggested Skill Action Panel with copy-only commands and handoff guidance.
+- Open Skill Details sync from a suggestion into the Skills tab.
+- Skill Detail usage cards with commands, docs, safety notes, and non-goals.
+- Tasks / Reports dashboard with read-only repo, skill, report, and checkpoint overview.
+- Recent item grouping for tasks, reports, checkpoints, docs, examples, configs, and related metadata.
 
-Jarvis Console v0.1 is not an autonomous execution engine. It is a local,
-human-facing coordination surface for choosing the right bounded workflow and
-making the next manual step clear.
+Jarvis Console does not execute skills automatically. It is a starting point and operations dashboard, not an autonomous runner.
 
-## 2. Current HEAD / Status
+## Current HEAD / Status
 
-- HEAD: `e53d109`
-- Commit: `jarvis-console: add read-only operations dashboard`
-- Baseline QA status: passed
-- Working tree at checkpoint: `?? jarvis.bat` only
-- `jarvis.bat` status: untracked and protected
+- HEAD: `bc5bde4`
+- Commit: `jarvis-console: group read-only overview items`
+- Baseline working tree before this checkpoint refresh: `?? jarvis.bat` only
+- `jarvis.bat` remains untracked and protected
+- This checkpoint document is intentionally updated after the baseline QA and should be the only tracked file changed by this task
 
-`jarvis.bat` must remain unstaged, unmodified, and outside Jarvis Console
-automation.
-
-## 3. Connected Skills
+## Connected Skills
 
 ### Hermes Manager
 
-- Purpose: Codex task, review, commit prompt, and checkpoint workflow
-  management.
-- Handoff: copy command, run Hermes Manager manually, then open its local URL.
-- Local URL: `http://127.0.0.1:8787/`
-- Status: E2E verified from Jarvis Console.
+- Routes Codex work, repo review, commit prompt, and checkpoint management requests.
+- Provides copy-only launch commands.
+- Provides a local URL handoff to `http://127.0.0.1:8787/`.
+- Verified end-to-end from Jarvis Console suggestion to Hermes Manager local handoff.
 
 ### Research Council
 
-- Purpose: idea, MVP, business viability, and validation request routing.
-- Handoff: copy command, run the launcher manually, paste the idea, use
-  `Idea 구체화`, then run the report.
-- Status: E2E verified from Jarvis Console.
+- Routes idea, MVP, business viability, market validation, manufacturing simulation idea, and startup review requests.
+- Uses a local launcher flow.
+- Suggested handoff tells the user to paste the idea, click `Idea 구체화`, then run the report.
+- Verified end-to-end from Jarvis Console suggestion to Research Council handoff, detail card, self-test, smoke, and golden cases.
 
 ### Daily AI Radar
 
-- Purpose: AI technology, MCP, Agent Skills, Hermes, OpenAI, Anthropic, and
-  LangGraph trend scouting.
-- Handoff: copy command, run the radar renderer manually, then review the
-  generated report.
-- Safety note: radar recommendations are candidates, not implementation
-  approval.
-- Status: E2E verified from Jarvis Console.
+- Routes AI technology, MCP, Agent Skills, Hermes, OpenAI, Anthropic, LangGraph, and daily radar requests.
+- Uses a copy-only report generation command.
+- Suggested handoff tells the user to review Executive Summary, Candidate Highlights, and Governance Notes.
+- Safety note states that radar recommendations are candidates, not implementation approval.
+- Verified end-to-end from Jarvis Console suggestion to Daily AI Radar handoff, detail card, smoke, and demo report generation.
 
 ### Memory / Skills
 
-- Purpose: planned skill candidate and repeated workflow memory surface.
-- Status: planned skill.
-- Command status: no command registered.
-- Current use: route repeated-workflow intent to a proposal-only skill
-  candidate workflow.
+- Planned skill for repeated workflow and skill candidate capture.
+- Currently has no command.
+- It appears in skill suggestion and detail surfaces as a planned capability.
 
 ### Tasks / Reports
 
-- Purpose: read-only operations dashboard for repo status, skill status, recent
-  tasks, reports/examples, checkpoints, and discovery rules.
-- Mutation status: no task creation, report generation, file mutation, git
-  staging, commit, or push.
+- Read-only operations dashboard.
+- Shows current repo status, skill status, recent tasks, recent reports, recent checkpoints, docs, examples, configs, safety notes, and discovery rules.
+- No task creation, report generation, file mutation, or git write operation is exposed.
 
 ### Settings
 
-- Purpose: local-only and protected path visibility, plus future settings
-  placeholder.
-- Current status: informational placeholder.
+- Placeholder for local-only settings and protected path visibility.
+- Keeps the `jarvis.bat` protected-path convention visible.
 
-## 4. Verified Skill Suggestion Matrix
+## Verified Skill Suggestion Matrix
 
-| Input | Expected skill | Result |
+| Input | Expected skill | Verified result |
 | --- | --- | --- |
-| `Codex 커밋 리뷰 도와줘` | `hermes_manager` | Passed |
-| `간병 앱 아이디어 MVP 검증해줘` | `research_council` | Passed |
-| `제조장비 시뮬레이션 아이디어 검증해줘` | `research_council` | Passed |
-| `MCP Agent Skills 새 기술 찾아봐` | `daily_ai_radar` | Passed |
-| `반복 작업 skill로 기억해줘` | `memory_skills` | Passed |
-| `오늘 뭐하지` | `unknown` | Passed |
+| `Codex 커밋 리뷰 도와줘` | `hermes_manager` | `hermes_manager` |
+| `간병 앱 아이디어 MVP 검증해줘` | `research_council` | `research_council` |
+| `제조장비 시뮬레이션 아이디어 검증해줘` | `research_council` | `research_council` |
+| `창업 아이디어 사업성 검토해줘` | `research_council` | `research_council` |
+| `MCP Agent Skills 새 기술 찾아봐` | `daily_ai_radar` | `daily_ai_radar` |
+| `Daily AI Radar 실행해줘` | `daily_ai_radar` | `daily_ai_radar` |
+| `반복 작업 skill로 기억해줘` | `memory_skills` | `memory_skills` |
+| `오늘 뭐하지` | `unknown` | `unknown` |
 
-## 5. Verified UI Flows
+## Verified UI Flows
 
 ### Suggested Skill Action Panel
 
-Verified for Hermes Manager, Research Council, Daily AI Radar, and
-Memory / Skills.
+- Known skill suggestions show `Copy Git Bash`.
+- Known skill suggestions show `Copy PowerShell`.
+- Known skill suggestions show `Open Skill Details`.
+- Hermes Manager shows `Open Local URL`.
+- Research Council does not show `Open Local URL` because it has no local URL metadata.
+- Daily AI Radar does not show `Open Local URL` because it has no local URL metadata.
+- Unknown suggestions do not show action buttons.
+- Commands are displayed as copy-only.
+- The panel states that Jarvis Console does not run the skill.
 
-Known available skills show:
+### Open Skill Details Sync
 
-- Recommended skill display name.
-- Recommendation reason.
-- Next action.
-- Three-step handoff guidance.
-- Safety text stating that Jarvis Console does not run the skill.
-- Copy-only command behavior where commands exist.
+- `Open Skill Details` switches to the Skills tab.
+- The recommended skill card becomes selected.
+- The detail panel shows the same recommended skill.
+- Directly switching to the Skills tab after a known suggestion preserves the recommended selection.
+- Unknown suggestions preserve the default/manual selection behavior.
 
-Memory / Skills is a planned skill and has no command registered, so the panel
-shows `No command yet` and does not provide command copy buttons.
+### Skill Detail Usage Card
 
-### Action Buttons
-
-Verified:
-
-- `Copy Git Bash`
-- `Copy PowerShell`
-- `Open Skill Details`
-- `Open Local URL` for Hermes Manager only
-
-`Open Local URL` is shown only when the skill registry provides a local
-`http://127.0.0.1` URL.
-
-### Skill Detail
-
-Verified for:
-
-- Research Council
-- Daily AI Radar
-- Hermes Manager
-
-Each detail view shows:
+Hermes Manager, Research Council, and Daily AI Radar details were verified to include:
 
 - What it does
 - When to use
@@ -140,91 +115,178 @@ Each detail view shows:
 - Non-goals
 - Selected skill state
 
-### Tasks / Reports Refresh Overview
+### Tasks / Reports Dashboard
 
-Verified dashboard sections:
+The Tasks / Reports tab was verified to show:
 
 - Current Repo Status
 - Skill Status
 - Recent Tasks
-- Recent Reports / Examples
-- Checkpoints
+- Recent Reports
+- Recent Checkpoints
+- Recent Docs / Examples
 - Safety Notes
 - Read-only Discovery Rules
+- Refresh Overview
+- Read-only badges on recent metadata items
+- No file open, edit, or delete buttons
 
-The dashboard clearly states that it is read-only and that `jarvis.bat` remains
-protected.
+Recent items are grouped by section and normalized with deterministic metadata:
 
-## 6. Safety Boundary
+- `item_id`
+- `title`
+- `path`
+- `source_area`
+- `item_type`
+- `summary`
+- `modified_time`
+- `size_bytes`
+- `read_only: true`
 
-Jarvis Console v0.1 maintains the following safety boundary:
+## Read-only Discovery Rules
 
-- Local-only server bind: `127.0.0.1`.
+The overview discovery remains intentionally constrained:
+
+- Safe directory allowlist only.
+- Repo-relative paths only.
+- No absolute paths in item metadata.
+- No `..` path segments.
+- No backslash paths.
+- Extension allowlist: `.md`, `.json`, `.txt`.
+- Hidden files and directories are excluded.
+- `.git` is excluded.
+- `__pycache__` is excluded.
+- Secrets-like filenames are excluded.
+- Directory item limit is preserved.
+- Overall item limit is preserved.
+- Only prefix/snippet content is read for summaries.
+- Symlink allowed-root boundary is enforced.
+- All discovered items are marked `read_only: true`.
+
+## Safety Boundary
+
+Jarvis Console v0.1 maintains these boundaries:
+
+- Local-only bind on `127.0.0.1`.
 - No automatic Codex invocation.
 - No automatic ChatGPT invocation.
 - No automatic Hermes invocation.
 - No automatic Research Council execution.
 - No automatic Daily AI Radar execution.
-- Commands are copy-only.
 - No command auto-execution.
+- Commands are copy-only.
 - No `git add`.
 - No `git commit`.
 - No `git push`.
-- No repo write from Jarvis Console dashboard or skill suggestion flows.
-- No external network/API/LLM calls.
-- `Open Local URL` only allows `http://127.0.0.1`.
+- No repo write from the dashboard.
+- No task mutation.
+- No report generation from Jarvis Console.
+- No external network, API, or LLM call.
+- `Open Local URL` only accepts `http://127.0.0.1`.
 - `window.open` uses `noopener,noreferrer`.
 - `jarvis.bat` remains protected and untracked.
 
-## 7. Baseline QA Results
+## Final Baseline QA Results
 
-Baseline QA completed successfully.
+Server and API checks passed:
 
-Verified:
+- `/` returned 200 OK.
+- `/api/status` returned OK.
+- `/api/overview` returned grouped read-only overview metadata.
+- `/api/suggest-skill` returned the expected routing matrix.
+- `/api/skill?skill_id=hermes_manager` returned the Hermes Manager detail payload.
 
-- Jarvis Console `/` returns 200 OK.
-- `/api/status` returns local-only status.
-- `/api/overview` returns read-only overview data.
-- Jarvis Console self-test passed.
-- Jarvis Console smoke tests passed.
-- Hermes Manager smoke tests passed.
-- Research Council smoke tests passed.
-- Daily AI Radar smoke tests passed.
-- `node --check apps/jarvis-console/web/app.js` passed.
-- Manual browser verification completed with the in-app browser.
-- Test server was stopped.
-- No listener remained on `127.0.0.1:8790`.
+Manual browser checks passed:
 
-## 8. UX Backlog
+- Suggested Skill Action Panel rendered correctly for Hermes Manager, Research Council, and Daily AI Radar.
+- Unknown suggestion rendered without action buttons.
+- Open Skill Details sync worked for the selected skill.
+- Skill Detail usage cards showed all required sections.
+- Tasks / Reports grouped dashboard rendered read-only recent item cards.
+- No open, edit, or delete buttons were present in the Tasks / Reports dashboard.
 
-- Memory / Skills is a planned skill and has no command. The `No command yet`
-  state could be made more explicit in the action panel.
-- Planned skill handoff Step 3 can feel awkward when no command exists.
-- Skill Detail cards can be visually refined for scanning and repeated use.
-- Tasks / Reports recent item grouping can be improved, especially when
-  reports, examples, docs, and console files appear in the same list.
+Regression commands passed:
 
-## 9. Recommended Next Development Candidates
+- `python -B apps\jarvis-console\run_web_app.py --self-test`
+- `python -B apps\jarvis-console\run_smoke_tests.py`
+- `python -B apps\hermes-manager-pilot\run_smoke_tests.py`
+- `python -B apps\research-council\run_smoke_tests.py`
+- `python -B apps\daily-ai-radar\run_smoke_tests.py`
+- `node --check apps\jarvis-console\web\app.js`
+- `git diff --check`
 
-| Priority | Candidate | Description |
-| --- | --- | --- |
-| P1 | Planned skill UX polish | Clarify `No command yet` and planned-skill handoff states so Memory / Skills feels intentional rather than incomplete. |
-| P1 | Tasks / Reports dashboard recent item grouping | Group recent items by source and type so tasks, reports, examples, docs, and checkpoints are easier to scan. |
-| P2 | Jarvis Console checkpoint/history view | Add a read-only view of prior checkpoints and QA milestones. |
-| P2 | Hermes Manager result/checkpoint handoff into Jarvis Console | Surface Hermes checkpoint summaries in Jarvis Console without automatic execution or mutation. |
-| P3 | Research Council report summary integration | Show existing Research Council report summaries as read-only context in Jarvis Console. |
-| P3 | Daily AI Radar report viewer | Show generated radar reports in a read-only viewer with clear candidate/not-approval language. |
+The Jarvis Console test server was stopped after QA, and no `127.0.0.1:8790` listener remained.
 
-## 10. Non-goals
+## Current UX Backlog
 
-Jarvis Console v0.1 does not provide:
+- Planned skill UX: Memory / Skills has no command yet, so the no-command state can be made clearer.
+- Report template type split: sample reports and report templates may deserve separate item types.
+- Recent item grouping: grouping can become more precise as more task/report/checkpoint indexes appear.
+- Skill Detail visual polish: usage cards can be made easier to scan without changing behavior.
+- Future Jarvis Console integration phases: add deeper handoffs once the safety boundary for each target skill is explicit.
 
-- Automatic execution.
+## Recommended Next Development Candidates
+
+### A. Planned Skill UX Polish
+
+Priority: P1
+
+Clarify planned skills that have no command yet. Show a first-class `No command yet` state and avoid generic handoff steps for planned-only capabilities.
+
+### B. Report Template Type Split
+
+Priority: P1
+
+Separate generated reports, sample reports, and report templates so Recent Reports reads less like a mixed file inventory.
+
+### C. Recent Item Grouping Refinement
+
+Priority: P2
+
+Improve source-area and item-type inference as real task, report, and checkpoint indexes become available.
+
+### D. Skill Detail Visual Polish
+
+Priority: P2
+
+Improve the visual hierarchy of detail cards, command blocks, docs, safety notes, and non-goals while preserving copy-only behavior.
+
+### E. Jarvis Console Checkpoint / History View
+
+Priority: P2
+
+Expose checkpoint docs and operational history as a dedicated read-only view.
+
+### F. Research Council Report Summary Integration
+
+Priority: P3
+
+Show recent Research Council report summaries in Jarvis Console once a safe read-only report index exists.
+
+### G. Daily AI Radar Report Viewer
+
+Priority: P3
+
+Show recent radar reports in a read-only viewer with Executive Summary, Candidate Highlights, and Governance Notes sections.
+
+### H. Hermes Manager Result / Checkpoint Handoff
+
+Priority: P3
+
+Add a read-only handoff from Hermes Manager summaries or checkpoints into the Jarvis Console dashboard after the artifact boundary is stable.
+
+## Non-goals
+
+Jarvis Console v0.1 is not intended to provide:
+
+- Automatic skill execution.
+- Automatic Codex execution.
+- Automatic ChatGPT execution.
+- Automatic Hermes execution.
+- Automatic Research Council or Daily AI Radar execution.
 - Automatic commits.
 - Automatic pushes.
-- External API calls.
-- External LLM calls.
-- Automatic skill installation.
+- External API or LLM calls.
+- Skill auto-installation.
 - Background autonomous execution.
-- Autonomous repo mutation.
-- Replacement for Codex, Hermes Manager, Research Council, or Daily AI Radar.
+- Dashboard-driven repo mutation.
