@@ -241,6 +241,65 @@ textarea {
   margin-top: 12px;
 }
 
+.voice-inbox-layout {
+  display: grid;
+  gap: 12px;
+}
+
+.voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.voice-safety-grid,
+.voice-preview-grid,
+.voice-candidate-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.voice-preview-grid div,
+.voice-candidate-facts div,
+.voice-candidate-card,
+.voice-handoff-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.voice-result-box {
+  margin-top: 2px;
+}
+
+.voice-candidate-card {
+  display: grid;
+  gap: 12px;
+}
+
+.voice-candidate-facts {
+  margin: 0;
+}
+
+.voice-candidate-facts dt {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.voice-candidate-facts dd {
+  margin: 0;
+}
+
+.voice-preview-grid p,
+.voice-candidate-card p,
+.voice-handoff-card p {
+  overflow-wrap: anywhere;
+}
+
 .secondary-action {
   padding: 6px 9px;
   border: 1px solid var(--line);

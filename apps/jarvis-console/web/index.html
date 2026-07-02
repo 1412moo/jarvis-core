@@ -25,6 +25,7 @@
   <main class="console-layout">
     <aside class="sidebar" aria-label="Jarvis Console tabs">
       <button class="tab-button active" type="button" data-tab="chat">Chat / Command</button>
+      <button class="tab-button" type="button" data-tab="voice">Voice Inbox</button>
       <button class="tab-button" type="button" data-tab="skills">Skills</button>
       <button class="tab-button" type="button" data-tab="hermes">Hermes Manager</button>
       <button class="tab-button" type="button" data-tab="research">Research Council</button>
@@ -47,6 +48,31 @@
         <button id="suggestButton" class="primary-button" type="button">Suggest Skill</button>
         <div class="result-box" id="suggestionBox">
           <p class="muted">No suggestion yet.</p>
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-voice">
+        <div class="panel-heading">
+          <p class="eyebrow">Voice Inbox</p>
+          <h2>Prepare a task candidate from a transcript</h2>
+          <p>Paste a voice transcript or rough thought. Jarvis will prepare a task candidate. It will not run anything.</p>
+        </div>
+        <div class="voice-inbox-layout">
+          <label for="voiceTranscriptInput">Transcript / rough thought</label>
+          <textarea id="voiceTranscriptInput" rows="9" placeholder="Jarvis, CareNote 복약 기록 UX 리스크를 Research Council로 검증해줘.&#10;코덱스한테 README 수정 후 리뷰 프롬프트 만들어달라고 하고 싶어.&#10;MCP Agent Skills 새 기술을 Daily AI Radar로 확인해줘."></textarea>
+          <div class="voice-actions">
+            <button id="prepareVoiceButton" class="primary-button" type="button">Prepare Task Candidate</button>
+            <button id="pasteVoiceButton" class="secondary-action" type="button">Paste From Clipboard</button>
+            <button id="clearVoiceButton" class="secondary-action" type="button">Clear Transcript</button>
+          </div>
+          <div class="voice-safety-grid">
+            <p class="safety-note">v0.1 does not record audio.</p>
+            <p class="safety-note">Use OS dictation, Whisper, or another STT tool and paste the transcript here.</p>
+            <p class="safety-note">Jarvis will not run tools until you choose a handoff.</p>
+          </div>
+          <div id="voiceResultBox" class="result-box voice-result-box">
+            <p class="muted">No task candidate prepared yet.</p>
+          </div>
         </div>
       </section>
 

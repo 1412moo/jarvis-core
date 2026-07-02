@@ -6,6 +6,7 @@ import argparse
 import inspect
 import json
 import os
+import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
@@ -43,7 +44,51 @@ OVERVIEW_SUMMARY_MAX_CHARS = 220
 HISTORY_MAX_COMMITS = 10
 HISTORY_DIRECTORY_KEYS = ("docs", "jarvis_console", "hermes_examples", "daily_ai_radar_examples")
 HISTORY_NAME_MARKERS = ("checkpoint", "summary", "report")
+VOICE_INBOX_MAX_TRANSCRIPT_CHARS = 8000
+VOICE_INBOX_TITLE_MAX_CHARS = 120
+VOICE_INBOX_SUMMARY_MAX_CHARS = 280
 SECRET_LIKE_NAME_PARTS = ("secret", "token", "credential", "password", ".env")
+VOICE_TERM_CORRECTIONS = (
+    ("데일리 AI 레이더", "Daily AI Radar"),
+    ("데일리 에이아이 레이더", "Daily AI Radar"),
+    ("데일리 레이더", "Daily AI Radar"),
+    ("Daily Radar", "Daily AI Radar"),
+    ("리서치 카운슬러", "Research Council"),
+    ("리서치 카운슬", "Research Council"),
+    ("에이전트 스킬", "Agent Skills"),
+    ("케어노트", "CareNote"),
+    ("코덱스", "Codex"),
+    ("자비스", "Jarvis"),
+    ("헤르메스", "Hermes"),
+    ("허미스", "Hermes"),
+    ("엠씨피", "MCP"),
+)
+VOICE_TOKEN_CORRECTIONS = (
+    ("커밋", "commit"),
+    ("리뷰", "review"),
+    ("깃", "git"),
+)
+VOICE_DESTRUCTIVE_TERMS = ("commit", "push", "delete", "remove", "삭제", "지워", "커밋", "푸시")
+VOICE_HERMES_CONTEXT_TERMS = (
+    "codex",
+    "commit",
+    "readme",
+    "repo",
+    "repository",
+    "git",
+    "pull request",
+    "task prompt",
+    "commit prompt",
+    "hermes",
+    "workflow manager",
+    "코덱스",
+    "커밋",
+    "저장소",
+    "작업관리",
+    "코드",
+    "수정",
+)
+VOICE_HERMES_BROAD_HITS = {"git", "pr", "repo", "review", "리뷰"}
 READ_ONLY_GIT_COMMANDS = {
     ("rev-parse", "--show-toplevel"),
     ("rev-parse", "--abbrev-ref", "HEAD"),
@@ -839,6 +884,142 @@ def suggest_skill(message: str) -> dict[str, Any]:
     }
 
 
+def clean_voice_transcript(transcript: str) -> str:
+    """Normalize a pasted voice transcript with deterministic local rules only."""
+
+    cleaned = " ".join(transcript.replace("\r", "\n").split())
+    for source, target in VOICE_TERM_CORRECTIONS:
+        cleaned = cleaned.replace(source, target)
+    for source, target in VOICE_TOKEN_CORRECTIONS:
+        pattern = rf"(?<![0-9A-Za-z가-힣]){re.escape(source)}(?![0-9A-Za-z가-힣])"
+        cleaned = re.sub(pattern, target, cleaned)
+    return cleaned.strip()
+
+
+def voice_suggest_skill(cleaned_transcript: str) -> dict[str, Any]:
+    """Reuse skill routing with a conservative filter for voice-review ambiguity."""
+
+    suggestion = suggest_skill(cleaned_transcript)
+    if suggestion.get("recommended_skill") != "hermes_manager":
+        return suggestion
+
+    normalized = normalize_message(cleaned_transcript)
+    matched_keywords = {normalize_message(keyword) for keyword in suggestion.get("matched_keywords", [])}
+    has_hermes_context = any(voice_has_context_term(normalized, term) for term in VOICE_HERMES_CONTEXT_TERMS)
+    broad_hits_only = matched_keywords and matched_keywords.issubset(VOICE_HERMES_BROAD_HITS)
+    if broad_hits_only and not has_hermes_context:
+        return dict(UNKNOWN_SUGGESTION)
+    return suggestion
+
+
+def voice_has_context_term(normalized_transcript: str, term: str) -> bool:
+    """Match short English routing terms as tokens to avoid preview/report overmatches."""
+
+    if term.isascii():
+        pattern = rf"(?<![0-9a-z]){re.escape(term)}(?![0-9a-z])"
+        return re.search(pattern, normalized_transcript) is not None
+    return term in normalized_transcript
+
+
+def voice_candidate_title(cleaned_transcript: str) -> str:
+    """Create a bounded display title from the first transcript sentence."""
+
+    separators = ("。", ".", "?", "!", "\n")
+    first_sentence = cleaned_transcript
+    for separator in separators:
+        if separator in first_sentence:
+            first_sentence = first_sentence.split(separator, 1)[0]
+    return truncate_overview_text(first_sentence, VOICE_INBOX_TITLE_MAX_CHARS)
+
+
+def voice_candidate_summary(cleaned_transcript: str) -> str:
+    """Create a bounded summary without external model calls."""
+
+    return truncate_overview_text(cleaned_transcript, VOICE_INBOX_SUMMARY_MAX_CHARS)
+
+
+def voice_confidence(suggestion: dict[str, Any], cleaned_transcript: str) -> str:
+    """Return a deterministic confidence level for a voice task candidate."""
+
+    skill_id = suggestion.get("recommended_skill", "unknown")
+    if skill_id == "unknown":
+        return "low"
+    normalized = normalize_message(cleaned_transcript)
+    skill = next((item for item in registry_skills() if item["skill_id"] == skill_id), None)
+    display_name = normalize_message(skill["display_name"]) if skill else ""
+    matched_keywords = [normalize_message(keyword) for keyword in suggestion.get("matched_keywords", [])]
+    if display_name and display_name in normalized:
+        return "high"
+    if any(" " in keyword and keyword in normalized for keyword in matched_keywords):
+        return "high"
+    if len(matched_keywords) >= 2:
+        return "medium"
+    return "medium"
+
+
+def voice_needs_confirmation(suggestion: dict[str, Any], cleaned_transcript: str) -> bool:
+    """Voice Inbox always requires human confirmation before handoff."""
+
+    _suggestion = suggestion
+    _cleaned_transcript = cleaned_transcript
+    return True
+
+
+def voice_next_action(suggestion: dict[str, Any]) -> str:
+    """Return the next manual handoff action for a candidate."""
+
+    skill_id = suggestion.get("recommended_skill", "unknown")
+    if skill_id == "unknown":
+        return "Review the cleaned task, then choose a skill manually from the sidebar."
+    display_name = suggestion.get("display_name") or skill_id
+    return f"Review the candidate, then open {display_name} details or copy the handoff command."
+
+
+def prepare_voice_inbox_task(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """Prepare a read-only task candidate from a pasted transcript."""
+
+    if "transcript" not in payload:
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing_transcript"}
+    transcript = payload["transcript"]
+    if not isinstance(transcript, str):
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "transcript_must_be_string"}
+    if len(transcript) > VOICE_INBOX_MAX_TRANSCRIPT_CHARS:
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "transcript_too_long"}
+    raw_transcript = transcript.strip()
+    if not raw_transcript:
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "empty_transcript"}
+
+    cleaned_transcript = clean_voice_transcript(raw_transcript)
+    suggestion = voice_suggest_skill(cleaned_transcript)
+    task_candidate = {
+        "title": voice_candidate_title(cleaned_transcript),
+        "summary": voice_candidate_summary(cleaned_transcript),
+        "suggested_skill": suggestion["recommended_skill"],
+        "confidence": voice_confidence(suggestion, cleaned_transcript),
+        "needs_confirmation": voice_needs_confirmation(suggestion, cleaned_transcript),
+        "reason": (
+            f"{suggestion['reason']} "
+            "Voice Inbox candidates require human confirmation before handoff."
+        ),
+        "matched_keywords": suggestion.get("matched_keywords", []),
+        "next_action": voice_next_action(suggestion),
+    }
+    return HTTPStatus.OK, {
+        "ok": True,
+        "raw_transcript": raw_transcript,
+        "cleaned_transcript": cleaned_transcript,
+        "task_candidate": task_candidate,
+        "suggested_skill": suggestion["recommended_skill"],
+        "display_name": suggestion.get("display_name", "Manual choice needed"),
+        "commands": suggestion.get("commands", {"git_bash": "", "powershell": ""}),
+        "safety_notes": [
+            "This is a task candidate, not an execution.",
+            "Jarvis Console does not run Codex, ChatGPT, Hermes, git, or external tools.",
+            "Voice Inbox v0.1 does not record audio, run STT, or call external APIs.",
+        ],
+    }
+
+
 def parse_json_body(raw_body: bytes) -> tuple[int, dict[str, Any]]:
     """Parse request JSON and return a safe error for malformed input."""
 
@@ -882,6 +1063,8 @@ def handle_post_api(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
         if path == "/api/suggest-skill":
             suggestion = suggest_skill(str(payload.get("message", "")))
             return HTTPStatus.OK, {"ok": True, **suggestion}
+        if path == "/api/voice-inbox/prepare":
+            return prepare_voice_inbox_task(payload)
     except RegistryError as exc:
         return HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)}
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
@@ -929,7 +1112,7 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path != "/api/suggest-skill":
+        if path not in {"/api/suggest-skill", "/api/voice-inbox/prepare"}:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
 
@@ -1104,6 +1287,96 @@ def run_self_test() -> None:
     assert suggest_skill("MCP Agent Skills \uc0c8 \uae30\uc220")["recommended_skill"] == "daily_ai_radar"
     assert suggest_skill("\ubc18\ubcf5 \uc791\uc5c5 skill\ub85c \uae30\uc5b5")["recommended_skill"] == "memory_skills"
 
+    assert clean_voice_transcript("코덱스 케어노트 헤르메스") == "Codex CareNote Hermes"
+    assert clean_voice_transcript("엠씨피 에이전트 스킬 데일리 레이더") == "MCP Agent Skills Daily AI Radar"
+    assert clean_voice_transcript("고깃집 리뷰 정리해줘") == "고깃집 review 정리해줘"
+    assert clean_voice_transcript("프리뷰 화면 확인") == "프리뷰 화면 확인"
+    voice_empty_code, voice_empty = handle_post_api("/api/voice-inbox/prepare", {"transcript": ""})
+    assert voice_empty_code == HTTPStatus.BAD_REQUEST
+    assert voice_empty["error"] == "empty_transcript"
+    voice_missing_code, voice_missing = handle_post_api("/api/voice-inbox/prepare", {})
+    assert voice_missing_code == HTTPStatus.BAD_REQUEST
+    assert voice_missing["error"] == "missing_transcript"
+    voice_type_code, voice_type = handle_post_api("/api/voice-inbox/prepare", {"transcript": 123})
+    assert voice_type_code == HTTPStatus.BAD_REQUEST
+    assert voice_type["error"] == "transcript_must_be_string"
+    voice_long_code, voice_long = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "a" * (VOICE_INBOX_MAX_TRANSCRIPT_CHARS + 1)},
+    )
+    assert voice_long_code == HTTPStatus.BAD_REQUEST
+    assert voice_long["error"] == "transcript_too_long"
+    voice_research_code, voice_research = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "Jarvis, CareNote 복약 기록 UX 리스크를 Research Council로 검증해줘"},
+    )
+    assert voice_research_code == HTTPStatus.OK
+    assert voice_research["task_candidate"]["suggested_skill"] == "research_council"
+    assert voice_research["task_candidate"]["confidence"] == "high"
+    assert voice_research["task_candidate"]["needs_confirmation"] is True
+    assert "CareNote" in voice_research["cleaned_transcript"]
+    assert "Research Council" in voice_research["cleaned_transcript"]
+    voice_hermes_code, voice_hermes = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "코덱스한테 README 수정하고 커밋 리뷰 프롬프트 만들어줘"},
+    )
+    assert voice_hermes_code == HTTPStatus.OK
+    assert voice_hermes["task_candidate"]["suggested_skill"] == "hermes_manager"
+    assert "Codex" in voice_hermes["cleaned_transcript"]
+    assert "commit" in voice_hermes["cleaned_transcript"]
+    assert "review" in voice_hermes["cleaned_transcript"]
+    voice_radar_code, voice_radar = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "MCP Agent Skills 새 기술 Daily Radar로 확인해줘"},
+    )
+    assert voice_radar_code == HTTPStatus.OK
+    assert voice_radar["task_candidate"]["suggested_skill"] == "daily_ai_radar"
+    assert "Daily AI Radar" in voice_radar["cleaned_transcript"]
+    voice_memory_code, voice_memory = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "이 반복 작업 skill 후보로 기억해줘"},
+    )
+    assert voice_memory_code == HTTPStatus.OK
+    assert voice_memory["task_candidate"]["suggested_skill"] == "memory_skills"
+    assert voice_memory["task_candidate"]["needs_confirmation"] is True
+    voice_unknown_code, voice_unknown = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "오늘 뭐하지"},
+    )
+    assert voice_unknown_code == HTTPStatus.OK
+    assert voice_unknown["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_unknown["task_candidate"]["confidence"] == "low"
+    assert voice_unknown["task_candidate"]["needs_confirmation"] is True
+    voice_restaurant_code, voice_restaurant = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "고깃집 리뷰 정리해줘"},
+    )
+    assert voice_restaurant_code == HTTPStatus.OK
+    assert voice_restaurant["task_candidate"]["suggested_skill"] == "unknown"
+    assert "고git" not in voice_restaurant["cleaned_transcript"]
+    voice_preview_code, voice_preview = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "프리뷰 화면 확인"},
+    )
+    assert voice_preview_code == HTTPStatus.OK
+    assert voice_preview["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_preview["cleaned_transcript"] == "프리뷰 화면 확인"
+    voice_report_review_code, voice_report_review = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "report review draft"},
+    )
+    assert voice_report_review_code == HTTPStatus.OK
+    assert voice_report_review["task_candidate"]["suggested_skill"] == "unknown"
+    voice_daily_routine_code, voice_daily_routine = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "데일리 루틴 정리"},
+    )
+    assert voice_daily_routine_code == HTTPStatus.OK
+    assert voice_daily_routine["task_candidate"]["suggested_skill"] == "unknown"
+    assert len(voice_research["task_candidate"]["title"]) <= VOICE_INBOX_TITLE_MAX_CHARS
+    assert len(voice_research["task_candidate"]["summary"]) <= VOICE_INBOX_SUMMARY_MAX_CHARS
+    assert "This is a task candidate, not an execution." in voice_research["safety_notes"]
+
     status = status_payload()
     skill_ids = {skill["skill_id"] for skill in status["skills"]}
     assert {"research_council", "daily_ai_radar", "hermes_manager"}.issubset(skill_ids)
@@ -1222,6 +1495,7 @@ def run_self_test() -> None:
 
     html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "Chat / Command" in html
+    assert "Voice Inbox" in html
     assert "Skills" in html
     assert "Hermes Manager" in html
     assert "Research Council" in html
@@ -1237,6 +1511,12 @@ def run_self_test() -> None:
     assert "Local-only" in html
     assert "No automatic Codex / ChatGPT / Hermes invocation" in html
     assert "What do you want Jarvis to help with?" in html
+    assert "Transcript / rough thought" in html
+    assert "Prepare Task Candidate" in html
+    assert "Paste From Clipboard" in html
+    assert "Clear Transcript" in html
+    assert "v0.1 does not record audio." in html
+    assert "Jarvis will not run tools until you choose a handoff." in html
     assert "jarvis.bat" in html
     assert "Refresh Overview" in html
     assert "Refresh History" in html
@@ -1250,9 +1530,12 @@ def run_self_test() -> None:
     assert "/api/skill" in app_js
     assert "/api/overview" in app_js
     assert "/api/history" in app_js
+    assert "/api/voice-inbox/prepare" in app_js
     assert "renderOverview" in app_js
     assert "renderHistory" in app_js
     assert "renderRecentCommits" in app_js
+    assert "renderVoiceCandidate" in app_js
+    assert "prepareVoiceCandidate" in app_js
     assert "renderRecentGroups" in app_js
     assert "normalizedOverviewItemsMarkup" in app_js
     assert "Read-only metadata" in app_js
@@ -1260,6 +1543,10 @@ def run_self_test() -> None:
     assert "Open file" not in app_js
     assert "Edit file" not in app_js
     assert "Delete file" not in app_js
+    assert "navigator.mediaDevices" not in app_js
+    assert "getUserMedia" not in app_js
+    assert "<audio" not in app_js
+    assert "MediaRecorder" not in app_js
     assert "loadOverview" in app_js
     assert "loadHistory" in app_js
     assert "Refresh Overview" not in app_js
@@ -1308,6 +1595,9 @@ def run_self_test() -> None:
     assert "Choose a skill manually from the sidebar." in app_js
     assert "navigator.clipboard.writeText" in app_js
     assert "copy-command" in app_js
+    assert "copy-text" in app_js
+    assert "Copy Cleaned Task" in app_js
+    assert "Copy As Jarvis Command" in app_js
     assert "Git Bash" in app_js
     assert "PowerShell" in app_js
     assert "Copy Git Bash" in app_js
@@ -1324,6 +1614,8 @@ def run_self_test() -> None:
     assert "spawn(" not in app_js
 
     styles = (WEB_ROOT / "styles.css").read_text(encoding="utf-8")
+    assert "voice-inbox-layout" in styles
+    assert "voice-candidate-card" in styles
     assert "suggestion-action-panel" in styles
     assert "suggestion-actions" in styles
     assert "handoff-hint" in styles

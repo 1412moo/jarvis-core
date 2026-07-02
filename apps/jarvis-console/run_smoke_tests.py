@@ -161,8 +161,101 @@ def main() -> None:
     assert run_web_app.suggest_skill("\uc624\ub298 \ubb50\ud558\uc9c0")["recommended_skill"] == "unknown"
     assert run_web_app.suggest_skill("\uc2dc\ubbac\ub808\uc774\uc158 \uac8c\uc784 \ucd94\ucc9c\ud574\uc918")["recommended_skill"] == "unknown"
 
+    assert run_web_app.clean_voice_transcript("코덱스 케어노트 헤르메스") == "Codex CareNote Hermes"
+    assert run_web_app.clean_voice_transcript("엠씨피 에이전트 스킬 데일리 레이더") == "MCP Agent Skills Daily AI Radar"
+    assert run_web_app.clean_voice_transcript("고깃집 리뷰 정리해줘") == "고깃집 review 정리해줘"
+    assert run_web_app.clean_voice_transcript("프리뷰 화면 확인") == "프리뷰 화면 확인"
+    voice_empty_code, voice_empty = run_web_app.handle_post_api("/api/voice-inbox/prepare", {"transcript": ""})
+    assert voice_empty_code == HTTPStatus.BAD_REQUEST
+    assert voice_empty["error"] == "empty_transcript"
+    voice_missing_code, voice_missing = run_web_app.handle_post_api("/api/voice-inbox/prepare", {})
+    assert voice_missing_code == HTTPStatus.BAD_REQUEST
+    assert voice_missing["error"] == "missing_transcript"
+    voice_type_code, voice_type = run_web_app.handle_post_api("/api/voice-inbox/prepare", {"transcript": 123})
+    assert voice_type_code == HTTPStatus.BAD_REQUEST
+    assert voice_type["error"] == "transcript_must_be_string"
+    voice_long_code, voice_long = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "a" * (run_web_app.VOICE_INBOX_MAX_TRANSCRIPT_CHARS + 1)},
+    )
+    assert voice_long_code == HTTPStatus.BAD_REQUEST
+    assert voice_long["error"] == "transcript_too_long"
+    voice_research_code, voice_research = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "Jarvis, CareNote 복약 기록 UX 리스크를 Research Council로 검증해줘"},
+    )
+    assert voice_research_code == HTTPStatus.OK
+    assert voice_research["task_candidate"]["suggested_skill"] == "research_council"
+    assert voice_research["task_candidate"]["confidence"] == "high"
+    assert voice_research["task_candidate"]["needs_confirmation"] is True
+    assert "CareNote" in voice_research["cleaned_transcript"]
+    assert "Research Council" in voice_research["cleaned_transcript"]
+    voice_hermes_code, voice_hermes = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "코덱스한테 README 수정하고 커밋 리뷰 프롬프트 만들어줘"},
+    )
+    assert voice_hermes_code == HTTPStatus.OK
+    assert voice_hermes["task_candidate"]["suggested_skill"] == "hermes_manager"
+    assert "Codex" in voice_hermes["cleaned_transcript"]
+    assert "commit" in voice_hermes["cleaned_transcript"]
+    assert "review" in voice_hermes["cleaned_transcript"]
+    voice_radar_code, voice_radar = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "MCP Agent Skills 새 기술 Daily Radar로 확인해줘"},
+    )
+    assert voice_radar_code == HTTPStatus.OK
+    assert voice_radar["task_candidate"]["suggested_skill"] == "daily_ai_radar"
+    voice_memory_code, voice_memory = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "이 반복 작업 skill 후보로 기억해줘"},
+    )
+    assert voice_memory_code == HTTPStatus.OK
+    assert voice_memory["task_candidate"]["suggested_skill"] == "memory_skills"
+    assert voice_memory["task_candidate"]["needs_confirmation"] is True
+    voice_unknown_code, voice_unknown = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "오늘 뭐하지"},
+    )
+    assert voice_unknown_code == HTTPStatus.OK
+    assert voice_unknown["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_unknown["task_candidate"]["confidence"] == "low"
+    voice_restaurant_code, voice_restaurant = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "고깃집 리뷰 정리해줘"},
+    )
+    assert voice_restaurant_code == HTTPStatus.OK
+    assert voice_restaurant["task_candidate"]["suggested_skill"] == "unknown"
+    assert "고git" not in voice_restaurant["cleaned_transcript"]
+    voice_preview_code, voice_preview = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "프리뷰 화면 확인"},
+    )
+    assert voice_preview_code == HTTPStatus.OK
+    assert voice_preview["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_preview["cleaned_transcript"] == "프리뷰 화면 확인"
+    voice_report_review_code, voice_report_review = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "report review draft"},
+    )
+    assert voice_report_review_code == HTTPStatus.OK
+    assert voice_report_review["task_candidate"]["suggested_skill"] == "unknown"
+    voice_daily_routine_code, voice_daily_routine = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "데일리 루틴 정리"},
+    )
+    assert voice_daily_routine_code == HTTPStatus.OK
+    assert voice_daily_routine["task_candidate"]["suggested_skill"] == "unknown"
+    assert "This is a task candidate, not an execution." in voice_research["safety_notes"]
+
     app_js = Path(__file__).resolve().parent.joinpath("web", "app.js").read_text(encoding="utf-8")
     html = Path(__file__).resolve().parent.joinpath("web", "index.html").read_text(encoding="utf-8")
+    assert "Voice Inbox" in html
+    assert "Transcript / rough thought" in html
+    assert "Prepare Task Candidate" in html
+    assert "Paste From Clipboard" in html
+    assert "Clear Transcript" in html
+    assert "v0.1 does not record audio." in html
+    assert "Jarvis will not run tools until you choose a handoff." in html
     assert "Refresh Overview" in html
     assert "Refresh History" in html
     assert "Checkpoints / History" in html
@@ -174,9 +267,12 @@ def main() -> None:
     assert "copyNextActionForHandoff" in app_js
     assert "/api/overview" in app_js
     assert "/api/history" in app_js
+    assert "/api/voice-inbox/prepare" in app_js
     assert "renderOverview" in app_js
     assert "renderHistory" in app_js
     assert "renderRecentCommits" in app_js
+    assert "renderVoiceCandidate" in app_js
+    assert "prepareVoiceCandidate" in app_js
     assert "renderRecentGroups" in app_js
     assert "normalizedOverviewItemsMarkup" in app_js
     assert "Read-only metadata" in app_js
@@ -184,6 +280,10 @@ def main() -> None:
     assert "Open file" not in app_js
     assert "Edit file" not in app_js
     assert "Delete file" not in app_js
+    assert "navigator.mediaDevices" not in app_js
+    assert "getUserMedia" not in app_js
+    assert "<audio" not in app_js
+    assert "MediaRecorder" not in app_js
     assert "loadOverview" in app_js
     assert "loadHistory" in app_js
     assert "registeredSafetyNotes" in app_js
@@ -218,6 +318,10 @@ def main() -> None:
     assert "Copy Git Bash" in app_js
     assert "Copy PowerShell" in app_js
     assert "navigator.clipboard.writeText(command)" in app_js
+    assert "navigator.clipboard.writeText(text)" in app_js
+    assert "copy-text" in app_js
+    assert "Copy Cleaned Task" in app_js
+    assert "Copy As Jarvis Command" in app_js
     assert ">Run<" not in app_js
     assert ">Execute<" not in app_js
     assert ">Start<" not in app_js

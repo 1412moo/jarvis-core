@@ -11,6 +11,11 @@ const tasksDetails = document.getElementById("tasksDetails");
 const refreshOverviewButton = document.getElementById("refreshOverviewButton");
 const historyDetails = document.getElementById("historyDetails");
 const refreshHistoryButton = document.getElementById("refreshHistoryButton");
+const voiceTranscriptInput = document.getElementById("voiceTranscriptInput");
+const prepareVoiceButton = document.getElementById("prepareVoiceButton");
+const pasteVoiceButton = document.getElementById("pasteVoiceButton");
+const clearVoiceButton = document.getElementById("clearVoiceButton");
+const voiceResultBox = document.getElementById("voiceResultBox");
 
 let registrySkills = [];
 let selectedSkillId = "";
@@ -45,6 +50,14 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function truncateText(value, maxChars) {
+  const text = String(value || "").trim();
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, maxChars - 1)).trim()}...`;
 }
 
 function listMarkup(items, emptyText) {
@@ -217,6 +230,92 @@ function renderSuggestion(data) {
   `;
   statusText.textContent = `Recommended skill: ${data.display_name || skillId}`;
   nextActionText.textContent = data.suggested_next_action || "Choose manually.";
+}
+
+function voiceSkillActions(data, skill) {
+  const candidate = data.task_candidate || {};
+  const skillId = candidate.suggested_skill || "unknown";
+  const knownSkill = skillId && skillId !== "unknown" && skill;
+  if (!knownSkill) {
+    return "<p class=\"muted\">Choose a skill manually from the sidebar.</p>";
+  }
+
+  const commands = data.commands || skill.commands || {};
+  const gitBash = commands.git_bash || "";
+  const powershell = commands.powershell || "";
+  const localUrl = localOnlyUrl(skill.local_url);
+  const localUrlButton = localUrl
+    ? `<button class="secondary-action open-local-url" type="button" data-local-url="${escapeHtml(localUrl)}">Open Local URL</button>`
+    : "";
+  const copyNextAction = "Review the task candidate, then use the copied command manually.";
+
+  return `
+    <div class="voice-handoff-card">
+      <h4>Handoff options</h4>
+      <div class="command-list">${commandMarkup(commands)}</div>
+      ${localUrl ? `<p class="muted">Open Local URL only opens <code>${escapeHtml(localUrl)}</code>. It does not start the server.</p>` : ""}
+      <div class="suggestion-actions">
+        ${gitBash ? `<button class="copy-command" type="button" data-command="${escapeHtml(gitBash)}" data-copy-next-action="${escapeHtml(copyNextAction)}" aria-label="Copy Git Bash">Copy Git Bash</button>` : ""}
+        ${powershell ? `<button class="copy-command" type="button" data-command="${escapeHtml(powershell)}" data-copy-next-action="${escapeHtml(copyNextAction)}" aria-label="Copy PowerShell">Copy PowerShell</button>` : ""}
+        ${localUrlButton}
+        <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(skillId)}">Open Skill Details</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderVoiceCandidate(data) {
+  if (!voiceResultBox) {
+    return;
+  }
+  const candidate = data.task_candidate || {};
+  const skillId = candidate.suggested_skill || "unknown";
+  const skill = skillId !== "unknown" ? skillById(skillId) : null;
+  const rawPreview = truncateText(data.raw_transcript || "", 360);
+  const cleaned = data.cleaned_transcript || "";
+  const jarvisCommand = `Jarvis, ${cleaned}`;
+  const matchedKeywords = candidate.matched_keywords || [];
+  voiceResultBox.innerHTML = `
+    <section class="voice-candidate-card" aria-label="Voice Inbox task candidate">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Task Candidate</p>
+          <h3>${escapeHtml(candidate.title || "Untitled candidate")}</h3>
+        </div>
+        <span class="overview-badge read-only">Needs confirmation: ${candidate.needs_confirmation ? "Yes" : "No"}</span>
+      </div>
+      <div class="voice-preview-grid">
+        <div>
+          <strong>Raw transcript preview</strong>
+          <p>${escapeHtml(rawPreview)}</p>
+        </div>
+        <div>
+          <strong>Cleaned transcript</strong>
+          <p>${escapeHtml(cleaned)}</p>
+        </div>
+      </div>
+      <dl class="voice-candidate-facts">
+        <div><dt>Suggested skill</dt><dd>${escapeHtml(skill?.display_name || data.display_name || skillId)}</dd></div>
+        <div><dt>Confidence</dt><dd>${escapeHtml(candidate.confidence || "low")}</dd></div>
+        <div><dt>Matched keywords</dt><dd>${escapeHtml(matchedKeywords.length ? matchedKeywords.join(", ") : "none")}</dd></div>
+      </dl>
+      <p><strong>Summary:</strong> ${escapeHtml(candidate.summary || "")}</p>
+      <p><strong>Reason:</strong> ${escapeHtml(candidate.reason || "")}</p>
+      <p><strong>Next action:</strong> ${escapeHtml(candidate.next_action || "")}</p>
+      <div class="suggestion-actions">
+        <button class="copy-text" type="button" data-copy-text="${escapeHtml(cleaned)}" aria-label="Copy Cleaned Task">Copy Cleaned Task</button>
+        <button class="copy-text" type="button" data-copy-text="${escapeHtml(jarvisCommand)}" aria-label="Copy As Jarvis Command">Copy As Jarvis Command</button>
+      </div>
+      ${voiceSkillActions(data, skill)}
+      <ul class="safety-list">
+        ${(data.safety_notes || []).map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
+        <li>Transcript text is not saved by default.</li>
+        <li>No microphone, recording, STT, TTS, Codex, ChatGPT, Hermes, git, or external tool is called.</li>
+      </ul>
+    </section>
+  `;
+  statusText.textContent = `Voice Inbox candidate prepared: ${skill?.display_name || data.display_name || skillId}`;
+  nextActionText.textContent = candidate.next_action || "Review the task candidate.";
 }
 
 function renderSkillCards(skills) {
@@ -724,6 +823,57 @@ async function suggestSkill() {
   }
 }
 
+async function prepareVoiceCandidate() {
+  const transcript = voiceTranscriptInput?.value.trim() || "";
+  if (!transcript) {
+    statusText.textContent = "Paste a transcript before preparing a task candidate.";
+    return;
+  }
+
+  try {
+    if (!registrySkills.length && registryLoadPromise) {
+      await registryLoadPromise;
+    }
+    const response = await fetch("/api/voice-inbox/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderVoiceCandidate(data);
+  } catch (error) {
+    if (voiceResultBox) {
+      voiceResultBox.innerHTML = `<p class="safety-note">Voice Inbox failed: ${escapeHtml(error.message)}</p>`;
+    }
+    statusText.textContent = `Voice Inbox failed: ${error.message}`;
+  }
+}
+
+async function pasteVoiceTranscriptFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (voiceTranscriptInput) {
+      voiceTranscriptInput.value = text;
+    }
+    statusText.textContent = "Clipboard text pasted into Voice Inbox. Nothing was sent or run.";
+  } catch (error) {
+    statusText.textContent = `Paste failed: ${error.message}`;
+  }
+}
+
+function clearVoiceTranscript() {
+  if (voiceTranscriptInput) {
+    voiceTranscriptInput.value = "";
+  }
+  if (voiceResultBox) {
+    voiceResultBox.innerHTML = "<p class=\"muted\">No task candidate prepared yet.</p>";
+  }
+  statusText.textContent = "Voice Inbox cleared. No transcript was saved.";
+}
+
 async function copyCommand(command, nextAction = "") {
   try {
     await navigator.clipboard.writeText(command);
@@ -735,11 +885,32 @@ async function copyCommand(command, nextAction = "") {
   }
 }
 
+async function copyPlainText(text, successMessage) {
+  try {
+    await navigator.clipboard.writeText(text);
+    statusText.textContent = successMessage;
+  } catch (error) {
+    statusText.textContent = `Copy failed: ${error.message}`;
+  }
+}
+
 tabs.forEach((button) => {
   button.addEventListener("click", () => activateTab(button.dataset.tab));
 });
 
 suggestButton.addEventListener("click", suggestSkill);
+
+if (prepareVoiceButton) {
+  prepareVoiceButton.addEventListener("click", prepareVoiceCandidate);
+}
+
+if (pasteVoiceButton) {
+  pasteVoiceButton.addEventListener("click", pasteVoiceTranscriptFromClipboard);
+}
+
+if (clearVoiceButton) {
+  clearVoiceButton.addEventListener("click", clearVoiceTranscript);
+}
 
 if (refreshOverviewButton) {
   refreshOverviewButton.addEventListener("click", () => {
@@ -782,6 +953,12 @@ document.addEventListener("click", (event) => {
       window.open(localUrl, "_blank", "noopener,noreferrer");
       statusText.textContent = "Local URL opened. Jarvis Console did not start the server.";
     }
+    return;
+  }
+
+  const copyTextButton = event.target.closest(".copy-text");
+  if (copyTextButton) {
+    copyPlainText(copyTextButton.dataset.copyText || "", "Text copied. Jarvis Console did not run anything.");
     return;
   }
 
