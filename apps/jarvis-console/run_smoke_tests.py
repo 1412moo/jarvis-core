@@ -163,7 +163,9 @@ def main() -> None:
 
     assert run_web_app.clean_voice_transcript("코덱스 케어노트 헤르메스") == "Codex CareNote Hermes"
     assert run_web_app.clean_voice_transcript("엠씨피 에이전트 스킬 데일리 레이더") == "MCP Agent Skills Daily AI Radar"
-    assert run_web_app.clean_voice_transcript("고깃집 리뷰 정리해줘") == "고깃집 review 정리해줘"
+    assert run_web_app.clean_voice_transcript("고깃집 리뷰 정리해줘") == "고깃집 리뷰 정리해줘"
+    assert run_web_app.clean_voice_transcript("영화 리뷰 정리해줘") == "영화 리뷰 정리해줘"
+    assert run_web_app.clean_voice_transcript("영화 리뷰 수정해줘") == "영화 리뷰 수정해줘"
     assert run_web_app.clean_voice_transcript("프리뷰 화면 확인") == "프리뷰 화면 확인"
     voice_empty_code, voice_empty = run_web_app.handle_post_api("/api/voice-inbox/prepare", {"transcript": ""})
     assert voice_empty_code == HTTPStatus.BAD_REQUEST
@@ -225,7 +227,22 @@ def main() -> None:
     )
     assert voice_restaurant_code == HTTPStatus.OK
     assert voice_restaurant["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_restaurant["cleaned_transcript"] == "고깃집 리뷰 정리해줘"
     assert "고git" not in voice_restaurant["cleaned_transcript"]
+    voice_movie_code, voice_movie = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "영화 리뷰 정리해줘"},
+    )
+    assert voice_movie_code == HTTPStatus.OK
+    assert voice_movie["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_movie["cleaned_transcript"] == "영화 리뷰 정리해줘"
+    voice_movie_edit_code, voice_movie_edit = run_web_app.handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "영화 리뷰 수정해줘"},
+    )
+    assert voice_movie_edit_code == HTTPStatus.OK
+    assert voice_movie_edit["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_movie_edit["cleaned_transcript"] == "영화 리뷰 수정해줘"
     voice_preview_code, voice_preview = run_web_app.handle_post_api(
         "/api/voice-inbox/prepare",
         {"transcript": "프리뷰 화면 확인"},
@@ -273,6 +290,8 @@ def main() -> None:
     assert "renderRecentCommits" in app_js
     assert "renderVoiceCandidate" in app_js
     assert "prepareVoiceCandidate" in app_js
+    assert "jarvisCommandFromCleaned" in app_js
+    assert "voiceUnknownGuidance" in app_js
     assert "renderRecentGroups" in app_js
     assert "normalizedOverviewItemsMarkup" in app_js
     assert "Read-only metadata" in app_js
@@ -322,6 +341,8 @@ def main() -> None:
     assert "copy-text" in app_js
     assert "Copy Cleaned Task" in app_js
     assert "Copy As Jarvis Command" in app_js
+    assert "No matching skill yet." in app_js
+    assert "Idea validation -> Research Council" in app_js
     assert ">Run<" not in app_js
     assert ">Execute<" not in app_js
     assert ">Start<" not in app_js

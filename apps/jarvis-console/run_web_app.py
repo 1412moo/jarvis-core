@@ -65,7 +65,6 @@ VOICE_TERM_CORRECTIONS = (
 )
 VOICE_TOKEN_CORRECTIONS = (
     ("커밋", "commit"),
-    ("리뷰", "review"),
     ("깃", "git"),
 )
 VOICE_DESTRUCTIVE_TERMS = ("commit", "push", "delete", "remove", "삭제", "지워", "커밋", "푸시")
@@ -87,8 +86,26 @@ VOICE_HERMES_CONTEXT_TERMS = (
     "작업관리",
     "코드",
     "수정",
+    "프롬프트",
+    "작업 리뷰",
+    "커밋 리뷰",
 )
 VOICE_HERMES_BROAD_HITS = {"git", "pr", "repo", "review", "리뷰"}
+VOICE_REVIEW_CORRECTION_CONTEXT_TERMS = (
+    "codex",
+    "commit",
+    "git",
+    "repo",
+    "pr",
+    "readme",
+    "prompt",
+    "코덱스",
+    "커밋",
+    "프롬프트",
+    "코드",
+    "작업 리뷰",
+    "커밋 리뷰",
+)
 READ_ONLY_GIT_COMMANDS = {
     ("rev-parse", "--show-toplevel"),
     ("rev-parse", "--abbrev-ref", "HEAD"),
@@ -893,7 +910,18 @@ def clean_voice_transcript(transcript: str) -> str:
     for source, target in VOICE_TOKEN_CORRECTIONS:
         pattern = rf"(?<![0-9A-Za-z가-힣]){re.escape(source)}(?![0-9A-Za-z가-힣])"
         cleaned = re.sub(pattern, target, cleaned)
+    if voice_has_development_review_context(cleaned):
+        cleaned = re.sub(r"(?<![0-9A-Za-z가-힣])리뷰(?![0-9A-Za-z가-힣])", "review", cleaned)
     return cleaned.strip()
+
+
+def voice_has_development_review_context(cleaned_transcript: str) -> bool:
+    """Allow review correction only when the transcript is clearly development-related."""
+
+    normalized = normalize_message(cleaned_transcript)
+    if "리뷰" not in normalized:
+        return False
+    return any(voice_has_context_term(normalized, term) for term in VOICE_REVIEW_CORRECTION_CONTEXT_TERMS)
 
 
 def voice_suggest_skill(cleaned_transcript: str) -> dict[str, Any]:
@@ -905,9 +933,11 @@ def voice_suggest_skill(cleaned_transcript: str) -> dict[str, Any]:
 
     normalized = normalize_message(cleaned_transcript)
     matched_keywords = {normalize_message(keyword) for keyword in suggestion.get("matched_keywords", [])}
-    has_hermes_context = any(voice_has_context_term(normalized, term) for term in VOICE_HERMES_CONTEXT_TERMS)
+    has_broad_hit_context = any(
+        voice_has_context_term(normalized, term) for term in VOICE_REVIEW_CORRECTION_CONTEXT_TERMS
+    )
     broad_hits_only = matched_keywords and matched_keywords.issubset(VOICE_HERMES_BROAD_HITS)
-    if broad_hits_only and not has_hermes_context:
+    if broad_hits_only and not has_broad_hit_context:
         return dict(UNKNOWN_SUGGESTION)
     return suggestion
 
@@ -1289,7 +1319,9 @@ def run_self_test() -> None:
 
     assert clean_voice_transcript("코덱스 케어노트 헤르메스") == "Codex CareNote Hermes"
     assert clean_voice_transcript("엠씨피 에이전트 스킬 데일리 레이더") == "MCP Agent Skills Daily AI Radar"
-    assert clean_voice_transcript("고깃집 리뷰 정리해줘") == "고깃집 review 정리해줘"
+    assert clean_voice_transcript("고깃집 리뷰 정리해줘") == "고깃집 리뷰 정리해줘"
+    assert clean_voice_transcript("영화 리뷰 정리해줘") == "영화 리뷰 정리해줘"
+    assert clean_voice_transcript("영화 리뷰 수정해줘") == "영화 리뷰 수정해줘"
     assert clean_voice_transcript("프리뷰 화면 확인") == "프리뷰 화면 확인"
     voice_empty_code, voice_empty = handle_post_api("/api/voice-inbox/prepare", {"transcript": ""})
     assert voice_empty_code == HTTPStatus.BAD_REQUEST
@@ -1353,7 +1385,22 @@ def run_self_test() -> None:
     )
     assert voice_restaurant_code == HTTPStatus.OK
     assert voice_restaurant["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_restaurant["cleaned_transcript"] == "고깃집 리뷰 정리해줘"
     assert "고git" not in voice_restaurant["cleaned_transcript"]
+    voice_movie_code, voice_movie = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "영화 리뷰 정리해줘"},
+    )
+    assert voice_movie_code == HTTPStatus.OK
+    assert voice_movie["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_movie["cleaned_transcript"] == "영화 리뷰 정리해줘"
+    voice_movie_edit_code, voice_movie_edit = handle_post_api(
+        "/api/voice-inbox/prepare",
+        {"transcript": "영화 리뷰 수정해줘"},
+    )
+    assert voice_movie_edit_code == HTTPStatus.OK
+    assert voice_movie_edit["task_candidate"]["suggested_skill"] == "unknown"
+    assert voice_movie_edit["cleaned_transcript"] == "영화 리뷰 수정해줘"
     voice_preview_code, voice_preview = handle_post_api(
         "/api/voice-inbox/prepare",
         {"transcript": "프리뷰 화면 확인"},
@@ -1536,6 +1583,8 @@ def run_self_test() -> None:
     assert "renderRecentCommits" in app_js
     assert "renderVoiceCandidate" in app_js
     assert "prepareVoiceCandidate" in app_js
+    assert "jarvisCommandFromCleaned" in app_js
+    assert "voiceUnknownGuidance" in app_js
     assert "renderRecentGroups" in app_js
     assert "normalizedOverviewItemsMarkup" in app_js
     assert "Read-only metadata" in app_js
@@ -1593,6 +1642,9 @@ def run_self_test() -> None:
     assert "Opening a URL does not start the server." in app_js
     assert "Commands are copy-only." in app_js
     assert "Choose a skill manually from the sidebar." in app_js
+    assert "No matching skill yet." in app_js
+    assert "Idea validation -> Research Council" in app_js
+    assert "Codex/repo work -> Hermes Manager" in app_js
     assert "navigator.clipboard.writeText" in app_js
     assert "copy-command" in app_js
     assert "copy-text" in app_js
@@ -1616,6 +1668,7 @@ def run_self_test() -> None:
     styles = (WEB_ROOT / "styles.css").read_text(encoding="utf-8")
     assert "voice-inbox-layout" in styles
     assert "voice-candidate-card" in styles
+    assert "voice-unknown-guidance" in styles
     assert "suggestion-action-panel" in styles
     assert "suggestion-actions" in styles
     assert "handoff-hint" in styles

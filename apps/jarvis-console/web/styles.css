@@ -300,6 +300,18 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.voice-unknown-guidance {
+  padding: 12px;
+  border: 1px solid #f1d08a;
+  border-radius: 8px;
+  background: #fff8e7;
+}
+
+.voice-unknown-guidance ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
 .secondary-action {
   padding: 6px 9px;
   border: 1px solid var(--line);

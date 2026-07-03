@@ -264,6 +264,31 @@ function voiceSkillActions(data, skill) {
   `;
 }
 
+function jarvisCommandFromCleaned(cleanedTranscript) {
+  const cleaned = String(cleanedTranscript || "").trim();
+  if (/^(jarvis|자비스)(,|\s)/i.test(cleaned)) {
+    return cleaned;
+  }
+  return `Jarvis, ${cleaned}`;
+}
+
+function voiceUnknownGuidance(skillId) {
+  if (skillId !== "unknown") {
+    return "";
+  }
+  return `
+    <div class="voice-unknown-guidance">
+      <strong>No matching skill yet.</strong>
+      <ul>
+        <li>Idea validation -> Research Council</li>
+        <li>Codex/repo work -> Hermes Manager</li>
+        <li>AI tech scouting -> Daily AI Radar</li>
+        <li>Repeated workflow -> Memory / Skills</li>
+      </ul>
+    </div>
+  `;
+}
+
 function renderVoiceCandidate(data) {
   if (!voiceResultBox) {
     return;
@@ -273,7 +298,7 @@ function renderVoiceCandidate(data) {
   const skill = skillId !== "unknown" ? skillById(skillId) : null;
   const rawPreview = truncateText(data.raw_transcript || "", 360);
   const cleaned = data.cleaned_transcript || "";
-  const jarvisCommand = `Jarvis, ${cleaned}`;
+  const jarvisCommand = jarvisCommandFromCleaned(cleaned);
   const matchedKeywords = candidate.matched_keywords || [];
   voiceResultBox.innerHTML = `
     <section class="voice-candidate-card" aria-label="Voice Inbox task candidate">
@@ -302,6 +327,7 @@ function renderVoiceCandidate(data) {
       <p><strong>Summary:</strong> ${escapeHtml(candidate.summary || "")}</p>
       <p><strong>Reason:</strong> ${escapeHtml(candidate.reason || "")}</p>
       <p><strong>Next action:</strong> ${escapeHtml(candidate.next_action || "")}</p>
+      ${voiceUnknownGuidance(skillId)}
       <div class="suggestion-actions">
         <button class="copy-text" type="button" data-copy-text="${escapeHtml(cleaned)}" aria-label="Copy Cleaned Task">Copy Cleaned Task</button>
         <button class="copy-text" type="button" data-copy-text="${escapeHtml(jarvisCommand)}" aria-label="Copy As Jarvis Command">Copy As Jarvis Command</button>
