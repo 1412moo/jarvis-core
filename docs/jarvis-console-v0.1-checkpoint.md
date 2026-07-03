@@ -1,10 +1,10 @@
 # Jarvis Console v0.1 Checkpoint
 
-Last updated: 2026-07-01
+Last updated: 2026-07-03
 
 ## Summary
 
-Jarvis Console v0.1 is the current local browser shell, skill hub, read-only operations dashboard, and read-only checkpoint/history view for Jarvis.
+Jarvis Console v0.1 is the current local browser shell, skill hub, read-only operations dashboard, read-only checkpoint/history view, and text-only Voice Inbox for Jarvis.
 
 It provides:
 
@@ -16,13 +16,14 @@ It provides:
 - Tasks / Reports dashboard with read-only repo, skill, report, checkpoint, docs, and example metadata.
 - Recent item grouping for tasks, reports, checkpoints, docs, examples, configs, and related metadata.
 - Checkpoints / History view with recent commits, checkpoint docs, related reports/examples, and read-only history discovery rules.
+- Voice Inbox v0.1 for turning pasted voice-like transcripts or rough thoughts into task candidates and manual skill handoffs.
 
-Jarvis Console does not execute skills automatically. It is a starting point and operations dashboard, not an autonomous runner.
+Jarvis Console does not execute skills automatically. It suggests, prepares, and displays handoffs; it is a starting point and operations dashboard, not an autonomous runner.
 
 ## Current HEAD / Status
 
-- HEAD: `1430d7a`
-- Commit: `jarvis-console: add read-only history view`
+- HEAD: `199672b`
+- Commit: `jarvis-console: polish voice inbox task capture`
 - Expected working tree after this checkpoint update: this document modified, plus `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -44,6 +45,51 @@ Jarvis Console does not execute skills automatically. It is a starting point and
   - `Open Skill Details`
 - Commands are copy-only and use clipboard copy.
 - Jarvis Console does not run the recommended skill.
+
+### Voice Inbox v0.1
+
+Voice Inbox is a text-only capture surface for pasted voice-like transcripts, OS dictation text, user-provided transcript text, or rough thoughts.
+
+It intentionally does not record audio or call any STT/TTS/LLM service. The user pastes text, then Jarvis Console prepares a local task candidate.
+
+Voice Inbox produces:
+
+- Raw transcript preview
+- Cleaned transcript
+- Task candidate title and summary
+- Suggested skill
+- Confidence
+- Matched keywords
+- `needs_confirmation`
+- Next action
+- Safety notes
+- Manual handoff buttons when a known skill is suggested
+
+Voice Inbox handoff actions are limited to:
+
+- `Open Skill Details`
+- `Copy Cleaned Task`
+- `Copy As Jarvis Command`
+- `Copy Git Bash`
+- `Copy PowerShell`
+- `Open Local URL`, only when the suggested skill has a safe `http://127.0.0.1` local URL
+
+Voice Inbox does not run Codex, ChatGPT, Hermes Manager, Research Council, Daily AI Radar, git, shell commands, or external tools. It remains approval-oriented and local-only.
+
+Recent Voice Inbox UX polish:
+
+- `Copy As Jarvis Command` avoids duplicate `Jarvis` prefixes.
+- Already-prefixed text such as `Jarvis, CareNote...` does not become `Jarvis, Jarvis, CareNote...`.
+- Unprefixed text such as `CareNote...` receives exactly one `Jarvis, ` prefix.
+- Korean/English Jarvis-like prefixes are handled conservatively.
+- `리뷰 -> review` cleanup is limited to development/Codex-related contexts.
+- Everyday review phrases remain conservative and unknown:
+  - `고깃집 리뷰 정리해줘`
+  - `영화 리뷰 정리해줘`
+  - `영화 리뷰 수정해줘`
+  - `프리뷰 화면 확인`
+- Unknown candidates show guidance for expressions that route to Research Council, Hermes Manager, Daily AI Radar, or Memory / Skills.
+- Unknown guidance does not show automatic execution affordances.
 
 ### Skill Detail Usage Cards
 
@@ -155,7 +201,36 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
 | `반복 작업 skill로 기억해줘` | `memory_skills` | `memory_skills` |
 | `오늘 뭐하지` | `unknown` | `unknown` |
 
+## Verified Voice Inbox Routing Matrix
+
+| Transcript | Expected skill | Verified result |
+| --- | --- | --- |
+| `Jarvis, CareNote 복약 기록 UX 리스크를 Research Council로 검증해줘` | `research_council` | `research_council` |
+| `코덱스한테 README 수정하고 커밋 리뷰 프롬프트 만들어줘` | `hermes_manager` | `hermes_manager` |
+| `MCP Agent Skills 새 기술 Daily Radar로 확인해줘` | `daily_ai_radar` | `daily_ai_radar` |
+| `이 반복 작업 skill 후보로 기억해줘` | `memory_skills` | `memory_skills` |
+| `오늘 뭐하지` | `unknown` | `unknown` |
+| `고깃집 리뷰 정리해줘` | `unknown` | `unknown` |
+| `영화 리뷰 정리해줘` | `unknown` | `unknown` |
+| `영화 리뷰 수정해줘` | `unknown` | `unknown` |
+| `프리뷰 화면 확인` | `unknown` | `unknown` |
+| `report review draft` | `unknown` | `unknown` |
+
 ## Verified Core Flows
+
+### Voice Inbox Task Capture
+
+- The user pastes a transcript or rough thought into Voice Inbox.
+- `Prepare Task Candidate` calls `/api/voice-inbox/prepare`.
+- The API applies deterministic cleanup and conservative term correction.
+- The cleaned transcript is routed through the existing skill suggestion logic.
+- The result card shows raw preview, cleaned transcript, task candidate title/summary, suggested skill, confidence, matched keywords, next action, and safety notes.
+- Known suggestions show copy-only handoff buttons.
+- Unknown suggestions show guidance and no skill handoff action buttons.
+- `Copy Cleaned Task` copies only the cleaned transcript.
+- `Copy As Jarvis Command` copies a Jarvis command without duplicating a leading `Jarvis` or `자비스` prefix.
+- `Open Skill Details` only changes the UI selection and does not run the skill.
+- Browser QA verified prefix handling and unknown guidance.
 
 ### Hermes Manager Handoff
 
@@ -235,12 +310,23 @@ History-specific discovery adds:
 
 Jarvis Console v0.1 maintains these boundaries:
 
+- Local-first operation.
+- Human-approved handoffs.
+- Skill-based orchestration.
 - Local-only bind on `127.0.0.1`.
 - No automatic Codex invocation.
 - No automatic ChatGPT invocation.
 - No automatic Hermes invocation.
 - No automatic Research Council execution.
 - No automatic Daily AI Radar execution.
+- No automatic skill execution from Voice Inbox.
+- No microphone access.
+- No audio recording runtime.
+- No STT runtime.
+- No Whisper invocation.
+- No TTS runtime.
+- No Qwen invocation.
+- No Claude Code hook integration.
 - No command auto-execution.
 - Commands are copy-only.
 - No `git add`.
@@ -255,11 +341,14 @@ Jarvis Console v0.1 maintains these boundaries:
 - No `git merge`.
 - No `git rebase`.
 - Read-only git status/log only.
+- No autonomous code modification.
 - No repo write from dashboards.
+- No repo/file write behavior from Voice Inbox.
 - No task mutation.
 - No checkpoint generation.
 - No report generation from Jarvis Console.
 - No external network, API, or LLM call.
+- No external API/web/LLM call by default.
 - No external CDN or remote script dependency.
 - `Open Local URL` only accepts `http://127.0.0.1`.
 - `window.open` uses `noopener,noreferrer`.
@@ -297,6 +386,7 @@ Manual browser checks passed:
 
 Regression commands passed:
 
+- `python -B -m py_compile apps\jarvis-console\run_web_app.py apps\jarvis-console\run_smoke_tests.py`
 - `python -B apps\jarvis-console\run_web_app.py --self-test`
 - `python -B apps\jarvis-console\run_smoke_tests.py`
 - `python -B apps\hermes-manager-pilot\run_smoke_tests.py`
@@ -305,7 +395,16 @@ Regression commands passed:
 - `node --check apps\jarvis-console\web\app.js`
 - `git diff --check`
 
+Voice Inbox browser QA passed:
+
+- `Copy As Jarvis Command` does not duplicate an existing `Jarvis` prefix.
+- Unprefixed candidate text receives one `Jarvis, ` prefix.
+- Unknown guidance appears for unmatched candidates.
+- Unknown guidance does not display automatic execution affordances.
+
 The Jarvis Console test server was stopped after QA, and no `127.0.0.1:8790` listener remained.
+
+During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Current Known Backlog
 
@@ -317,6 +416,8 @@ The Jarvis Console test server was stopped after QA, and no `127.0.0.1:8790` lis
 - Daily AI Radar real source collection later, approval-gated.
 - Hermes/Codex automation later, approval-gated.
 - Skill Detail visual polish: usage cards can become easier to scan without changing behavior.
+- Voice Inbox guidance can eventually be driven by registry metadata instead of static copy.
+- Voice Inbox can later integrate optional STT only behind explicit approval and a separate safety boundary.
 
 ## Recommended Next Development Candidates
 
@@ -356,13 +457,19 @@ Priority: P2
 
 Improve the visual hierarchy of detail cards, command blocks, docs, safety notes, and non-goals while preserving copy-only behavior.
 
-### G. Daily AI Radar Source Collection
+### G. Voice Inbox Refinement
+
+Priority: P2
+
+Move unknown guidance and handoff examples toward registry-backed metadata while keeping Voice Inbox text-only, local-first, and approval-oriented.
+
+### H. Daily AI Radar Source Collection
 
 Priority: P3
 
 Add real source collection later only behind explicit user approval and a clear external-network boundary.
 
-### H. Hermes / Codex Automation
+### I. Hermes / Codex Automation
 
 Priority: P3
 
@@ -381,6 +488,8 @@ Jarvis Console v0.1 is not intended to provide:
 - Automatic pushes.
 - External connectors.
 - External API or LLM calls.
+- Microphone recording.
+- STT or TTS runtime.
 - Skill auto-installation.
 - Background autonomous behavior.
 - Dashboard-driven repo mutation.
