@@ -620,8 +620,8 @@ function memoryCandidateCards(candidates) {
           ${listMarkup(candidate.safety_notes, "No candidate safety notes registered.")}
           <div class="suggestion-actions">
             <button class="secondary-action memory-review-candidate" type="button" data-candidate-id="${escapeHtml(candidate.id || "")}">Review Candidate</button>
-            <button class="copy-text" type="button" data-copy-text="${escapeHtml(candidate.cleaned_text || "")}" aria-label="Copy Candidate">Copy Candidate</button>
-            <button class="copy-text" type="button" data-copy-text="${escapeHtml(memoryDraftPrompt(candidate))}" aria-label="Copy Skill Draft Prompt">Copy Skill Draft Prompt</button>
+            <button class="copy-text" type="button" data-copy-text="${escapeHtml(candidate.cleaned_text || "")}" data-manual-copy-label="Copy Candidate" aria-label="Copy Candidate">Copy Candidate</button>
+            <button class="copy-text" type="button" data-copy-text="${escapeHtml(memoryDraftPrompt(candidate))}" data-manual-copy-label="Copy Skill Draft Prompt" aria-label="Copy Skill Draft Prompt">Copy Skill Draft Prompt</button>
             <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(candidate.suggested_skill_id || "memory_skills")}">Open Skill Details</button>
           </div>
         </article>
@@ -663,6 +663,13 @@ function renderMemorySkills(data) {
         <span class="overview-badge read-only">No saved user memory</span>
       </div>
       ${memoryCandidateCards(data.candidates || [])}
+      <div id="memoryCopyFallback" class="manual-copy-fallback hidden" aria-live="polite">
+        <h4>Manual copy fallback</h4>
+        <p>Clipboard was not available. Copy the text below manually.</p>
+        <label for="memoryCopyFallbackText">Copy-only payload</label>
+        <textarea id="memoryCopyFallbackText" readonly></textarea>
+        <p class="muted">No file was created. No action was executed.</p>
+      </div>
     </section>
     <section class="overview-card">
       <div class="overview-section-heading">
@@ -1054,12 +1061,40 @@ async function copyCommand(command, nextAction = "") {
   }
 }
 
-async function copyPlainText(text, successMessage) {
+function hideManualCopyFallback() {
+  const fallback = document.getElementById("memoryCopyFallback");
+  if (fallback) {
+    fallback.classList.add("hidden");
+  }
+}
+
+function showManualCopyFallback(label, text) {
+  const fallback = document.getElementById("memoryCopyFallback");
+  const fallbackText = document.getElementById("memoryCopyFallbackText");
+  if (!fallback || !fallbackText) {
+    return false;
+  }
+  const heading = fallback.querySelector("h4");
+  if (heading) {
+    heading.textContent = label ? `Manual copy fallback: ${label}` : "Manual copy fallback";
+  }
+  fallbackText.value = text;
+  fallback.classList.remove("hidden");
+  fallbackText.focus();
+  fallbackText.select();
+  return true;
+}
+
+async function copyPlainText(text, successMessage, manualFallbackLabel = "") {
   try {
     await navigator.clipboard.writeText(text);
+    hideManualCopyFallback();
     statusText.textContent = successMessage;
   } catch (error) {
-    statusText.textContent = `Copy failed: ${error.message}`;
+    const fallbackShown = manualFallbackLabel ? showManualCopyFallback(manualFallbackLabel, text) : false;
+    statusText.textContent = fallbackShown
+      ? "Clipboard was not available. Copy the text below manually."
+      : `Copy failed: ${error.message}`;
   }
 }
 
@@ -1148,7 +1183,11 @@ document.addEventListener("click", (event) => {
 
   const copyTextButton = event.target.closest(".copy-text");
   if (copyTextButton) {
-    copyPlainText(copyTextButton.dataset.copyText || "", "Text copied. Jarvis Console did not run anything.");
+    copyPlainText(
+      copyTextButton.dataset.copyText || "",
+      "Text copied. Jarvis Console did not run anything.",
+      copyTextButton.dataset.manualCopyLabel || "",
+    );
     return;
   }
 

@@ -377,13 +377,29 @@ def main() -> None:
     assert "Copy Candidate" in app_js
     assert "Copy Skill Draft Prompt" in app_js
     assert "Review Candidate" in app_js
+    assert "Manual copy fallback" in app_js
+    assert "Clipboard was not available. Copy the text below manually." in app_js
+    assert "No file was created. No action was executed." in app_js
+    assert "data-manual-copy-label" in app_js
+    assert "showManualCopyFallback" in app_js
+    assert "memoryCopyFallbackText" in app_js
+    assert "fallbackText.value = text" in app_js
     assert "does not save this candidate automatically" in app_js
     assert "No persistence, no runtime write, and no automatic skill creation." in app_js
+    assert "Save Candidate" not in app_js
+    assert "Create Skill" not in app_js
     assert "No matching skill yet." in app_js
     assert "Idea validation -> Research Council" in app_js
     assert ">Run<" not in app_js
     assert ">Execute<" not in app_js
     assert ">Start<" not in app_js
+    assert ">Auto<" not in app_js
+    assert "Install Skill Now" not in app_js
+    assert "memoryCopyFallbackText.innerHTML" not in app_js
+
+    styles = Path(__file__).resolve().parent.joinpath("web", "styles.css").read_text(encoding="utf-8")
+    assert "manual-copy-fallback" in styles
+    assert "memory-candidate-card" in styles
 
     print("Jarvis Console smoke tests passed")
 

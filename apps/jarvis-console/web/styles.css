@@ -778,6 +778,31 @@ code {
   color: var(--muted);
 }
 
+.manual-copy-fallback {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf5;
+}
+
+.manual-copy-fallback h4,
+.manual-copy-fallback p {
+  margin: 0;
+}
+
+.manual-copy-fallback textarea {
+  min-height: 130px;
+  resize: vertical;
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.manual-copy-fallback.hidden {
+  display: none;
+}
+
 .settings-list {
   display: grid;
   gap: 12px;
