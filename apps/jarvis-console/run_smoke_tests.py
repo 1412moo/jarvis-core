@@ -126,6 +126,29 @@ def main() -> None:
     assert "This view is read-only." in history["notes"]
     assert "It does not create commits or checkpoints." in history["notes"]
 
+    memory_code, memory = run_web_app.handle_get_api("/api/memory-skills")
+    assert memory_code == HTTPStatus.OK
+    assert memory["ok"] is True
+    assert memory["mode"] == "read-only"
+    assert memory["phase"] == "phase_1_read_only_sample"
+    assert memory["read_only"] is True
+    assert memory["sample"] is True
+    assert memory["no_persistence"] is True
+    assert memory["runtime_write"] is False
+    assert memory["post_endpoints"] is False
+    assert len(memory["candidates"]) == 3
+    assert "Review Candidate" in memory["allowed_actions"]
+    assert "Copy Candidate" in memory["allowed_actions"]
+    assert "Copy Skill Draft Prompt" in memory["allowed_actions"]
+    assert "Open Skill Details" in memory["allowed_actions"]
+    assert any("Voice Inbox" in item for item in memory["guidance"])
+    assert any("No automatic memory save." == item for item in memory["safety_boundary"])
+    assert any("No runtime file write." == item for item in memory["safety_boundary"])
+    for candidate in memory["candidates"]:
+        run_web_app.assert_memory_candidate_safety(candidate)
+    assert run_web_app.handle_post_api("/api/memory-skills", {})[0] == HTTPStatus.NOT_FOUND
+    assert run_web_app.handle_post_api("/api/memory-skills/candidates", {})[0] == HTTPStatus.NOT_FOUND
+
     for args in (
         ("add", "."),
         ("commit", "-m", "test"),
@@ -275,18 +298,27 @@ def main() -> None:
     assert "Jarvis will not run tools until you choose a handoff." in html
     assert "Refresh Overview" in html
     assert "Refresh History" in html
+    assert "Refresh Memory / Skills" in html
     assert "Checkpoints / History" in html
     assert "Read-only operations dashboard" in html
     assert "does not create tasks" in html
     assert "does not create commits" in html
+    assert "read-only: sample candidates only" in html
+    assert "no POST" in html
+    assert "no persistence" in html
+    assert "no runtime write" in html
     assert "recommendedSkillId" in app_js
     assert "handoffStepsForSkill" in app_js
     assert "copyNextActionForHandoff" in app_js
     assert "/api/overview" in app_js
     assert "/api/history" in app_js
+    assert "/api/memory-skills" in app_js
     assert "/api/voice-inbox/prepare" in app_js
     assert "renderOverview" in app_js
     assert "renderHistory" in app_js
+    assert "renderMemorySkills" in app_js
+    assert "loadMemorySkills" in app_js
+    assert "memoryCandidateCards" in app_js
     assert "renderRecentCommits" in app_js
     assert "renderVoiceCandidate" in app_js
     assert "prepareVoiceCandidate" in app_js
@@ -341,6 +373,12 @@ def main() -> None:
     assert "copy-text" in app_js
     assert "Copy Cleaned Task" in app_js
     assert "Copy As Jarvis Command" in app_js
+    assert "Open Memory / Skills" in app_js
+    assert "Copy Candidate" in app_js
+    assert "Copy Skill Draft Prompt" in app_js
+    assert "Review Candidate" in app_js
+    assert "does not save this candidate automatically" in app_js
+    assert "No persistence, no runtime write, and no automatic skill creation." in app_js
     assert "No matching skill yet." in app_js
     assert "Idea validation -> Research Council" in app_js
     assert ">Run<" not in app_js

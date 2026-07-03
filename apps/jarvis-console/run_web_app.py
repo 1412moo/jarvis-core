@@ -191,6 +191,77 @@ UNKNOWN_SUGGESTION = {
     "commands": {"git_bash": "", "powershell": ""},
     "matched_keywords": [],
 }
+MEMORY_SKILLS_ALLOWED_ACTIONS = (
+    "Review Candidate",
+    "Copy Candidate",
+    "Copy Skill Draft Prompt",
+    "Open Skill Details",
+)
+MEMORY_SKILLS_UNAVAILABLE_ACTIONS = (
+    "State changes are not available in Phase 1.",
+    "Local persistence is not available in Phase 1.",
+    "Skill creation is not available in Phase 1.",
+    "Tool or command launch is not available in Phase 1.",
+)
+MEMORY_SKILLS_SAMPLE_CANDIDATES = (
+    {
+        "id": "mem_sample_weekly_research_candidates",
+        "title": "매주 반복되는 리서치 후보 정리",
+        "cleaned_text": "매주 새 리서치 후보를 모아 Research Council 검토 후보로 정리한다.",
+        "candidate_type": "repeated_workflow",
+        "suggested_skill_id": "memory_skills",
+        "confidence": "medium",
+        "status": "candidate",
+        "source": "sample",
+        "confirmation_required": True,
+        "next_action": "Review this sample as a proposal; do not store or run it automatically.",
+        "safety_notes": [
+            "Read-only sample candidate.",
+            "No local memory is written in Phase 1.",
+        ],
+        "tags": ["sample", "research", "proposal"],
+        "read_only": True,
+        "sample": True,
+    },
+    {
+        "id": "mem_sample_codex_review_prompt_pattern",
+        "title": "Codex 리뷰/커밋 프롬프트 패턴",
+        "cleaned_text": "Codex 작업 후 리뷰와 커밋 프롬프트를 준비하는 반복 패턴을 후보로 정리한다.",
+        "candidate_type": "prompt_pattern",
+        "suggested_skill_id": "memory_skills",
+        "confidence": "medium",
+        "status": "candidate",
+        "source": "sample",
+        "confirmation_required": True,
+        "next_action": "Copy the candidate or draft prompt for manual review only.",
+        "safety_notes": [
+            "Read-only sample candidate.",
+            "No Codex or Hermes call is made from Memory / Skills.",
+        ],
+        "tags": ["sample", "codex", "prompt"],
+        "read_only": True,
+        "sample": True,
+    },
+    {
+        "id": "mem_sample_daily_radar_review_routine",
+        "title": "Daily AI Radar 후보 검토 루틴",
+        "cleaned_text": "Daily AI Radar 결과에서 후보를 읽고 승인 전 검토 항목을 정리한다.",
+        "candidate_type": "operating_rule",
+        "suggested_skill_id": "memory_skills",
+        "confidence": "low",
+        "status": "candidate",
+        "source": "sample",
+        "confirmation_required": True,
+        "next_action": "Use this as a read-only example of a future operating rule proposal.",
+        "safety_notes": [
+            "Read-only sample candidate.",
+            "Radar recommendations remain candidates, not implementation approval.",
+        ],
+        "tags": ["sample", "radar", "review"],
+        "read_only": True,
+        "sample": True,
+    },
+)
 
 STATIC_ROUTES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -786,6 +857,62 @@ def overview_payload() -> dict[str, Any]:
     }
 
 
+def memory_skills_payload() -> dict[str, Any]:
+    """Return the read-only Memory / Skills Phase 1 sample panel payload."""
+
+    skill = skill_detail("memory_skills") or {}
+    candidates = [dict(candidate) for candidate in MEMORY_SKILLS_SAMPLE_CANDIDATES]
+    return {
+        "ok": True,
+        "mode": "read-only",
+        "phase": "phase_1_read_only_sample",
+        "title": "Memory / Skills Phase 1",
+        "description": "Read-only sample inbox for repeated workflow candidates and skill proposals.",
+        "skill_id": "memory_skills",
+        "display_name": skill.get("display_name", "Memory / Skills"),
+        "read_only": True,
+        "sample": True,
+        "no_persistence": True,
+        "runtime_write": False,
+        "post_endpoints": False,
+        "candidates": candidates,
+        "guidance": [
+            "Treat these as sample candidates, not saved user memory.",
+            "Voice Inbox can suggest Memory / Skills, but it does not save candidates automatically.",
+            "Phase 1 is for manual review and copy-only handoff.",
+            "Persistence and state changes are deferred to later approval-gated phases.",
+        ],
+        "allowed_actions": list(MEMORY_SKILLS_ALLOWED_ACTIONS),
+        "unavailable_actions": list(MEMORY_SKILLS_UNAVAILABLE_ACTIONS),
+        "safety_boundary": [
+            "No automatic memory save.",
+            "No automatic skill creation.",
+            "No automatic code modification.",
+            "No runtime file write.",
+            "No external API, web, or LLM call.",
+            "No microphone, STT, TTS, or recording.",
+            "No Codex, ChatGPT, Hermes, Research Council, or Daily AI Radar automatic invocation.",
+            "No git write operations.",
+            "Protected path remains visible: jarvis.bat.",
+        ],
+    }
+
+
+def assert_memory_candidate_safety(candidate: dict[str, Any]) -> None:
+    """Validate a Memory / Skills sample candidate without filesystem access."""
+
+    assert candidate["read_only"] is True
+    assert candidate["sample"] is True
+    assert candidate["confirmation_required"] is True
+    assert candidate["status"] == "candidate"
+    assert candidate["source"] == "sample"
+    assert candidate["suggested_skill_id"] == "memory_skills"
+    assert candidate["id"].startswith("mem_sample_")
+    assert "/" not in candidate["id"]
+    assert "\\" not in candidate["id"]
+    assert "original_text" not in candidate
+
+
 def parse_recent_commits(raw_log: str) -> list[dict[str, Any]]:
     """Parse fixed git log output into display-only commit cards."""
 
@@ -1072,6 +1199,8 @@ def handle_get_api(path: str, query: str = "") -> tuple[int, dict[str, Any]]:
             return HTTPStatus.OK, overview_payload()
         if path == "/api/history":
             return HTTPStatus.OK, history_payload()
+        if path == "/api/memory-skills":
+            return HTTPStatus.OK, memory_skills_payload()
         if path == "/api/skill":
             params = parse_qs(query)
             skill_id = (params.get("skill_id") or [""])[0].strip()
@@ -1540,6 +1669,32 @@ def run_self_test() -> None:
     assert is_history_candidate_name(REPO_ROOT / "docs" / "jarvis-console-v0.1-checkpoint.md") is True
     assert is_history_candidate_name(REPO_ROOT / "docs" / "sample.md") is False
 
+    before_memory_status = run_read_only_git(("status", "--short"))
+    memory_code, memory = handle_get_api("/api/memory-skills")
+    after_memory_status = run_read_only_git(("status", "--short"))
+    assert before_memory_status == after_memory_status
+    assert memory_code == HTTPStatus.OK
+    assert memory["ok"] is True
+    assert memory["mode"] == "read-only"
+    assert memory["phase"] == "phase_1_read_only_sample"
+    assert memory["read_only"] is True
+    assert memory["sample"] is True
+    assert memory["no_persistence"] is True
+    assert memory["runtime_write"] is False
+    assert memory["post_endpoints"] is False
+    assert len(memory["candidates"]) == len(MEMORY_SKILLS_SAMPLE_CANDIDATES)
+    assert "Review Candidate" in memory["allowed_actions"]
+    assert "Copy Candidate" in memory["allowed_actions"]
+    assert "Copy Skill Draft Prompt" in memory["allowed_actions"]
+    assert "Open Skill Details" in memory["allowed_actions"]
+    assert any("Voice Inbox" in item for item in memory["guidance"])
+    assert any("No automatic memory save." == item for item in memory["safety_boundary"])
+    assert any("No runtime file write." == item for item in memory["safety_boundary"])
+    for candidate in memory["candidates"]:
+        assert_memory_candidate_safety(candidate)
+    assert handle_post_api("/api/memory-skills", {})[0] == HTTPStatus.NOT_FOUND
+    assert handle_post_api("/api/memory-skills/candidates", {})[0] == HTTPStatus.NOT_FOUND
+
     html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "Chat / Command" in html
     assert "Voice Inbox" in html
@@ -1567,9 +1722,14 @@ def run_self_test() -> None:
     assert "jarvis.bat" in html
     assert "Refresh Overview" in html
     assert "Refresh History" in html
+    assert "Refresh Memory / Skills" in html
     assert "Read-only operations dashboard" in html
     assert "does not create tasks" in html
     assert "does not create commits" in html
+    assert "read-only: sample candidates only" in html
+    assert "no POST" in html
+    assert "no persistence" in html
+    assert "no runtime write" in html
 
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
     assert "fetch(" in app_js
@@ -1577,9 +1737,13 @@ def run_self_test() -> None:
     assert "/api/skill" in app_js
     assert "/api/overview" in app_js
     assert "/api/history" in app_js
+    assert "/api/memory-skills" in app_js
     assert "/api/voice-inbox/prepare" in app_js
     assert "renderOverview" in app_js
     assert "renderHistory" in app_js
+    assert "renderMemorySkills" in app_js
+    assert "loadMemorySkills" in app_js
+    assert "memoryCandidateCards" in app_js
     assert "renderRecentCommits" in app_js
     assert "renderVoiceCandidate" in app_js
     assert "prepareVoiceCandidate" in app_js
@@ -1650,6 +1814,12 @@ def run_self_test() -> None:
     assert "copy-text" in app_js
     assert "Copy Cleaned Task" in app_js
     assert "Copy As Jarvis Command" in app_js
+    assert "Open Memory / Skills" in app_js
+    assert "Copy Candidate" in app_js
+    assert "Copy Skill Draft Prompt" in app_js
+    assert "Review Candidate" in app_js
+    assert "does not save this candidate automatically" in app_js
+    assert "No persistence, no runtime write, and no automatic skill creation." in app_js
     assert "Git Bash" in app_js
     assert "PowerShell" in app_js
     assert "Copy Git Bash" in app_js
@@ -1676,6 +1846,7 @@ def run_self_test() -> None:
     assert "overview-list" in styles
     assert "overview-badge" in styles
     assert "normalized-overview-item" in styles
+    assert "memory-candidate-card" in styles
     assert "secondary-action" in styles
     assert "http://" not in styles
     assert "https://" not in styles

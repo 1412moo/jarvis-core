@@ -156,11 +156,15 @@
       <section class="tab-panel hidden" id="tab-memory">
         <div class="panel-heading">
           <p class="eyebrow">Memory / Skills</p>
-          <h2 id="memoryTitle">Future skill registry and operating memory</h2>
-          <p id="memoryDescription">Repeated workflows may become skill candidates after human review.</p>
+          <h2 id="memoryTitle">Read-only repeated workflow candidate inbox</h2>
+          <p id="memoryDescription">Phase 1 shows sample proposals only. Jarvis does not save, run, or create skills automatically.</p>
+        </div>
+        <button id="refreshMemoryButton" class="secondary-action overview-refresh" type="button">Refresh Memory / Skills</button>
+        <div id="memoryPanel" class="overview-panel">
+          <p class="muted">Memory / Skills samples have not been loaded yet.</p>
         </div>
         <div id="memoryDetails"></div>
-        <p class="placeholder">Skill candidates are proposals, not automatically installed or updated skills.</p>
+        <p class="placeholder">Phase 1 is read-only: sample candidates only, no POST, no persistence, no runtime write, and no automatic action.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-settings">

@@ -11,6 +11,8 @@ const tasksDetails = document.getElementById("tasksDetails");
 const refreshOverviewButton = document.getElementById("refreshOverviewButton");
 const historyDetails = document.getElementById("historyDetails");
 const refreshHistoryButton = document.getElementById("refreshHistoryButton");
+const memoryPanel = document.getElementById("memoryPanel");
+const refreshMemoryButton = document.getElementById("refreshMemoryButton");
 const voiceTranscriptInput = document.getElementById("voiceTranscriptInput");
 const prepareVoiceButton = document.getElementById("prepareVoiceButton");
 const pasteVoiceButton = document.getElementById("pasteVoiceButton");
@@ -40,6 +42,9 @@ function activateTab(tabId) {
   }
   if (tabId === "history") {
     loadHistory();
+  }
+  if (tabId === "memory") {
+    loadMemorySkills();
   }
 }
 
@@ -248,6 +253,23 @@ function voiceSkillActions(data, skill) {
     ? `<button class="secondary-action open-local-url" type="button" data-local-url="${escapeHtml(localUrl)}">Open Local URL</button>`
     : "";
   const copyNextAction = "Review the task candidate, then use the copied command manually.";
+
+  if (skillId === "memory_skills") {
+    return `
+      <div class="voice-handoff-card">
+        <h4>Memory / Skills proposal</h4>
+        <p class="muted">Voice Inbox can suggest Memory / Skills, but it does not save this candidate automatically.</p>
+        <div class="suggestion-actions">
+          <button class="secondary-action open-memory-skills" type="button">Open Memory / Skills</button>
+          <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(skillId)}">Open Skill Details</button>
+        </div>
+        <ul class="safety-list">
+          <li>Manual review only.</li>
+          <li>No persistence, no runtime write, and no automatic skill creation.</li>
+        </ul>
+      </div>
+    `;
+  }
 
   return `
     <div class="voice-handoff-card">
@@ -558,6 +580,127 @@ function normalizedOverviewItemsMarkup(items, emptyText) {
         .join("")}
     </div>
   `;
+}
+
+function memoryDraftPrompt(candidate) {
+  return [
+    "Review this Memory / Skills candidate as a proposal only.",
+    `Title: ${candidate.title || "Untitled candidate"}`,
+    `Type: ${candidate.candidate_type || "candidate"}`,
+    `Candidate: ${candidate.cleaned_text || ""}`,
+    `Next action: ${candidate.next_action || "Review manually."}`,
+    "Do not create, install, or run a skill automatically.",
+  ].join("\n");
+}
+
+function memoryCandidateCards(candidates) {
+  if (!candidates || !candidates.length) {
+    return "<p class=\"placeholder\">No sample candidates registered.</p>";
+  }
+  return `
+    <div class="memory-candidate-grid">
+      ${candidates
+        .map(
+          (candidate) => `
+        <article class="memory-candidate-card">
+          <div class="overview-item-heading">
+            <div>
+              <strong>${escapeHtml(candidate.title || "Untitled candidate")}</strong>
+              <span>${escapeHtml(candidate.candidate_type || "candidate")} · ${escapeHtml(candidate.source || "sample")}</span>
+            </div>
+            <div class="overview-badges">
+              <span class="overview-badge read-only">Read-only sample</span>
+              <span class="overview-badge">${escapeHtml(candidate.status || "candidate")}</span>
+              <span class="overview-badge">Confidence: ${escapeHtml(candidate.confidence || "low")}</span>
+            </div>
+          </div>
+          <p>${escapeHtml(candidate.cleaned_text || "")}</p>
+          <p><strong>Next action:</strong> ${escapeHtml(candidate.next_action || "")}</p>
+          <p><strong>Tags:</strong> ${escapeHtml((candidate.tags || []).join(", ") || "none")}</p>
+          ${listMarkup(candidate.safety_notes, "No candidate safety notes registered.")}
+          <div class="suggestion-actions">
+            <button class="secondary-action memory-review-candidate" type="button" data-candidate-id="${escapeHtml(candidate.id || "")}">Review Candidate</button>
+            <button class="copy-text" type="button" data-copy-text="${escapeHtml(candidate.cleaned_text || "")}" aria-label="Copy Candidate">Copy Candidate</button>
+            <button class="copy-text" type="button" data-copy-text="${escapeHtml(memoryDraftPrompt(candidate))}" aria-label="Copy Skill Draft Prompt">Copy Skill Draft Prompt</button>
+            <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(candidate.suggested_skill_id || "memory_skills")}">Open Skill Details</button>
+          </div>
+        </article>
+      `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderMemorySkills(data) {
+  if (!memoryPanel) {
+    return;
+  }
+  memoryPanel.innerHTML = `
+    <section class="overview-card memory-phase-card">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">${escapeHtml(data.phase || "phase_1_read_only_sample")}</p>
+          <h3>${escapeHtml(data.title || "Memory / Skills")}</h3>
+        </div>
+        <span class="overview-badge read-only">Read-only sample</span>
+      </div>
+      <p>${escapeHtml(data.description || "")}</p>
+      <dl class="overview-facts">
+        <div><dt>Mode</dt><dd>${escapeHtml(data.mode || "read-only")}</dd></div>
+        <div><dt>Persistence</dt><dd>${data.no_persistence ? "None in Phase 1" : "Not reported"}</dd></div>
+        <div><dt>Runtime write</dt><dd>${data.runtime_write ? "Present" : "None"}</dd></div>
+        <div><dt>POST endpoints</dt><dd>${data.post_endpoints ? "Present" : "None in Phase 1"}</dd></div>
+      </dl>
+      ${listMarkup(data.guidance, "No Memory / Skills guidance registered.")}
+    </section>
+    <section class="overview-card">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Sample Candidates</p>
+          <h3>Repeated workflow proposals</h3>
+        </div>
+        <span class="overview-badge read-only">No saved user memory</span>
+      </div>
+      ${memoryCandidateCards(data.candidates || [])}
+    </section>
+    <section class="overview-card">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Manual Actions</p>
+          <h3>Copy-only handoff</h3>
+        </div>
+        <span class="overview-badge read-only">No state change</span>
+      </div>
+      <div class="overview-rule-grid">
+        <div class="overview-skill-card"><h4>Allowed in Phase 1</h4>${listMarkup(data.allowed_actions, "No allowed actions registered.")}</div>
+        <div class="overview-skill-card"><h4>Unavailable in Phase 1</h4>${listMarkup(data.unavailable_actions, "No unavailable actions registered.")}</div>
+      </div>
+    </section>
+    <section class="overview-card safety-card">
+      <h3>Safety Boundary</h3>
+      ${listMarkup(data.safety_boundary, "No Memory / Skills safety notes registered.")}
+    </section>
+  `;
+}
+
+async function loadMemorySkills() {
+  if (!memoryPanel) {
+    return;
+  }
+  memoryPanel.innerHTML = "<p class=\"muted\">Loading read-only Memory / Skills samples...</p>";
+  try {
+    const response = await fetch("/api/memory-skills");
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderMemorySkills(data);
+    statusText.textContent = "Read-only Memory / Skills samples refreshed.";
+  } catch (error) {
+    memoryPanel.innerHTML = `<p class="safety-note">Memory / Skills failed: ${escapeHtml(error.message)}</p>`;
+    statusText.textContent = `Memory / Skills failed: ${error.message}`;
+  }
 }
 
 function renderRepoStatus(repo) {
@@ -950,6 +1093,12 @@ if (refreshHistoryButton) {
   });
 }
 
+if (refreshMemoryButton) {
+  refreshMemoryButton.addEventListener("click", () => {
+    loadMemorySkills();
+  });
+}
+
 commandInput.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
     suggestSkill();
@@ -979,6 +1128,21 @@ document.addEventListener("click", (event) => {
       window.open(localUrl, "_blank", "noopener,noreferrer");
       statusText.textContent = "Local URL opened. Jarvis Console did not start the server.";
     }
+    return;
+  }
+
+  const memoryButton = event.target.closest(".open-memory-skills");
+  if (memoryButton) {
+    activateTab("memory");
+    statusText.textContent = "Showing Memory / Skills read-only sample panel.";
+    nextActionText.textContent = "Review the sample candidate guidance; nothing is saved automatically.";
+    return;
+  }
+
+  const reviewCandidateButton = event.target.closest(".memory-review-candidate");
+  if (reviewCandidateButton) {
+    statusText.textContent = "Memory / Skills candidate selected for manual review only.";
+    nextActionText.textContent = "Copy the candidate or open skill details. No state is changed.";
     return;
   }
 
