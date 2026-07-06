@@ -377,6 +377,18 @@ def main() -> None:
     assert "Copy Candidate" in app_js
     assert "Copy Skill Draft Prompt" in app_js
     assert "Review Candidate" in app_js
+    assert "Task: Prepare a Memory / Skills candidate draft for human review." in app_js
+    assert "The user is manually pasting this into Hermes/Codex for review." in app_js
+    assert "Treat it as a candidate, not an approved skill." in app_js
+    assert "Candidate:" in app_js
+    assert "Safety boundaries:" in app_js
+    assert "Requested output:" in app_js
+    assert "No automatic repo/file write." in app_js
+    assert "No automatic git add/commit/push." in app_js
+    assert "No external API/web/LLM calls." in app_js
+    assert "No skill registry modification unless explicitly approved later." in app_js
+    assert "Do not implement yet." in app_js
+    assert "Do not commit or push." in app_js
     assert "Manual copy fallback" in app_js
     assert "Clipboard was not available. Copy the text below manually." in app_js
     assert "No file was created. No action was executed." in app_js
