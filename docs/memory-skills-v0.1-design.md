@@ -86,12 +86,17 @@ The intended flow is:
    automatic action`.
 5. The user can copy the candidate text or copy a skill draft prompt for manual
    review.
-6. Phase 2 may add explicit approval-gated local saving.
-7. Phase 3 may add skill draft preparation, still without automatic skill
+6. Phase 2B should first add preview-only capture with no persistence.
+7. Phase 2C or later may add explicit approval-gated local saving.
+8. Phase 3 may add skill draft preparation, still without automatic skill
    creation.
 
 This flow keeps Memory / Skills as an inbox for proposals, not an automation
 engine.
+
+Phase 2 is not automatic memory. A saved candidate, if Phase 2C later adds one,
+is still not a skill, not an approved skill, not a Skill Registry entry, and not
+an execution target.
 
 ## 5. Candidate Data Model
 
@@ -112,9 +117,12 @@ there is no persistence.
   "updated_at": "ISO-8601",
   "source": "voice_inbox | chat_command | manual",
   "confirmation_required": true,
+  "user_approved_at": "ISO-8601, only after explicit confirmation",
   "next_action": "Review this as a skill proposal.",
   "safety_notes": [],
   "tags": [],
+  "schema_version": "memory_candidate.v1",
+  "redaction_status": "not_scanned | preview_only | user_confirmed",
   "privacy_note": "User-provided local candidate; avoid storing sensitive raw text."
 }
 ```
@@ -123,12 +131,18 @@ Notes:
 
 - `original_text_preview` should be a short preview, not full raw transcript
   storage.
+- Phase 2 should still avoid storing the full raw transcript by default.
+- Recommended Phase 2 limits: `original_text_preview` max 240 chars,
+  `cleaned_text` max 1000 chars, `title` max 120 chars, and bounded
+  `tags` / `safety_notes` lists.
 - Sensitive personal information should be minimized.
 - Phase 1 should use sample data only.
 - Real local storage should wait until Phase 2 and require explicit user
   approval.
-- Candidate IDs should be deterministic and should not expose absolute paths or
-  sensitive text.
+- Candidate IDs should be generated safely and should not expose absolute paths,
+  path segments from user input, or sensitive text.
+- `user_approved_at` should be set only after an explicit confirm action.
+- A visible sensitive-info warning is required before any candidate is saved.
 
 ## 6. Storage Strategy
 
@@ -139,17 +153,25 @@ Several locations are possible, but they have different safety implications.
 | `apps/jarvis-console/examples/` | Good for read-only sample data; naturally versioned with the app. | Not appropriate for real user memory. | Good for Phase 1 samples. |
 | `apps/jarvis-console/data/` | App-owned and easy to discover. | Can make runtime repo writes look normal. | Avoid for v0.1 runtime state. |
 | `apps/jarvis-console/state/` | Clear local state naming. | Needs gitignore, privacy, and explicit approval policy. | Consider only after Phase 2 policy work. |
-| `memory/tasks/` | Natural top-level Jarvis memory/task namespace. | Needs storage schema, gitignore, and privacy decisions. | Candidate for Phase 2 or later. |
-| `memory/skills/` | Natural place for skill proposals and drafts. | Could be confused with installed skills. | Candidate for Phase 3 or later. |
+| `memory/tasks/` | Natural top-level Jarvis memory/task namespace. | Tracked user memory can expose sensitive text and be staged accidentally. | Do not use for Phase 2 user candidate storage. |
+| `memory/skills/` | Natural place for skill proposals and drafts. | Could be confused with installed skills and tracked skill assets. | Do not use for Phase 2 user candidate storage. |
 | `docs/` | Good for design and schema documentation. | Not suitable for user candidate storage. | Good for Phase 0 only. |
+| User-local app state outside the repo, such as `%LOCALAPPDATA%\Jarvis-Core\memory-skills\` or `~/.jarvis-core/memory-skills/` | Keeps personal candidates out of git by default. | Harder to back up and inspect from the repo. | Preferred if Phase 2C adds persistence. |
 
 Recommended path:
 
 - Phase 0: create only `docs/memory-skills-v0.1-design.md`.
 - Phase 1: consider `apps/jarvis-console/examples/memory-skills-sample.json`
   for read-only sample candidates.
-- Phase 2 or later: consider `memory/tasks/` or `memory/skills/` only after
-  gitignore, privacy, and approval policy are explicit.
+- Phase 2B: add preview-only candidate capture first, with no persistence,
+  no save endpoint, no runtime write, and no local state path implementation.
+- Phase 2C or later: if persistence is added, prefer repo-external user-local
+  app state. Allow `JARVIS_LOCAL_STATE_DIR` as an override and use temp dirs in
+  tests.
+- Avoid tracked repo paths such as `memory/tasks/`, `memory/skills/`, or
+  `apps/jarvis-console/data/` for user memory. They can mix sensitive personal
+  text into git history, increase `git add .` accident risk, and make users feel
+  that private memory lives inside the project repo.
 - Jarvis Console runtime should not automatically write into the repo in v0.1.
 
 ## 7. UI Design
@@ -176,6 +198,25 @@ Candidate cards should show:
 - safety notes;
 - confirmation-required badge;
 - read-only badge.
+
+Phase 2 approval UX should stay conservative:
+
+1. Voice Inbox or Chat / Command detects a Memory / Skills candidate.
+2. Jarvis does not save it automatically.
+3. The user chooses `Review Save Candidate` or `Prepare Local Candidate`.
+4. Jarvis shows a preview of exactly which fields would be saved.
+5. Jarvis shows a sensitive-info warning.
+6. Only `Confirm Local Save` may save a candidate, and only in Phase 2C or
+   later.
+7. Saved candidates remain local candidates, not approved skills, registry
+   entries, or execution targets.
+
+Safe Phase 2 wording includes `Review Save Candidate`, `Prepare Local
+Candidate`, `Confirm Local Save`, `Cancel`, and `Discard Draft`. Avoid `Enable
+Memory`, `Auto Save`, `Always Remember`, `Run`, `Execute`, `Install Skill`,
+`Create Skill Now`, and `Approve and Run`. The `approved` status name should be
+avoided in Phase 2 because it can sound like skill approval; prefer `saved`,
+`reviewed`, or `discarded`.
 
 Safe Phase 1 actions:
 
@@ -207,7 +248,8 @@ are listed here as future candidates, not as Phase 1 scope.
 | Endpoint | Purpose | Read/Write | Approval Required | Phase | Safety Risk | v0.1 Recommendation |
 | --- | --- | --- | --- | --- | --- | --- |
 | `GET /api/memory-skills` | Return Memory / Skills status, notes, and sample overview. | Read | No | Phase 1 | Low | Include if implementing the panel. |
-| `GET /api/memory-skills/candidates` | Return sample or approved read-only candidate metadata. | Read | No | Phase 1 | Low | Include sample/read-only only. |
+| `GET /api/memory-skills/candidates` | Return sample or saved read-only candidate metadata. | Read | No | Phase 1 or Phase 2D | Low | Include sample/read-only only until saved candidates exist. |
+| `POST /api/memory-skills/candidates/preview` | Normalize input and return the payload that would be saved, plus privacy warnings. | Read-like, no write | No | Phase 2B | Low-medium | Recommended next implementation. |
 | `POST /api/memory-skills/candidates` | Save a candidate locally. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/approve` | Mark a candidate approved. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/reject` | Mark a candidate rejected. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
@@ -222,6 +264,21 @@ Phase 1 conclusion:
 - No persistence.
 - No automatic save from Voice Inbox.
 
+Phase 2 API direction:
+
+- Keep `GET /api/memory-skills`.
+- Add `POST /api/memory-skills/candidates/preview` first as a Phase 2B
+  candidate. It must not write files; it only returns normalized preview fields
+  and privacy warnings.
+- Defer `POST /api/memory-skills/candidates` until Phase 2C or later. It must
+  reject requests without explicit confirmation.
+- Defer `GET /api/memory-skills/candidates` until saved candidates exist in
+  Phase 2D or later.
+- Defer archive/discard endpoints until Phase 2E or later.
+- Voice Inbox must never call the save endpoint automatically.
+- All POST endpoints must reject malformed JSON, oversized input, and any path
+  traversal or arbitrary path fields.
+
 ## 9. Integration Points
 
 ### Voice Inbox
@@ -229,6 +286,10 @@ Phase 1 conclusion:
 Voice Inbox can suggest `memory_skills` for repeated workflow or skill-candidate
 phrases. It must not save the candidate automatically. The result should remain
 a task candidate with manual copy or detail handoff actions.
+
+In Phase 2B, Voice Inbox may link to a preview-only Memory / Skills flow. That
+preview must not write files. In Phase 2C or later, a local save can happen only
+after the user reviews the preview and confirms the local save.
 
 ### Chat / Command Skill Suggestion
 
@@ -267,6 +328,10 @@ history metadata. Phase 1 should not create checkpoints.
 Hermes can be connected later through copy-only prompt handoff. Codex or Hermes
 must not be called automatically.
 
+Phase 2 keeps the same boundary. A saved candidate can still offer `Copy Skill
+Draft Prompt`, but Jarvis Console must not open Hermes, fetch from Hermes, start
+Codex, or convert a candidate into a Hermes session automatically.
+
 ## 10. Safety Boundary
 
 Memory / Skills must preserve these boundaries:
@@ -276,6 +341,7 @@ Memory / Skills must preserve these boundaries:
 - no automatic skill creation;
 - no automatic code modification;
 - no automatic repo or file write;
+- no tracked repo user-memory storage;
 - no auto `git add`, `git commit`, or `git push`;
 - no external API, web, or LLM calls;
 - no microphone, STT, TTS, or recording;
@@ -283,7 +349,26 @@ Memory / Skills must preserve these boundaries:
 - human-approved only;
 - local-first only.
 
-## 11. Phased Plan
+## 11. Phase 2 Write Safety
+
+Phase 2B should be preview-only and should not write any file. If Phase 2C or
+later adds persistence, the write design should follow these rules:
+
+- prefer one per-candidate JSON file in repo-external user-local app state;
+- write through a temporary file and atomic replace;
+- validate the JSON schema and `schema_version`;
+- cap candidate file size and individual field lengths;
+- reject path traversal and arbitrary path input;
+- never use user text as a path segment;
+- isolate tests with `TemporaryDirectory` or `JARVIS_LOCAL_STATE_DIR`;
+- fail tests if `git status --short` shows unexpected repo files;
+- do not run git commands as part of save;
+- do not let app runtime write to arbitrary paths.
+
+These are Phase 2C-or-later requirements. They should not be implemented in
+Phase 2B.
+
+## 12. Phased Plan
 
 ### Phase 0: Design Doc Only
 
@@ -307,17 +392,50 @@ Memory / Skills must preserve these boundaries:
 - Do not: add POST endpoints, persistence, runtime writes, approve/reject
   mutation, or auto execution.
 
-### Phase 2: Approval-gated Candidate Capture
+### Phase 2A: Phase 2 Design Update
 
-- Goal: add explicit user-approved local candidate capture.
-- Expected files: API handlers, validation tests, UI confirmation flow, and a
-  storage policy.
-- Validation: malformed input checks, path safety checks, confirmation checks,
-  no automatic save from Voice Inbox, and no git write commands.
-- Risk: local state may contain sensitive text or become confused with tracked
-  repo content.
-- Do not: save before explicit approval, write hidden files, write outside the
-  approved storage path, or create commits automatically.
+- Goal: record approval, privacy, storage, API, and write-safety boundaries.
+- Write: documentation only.
+- Do not: add app code, endpoints, storage, or sample state.
+
+### Phase 2B: Preview-only Candidate Capture
+
+- Goal: show the user the candidate fields that would be saved later.
+- Write: none.
+- Expected files: Jarvis Console API/UI/tests only.
+- Validation: preview endpoint does not write, malformed JSON and oversized
+  input are rejected, Voice Inbox does not save automatically.
+- Do not: add persistence, a save endpoint, runtime file writes, local state
+  paths, or confirm/save behavior.
+
+### Phase 2C: Approval-gated Local Save
+
+- Goal: save a candidate only after explicit user confirmation.
+- Write: repo-external user-local app state only.
+- Expected files: API handlers, storage helper, tests, and UI confirmation flow.
+- Validation: temp-dir storage tests, atomic-write checks, schema validation,
+  no unexpected git status files.
+- Do not: store raw transcripts long term, write user memory into tracked repo
+  paths, save without preview, or save without explicit confirmation.
+
+### Phase 2D: Saved Candidates Read-only List
+
+- Goal: show saved local candidates as read-only local proposals.
+- Write: none for listing.
+- Do not: present saved candidates as approved skills or Skill Registry entries.
+
+### Phase 2E: Archive / Discard Actions
+
+- Goal: add explicit state-change actions for local candidates.
+- Write: approval-gated local state only.
+- Do not: use wording that sounds like skill approval or execution.
+
+### Phase 2F: Hermes Handoff from Saved Candidates
+
+- Goal: provide copy-only prompt handoff from saved candidates.
+- Write: none.
+- Do not: open Hermes, fetch from Hermes, invoke Codex/Hermes, or create skill
+  registry changes automatically.
 
 ### Phase 3: Skill Draft Prompt Preparation
 
@@ -340,9 +458,9 @@ Memory / Skills must preserve these boundaries:
 - Do not: call Codex/Hermes, generate commits, push, or create checkpoints
   automatically.
 
-## 12. Recommended First Implementation
+## 13. Recommended First Implementation
 
-The safest first implementation is:
+The safest first implementation for the original v0.1 plan was Phase 1:
 
 - add a read-only Memory / Skills candidate panel to Jarvis Console;
 - render sample candidates only;
@@ -357,7 +475,23 @@ The safest first implementation is:
 This gives users a clear place to understand the future Memory / Skills flow
 without introducing state mutation or automation risk.
 
-## 13. Validation Plan
+After Phase 1, the recommended next implementation is Phase 2B preview-only
+candidate capture:
+
+- no persistence;
+- no write;
+- no save endpoint;
+- no runtime file write;
+- no local state path implementation;
+- show the fields that would be saved later;
+- show a privacy warning;
+- connect Voice Inbox only to preview, not save.
+
+Persistence should wait until Phase 2C or later. It should prefer repo-external
+user-local app state, should not store raw transcripts long term, and should not
+ship without a privacy/redaction policy.
+
+## 14. Validation Plan
 
 For the first implementation, run:
 
@@ -381,7 +515,24 @@ Additional checks:
 - verify no automatic save from Voice Inbox;
 - verify `jarvis.bat` remains untracked and untouched.
 
-## 14. Risks
+Phase 2B validation should additionally verify:
+
+- preview endpoint writes no files;
+- no save endpoint exists yet;
+- preview response escapes or text-renders unsafe HTML-like input;
+- privacy warning is present;
+- Voice Inbox never calls a save endpoint;
+- `git status --short` has no unexpected files.
+
+Phase 2C validation should additionally verify:
+
+- save endpoint rejects missing explicit confirmation;
+- storage tests use temp dirs or `JARVIS_LOCAL_STATE_DIR`;
+- repo-internal tracked paths are not used for user memory;
+- atomic write and schema validation paths are covered;
+- malformed JSON, oversized input, and path traversal are rejected.
+
+## 15. Risks
 
 Key risks:
 
@@ -394,8 +545,11 @@ Key risks:
 - Voice Inbox routing may feel like automatic storage if the UI is not clear.
 - Sample data and real local state may become confused.
 - The status enum can become overdesigned before real usage patterns are known.
+- Adding persistence before privacy/redaction policy can store sensitive family,
+  health, or operational details unintentionally.
+- Repo-internal user memory can be staged accidentally.
 
-## 15. Open Questions
+## 16. Open Questions
 
 Questions to defer until later phases:
 
@@ -407,3 +561,13 @@ Questions to defer until later phases:
   records?
 - When should approve/reject/archive UI be introduced?
 - How much candidate history should be visible in Tasks / Reports and History?
+
+Current Phase 2 recommendation:
+
+- Do not add persistence immediately.
+- Implement Phase 2B preview-only capture flow next.
+- Avoid tracked repo user-memory storage.
+- Consider repo-external user-local app state for Phase 2C or later.
+- Do not add persistence without privacy/redaction policy.
+- Do not let Voice Inbox save automatically.
+- Do not call Hermes, Codex, or any external tool automatically.
