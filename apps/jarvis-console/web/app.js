@@ -23,6 +23,8 @@ let registrySkills = [];
 let selectedSkillId = "";
 let recommendedSkillId = "";
 let registryLoadPromise = null;
+let memorySkillsData = null;
+let lastVoiceCandidateData = null;
 const LOCAL_URL_PREFIX = "http:" + "//127.0.0.1";
 const LOCAL_URL_PROTOCOL = "http:";
 const LOCAL_URL_HOSTNAME = "127.0.0.1";
@@ -43,7 +45,7 @@ function activateTab(tabId) {
   if (tabId === "history") {
     loadHistory();
   }
-  if (tabId === "memory") {
+  if (tabId === "memory" && !memorySkillsData) {
     loadMemorySkills();
   }
 }
@@ -260,6 +262,7 @@ function voiceSkillActions(data, skill) {
         <h4>Memory / Skills proposal</h4>
         <p class="muted">Voice Inbox can suggest Memory / Skills, but it does not save this candidate automatically.</p>
         <div class="suggestion-actions">
+          <button class="secondary-action preview-voice-memory-candidate" type="button">Preview Local Candidate</button>
           <button class="secondary-action open-memory-skills" type="button">Open Memory / Skills</button>
           <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(skillId)}">Open Skill Details</button>
         </div>
@@ -322,6 +325,7 @@ function renderVoiceCandidate(data) {
   const cleaned = data.cleaned_transcript || "";
   const jarvisCommand = jarvisCommandFromCleaned(cleaned);
   const matchedKeywords = candidate.matched_keywords || [];
+  lastVoiceCandidateData = data;
   voiceResultBox.innerHTML = `
     <section class="voice-candidate-card" aria-label="Voice Inbox task candidate">
       <div class="overview-section-heading">
@@ -625,6 +629,119 @@ function memoryDraftPrompt(candidate) {
   ].join("\n");
 }
 
+function memoryPreviewRequest(candidate, sourceOverride = "") {
+  return {
+    source: sourceOverride || candidate.source || "manual",
+    title: candidate.title || "Memory / Skills candidate preview",
+    cleaned_text: candidate.cleaned_text || candidate.summary || "",
+    original_text_preview: truncateText(candidate.original_text_preview || candidate.cleaned_text || "", 240),
+    candidate_type: candidate.candidate_type || "unknown",
+    confidence: candidate.confidence || "low",
+    tags: candidate.tags || [],
+    safety_notes: candidate.safety_notes || [],
+  };
+}
+
+function memoryPreviewRequestFromVoice(data) {
+  const candidate = data?.task_candidate || {};
+  return {
+    source: "voice_inbox",
+    title: candidate.title || "Voice Inbox Memory / Skills candidate preview",
+    cleaned_text: data?.cleaned_transcript || candidate.summary || "",
+    original_text_preview: truncateText(data?.raw_transcript || "", 240),
+    candidate_type: "repeated_workflow",
+    confidence: candidate.confidence || "low",
+    tags: ["voice_inbox", "memory_skills"],
+    safety_notes: [
+      "Preview only; Voice Inbox did not save this candidate.",
+      "No persistence, no runtime write, and no automatic skill creation.",
+    ],
+  };
+}
+
+function findMemoryCandidate(candidateId) {
+  const candidates = memorySkillsData?.candidates || [];
+  return candidates.find((candidate) => candidate.id === candidateId) || null;
+}
+
+function renderMemoryCandidatePreview(data) {
+  const result = document.getElementById("memoryPreviewResult");
+  if (!result) {
+    return;
+  }
+  const preview = data.candidate_preview || {};
+  const tags = preview.tags || [];
+  const safetyNotes = preview.safety_notes || [];
+  result.innerHTML = `
+    <article class="memory-preview-result-card">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">${escapeHtml(data.phase || "phase_2b_preview_only")}</p>
+          <h4>${escapeHtml(preview.title || "Candidate preview")}</h4>
+        </div>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Preview only</span>
+          <span class="overview-badge">Not saved</span>
+          <span class="overview-badge">No persistence</span>
+          <span class="overview-badge">No runtime write</span>
+        </div>
+      </div>
+      <dl class="overview-facts">
+        <div><dt>Status</dt><dd>${escapeHtml(preview.status || "preview_only")}</dd></div>
+        <div><dt>Source</dt><dd>${escapeHtml(preview.source || "manual")}</dd></div>
+        <div><dt>Type</dt><dd>${escapeHtml(preview.candidate_type || "unknown")}</dd></div>
+        <div><dt>Confidence</dt><dd>${escapeHtml(preview.confidence || "low")}</dd></div>
+        <div><dt>User approved at</dt><dd>${preview.user_approved_at ? escapeHtml(preview.user_approved_at) : "null"}</dd></div>
+        <div><dt>Local save</dt><dd>${data.save_endpoint ? "Available" : "Not available in Phase 2B"}</dd></div>
+      </dl>
+      <p><strong>Cleaned text:</strong> ${escapeHtml(preview.cleaned_text || "")}</p>
+      <p><strong>Original text preview:</strong> ${escapeHtml(preview.original_text_preview || "")}</p>
+      <p><strong>Next step:</strong> ${escapeHtml(data.next_step || preview.next_action || "")}</p>
+      <p class="safety-note"><strong>Privacy warning:</strong> ${escapeHtml(data.privacy_warning || preview.privacy_note || "")}</p>
+      <p><strong>Tags:</strong> ${escapeHtml(tags.length ? tags.join(", ") : "none")}</p>
+      ${listMarkup(safetyNotes.concat(data.safety_notes || []), "No preview safety notes registered.")}
+    </article>
+  `;
+  statusText.textContent = "Preview-only Memory / Skills candidate prepared. Nothing was saved.";
+  nextActionText.textContent = "Review the preview fields. Phase 2B has no persistence or local state write.";
+}
+
+async function previewMemoryCandidatePayload(payload) {
+  const result = document.getElementById("memoryPreviewResult");
+  if (result) {
+    result.innerHTML = "<p class=\"muted\">Preparing preview only. Nothing is being saved...</p>";
+  }
+  try {
+    const response = await fetch("/api/memory-skills/candidates/preview", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderMemoryCandidatePreview(data);
+  } catch (error) {
+    if (result) {
+      result.innerHTML = `<p class="safety-note">Preview failed: ${escapeHtml(error.message)}</p>`;
+    }
+    statusText.textContent = `Memory / Skills preview failed: ${error.message}`;
+  }
+}
+
+async function previewVoiceMemoryCandidate() {
+  if (!lastVoiceCandidateData || lastVoiceCandidateData.task_candidate?.suggested_skill !== "memory_skills") {
+    statusText.textContent = "No Memory / Skills Voice Inbox candidate is ready to preview.";
+    return;
+  }
+  if (!memorySkillsData) {
+    await loadMemorySkills();
+  }
+  activateTab("memory");
+  await previewMemoryCandidatePayload(memoryPreviewRequestFromVoice(lastVoiceCandidateData));
+}
+
 function memoryCandidateCards(candidates) {
   if (!candidates || !candidates.length) {
     return "<p class=\"placeholder\">No sample candidates registered.</p>";
@@ -652,6 +769,7 @@ function memoryCandidateCards(candidates) {
           ${listMarkup(candidate.safety_notes, "No candidate safety notes registered.")}
           <div class="suggestion-actions">
             <button class="secondary-action memory-review-candidate" type="button" data-candidate-id="${escapeHtml(candidate.id || "")}">Review Candidate</button>
+            <button class="secondary-action memory-preview-candidate" type="button" data-candidate-id="${escapeHtml(candidate.id || "")}">Preview Local Candidate</button>
             <button class="copy-text" type="button" data-copy-text="${escapeHtml(candidate.cleaned_text || "")}" data-manual-copy-label="Copy Candidate" aria-label="Copy Candidate">Copy Candidate</button>
             <button class="copy-text" type="button" data-copy-text="${escapeHtml(memoryDraftPrompt(candidate))}" data-manual-copy-label="Copy Skill Draft Prompt" aria-label="Copy Skill Draft Prompt">Copy Skill Draft Prompt</button>
             <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(candidate.suggested_skill_id || "memory_skills")}">Open Skill Details</button>
@@ -669,23 +787,46 @@ function renderMemorySkills(data) {
   if (!memoryPanel) {
     return;
   }
+  memorySkillsData = data;
   memoryPanel.innerHTML = `
     <section class="overview-card memory-phase-card">
       <div class="overview-section-heading">
         <div>
-          <p class="eyebrow">${escapeHtml(data.phase || "phase_1_read_only_sample")}</p>
+          <p class="eyebrow">${escapeHtml(data.phase || "phase_2b_preview_only")}</p>
           <h3>${escapeHtml(data.title || "Memory / Skills")}</h3>
         </div>
-        <span class="overview-badge read-only">Read-only sample</span>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Read-only sample</span>
+          <span class="overview-badge">Preview only</span>
+          <span class="overview-badge">Not saved</span>
+        </div>
       </div>
       <p>${escapeHtml(data.description || "")}</p>
       <dl class="overview-facts">
         <div><dt>Mode</dt><dd>${escapeHtml(data.mode || "read-only")}</dd></div>
-        <div><dt>Persistence</dt><dd>${data.no_persistence ? "None in Phase 1" : "Not reported"}</dd></div>
+        <div><dt>Persistence</dt><dd>${data.no_persistence ? "None in Phase 2B" : "Not reported"}</dd></div>
         <div><dt>Runtime write</dt><dd>${data.runtime_write ? "Present" : "None"}</dd></div>
-        <div><dt>POST endpoints</dt><dd>${data.post_endpoints ? "Present" : "None in Phase 1"}</dd></div>
+        <div><dt>Local save</dt><dd>${data.save_endpoint ? "Available" : "Not available in Phase 2B"}</dd></div>
+        <div><dt>Preview endpoint</dt><dd>${data.preview_endpoint ? "Write-free POST" : "Not reported"}</dd></div>
       </dl>
       ${listMarkup(data.guidance, "No Memory / Skills guidance registered.")}
+    </section>
+    <section class="overview-card memory-preview-card">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Candidate Preview</p>
+          <h3>Preview before any future local save</h3>
+        </div>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Preview only</span>
+          <span class="overview-badge">No persistence</span>
+          <span class="overview-badge">No runtime write</span>
+        </div>
+      </div>
+      <p class="muted">Use Preview Local Candidate to see the fields that would be reviewed later. This is not a local save, not an approved skill, and not an execution.</p>
+      <div id="memoryPreviewResult" class="memory-preview-result" aria-live="polite">
+        <p class="placeholder">No candidate preview prepared yet.</p>
+      </div>
     </section>
     <section class="overview-card">
       <div class="overview-section-heading">
@@ -735,6 +876,7 @@ async function loadMemorySkills() {
     if (!response.ok || !data.ok) {
       throw new Error(data.error || `Request failed: ${response.status}`);
     }
+    memorySkillsData = data;
     renderMemorySkills(data);
     statusText.textContent = "Read-only Memory / Skills samples refreshed.";
   } catch (error) {
@@ -1211,6 +1353,23 @@ document.addEventListener("click", (event) => {
   if (reviewCandidateButton) {
     statusText.textContent = "Memory / Skills candidate selected for manual review only.";
     nextActionText.textContent = "Copy the candidate or open skill details. No state is changed.";
+    return;
+  }
+
+  const previewVoiceButton = event.target.closest(".preview-voice-memory-candidate");
+  if (previewVoiceButton) {
+    previewVoiceMemoryCandidate();
+    return;
+  }
+
+  const previewCandidateButton = event.target.closest(".memory-preview-candidate");
+  if (previewCandidateButton) {
+    const candidate = findMemoryCandidate(previewCandidateButton.dataset.candidateId || "");
+    if (candidate) {
+      previewMemoryCandidatePayload(memoryPreviewRequest(candidate, "sample"));
+    } else {
+      statusText.textContent = "Candidate preview failed: sample candidate not found.";
+    }
     return;
   }
 

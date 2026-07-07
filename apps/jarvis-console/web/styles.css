@@ -759,6 +759,25 @@ code {
   overflow-wrap: anywhere;
 }
 
+.memory-preview-card {
+  border-color: #c7d7f2;
+  background: #f7fbff;
+}
+
+.memory-preview-result {
+  display: grid;
+  gap: 10px;
+}
+
+.memory-preview-result-card {
+  display: grid;
+  gap: 10px;
+}
+
+.memory-preview-result-card p {
+  margin: 0;
+}
+
 .memory-candidate-grid {
   display: grid;
   gap: 10px;

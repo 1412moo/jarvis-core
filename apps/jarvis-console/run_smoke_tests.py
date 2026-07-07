@@ -130,22 +130,70 @@ def main() -> None:
     assert memory_code == HTTPStatus.OK
     assert memory["ok"] is True
     assert memory["mode"] == "read-only"
-    assert memory["phase"] == "phase_1_read_only_sample"
+    assert memory["phase"] == "phase_2b_preview_only"
     assert memory["read_only"] is True
     assert memory["sample"] is True
+    assert memory["preview_only"] is True
+    assert memory["not_saved"] is True
     assert memory["no_persistence"] is True
     assert memory["runtime_write"] is False
-    assert memory["post_endpoints"] is False
+    assert memory["save_endpoint"] is False
+    assert memory["post_endpoints"] == "preview_only"
+    assert memory["write_endpoints"] is False
+    assert memory["preview_endpoint"] == run_web_app.MEMORY_PREVIEW_ENDPOINT
     assert len(memory["candidates"]) == 3
     assert "Review Candidate" in memory["allowed_actions"]
+    assert "Preview Local Candidate" in memory["allowed_actions"]
     assert "Copy Candidate" in memory["allowed_actions"]
     assert "Copy Skill Draft Prompt" in memory["allowed_actions"]
     assert "Open Skill Details" in memory["allowed_actions"]
     assert any("Voice Inbox" in item for item in memory["guidance"])
     assert any("No automatic memory save." == item for item in memory["safety_boundary"])
     assert any("No runtime file write." == item for item in memory["safety_boundary"])
+    assert any("No save endpoint." == item for item in memory["safety_boundary"])
     for candidate in memory["candidates"]:
         run_web_app.assert_memory_candidate_safety(candidate)
+    preview_code, preview = run_web_app.handle_post_api(
+        run_web_app.MEMORY_PREVIEW_ENDPOINT,
+        {
+            "source": "voice_inbox",
+            "title": "Repeated workflow preview",
+            "cleaned_text": "Preview this repeated workflow before any future local save.",
+            "original_text_preview": "이 반복 작업 skill 후보로 기억해줘",
+            "candidate_type": "repeated_workflow",
+            "confidence": "medium",
+            "tags": ["voice_inbox", "preview"],
+            "safety_notes": ["Preview only; no local memory is written."],
+        },
+    )
+    assert preview_code == HTTPStatus.OK
+    assert preview["preview_only"] is True
+    assert preview["not_saved"] is True
+    assert preview["no_persistence"] is True
+    assert preview["runtime_write"] is False
+    assert preview["save_endpoint"] is False
+    assert preview["privacy_warning"]
+    assert preview["candidate_preview"]["status"] == "preview_only"
+    assert preview["candidate_preview"]["user_approved_at"] is None
+    assert preview["candidate_preview"]["id"] == "preview_only_not_persisted"
+    assert len(preview["candidate_preview"]["original_text_preview"]) <= run_web_app.MEMORY_PREVIEW_ORIGINAL_TEXT_MAX_CHARS
+    assert run_web_app.handle_post_api(run_web_app.MEMORY_PREVIEW_ENDPOINT, {})[0] == HTTPStatus.BAD_REQUEST
+    assert run_web_app.handle_post_api(run_web_app.MEMORY_PREVIEW_ENDPOINT, {"cleaned_text": ""})[0] == HTTPStatus.BAD_REQUEST
+    assert run_web_app.handle_post_api(
+        run_web_app.MEMORY_PREVIEW_ENDPOINT,
+        {"cleaned_text": "x" * (run_web_app.MEMORY_PREVIEW_CLEANED_TEXT_MAX_CHARS + 1)},
+    )[0] == HTTPStatus.BAD_REQUEST
+    assert run_web_app.parse_json_body(b"{not json")[0] == HTTPStatus.BAD_REQUEST
+    traversal_preview_code, traversal_preview = run_web_app.handle_post_api(
+        run_web_app.MEMORY_PREVIEW_ENDPOINT,
+        {"cleaned_text": "../memory/tasks/secret", "candidate_type": "../escape", "source": "C:\\temp"},
+    )
+    assert traversal_preview_code == HTTPStatus.OK
+    assert traversal_preview["candidate_preview"]["id"] == "preview_only_not_persisted"
+    assert not run_web_app.APP_ROOT.joinpath("state").exists()
+    assert not run_web_app.APP_ROOT.joinpath("examples", "memory-skills-sample.json").exists()
+    assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
+    assert not run_web_app.REPO_ROOT.joinpath("memory", "skills").exists()
     assert run_web_app.handle_post_api("/api/memory-skills", {})[0] == HTTPStatus.NOT_FOUND
     assert run_web_app.handle_post_api("/api/memory-skills/candidates", {})[0] == HTTPStatus.NOT_FOUND
 
@@ -303,8 +351,8 @@ def main() -> None:
     assert "Read-only operations dashboard" in html
     assert "does not create tasks" in html
     assert "does not create commits" in html
-    assert "read-only: sample candidates only" in html
-    assert "no POST" in html
+    assert "preview-only: sample candidates" in html
+    assert "no save endpoint" in html
     assert "no persistence" in html
     assert "no runtime write" in html
     assert "recommendedSkillId" in app_js
@@ -313,12 +361,16 @@ def main() -> None:
     assert "/api/overview" in app_js
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js
+    assert "/api/memory-skills/candidates/preview" in app_js
     assert "/api/voice-inbox/prepare" in app_js
     assert "renderOverview" in app_js
     assert "renderHistory" in app_js
     assert "renderMemorySkills" in app_js
     assert "loadMemorySkills" in app_js
     assert "memoryCandidateCards" in app_js
+    assert "renderMemoryCandidatePreview" in app_js
+    assert "previewMemoryCandidatePayload" in app_js
+    assert "previewVoiceMemoryCandidate" in app_js
     assert "renderRecentCommits" in app_js
     assert "renderVoiceCandidate" in app_js
     assert "prepareVoiceCandidate" in app_js
@@ -377,6 +429,15 @@ def main() -> None:
     assert "Copy Candidate" in app_js
     assert "Copy Skill Draft Prompt" in app_js
     assert "Review Candidate" in app_js
+    assert "Preview Local Candidate" in app_js
+    assert "Preview only" in app_js
+    assert "Not saved" in app_js
+    assert "No persistence" in app_js
+    assert "No runtime write" in app_js
+    assert "No candidate preview prepared yet." in app_js
+    assert "Nothing was saved." in app_js
+    assert "Not available in Phase 2B" in app_js
+    assert "save_endpoint" in app_js
     assert "proposal-only prompt for manual Hermes/Codex review" in app_js
     assert "Paste it yourself when ready" in app_js
     assert "No automatic handoff, no skill creation, no commit." in app_js
@@ -402,6 +463,7 @@ def main() -> None:
     assert "does not save this candidate automatically" in app_js
     assert "No persistence, no runtime write, and no automatic skill creation." in app_js
     assert "Save Candidate" not in app_js
+    assert "Confirm Local Save" not in app_js
     assert "Create Skill" not in app_js
     assert "No matching skill yet." in app_js
     assert "Idea validation -> Research Council" in app_js
@@ -415,6 +477,7 @@ def main() -> None:
     styles = Path(__file__).resolve().parent.joinpath("web", "styles.css").read_text(encoding="utf-8")
     assert "manual-copy-fallback" in styles
     assert "memory-candidate-card" in styles
+    assert "memory-preview-card" in styles
 
     print("Jarvis Console smoke tests passed")
 

@@ -193,15 +193,37 @@ UNKNOWN_SUGGESTION = {
 }
 MEMORY_SKILLS_ALLOWED_ACTIONS = (
     "Review Candidate",
+    "Preview Local Candidate",
     "Copy Candidate",
     "Copy Skill Draft Prompt",
     "Open Skill Details",
 )
 MEMORY_SKILLS_UNAVAILABLE_ACTIONS = (
-    "State changes are not available in Phase 1.",
-    "Local persistence is not available in Phase 1.",
-    "Skill creation is not available in Phase 1.",
-    "Tool or command launch is not available in Phase 1.",
+    "State changes are not available in Phase 2B.",
+    "Local persistence is not available in Phase 2B.",
+    "Save endpoints are not available in Phase 2B.",
+    "Skill creation is not available in Phase 2B.",
+    "Tool or command launch is not available in Phase 2B.",
+)
+MEMORY_PREVIEW_ENDPOINT = "/api/memory-skills/candidates/preview"
+MEMORY_PREVIEW_TITLE_MAX_CHARS = 120
+MEMORY_PREVIEW_CLEANED_TEXT_MAX_CHARS = 1000
+MEMORY_PREVIEW_ORIGINAL_TEXT_MAX_CHARS = 240
+MEMORY_PREVIEW_MAX_TAGS = 8
+MEMORY_PREVIEW_TAG_MAX_CHARS = 32
+MEMORY_PREVIEW_MAX_SAFETY_NOTES = 8
+MEMORY_PREVIEW_SAFETY_NOTE_MAX_CHARS = 160
+MEMORY_PREVIEW_CANDIDATE_TYPES = {
+    "repeated_workflow",
+    "operating_rule",
+    "skill_candidate",
+    "prompt_pattern",
+    "unknown",
+}
+MEMORY_PREVIEW_CONFIDENCE_VALUES = {"low", "medium", "high"}
+MEMORY_PREVIEW_SOURCES = {"voice_inbox", "chat_command", "manual", "sample"}
+MEMORY_PREVIEW_PRIVACY_WARNING = (
+    "Preview only. Nothing has been saved. Review for sensitive information before any future local save."
 )
 MEMORY_SKILLS_SAMPLE_CANDIDATES = (
     {
@@ -858,28 +880,34 @@ def overview_payload() -> dict[str, Any]:
 
 
 def memory_skills_payload() -> dict[str, Any]:
-    """Return the read-only Memory / Skills Phase 1 sample panel payload."""
+    """Return the read-only Memory / Skills sample panel and preview boundary."""
 
     skill = skill_detail("memory_skills") or {}
     candidates = [dict(candidate) for candidate in MEMORY_SKILLS_SAMPLE_CANDIDATES]
     return {
         "ok": True,
         "mode": "read-only",
-        "phase": "phase_1_read_only_sample",
-        "title": "Memory / Skills Phase 1",
-        "description": "Read-only sample inbox for repeated workflow candidates and skill proposals.",
+        "phase": "phase_2b_preview_only",
+        "title": "Memory / Skills Phase 2B",
+        "description": "Read-only sample inbox with preview-only candidate capture before any future local save.",
         "skill_id": "memory_skills",
         "display_name": skill.get("display_name", "Memory / Skills"),
         "read_only": True,
         "sample": True,
+        "preview_only": True,
+        "not_saved": True,
         "no_persistence": True,
         "runtime_write": False,
-        "post_endpoints": False,
+        "save_endpoint": False,
+        "post_endpoints": "preview_only",
+        "write_endpoints": False,
+        "preview_endpoint": MEMORY_PREVIEW_ENDPOINT,
         "candidates": candidates,
         "guidance": [
             "Treat these as sample candidates, not saved user memory.",
             "Voice Inbox can suggest Memory / Skills, but it does not save candidates automatically.",
-            "Phase 1 is for manual review and copy-only handoff.",
+            "Phase 2B previews the fields that would be saved later; it does not save them.",
+            "Preview requests are write-free and return privacy warnings only.",
             "Persistence and state changes are deferred to later approval-gated phases.",
         ],
         "allowed_actions": list(MEMORY_SKILLS_ALLOWED_ACTIONS),
@@ -889,6 +917,7 @@ def memory_skills_payload() -> dict[str, Any]:
             "No automatic skill creation.",
             "No automatic code modification.",
             "No runtime file write.",
+            "No save endpoint.",
             "No external API, web, or LLM call.",
             "No microphone, STT, TTS, or recording.",
             "No Codex, ChatGPT, Hermes, Research Council, or Daily AI Radar automatic invocation.",
@@ -911,6 +940,166 @@ def assert_memory_candidate_safety(candidate: dict[str, Any]) -> None:
     assert "/" not in candidate["id"]
     assert "\\" not in candidate["id"]
     assert "original_text" not in candidate
+
+
+def normalize_memory_preview_string(
+    payload: dict[str, Any],
+    field: str,
+    max_chars: int,
+    *,
+    required: bool = False,
+) -> tuple[int, str | None, str]:
+    """Return a bounded preview string without writing it anywhere."""
+
+    if field not in payload:
+        if required:
+            return HTTPStatus.BAD_REQUEST, f"missing_{field}", ""
+        return HTTPStatus.OK, None, ""
+    value = payload[field]
+    if not isinstance(value, str):
+        return HTTPStatus.BAD_REQUEST, f"{field}_must_be_string", ""
+    text = re.sub(r"\s+", " ", value).strip()
+    if required and not text:
+        return HTTPStatus.BAD_REQUEST, f"empty_{field}", ""
+    if len(text) > max_chars:
+        return HTTPStatus.BAD_REQUEST, f"{field}_too_long", ""
+    return HTTPStatus.OK, None, text
+
+
+def normalize_memory_preview_list(
+    payload: dict[str, Any],
+    field: str,
+    max_items: int,
+    max_chars: int,
+) -> tuple[int, str | None, list[str]]:
+    """Return a bounded list for preview display only."""
+
+    if field not in payload or payload[field] is None:
+        return HTTPStatus.OK, None, []
+    value = payload[field]
+    if not isinstance(value, list):
+        return HTTPStatus.BAD_REQUEST, f"{field}_must_be_list", []
+    if len(value) > max_items:
+        return HTTPStatus.BAD_REQUEST, f"too_many_{field}", []
+    normalized: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return HTTPStatus.BAD_REQUEST, f"{field}_items_must_be_string", []
+        text = re.sub(r"\s+", " ", item).strip()
+        if not text:
+            continue
+        if len(text) > max_chars:
+            return HTTPStatus.BAD_REQUEST, f"{field}_item_too_long", []
+        normalized.append(text)
+    return HTTPStatus.OK, None, normalized
+
+
+def normalize_memory_preview_choice(payload: dict[str, Any], field: str, allowed: set[str], fallback: str) -> str:
+    """Normalize enum-like preview values with conservative fallback."""
+
+    value = payload.get(field)
+    if not isinstance(value, str):
+        return fallback
+    normalized = value.strip().lower()
+    return normalized if normalized in allowed else fallback
+
+
+def memory_preview_title(title: str, cleaned_text: str) -> str:
+    """Return a human-readable preview title without creating a stable stored ID."""
+
+    if title:
+        return title
+    first_line = cleaned_text.splitlines()[0] if cleaned_text.splitlines() else cleaned_text
+    return first_line[:MEMORY_PREVIEW_TITLE_MAX_CHARS].strip() or "Preview-only Memory / Skills candidate"
+
+
+def prepare_memory_candidate_preview(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """Build a write-free candidate preview for Phase 2B."""
+
+    status, error, cleaned_text = normalize_memory_preview_string(
+        payload,
+        "cleaned_text",
+        MEMORY_PREVIEW_CLEANED_TEXT_MAX_CHARS,
+        required=True,
+    )
+    if status != HTTPStatus.OK:
+        return status, {"ok": False, "error": error}
+
+    status, error, title = normalize_memory_preview_string(payload, "title", MEMORY_PREVIEW_TITLE_MAX_CHARS)
+    if status != HTTPStatus.OK:
+        return status, {"ok": False, "error": error}
+
+    status, error, original_text_preview = normalize_memory_preview_string(
+        payload,
+        "original_text_preview",
+        MEMORY_PREVIEW_ORIGINAL_TEXT_MAX_CHARS,
+    )
+    if status != HTTPStatus.OK:
+        return status, {"ok": False, "error": error}
+
+    status, error, tags = normalize_memory_preview_list(
+        payload,
+        "tags",
+        MEMORY_PREVIEW_MAX_TAGS,
+        MEMORY_PREVIEW_TAG_MAX_CHARS,
+    )
+    if status != HTTPStatus.OK:
+        return status, {"ok": False, "error": error}
+
+    status, error, safety_notes = normalize_memory_preview_list(
+        payload,
+        "safety_notes",
+        MEMORY_PREVIEW_MAX_SAFETY_NOTES,
+        MEMORY_PREVIEW_SAFETY_NOTE_MAX_CHARS,
+    )
+    if status != HTTPStatus.OK:
+        return status, {"ok": False, "error": error}
+
+    candidate_type = normalize_memory_preview_choice(
+        payload,
+        "candidate_type",
+        MEMORY_PREVIEW_CANDIDATE_TYPES,
+        "unknown",
+    )
+    confidence = normalize_memory_preview_choice(payload, "confidence", MEMORY_PREVIEW_CONFIDENCE_VALUES, "low")
+    source = normalize_memory_preview_choice(payload, "source", MEMORY_PREVIEW_SOURCES, "manual")
+    candidate_preview = {
+        "schema_version": "memory_candidate.v1",
+        "id": "preview_only_not_persisted",
+        "title": memory_preview_title(title, cleaned_text),
+        "cleaned_text": cleaned_text,
+        "original_text_preview": original_text_preview or cleaned_text[:MEMORY_PREVIEW_ORIGINAL_TEXT_MAX_CHARS],
+        "candidate_type": candidate_type,
+        "suggested_skill_id": "memory_skills",
+        "confidence": confidence,
+        "status": "preview_only",
+        "source": source,
+        "confirmation_required": True,
+        "user_approved_at": None,
+        "next_action": "Review this preview. Nothing has been saved.",
+        "safety_notes": safety_notes,
+        "tags": tags,
+        "privacy_note": "User-provided local candidate preview; avoid storing sensitive raw text.",
+        "redaction_status": "preview_only",
+    }
+    return HTTPStatus.OK, {
+        "ok": True,
+        "preview_only": True,
+        "not_saved": True,
+        "read_only": True,
+        "no_persistence": True,
+        "runtime_write": False,
+        "save_endpoint": False,
+        "phase": "phase_2b_preview_only",
+        "candidate_preview": candidate_preview,
+        "privacy_warning": MEMORY_PREVIEW_PRIVACY_WARNING,
+        "next_step": "Review this preview. Nothing has been saved.",
+        "safety_notes": [
+            "Preview endpoint is write-free.",
+            "No candidate file, local state, repo write, or save endpoint is created.",
+            "Voice Inbox does not save Memory / Skills candidates automatically.",
+        ],
+    }
 
 
 def parse_recent_commits(raw_log: str) -> list[dict[str, Any]]:
@@ -1224,6 +1413,8 @@ def handle_post_api(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
             return HTTPStatus.OK, {"ok": True, **suggestion}
         if path == "/api/voice-inbox/prepare":
             return prepare_voice_inbox_task(payload)
+        if path == MEMORY_PREVIEW_ENDPOINT:
+            return prepare_memory_candidate_preview(payload)
     except RegistryError as exc:
         return HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)}
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
@@ -1271,7 +1462,7 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in {"/api/suggest-skill", "/api/voice-inbox/prepare"}:
+        if path not in {"/api/suggest-skill", "/api/voice-inbox/prepare", MEMORY_PREVIEW_ENDPOINT}:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
 
@@ -1676,22 +1867,81 @@ def run_self_test() -> None:
     assert memory_code == HTTPStatus.OK
     assert memory["ok"] is True
     assert memory["mode"] == "read-only"
-    assert memory["phase"] == "phase_1_read_only_sample"
+    assert memory["phase"] == "phase_2b_preview_only"
     assert memory["read_only"] is True
     assert memory["sample"] is True
+    assert memory["preview_only"] is True
+    assert memory["not_saved"] is True
     assert memory["no_persistence"] is True
     assert memory["runtime_write"] is False
-    assert memory["post_endpoints"] is False
+    assert memory["save_endpoint"] is False
+    assert memory["post_endpoints"] == "preview_only"
+    assert memory["write_endpoints"] is False
+    assert memory["preview_endpoint"] == MEMORY_PREVIEW_ENDPOINT
     assert len(memory["candidates"]) == len(MEMORY_SKILLS_SAMPLE_CANDIDATES)
     assert "Review Candidate" in memory["allowed_actions"]
+    assert "Preview Local Candidate" in memory["allowed_actions"]
     assert "Copy Candidate" in memory["allowed_actions"]
     assert "Copy Skill Draft Prompt" in memory["allowed_actions"]
     assert "Open Skill Details" in memory["allowed_actions"]
     assert any("Voice Inbox" in item for item in memory["guidance"])
     assert any("No automatic memory save." == item for item in memory["safety_boundary"])
     assert any("No runtime file write." == item for item in memory["safety_boundary"])
+    assert any("No save endpoint." == item for item in memory["safety_boundary"])
     for candidate in memory["candidates"]:
         assert_memory_candidate_safety(candidate)
+    preview_request = {
+        "source": "voice_inbox",
+        "title": "Repeated workflow preview",
+        "cleaned_text": "이 반복 작업을 Memory / Skills 후보로 검토한다.",
+        "original_text_preview": "이 반복 작업 skill 후보로 기억해줘",
+        "candidate_type": "repeated_workflow",
+        "confidence": "medium",
+        "tags": ["voice_inbox", "preview"],
+        "safety_notes": ["Preview only; no local memory is written."],
+    }
+    before_preview_status = run_read_only_git(("status", "--short"))
+    preview_code, preview = handle_post_api(MEMORY_PREVIEW_ENDPOINT, preview_request)
+    after_preview_status = run_read_only_git(("status", "--short"))
+    assert before_preview_status == after_preview_status
+    assert preview_code == HTTPStatus.OK
+    assert preview["ok"] is True
+    assert preview["preview_only"] is True
+    assert preview["not_saved"] is True
+    assert preview["read_only"] is True
+    assert preview["no_persistence"] is True
+    assert preview["runtime_write"] is False
+    assert preview["save_endpoint"] is False
+    assert preview["phase"] == "phase_2b_preview_only"
+    assert preview["privacy_warning"]
+    assert "Nothing has been saved" in preview["next_step"]
+    candidate_preview = preview["candidate_preview"]
+    assert candidate_preview["schema_version"] == "memory_candidate.v1"
+    assert candidate_preview["id"] == "preview_only_not_persisted"
+    assert candidate_preview["status"] == "preview_only"
+    assert candidate_preview["suggested_skill_id"] == "memory_skills"
+    assert candidate_preview["confirmation_required"] is True
+    assert candidate_preview["user_approved_at"] is None
+    assert candidate_preview["redaction_status"] == "preview_only"
+    assert len(candidate_preview["original_text_preview"]) <= MEMORY_PREVIEW_ORIGINAL_TEXT_MAX_CHARS
+    assert "/" not in candidate_preview["id"]
+    assert "\\" not in candidate_preview["id"]
+    assert handle_post_api(MEMORY_PREVIEW_ENDPOINT, {})[0] == HTTPStatus.BAD_REQUEST
+    assert handle_post_api(MEMORY_PREVIEW_ENDPOINT, {"cleaned_text": ""})[0] == HTTPStatus.BAD_REQUEST
+    assert handle_post_api(MEMORY_PREVIEW_ENDPOINT, {"cleaned_text": "x" * (MEMORY_PREVIEW_CLEANED_TEXT_MAX_CHARS + 1)})[0] == HTTPStatus.BAD_REQUEST
+    assert handle_post_api(
+        MEMORY_PREVIEW_ENDPOINT,
+        {"cleaned_text": "../memory/tasks/secret", "candidate_type": "../../escape", "source": "C:\\temp"},
+    )[1]["candidate_preview"]["id"] == "preview_only_not_persisted"
+    assert handle_post_api(
+        MEMORY_PREVIEW_ENDPOINT,
+        {"cleaned_text": "valid", "original_text_preview": "x" * (MEMORY_PREVIEW_ORIGINAL_TEXT_MAX_CHARS + 1)},
+    )[0] == HTTPStatus.BAD_REQUEST
+    assert parse_json_body(b"{not json")[0] == HTTPStatus.BAD_REQUEST
+    assert not (APP_ROOT / "state").exists()
+    assert not (APP_ROOT / "examples" / "memory-skills-sample.json").exists()
+    assert not (REPO_ROOT / ".jarvis-local").exists()
+    assert not (REPO_ROOT / "memory" / "skills").exists()
     assert handle_post_api("/api/memory-skills", {})[0] == HTTPStatus.NOT_FOUND
     assert handle_post_api("/api/memory-skills/candidates", {})[0] == HTTPStatus.NOT_FOUND
 
@@ -1726,8 +1976,8 @@ def run_self_test() -> None:
     assert "Read-only operations dashboard" in html
     assert "does not create tasks" in html
     assert "does not create commits" in html
-    assert "read-only: sample candidates only" in html
-    assert "no POST" in html
+    assert "preview-only: sample candidates" in html
+    assert "no save endpoint" in html
     assert "no persistence" in html
     assert "no runtime write" in html
 
@@ -1738,12 +1988,16 @@ def run_self_test() -> None:
     assert "/api/overview" in app_js
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js
+    assert "/api/memory-skills/candidates/preview" in app_js
     assert "/api/voice-inbox/prepare" in app_js
     assert "renderOverview" in app_js
     assert "renderHistory" in app_js
     assert "renderMemorySkills" in app_js
     assert "loadMemorySkills" in app_js
     assert "memoryCandidateCards" in app_js
+    assert "renderMemoryCandidatePreview" in app_js
+    assert "previewMemoryCandidatePayload" in app_js
+    assert "previewVoiceMemoryCandidate" in app_js
     assert "renderRecentCommits" in app_js
     assert "renderVoiceCandidate" in app_js
     assert "prepareVoiceCandidate" in app_js
@@ -1818,8 +2072,19 @@ def run_self_test() -> None:
     assert "Copy Candidate" in app_js
     assert "Copy Skill Draft Prompt" in app_js
     assert "Review Candidate" in app_js
+    assert "Preview Local Candidate" in app_js
+    assert "Preview only" in app_js
+    assert "Not saved" in app_js
+    assert "No persistence" in app_js
+    assert "No runtime write" in app_js
+    assert "No candidate preview prepared yet." in app_js
+    assert "Nothing was saved." in app_js
+    assert "Not available in Phase 2B" in app_js
+    assert "save_endpoint" in app_js
     assert "does not save this candidate automatically" in app_js
     assert "No persistence, no runtime write, and no automatic skill creation." in app_js
+    assert "Save Candidate" not in app_js
+    assert "Confirm Local Save" not in app_js
     assert "Git Bash" in app_js
     assert "PowerShell" in app_js
     assert "Copy Git Bash" in app_js
@@ -1847,6 +2112,7 @@ def run_self_test() -> None:
     assert "overview-badge" in styles
     assert "normalized-overview-item" in styles
     assert "memory-candidate-card" in styles
+    assert "memory-preview-card" in styles
     assert "secondary-action" in styles
     assert "http://" not in styles
     assert "https://" not in styles
