@@ -473,6 +473,9 @@ def run_self_test() -> None:
 
     index_html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "What do you want Codex to do?" in index_html
+    assert "Jarvis Console Memory / Skills candidate prompt" in index_html
+    assert "Manual review only" in index_html
+    assert "nothing runs until you choose the next step" in index_html
     assert "Describe Task" in index_html
     assert "Confirm Scope" in index_html
     assert "Continue To Task Prompt" in index_html

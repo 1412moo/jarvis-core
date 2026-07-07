@@ -377,6 +377,9 @@ def main() -> None:
     assert "Copy Candidate" in app_js
     assert "Copy Skill Draft Prompt" in app_js
     assert "Review Candidate" in app_js
+    assert "proposal-only prompt for manual Hermes/Codex review" in app_js
+    assert "Paste it yourself when ready" in app_js
+    assert "No automatic handoff, no skill creation, no commit." in app_js
     assert "Task: Prepare a Memory / Skills candidate draft for human review." in app_js
     assert "The user is manually pasting this into Hermes/Codex for review." in app_js
     assert "Treat it as a candidate, not an approved skill." in app_js

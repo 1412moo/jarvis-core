@@ -656,6 +656,7 @@ function memoryCandidateCards(candidates) {
             <button class="copy-text" type="button" data-copy-text="${escapeHtml(memoryDraftPrompt(candidate))}" data-manual-copy-label="Copy Skill Draft Prompt" aria-label="Copy Skill Draft Prompt">Copy Skill Draft Prompt</button>
             <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(candidate.suggested_skill_id || "memory_skills")}">Open Skill Details</button>
           </div>
+          <p class="muted memory-handoff-note">Copy a proposal-only prompt for manual Hermes/Codex review. Paste it yourself when ready; Jarvis does not send or run it automatically. No automatic handoff, no skill creation, no commit.</p>
         </article>
       `,
         )

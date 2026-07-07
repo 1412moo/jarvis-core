@@ -276,6 +276,14 @@ def _test_commit_prompt_refuses_when_commit_disallowed() -> None:
     _assert("`commit_allowed` is false" in rendered, "commit refusal reason missing")
 
 
+def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
+    index_html = (APP_ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    _assert("Jarvis Console Memory / Skills candidate prompt" in index_html, "Jarvis Console handoff guidance missing")
+    _assert("Manual review only" in index_html, "manual review guidance missing")
+    _assert("nothing runs until you choose the next step" in index_html, "no-auto-run guidance missing")
+    _assert("Send to Hermes" not in index_html, "automatic handoff wording must not appear")
+
+
 def _repo_file_set() -> set[str]:
     return {
         str(path.relative_to(REPO_ROOT))
@@ -305,6 +313,7 @@ def main() -> None:
         _test_prompts_include_no_auto_push,
         _test_prompts_include_validation_commands,
         _test_commit_prompt_refuses_when_commit_disallowed,
+        _test_browser_ui_mentions_manual_jarvis_handoff,
     )
     for test in tests:
         test()
