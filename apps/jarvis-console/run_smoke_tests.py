@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from http import HTTPStatus
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -364,6 +365,109 @@ def main() -> None:
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"file_path": "memory/tasks/x.json"}), "path_field_not_allowed")
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"candidate_file": "candidate.json"}), "path_field_not_allowed")
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"id": "../memory/tasks/x"}), "invalid_candidate_id")
+
+    fixed_candidate_id = "mem_0123456789ab"
+    fixed_timestamp = "2026-07-08T00:00:00Z"
+    with TemporaryDirectory(prefix="jarvis-candidate-write-") as write_root_text:
+        write_root = Path(write_root_text)
+        write_code, write_result = run_web_app.write_memory_skills_candidate(
+            save_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(write_root)},
+            id_generator=lambda: fixed_candidate_id,
+            clock=lambda: fixed_timestamp,
+        )
+        assert write_code == HTTPStatus.OK
+        assert write_result["saved"] is True
+        assert write_result["status"] == "saved"
+        assert write_result["candidate_id"] == fixed_candidate_id
+        assert write_result["will_run_automatically"] is False
+        assert write_result["skill_created"] is False
+        assert write_result["registry_modified"] is False
+        candidate_dir = run_web_app.normalize_filesystem_path(write_root / "memory-skills" / "candidates")
+        candidate_file = run_web_app.normalize_filesystem_path(candidate_dir / f"{fixed_candidate_id}.json")
+        assert Path(write_result["candidate_file"]) == candidate_file
+        assert candidate_file.exists()
+        assert not run_web_app.is_path_inside_repo(candidate_file)
+        stored_candidate = json.loads(candidate_file.read_text(encoding="utf-8"))
+        assert stored_candidate["schema_version"] == "memory_candidate.v1"
+        assert stored_candidate["storage_version"] == run_web_app.MEMORY_CANDIDATE_STORAGE_VERSION
+        assert stored_candidate["id"] == fixed_candidate_id
+        assert stored_candidate["status"] == "saved"
+        assert stored_candidate["created_at"] == fixed_timestamp
+        assert stored_candidate["updated_at"] == fixed_timestamp
+        assert stored_candidate["user_approved_at"] == fixed_timestamp
+        assert stored_candidate["redaction_status"] == "user_confirmed"
+        assert stored_candidate["suggested_skill_id"] == "memory_skills"
+        assert "original_text" not in stored_candidate
+        assert "raw_transcript" not in stored_candidate
+        assert "full_transcript" not in stored_candidate
+        assert "file_path" not in stored_candidate
+        assert "path" not in stored_candidate
+        assert "candidate_file" not in stored_candidate
+        assert "storage_path" not in stored_candidate
+        assert "repo_path" not in stored_candidate
+        assert not (candidate_dir / f".{fixed_candidate_id}.json.tmp").exists()
+        before_collision_text = candidate_file.read_text(encoding="utf-8")
+        collision_code, collision = run_web_app.write_memory_skills_candidate(
+            save_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(write_root)},
+            id_generator=lambda: fixed_candidate_id,
+            clock=lambda: fixed_timestamp,
+        )
+        assert collision_code == HTTPStatus.CONFLICT
+        assert collision["saved"] is False
+        assert collision["error"] == "candidate_file_exists"
+        assert candidate_file.read_text(encoding="utf-8") == before_collision_text
+        assert not (candidate_dir / f".{fixed_candidate_id}.json.tmp").exists()
+        invalid_id_code, invalid_id = run_web_app.write_memory_skills_candidate(
+            save_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(write_root)},
+            id_generator=lambda: "../memory/tasks/x",
+            clock=lambda: fixed_timestamp,
+        )
+        assert invalid_id_code == HTTPStatus.BAD_REQUEST
+        assert invalid_id["error"] == "invalid_candidate_id"
+        assert len(list(candidate_dir.glob("*.json"))) == 1
+
+    with TemporaryDirectory(prefix="jarvis-invalid-candidate-write-") as invalid_write_root_text:
+        invalid_write_root = Path(invalid_write_root_text)
+        invalid_dry_run = dict(save_dry_run)
+        invalid_dry_run["candidate"] = dict(save_dry_run["candidate"])
+        invalid_dry_run["candidate"]["status"] = "saved"
+        invalid_candidate_code, invalid_candidate = run_web_app.write_memory_skills_candidate(
+            invalid_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(invalid_write_root)},
+            id_generator=lambda: "mem_abcdefabcdef",
+            clock=lambda: fixed_timestamp,
+        )
+        assert invalid_candidate_code == HTTPStatus.BAD_REQUEST
+        assert invalid_candidate["error"] == "candidate_must_be_preview_only"
+        assert not (invalid_write_root / "memory-skills").exists()
+
+    with TemporaryDirectory(prefix="jarvis-candidate-write-failure-") as failure_root_text:
+        failure_root = Path(failure_root_text)
+        blocking_path = failure_root / "memory-skills"
+        blocking_path.write_text("not a directory", encoding="utf-8")
+        failure_code, failure = run_web_app.write_memory_skills_candidate(
+            save_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(failure_root)},
+            id_generator=lambda: "mem_abcdefabcdef",
+            clock=lambda: fixed_timestamp,
+        )
+        assert failure_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert failure["saved"] is False
+        assert failure["error"] == "candidate_write_failed"
+        assert blocking_path.is_file()
+
+    repo_write_code, repo_write = run_web_app.write_memory_skills_candidate(
+        save_dry_run,
+        env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(run_web_app.REPO_ROOT / ".jarvis-local")},
+        id_generator=lambda: "mem_abcdefabcdef",
+        clock=lambda: fixed_timestamp,
+    )
+    assert repo_write_code == HTTPStatus.BAD_REQUEST
+    assert repo_write["error"] == "local_state_dir_inside_repo"
+    assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
     assert not run_web_app.APP_ROOT.joinpath("state").exists()
     assert not run_web_app.APP_ROOT.joinpath("examples", "memory-skills-sample.json").exists()
     assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
