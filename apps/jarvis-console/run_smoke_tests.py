@@ -435,9 +435,13 @@ def main() -> None:
     assert "No persistence" in app_js
     assert "No runtime write" in app_js
     assert "No candidate preview prepared yet." in app_js
+    assert "This is only a preview of what could be saved later." in app_js
     assert "Nothing was saved." in app_js
-    assert "Not available in Phase 2B" in app_js
+    assert "Local save is not available in Phase 2B." in app_js
+    assert "This is not an approved skill and will not run automatically." in app_js
+    assert "Technical details" in app_js
     assert "save_endpoint" in app_js
+    assert "Save endpoint" not in app_js
     assert "proposal-only prompt for manual Hermes/Codex review" in app_js
     assert "Paste it yourself when ready" in app_js
     assert "No automatic handoff, no skill creation, no commit." in app_js
@@ -464,6 +468,8 @@ def main() -> None:
     assert "No persistence, no runtime write, and no automatic skill creation." in app_js
     assert "Save Candidate" not in app_js
     assert "Confirm Local Save" not in app_js
+    assert "Review Save Candidate" not in app_js
+    assert "Prepare Local Candidate" not in app_js
     assert "Create Skill" not in app_js
     assert "No matching skill yet." in app_js
     assert "Idea validation -> Research Council" in app_js

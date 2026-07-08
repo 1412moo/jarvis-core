@@ -672,12 +672,13 @@ function renderMemoryCandidatePreview(data) {
   const preview = data.candidate_preview || {};
   const tags = preview.tags || [];
   const safetyNotes = preview.safety_notes || [];
+  const localSaveLabel = data.save_endpoint ? "Available" : "Not available in Phase 2B";
   result.innerHTML = `
     <article class="memory-preview-result-card">
       <div class="overview-section-heading">
         <div>
-          <p class="eyebrow">${escapeHtml(data.phase || "phase_2b_preview_only")}</p>
-          <h4>${escapeHtml(preview.title || "Candidate preview")}</h4>
+          <p class="eyebrow">Candidate preview</p>
+          <h4>Review before saving</h4>
         </div>
         <div class="overview-badges">
           <span class="overview-badge read-only">Preview only</span>
@@ -686,20 +687,34 @@ function renderMemoryCandidatePreview(data) {
           <span class="overview-badge">No runtime write</span>
         </div>
       </div>
-      <dl class="overview-facts">
-        <div><dt>Status</dt><dd>${escapeHtml(preview.status || "preview_only")}</dd></div>
-        <div><dt>Source</dt><dd>${escapeHtml(preview.source || "manual")}</dd></div>
-        <div><dt>Type</dt><dd>${escapeHtml(preview.candidate_type || "unknown")}</dd></div>
-        <div><dt>Confidence</dt><dd>${escapeHtml(preview.confidence || "low")}</dd></div>
-        <div><dt>User approved at</dt><dd>${preview.user_approved_at ? escapeHtml(preview.user_approved_at) : "null"}</dd></div>
-        <div><dt>Local save</dt><dd>${data.save_endpoint ? "Available" : "Not available in Phase 2B"}</dd></div>
-      </dl>
-      <p><strong>Cleaned text:</strong> ${escapeHtml(preview.cleaned_text || "")}</p>
-      <p><strong>Original text preview:</strong> ${escapeHtml(preview.original_text_preview || "")}</p>
-      <p><strong>Next step:</strong> ${escapeHtml(data.next_step || preview.next_action || "")}</p>
+      <p class="memory-preview-summary">This is only a preview of what could be saved later. Nothing has been saved.</p>
+      <p class="memory-preview-summary">Local save is not available in Phase 2B. This is not an approved skill and will not run automatically.</p>
+
+      <section class="memory-preview-main">
+        <h5>${escapeHtml(preview.title || "Untitled candidate")}</h5>
+        <dl class="overview-facts compact-facts">
+          <div><dt>Type</dt><dd>${escapeHtml(preview.candidate_type || "unknown")}</dd></div>
+          <div><dt>Source</dt><dd>${escapeHtml(preview.source || "manual")}</dd></div>
+          <div><dt>Confidence</dt><dd>${escapeHtml(preview.confidence || "low")}</dd></div>
+        </dl>
+        <p><strong>Cleaned text:</strong> ${escapeHtml(preview.cleaned_text || "")}</p>
+        <p><strong>Tags:</strong> ${escapeHtml(tags.length ? tags.join(", ") : "No tags")}</p>
+      </section>
+
       <p class="safety-note"><strong>Privacy warning:</strong> ${escapeHtml(data.privacy_warning || preview.privacy_note || "")}</p>
-      <p><strong>Tags:</strong> ${escapeHtml(tags.length ? tags.join(", ") : "none")}</p>
-      ${listMarkup(safetyNotes.concat(data.safety_notes || []), "No preview safety notes registered.")}
+      ${listMarkup(safetyNotes.concat(data.safety_notes || []), "No additional safety notes.")}
+
+      <section class="memory-preview-technical">
+        <h5>Technical details</h5>
+        <dl class="overview-facts compact-facts">
+          <div><dt>Phase</dt><dd>${escapeHtml(data.phase || "phase_2b_preview_only")}</dd></div>
+          <div><dt>Status</dt><dd>${escapeHtml(preview.status || "preview_only")}</dd></div>
+          <div><dt>User approval</dt><dd>${preview.user_approved_at ? escapeHtml(preview.user_approved_at) : "none"}</dd></div>
+          <div><dt>Local save</dt><dd>${localSaveLabel}</dd></div>
+        </dl>
+        <p><strong>Original text preview:</strong> ${escapeHtml(preview.original_text_preview || "")}</p>
+        <p><strong>Next step:</strong> ${escapeHtml(data.next_step || preview.next_action || "")}</p>
+      </section>
     </article>
   `;
   statusText.textContent = "Preview-only Memory / Skills candidate prepared. Nothing was saved.";
