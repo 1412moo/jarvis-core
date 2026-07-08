@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import run_web_app
 
@@ -153,6 +154,74 @@ def main() -> None:
     assert any("No save endpoint." == item for item in memory["safety_boundary"])
     for candidate in memory["candidates"]:
         run_web_app.assert_memory_candidate_safety(candidate)
+
+    with TemporaryDirectory(prefix="jarvis-localappdata-") as fake_local_appdata_text:
+        fake_local_appdata = Path(fake_local_appdata_text)
+        windows_default_state = run_web_app.resolve_memory_skills_state_paths(
+            env={"LOCALAPPDATA": str(fake_local_appdata)},
+            is_windows=True,
+        )
+        assert windows_default_state["ok"] is True
+        assert windows_default_state["source"] == "default_windows_localappdata"
+        assert windows_default_state["state_root"] == run_web_app.normalize_filesystem_path(
+            fake_local_appdata / "Jarvis-Core"
+        )
+        assert windows_default_state["candidate_dir"] == run_web_app.normalize_filesystem_path(
+            fake_local_appdata / "Jarvis-Core" / "memory-skills" / "candidates"
+        )
+        assert windows_default_state["repo_internal"] is False
+        assert windows_default_state["will_create_directory"] is False
+        assert windows_default_state["will_write_files"] is False
+        assert not windows_default_state["state_root"].exists()
+        assert not windows_default_state["candidate_dir"].exists()
+
+    with TemporaryDirectory(prefix="jarvis-home-") as fake_home_text:
+        fake_home = Path(fake_home_text)
+        home_default_state = run_web_app.resolve_memory_skills_state_paths(env={}, home_dir=fake_home, is_windows=False)
+        assert home_default_state["ok"] is True
+        assert home_default_state["source"] == "default_home"
+        assert home_default_state["candidate_dir"] == run_web_app.normalize_filesystem_path(
+            fake_home / ".jarvis-core" / "memory-skills" / "candidates"
+        )
+        assert not home_default_state["state_root"].exists()
+        assert not home_default_state["candidate_dir"].exists()
+
+    with TemporaryDirectory(prefix="jarvis-state-override-") as fake_override_root_text:
+        fake_override_root = Path(fake_override_root_text)
+        override_state = run_web_app.resolve_memory_skills_state_paths(
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(fake_override_root)}
+        )
+        assert override_state["ok"] is True
+        assert override_state["source"] == "env_override"
+        assert override_state["candidate_dir"] == run_web_app.normalize_filesystem_path(
+            fake_override_root / "memory-skills" / "candidates"
+        )
+        assert not override_state["candidate_dir"].exists()
+        assert not override_state["candidate_dir"].parent.exists()
+
+    relative_override_state = run_web_app.resolve_memory_skills_state_paths(
+        env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: "relative-state"}
+    )
+    assert relative_override_state["ok"] is False
+    assert relative_override_state["error"] == "local_state_dir_must_be_absolute"
+
+    repo_internal_state = run_web_app.resolve_memory_skills_state_paths(
+        env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(run_web_app.REPO_ROOT / ".jarvis-local")}
+    )
+    assert repo_internal_state["ok"] is False
+    assert repo_internal_state["error"] == "local_state_dir_inside_repo"
+    assert repo_internal_state["repo_internal"] is True
+    assert run_web_app.is_path_inside_repo(
+        run_web_app.REPO_ROOT / ".jarvis-local" / "memory-skills" / "candidates"
+    ) is True
+    traversal_like_state = run_web_app.resolve_memory_skills_state_paths(
+        env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(run_web_app.REPO_ROOT / "apps" / ".." / ".jarvis-local")}
+    )
+    assert traversal_like_state["ok"] is False
+    assert traversal_like_state["error"] == "local_state_dir_inside_repo"
+    assert not run_web_app.APP_ROOT.joinpath("state").exists()
+    assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
+
     preview_code, preview = run_web_app.handle_post_api(
         run_web_app.MEMORY_PREVIEW_ENDPOINT,
         {
