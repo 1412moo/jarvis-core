@@ -259,6 +259,111 @@ def main() -> None:
     )
     assert traversal_preview_code == HTTPStatus.OK
     assert traversal_preview["candidate_preview"]["id"] == "preview_only_not_persisted"
+
+    save_dry_run_request = {
+        "candidate_preview": preview["candidate_preview"],
+        "explicit_confirmation": True,
+        "privacy_reviewed": True,
+        "save_scope": "local_only",
+    }
+    save_dry_run_code, save_dry_run = run_web_app.validate_memory_skills_save_dry_run(save_dry_run_request)
+    assert save_dry_run_code == HTTPStatus.OK
+    assert save_dry_run["dry_run"] is True
+    assert save_dry_run["valid_for_local_save"] is True
+    assert save_dry_run["will_write_files"] is False
+    assert save_dry_run["will_create_directory"] is False
+    assert save_dry_run["save_endpoint_enabled"] is False
+    assert save_dry_run["phase"] == run_web_app.MEMORY_SAVE_DRY_RUN_PHASE
+    assert save_dry_run["candidate"]["status"] == "preview_only"
+    assert save_dry_run["candidate"]["user_approved_at"] is None
+    assert any("Nothing has been saved" in warning for warning in save_dry_run["warnings"])
+
+    def assert_save_dry_run_rejected(body, expected_error):
+        rejected_code, rejected = run_web_app.validate_memory_skills_save_dry_run(body)
+        assert rejected_code == HTTPStatus.BAD_REQUEST
+        assert rejected["dry_run"] is True
+        assert rejected["valid_for_local_save"] is False
+        assert rejected["will_write_files"] is False
+        assert rejected["will_create_directory"] is False
+        assert rejected["save_endpoint_enabled"] is False
+        assert rejected["error"] == expected_error
+
+    def save_dry_run_body(body_updates=None, candidate_updates=None, remove_body_fields=(), remove_candidate_fields=()):
+        body = dict(save_dry_run_request)
+        body["candidate_preview"] = dict(preview["candidate_preview"])
+        if body_updates:
+            body.update(body_updates)
+        if candidate_updates:
+            body["candidate_preview"].update(candidate_updates)
+        for field in remove_body_fields:
+            body.pop(field, None)
+        for field in remove_candidate_fields:
+            body["candidate_preview"].pop(field, None)
+        return body
+
+    assert_save_dry_run_rejected([], "request_body_must_be_object")
+    assert_save_dry_run_rejected(save_dry_run_body(remove_body_fields=("candidate_preview",)), "missing_candidate_preview")
+    assert_save_dry_run_rejected(save_dry_run_body(body_updates={"candidate_preview": []}), "candidate_preview_must_be_object")
+    assert_save_dry_run_rejected(save_dry_run_body(remove_body_fields=("explicit_confirmation",)), "explicit_confirmation_required")
+    assert_save_dry_run_rejected(save_dry_run_body(body_updates={"explicit_confirmation": False}), "explicit_confirmation_required")
+    assert_save_dry_run_rejected(save_dry_run_body(remove_body_fields=("privacy_reviewed",)), "privacy_review_required")
+    assert_save_dry_run_rejected(save_dry_run_body(body_updates={"privacy_reviewed": False}), "privacy_review_required")
+    assert_save_dry_run_rejected(save_dry_run_body(body_updates={"save_scope": "repo"}), "invalid_save_scope")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"status": "saved"}), "candidate_must_be_preview_only")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"suggested_skill_id": "hermes_manager"}), "invalid_suggested_skill_id")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"confirmation_required": False}), "confirmation_required_expected")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"user_approved_at": "2026-07-08"}), "candidate_already_approved")
+    assert_save_dry_run_rejected(save_dry_run_body(remove_candidate_fields=("cleaned_text",)), "missing_cleaned_text")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"cleaned_text": ""}), "empty_cleaned_text")
+    assert_save_dry_run_rejected(
+        save_dry_run_body(candidate_updates={"cleaned_text": "x" * (run_web_app.MEMORY_PREVIEW_CLEANED_TEXT_MAX_CHARS + 1)}),
+        "cleaned_text_too_long",
+    )
+    assert_save_dry_run_rejected(
+        save_dry_run_body(candidate_updates={"title": "x" * (run_web_app.MEMORY_PREVIEW_TITLE_MAX_CHARS + 1)}),
+        "title_too_long",
+    )
+    assert_save_dry_run_rejected(
+        save_dry_run_body(
+            candidate_updates={"original_text_preview": "x" * (run_web_app.MEMORY_PREVIEW_ORIGINAL_TEXT_MAX_CHARS + 1)}
+        ),
+        "original_text_preview_too_long",
+    )
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"candidate_type": "../escape"}), "invalid_candidate_type")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"confidence": "certain"}), "invalid_confidence")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"source": "C:\\temp"}), "invalid_source")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"tags": "not-list"}), "tags_must_be_list")
+    assert_save_dry_run_rejected(
+        save_dry_run_body(candidate_updates={"tags": [f"tag{i}" for i in range(run_web_app.MEMORY_PREVIEW_MAX_TAGS + 1)]}),
+        "too_many_tags",
+    )
+    assert_save_dry_run_rejected(
+        save_dry_run_body(candidate_updates={"tags": ["x" * (run_web_app.MEMORY_PREVIEW_TAG_MAX_CHARS + 1)]}),
+        "tags_item_too_long",
+    )
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"safety_notes": "not-list"}), "safety_notes_must_be_list")
+    assert_save_dry_run_rejected(
+        save_dry_run_body(
+            candidate_updates={
+                "safety_notes": [f"note{i}" for i in range(run_web_app.MEMORY_PREVIEW_MAX_SAFETY_NOTES + 1)]
+            }
+        ),
+        "too_many_safety_notes",
+    )
+    assert_save_dry_run_rejected(
+        save_dry_run_body(
+            candidate_updates={"safety_notes": ["x" * (run_web_app.MEMORY_PREVIEW_SAFETY_NOTE_MAX_CHARS + 1)]}
+        ),
+        "safety_notes_item_too_long",
+    )
+    assert_save_dry_run_rejected(save_dry_run_body(body_updates={"raw_transcript": "full raw text"}), "raw_transcript_not_allowed")
+    assert_save_dry_run_rejected(save_dry_run_body(body_updates={"full_transcript": "full raw text"}), "raw_transcript_not_allowed")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"original_text": "full raw text"}), "raw_transcript_not_allowed")
+    assert_save_dry_run_rejected(save_dry_run_body(body_updates={"storage_path": "memory/skills/x.json"}), "path_field_not_allowed")
+    assert_save_dry_run_rejected(save_dry_run_body(body_updates={"repo_path": "memory/skills/x.json"}), "path_field_not_allowed")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"file_path": "memory/tasks/x.json"}), "path_field_not_allowed")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"candidate_file": "candidate.json"}), "path_field_not_allowed")
+    assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"id": "../memory/tasks/x"}), "invalid_candidate_id")
     assert not run_web_app.APP_ROOT.joinpath("state").exists()
     assert not run_web_app.APP_ROOT.joinpath("examples", "memory-skills-sample.json").exists()
     assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
