@@ -202,13 +202,17 @@ MEMORY_SKILLS_ALLOWED_ACTIONS = (
     "Open Skill Details",
 )
 MEMORY_SKILLS_UNAVAILABLE_ACTIONS = (
-    "State changes are not available in Phase 2B.",
-    "Local persistence is not available in Phase 2B.",
-    "Save endpoints are not available in Phase 2B.",
-    "Skill creation is not available in Phase 2B.",
-    "Tool or command launch is not available in Phase 2B.",
+    "State changes are not available from the UI in Phase 2C-3a.",
+    "Local persistence is not available from the UI in Phase 2C-3a.",
+    "Save actions are not available from the UI in Phase 2C-3a.",
+    "Skill creation is not available in Phase 2C-3a.",
+    "Tool or command launch is not available in Phase 2C-3a.",
 )
 MEMORY_PREVIEW_ENDPOINT = "/api/memory-skills/candidates/preview"
+MEMORY_SAVE_ENDPOINT = "/api/memory-skills/candidates"
+MEMORY_SAVE_SUCCESS_MESSAGE = (
+    "Saved locally as a candidate. It is not an approved skill and will not run automatically."
+)
 MEMORY_PREVIEW_TITLE_MAX_CHARS = 120
 MEMORY_PREVIEW_CLEANED_TEXT_MAX_CHARS = 1000
 MEMORY_PREVIEW_ORIGINAL_TEXT_MAX_CHARS = 240
@@ -1016,13 +1020,17 @@ def memory_skills_payload() -> dict[str, Any]:
         "post_endpoints": "preview_only",
         "write_endpoints": False,
         "preview_endpoint": MEMORY_PREVIEW_ENDPOINT,
+        "approval_gated_save_api": True,
+        "approval_gated_save_endpoint": MEMORY_SAVE_ENDPOINT,
+        "ui_save_action": False,
         "candidates": candidates,
         "guidance": [
             "Treat these as sample candidates, not saved user memory.",
             "Voice Inbox can suggest Memory / Skills, but it does not save candidates automatically.",
             "Phase 2B previews the fields that would be saved later; it does not save them.",
             "Preview requests are write-free and return privacy warnings only.",
-            "Persistence and state changes are deferred to later approval-gated phases.",
+            "Phase 2C-3a exposes an API-only approval-gated local save endpoint.",
+            "The UI still has no save action, saved list, or automatic Voice Inbox save.",
         ],
         "allowed_actions": list(MEMORY_SKILLS_ALLOWED_ACTIONS),
         "unavailable_actions": list(MEMORY_SKILLS_UNAVAILABLE_ACTIONS),
@@ -1031,7 +1039,8 @@ def memory_skills_payload() -> dict[str, Any]:
             "No automatic skill creation.",
             "No automatic code modification.",
             "No runtime file write.",
-            "No save endpoint.",
+            "No UI save action.",
+            "Approval-gated API save requires preview, explicit confirmation, privacy review, and local_only scope.",
             "No external API, web, or LLM call.",
             "No microphone, STT, TTS, or recording.",
             "No Codex, ChatGPT, Hermes, Research Council, or Daily AI Radar automatic invocation.",
@@ -1587,6 +1596,68 @@ def write_memory_skills_candidate(
     }
 
 
+def memory_save_endpoint_error(status: HTTPStatus, error: str) -> tuple[int, dict[str, Any]]:
+    """Return a safe approval-gated save endpoint error without path or stack details."""
+
+    return status, {
+        "ok": False,
+        "saved": False,
+        "error": error,
+        "skill_created": False,
+        "registry_modified": False,
+        "will_run_automatically": False,
+        "local_only": False,
+    }
+
+
+def save_memory_skills_candidate(
+    payload: Any,
+    *,
+    env: Any | None = None,
+    home_dir: Path | str | None = None,
+    repo_root: Path = REPO_ROOT,
+    is_windows: bool | None = None,
+    id_generator: Any | None = None,
+    clock: Any | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """Approval-gated local candidate save endpoint wrapper using existing helpers only."""
+
+    validation_status, validation_result = validate_memory_skills_save_dry_run(payload)
+    if validation_status != HTTPStatus.OK:
+        return memory_save_endpoint_error(
+            validation_status,
+            str(validation_result.get("error", "invalid_save_request")),
+        )
+
+    write_status, write_result = write_memory_skills_candidate(
+        validation_result,
+        env=env,
+        home_dir=home_dir,
+        repo_root=repo_root,
+        is_windows=is_windows,
+        id_generator=id_generator,
+        clock=clock,
+    )
+    if write_status != HTTPStatus.OK:
+        return memory_save_endpoint_error(write_status, str(write_result.get("error", "candidate_write_failed")))
+
+    candidate = validation_result["candidate"]
+    return HTTPStatus.OK, {
+        "ok": True,
+        "saved": True,
+        "status": "saved",
+        "candidate_id": write_result["candidate_id"],
+        "title": candidate["title"],
+        "message": MEMORY_SAVE_SUCCESS_MESSAGE,
+        "skill_created": False,
+        "registry_modified": False,
+        "will_run_automatically": False,
+        "local_only": True,
+        "schema_version": write_result["schema_version"],
+        "storage_version": write_result["storage_version"],
+    }
+
+
 def parse_recent_commits(raw_log: str) -> list[dict[str, Any]]:
     """Parse fixed git log output into display-only commit cards."""
 
@@ -1900,6 +1971,8 @@ def handle_post_api(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
             return prepare_voice_inbox_task(payload)
         if path == MEMORY_PREVIEW_ENDPOINT:
             return prepare_memory_candidate_preview(payload)
+        if path == MEMORY_SAVE_ENDPOINT:
+            return save_memory_skills_candidate(payload)
     except RegistryError as exc:
         return HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)}
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
@@ -1947,7 +2020,7 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in {"/api/suggest-skill", "/api/voice-inbox/prepare", MEMORY_PREVIEW_ENDPOINT}:
+        if path not in {"/api/suggest-skill", "/api/voice-inbox/prepare", MEMORY_PREVIEW_ENDPOINT, MEMORY_SAVE_ENDPOINT}:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
 
@@ -2363,6 +2436,9 @@ def run_self_test() -> None:
     assert memory["post_endpoints"] == "preview_only"
     assert memory["write_endpoints"] is False
     assert memory["preview_endpoint"] == MEMORY_PREVIEW_ENDPOINT
+    assert memory["approval_gated_save_api"] is True
+    assert memory["approval_gated_save_endpoint"] == MEMORY_SAVE_ENDPOINT
+    assert memory["ui_save_action"] is False
     assert len(memory["candidates"]) == len(MEMORY_SKILLS_SAMPLE_CANDIDATES)
     assert "Review Candidate" in memory["allowed_actions"]
     assert "Preview Local Candidate" in memory["allowed_actions"]
@@ -2372,7 +2448,8 @@ def run_self_test() -> None:
     assert any("Voice Inbox" in item for item in memory["guidance"])
     assert any("No automatic memory save." == item for item in memory["safety_boundary"])
     assert any("No runtime file write." == item for item in memory["safety_boundary"])
-    assert any("No save endpoint." == item for item in memory["safety_boundary"])
+    assert any("No UI save action." == item for item in memory["safety_boundary"])
+    assert any("Approval-gated API save requires preview" in item for item in memory["safety_boundary"])
     for candidate in memory["candidates"]:
         assert_memory_candidate_safety(candidate)
 
@@ -2589,6 +2666,129 @@ def run_self_test() -> None:
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"candidate_file": "candidate.json"}), "path_field_not_allowed")
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"id": "../memory/tasks/x"}), "invalid_candidate_id")
 
+    def assert_save_endpoint_rejected(
+        body: Any,
+        expected_error: str,
+        expected_status: HTTPStatus = HTTPStatus.BAD_REQUEST,
+    ) -> None:
+        rejected_code, rejected = save_memory_skills_candidate(body)
+        assert rejected_code == expected_status
+        assert rejected["ok"] is False
+        assert rejected["saved"] is False
+        assert rejected["error"] == expected_error
+        assert rejected["skill_created"] is False
+        assert rejected["registry_modified"] is False
+        assert rejected["will_run_automatically"] is False
+        assert "candidate_file" not in rejected
+
+    assert_save_endpoint_rejected(save_dry_run_body(remove_body_fields=("explicit_confirmation",)), "explicit_confirmation_required")
+    assert_save_endpoint_rejected(save_dry_run_body(body_updates={"explicit_confirmation": False}), "explicit_confirmation_required")
+    assert_save_endpoint_rejected(save_dry_run_body(remove_body_fields=("privacy_reviewed",)), "privacy_review_required")
+    assert_save_endpoint_rejected(save_dry_run_body(body_updates={"privacy_reviewed": False}), "privacy_review_required")
+    assert_save_endpoint_rejected(save_dry_run_body(body_updates={"save_scope": "repo"}), "invalid_save_scope")
+    assert_save_endpoint_rejected(save_dry_run_body(candidate_updates={"status": "saved"}), "candidate_must_be_preview_only")
+    assert_save_endpoint_rejected(save_dry_run_body(candidate_updates={"user_approved_at": "2026-07-08"}), "candidate_already_approved")
+    assert_save_endpoint_rejected(
+        save_dry_run_body(candidate_updates={"cleaned_text": "x" * (MEMORY_PREVIEW_CLEANED_TEXT_MAX_CHARS + 1)}),
+        "cleaned_text_too_long",
+    )
+    assert_save_endpoint_rejected(save_dry_run_body(body_updates={"raw_transcript": "full raw text"}), "raw_transcript_not_allowed")
+    assert_save_endpoint_rejected(save_dry_run_body(candidate_updates={"original_text": "full raw text"}), "raw_transcript_not_allowed")
+    assert_save_endpoint_rejected(save_dry_run_body(body_updates={"storage_path": "memory/skills/x.json"}), "path_field_not_allowed")
+    assert_save_endpoint_rejected(save_dry_run_body(candidate_updates={"candidate_file": "candidate.json"}), "path_field_not_allowed")
+
+    endpoint_candidate_id = "mem_111111111111"
+    endpoint_timestamp = "2026-07-08T00:00:00Z"
+    with TemporaryDirectory(prefix="jarvis-candidate-endpoint-") as endpoint_root_text:
+        endpoint_root = Path(endpoint_root_text)
+        endpoint_code, endpoint_result = save_memory_skills_candidate(
+            save_dry_run_request,
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(endpoint_root)},
+            id_generator=lambda: endpoint_candidate_id,
+            clock=lambda: endpoint_timestamp,
+        )
+        assert endpoint_code == HTTPStatus.OK
+        assert endpoint_result["ok"] is True
+        assert endpoint_result["saved"] is True
+        assert endpoint_result["status"] == "saved"
+        assert endpoint_result["candidate_id"] == endpoint_candidate_id
+        assert endpoint_result["title"] == candidate_preview["title"]
+        assert endpoint_result["message"] == MEMORY_SAVE_SUCCESS_MESSAGE
+        assert endpoint_result["skill_created"] is False
+        assert endpoint_result["registry_modified"] is False
+        assert endpoint_result["will_run_automatically"] is False
+        assert endpoint_result["local_only"] is True
+        assert "candidate_file" not in endpoint_result
+        endpoint_candidate_dir = normalize_filesystem_path(endpoint_root / "memory-skills" / "candidates")
+        endpoint_candidate_file = normalize_filesystem_path(endpoint_candidate_dir / f"{endpoint_candidate_id}.json")
+        assert endpoint_candidate_file.exists()
+        endpoint_stored_candidate = json.loads(endpoint_candidate_file.read_text(encoding="utf-8"))
+        assert endpoint_stored_candidate["status"] == "saved"
+        assert endpoint_stored_candidate["redaction_status"] == "user_confirmed"
+        assert endpoint_stored_candidate["suggested_skill_id"] == "memory_skills"
+        for forbidden_field in (
+            "original_text",
+            "raw_transcript",
+            "full_transcript",
+            "file_path",
+            "path",
+            "candidate_file",
+            "storage_path",
+            "repo_path",
+        ):
+            assert forbidden_field not in endpoint_stored_candidate
+        before_endpoint_collision = endpoint_candidate_file.read_text(encoding="utf-8")
+        endpoint_collision_code, endpoint_collision = save_memory_skills_candidate(
+            save_dry_run_request,
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(endpoint_root)},
+            id_generator=lambda: endpoint_candidate_id,
+            clock=lambda: endpoint_timestamp,
+        )
+        assert endpoint_collision_code == HTTPStatus.CONFLICT
+        assert endpoint_collision["saved"] is False
+        assert endpoint_collision["error"] == "candidate_file_exists"
+        assert "candidate_file" not in endpoint_collision
+        assert endpoint_candidate_file.read_text(encoding="utf-8") == before_endpoint_collision
+
+    with TemporaryDirectory(prefix="jarvis-candidate-endpoint-invalid-") as invalid_endpoint_root_text:
+        invalid_endpoint_root = Path(invalid_endpoint_root_text)
+        invalid_endpoint_body = save_dry_run_body(remove_body_fields=("explicit_confirmation",))
+        invalid_endpoint_code, invalid_endpoint = save_memory_skills_candidate(
+            invalid_endpoint_body,
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(invalid_endpoint_root)},
+            id_generator=lambda: "mem_222222222222",
+            clock=lambda: endpoint_timestamp,
+        )
+        assert invalid_endpoint_code == HTTPStatus.BAD_REQUEST
+        assert invalid_endpoint["error"] == "explicit_confirmation_required"
+        assert not (invalid_endpoint_root / "memory-skills").exists()
+
+    with TemporaryDirectory(prefix="jarvis-candidate-endpoint-failure-") as endpoint_failure_root_text:
+        endpoint_failure_root = Path(endpoint_failure_root_text)
+        endpoint_blocking_path = endpoint_failure_root / "memory-skills"
+        endpoint_blocking_path.write_text("not a directory", encoding="utf-8")
+        endpoint_failure_code, endpoint_failure = save_memory_skills_candidate(
+            save_dry_run_request,
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(endpoint_failure_root)},
+            id_generator=lambda: "mem_333333333333",
+            clock=lambda: endpoint_timestamp,
+        )
+        assert endpoint_failure_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert endpoint_failure["saved"] is False
+        assert endpoint_failure["error"] == "candidate_write_failed"
+        assert "candidate_file" not in endpoint_failure
+        assert endpoint_blocking_path.is_file()
+
+    endpoint_repo_write_code, endpoint_repo_write = save_memory_skills_candidate(
+        save_dry_run_request,
+        env={JARVIS_LOCAL_STATE_DIR_ENV: str(REPO_ROOT / ".jarvis-local")},
+        id_generator=lambda: "mem_444444444444",
+        clock=lambda: endpoint_timestamp,
+    )
+    assert endpoint_repo_write_code == HTTPStatus.BAD_REQUEST
+    assert endpoint_repo_write["error"] == "local_state_dir_inside_repo"
+    assert not REPO_ROOT.joinpath(".jarvis-local").exists()
+
     fixed_candidate_id = "mem_0123456789ab"
     fixed_timestamp = "2026-07-08T00:00:00Z"
     with TemporaryDirectory(prefix="jarvis-candidate-write-") as write_root_text:
@@ -2697,7 +2897,10 @@ def run_self_test() -> None:
     assert not (REPO_ROOT / ".jarvis-local").exists()
     assert not (REPO_ROOT / "memory" / "skills").exists()
     assert handle_post_api("/api/memory-skills", {})[0] == HTTPStatus.NOT_FOUND
-    assert handle_post_api("/api/memory-skills/candidates", {})[0] == HTTPStatus.NOT_FOUND
+    save_route_code, save_route = handle_post_api(MEMORY_SAVE_ENDPOINT, {})
+    assert save_route_code == HTTPStatus.BAD_REQUEST
+    assert save_route["error"] == "explicit_confirmation_required"
+    assert save_route["saved"] is False
 
     html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "Chat / Command" in html
