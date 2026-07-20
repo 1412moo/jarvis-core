@@ -143,9 +143,12 @@ def main() -> None:
     assert memory["post_endpoints"] == "preview_only"
     assert memory["write_endpoints"] is False
     assert memory["preview_endpoint"] == run_web_app.MEMORY_PREVIEW_ENDPOINT
-    assert memory["approval_gated_save_api"] is True
-    assert memory["approval_gated_save_endpoint"] == run_web_app.MEMORY_SAVE_ENDPOINT
+    assert memory["preview_endpoint_write_free"] is True
+    assert memory["approval_gated_save_api"] is False
+    assert memory["approval_gated_save_endpoint"] is False
+    assert memory["candidate_write_helper"] == "tests_only"
     assert memory["ui_save_action"] is False
+    assert memory["voice_inbox_auto_save"] is False
     assert len(memory["candidates"]) == 3
     assert "Review Candidate" in memory["allowed_actions"]
     assert "Preview Local Candidate" in memory["allowed_actions"]
@@ -156,7 +159,7 @@ def main() -> None:
     assert any("No automatic memory save." == item for item in memory["safety_boundary"])
     assert any("No runtime file write." == item for item in memory["safety_boundary"])
     assert any("No UI save action." == item for item in memory["safety_boundary"])
-    assert any("Approval-gated API save requires preview" in item for item in memory["safety_boundary"])
+    assert "No approval-gated save API endpoint." in memory["safety_boundary"]
     for candidate in memory["candidates"]:
         run_web_app.assert_memory_candidate_safety(candidate)
 
@@ -595,9 +598,8 @@ def main() -> None:
     assert not run_web_app.REPO_ROOT.joinpath("memory", "skills").exists()
     assert run_web_app.handle_post_api("/api/memory-skills", {})[0] == HTTPStatus.NOT_FOUND
     save_route_code, save_route = run_web_app.handle_post_api(run_web_app.MEMORY_SAVE_ENDPOINT, {})
-    assert save_route_code == HTTPStatus.BAD_REQUEST
-    assert save_route["error"] == "explicit_confirmation_required"
-    assert save_route["saved"] is False
+    assert save_route_code == HTTPStatus.NOT_FOUND
+    assert save_route == {"ok": False, "error": "not_found"}
 
     for args in (
         ("add", "."),
@@ -687,6 +689,7 @@ def main() -> None:
     assert voice_memory_code == HTTPStatus.OK
     assert voice_memory["task_candidate"]["suggested_skill"] == "memory_skills"
     assert voice_memory["task_candidate"]["needs_confirmation"] is True
+    assert "saved" not in voice_memory
     voice_unknown_code, voice_unknown = run_web_app.handle_post_api(
         "/api/voice-inbox/prepare",
         {"transcript": "오늘 뭐하지"},

@@ -1020,17 +1020,21 @@ def memory_skills_payload() -> dict[str, Any]:
         "post_endpoints": "preview_only",
         "write_endpoints": False,
         "preview_endpoint": MEMORY_PREVIEW_ENDPOINT,
-        "approval_gated_save_api": True,
-        "approval_gated_save_endpoint": MEMORY_SAVE_ENDPOINT,
+        "preview_endpoint_write_free": True,
+        "approval_gated_save_api": False,
+        "approval_gated_save_endpoint": False,
+        "candidate_write_helper": "tests_only",
         "ui_save_action": False,
+        "voice_inbox_auto_save": False,
         "candidates": candidates,
         "guidance": [
             "Treat these as sample candidates, not saved user memory.",
             "Voice Inbox can suggest Memory / Skills, but it does not save candidates automatically.",
             "Phase 2B previews the fields that would be saved later; it does not save them.",
             "Preview requests are write-free and return privacy warnings only.",
-            "Phase 2C-3a exposes an API-only approval-gated local save endpoint.",
-            "The UI still has no save action, saved list, or automatic Voice Inbox save.",
+            "The approval-gated local save endpoint is not enabled while safety hardening is pending.",
+            "The internal candidate write helper is exercised by tests only.",
+            "The UI has no save action, saved list, or automatic Voice Inbox save.",
         ],
         "allowed_actions": list(MEMORY_SKILLS_ALLOWED_ACTIONS),
         "unavailable_actions": list(MEMORY_SKILLS_UNAVAILABLE_ACTIONS),
@@ -1040,7 +1044,7 @@ def memory_skills_payload() -> dict[str, Any]:
             "No automatic code modification.",
             "No runtime file write.",
             "No UI save action.",
-            "Approval-gated API save requires preview, explicit confirmation, privacy review, and local_only scope.",
+            "No approval-gated save API endpoint.",
             "No external API, web, or LLM call.",
             "No microphone, STT, TTS, or recording.",
             "No Codex, ChatGPT, Hermes, Research Council, or Daily AI Radar automatic invocation.",
@@ -1620,7 +1624,7 @@ def save_memory_skills_candidate(
     id_generator: Any | None = None,
     clock: Any | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    """Approval-gated local candidate save endpoint wrapper using existing helpers only."""
+    """Compose candidate validation and writing for internal tests only."""
 
     validation_status, validation_result = validate_memory_skills_save_dry_run(payload)
     if validation_status != HTTPStatus.OK:
@@ -1971,8 +1975,6 @@ def handle_post_api(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
             return prepare_voice_inbox_task(payload)
         if path == MEMORY_PREVIEW_ENDPOINT:
             return prepare_memory_candidate_preview(payload)
-        if path == MEMORY_SAVE_ENDPOINT:
-            return save_memory_skills_candidate(payload)
     except RegistryError as exc:
         return HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)}
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
@@ -2020,7 +2022,7 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in {"/api/suggest-skill", "/api/voice-inbox/prepare", MEMORY_PREVIEW_ENDPOINT, MEMORY_SAVE_ENDPOINT}:
+        if path not in {"/api/suggest-skill", "/api/voice-inbox/prepare", MEMORY_PREVIEW_ENDPOINT}:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
 
@@ -2249,6 +2251,7 @@ def run_self_test() -> None:
     assert voice_memory_code == HTTPStatus.OK
     assert voice_memory["task_candidate"]["suggested_skill"] == "memory_skills"
     assert voice_memory["task_candidate"]["needs_confirmation"] is True
+    assert "saved" not in voice_memory
     voice_unknown_code, voice_unknown = handle_post_api(
         "/api/voice-inbox/prepare",
         {"transcript": "오늘 뭐하지"},
@@ -2436,9 +2439,12 @@ def run_self_test() -> None:
     assert memory["post_endpoints"] == "preview_only"
     assert memory["write_endpoints"] is False
     assert memory["preview_endpoint"] == MEMORY_PREVIEW_ENDPOINT
-    assert memory["approval_gated_save_api"] is True
-    assert memory["approval_gated_save_endpoint"] == MEMORY_SAVE_ENDPOINT
+    assert memory["preview_endpoint_write_free"] is True
+    assert memory["approval_gated_save_api"] is False
+    assert memory["approval_gated_save_endpoint"] is False
+    assert memory["candidate_write_helper"] == "tests_only"
     assert memory["ui_save_action"] is False
+    assert memory["voice_inbox_auto_save"] is False
     assert len(memory["candidates"]) == len(MEMORY_SKILLS_SAMPLE_CANDIDATES)
     assert "Review Candidate" in memory["allowed_actions"]
     assert "Preview Local Candidate" in memory["allowed_actions"]
@@ -2449,7 +2455,7 @@ def run_self_test() -> None:
     assert any("No automatic memory save." == item for item in memory["safety_boundary"])
     assert any("No runtime file write." == item for item in memory["safety_boundary"])
     assert any("No UI save action." == item for item in memory["safety_boundary"])
-    assert any("Approval-gated API save requires preview" in item for item in memory["safety_boundary"])
+    assert "No approval-gated save API endpoint." in memory["safety_boundary"]
     for candidate in memory["candidates"]:
         assert_memory_candidate_safety(candidate)
 
@@ -2898,9 +2904,8 @@ def run_self_test() -> None:
     assert not (REPO_ROOT / "memory" / "skills").exists()
     assert handle_post_api("/api/memory-skills", {})[0] == HTTPStatus.NOT_FOUND
     save_route_code, save_route = handle_post_api(MEMORY_SAVE_ENDPOINT, {})
-    assert save_route_code == HTTPStatus.BAD_REQUEST
-    assert save_route["error"] == "explicit_confirmation_required"
-    assert save_route["saved"] is False
+    assert save_route_code == HTTPStatus.NOT_FOUND
+    assert save_route == {"ok": False, "error": "not_found"}
 
     html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "Chat / Command" in html
