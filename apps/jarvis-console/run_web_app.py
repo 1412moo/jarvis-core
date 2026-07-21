@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
+import hmac
 import inspect
 import json
+import math
 import os
 import re
+import secrets
 import stat
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -248,6 +255,37 @@ MEMORY_CANDIDATE_STORAGE_VERSION = "memory_candidate_storage.v1"
 MEMORY_CANDIDATE_JSON_MAX_BYTES = 32 * 1024
 MEMORY_CANDIDATE_TEMP_CREATE_ATTEMPTS = 3
 MEMORY_CANDIDATE_ID_PATTERN = re.compile(r"^mem_[a-f0-9]{12,32}$")
+MEMORY_REQUEST_GUARD_STATUS = "internal_tests_only"
+MEMORY_PREVIEW_TOKEN_SUBSYSTEM_STATUS = "internal_tests_only"
+MEMORY_SESSION_COOKIE_NAME = "jarvis_session"
+MEMORY_SESSION_IDLE_TTL_SECONDS = 30 * 60
+MEMORY_SESSION_MAX_ENTRIES = 64
+MEMORY_PREVIEW_TOKEN_TTL_SECONDS = 5 * 60
+MEMORY_PREVIEW_TOKEN_MAX_ENTRIES = 128
+MEMORY_PREVIEW_TOKEN_PER_SESSION_MAX_ENTRIES = 8
+MEMORY_SECRET_BYTES = 32
+MEMORY_SECRET_CREATE_ATTEMPTS = 3
+MEMORY_SECRET_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43,}$")
+MEMORY_PREVIEW_DIGEST_PREFIX = b"jarvis-memory-preview-v1\0"
+MEMORY_CANONICAL_PREVIEW_FIELDS = (
+    "schema_version",
+    "id",
+    "title",
+    "cleaned_text",
+    "original_text_preview",
+    "candidate_type",
+    "suggested_skill_id",
+    "confidence",
+    "status",
+    "source",
+    "confirmation_required",
+    "user_approved_at",
+    "next_action",
+    "safety_notes",
+    "tags",
+    "privacy_note",
+    "redaction_status",
+)
 JARVIS_LOCAL_STATE_DIR_ENV = "JARVIS_LOCAL_STATE_DIR"
 MEMORY_SKILLS_STATE_ROOT_NAME = "Jarvis-Core"
 MEMORY_SKILLS_STATE_SEGMENTS = ("memory-skills", "candidates")
@@ -1066,6 +1104,9 @@ def memory_skills_payload() -> dict[str, Any]:
         "approval_gated_save_api": False,
         "approval_gated_save_endpoint": False,
         "candidate_write_helper": "tests_only",
+        "request_guard": MEMORY_REQUEST_GUARD_STATUS,
+        "preview_token_subsystem": MEMORY_PREVIEW_TOKEN_SUBSYSTEM_STATUS,
+        "preview_token_issuance": False,
         "ui_save_action": False,
         "voice_inbox_auto_save": False,
         "candidates": candidates,
@@ -1525,6 +1566,417 @@ def validate_memory_skills_save_dry_run(payload: Any) -> tuple[int, dict[str, An
             "No candidate file, local state, directory, or save endpoint was created.",
         ],
     }
+
+
+def memory_internal_subsystem_error(status: HTTPStatus, error: str) -> tuple[int, dict[str, Any]]:
+    """Return a fixed internal-helper error without echoing request or secret material."""
+
+    return status, {"ok": False, "error": error}
+
+
+def memory_secret_token(generator: Any | None = None) -> str:
+    """Create a URL-safe token from at least 256 bits, with deterministic test injection."""
+
+    raw = secrets.token_bytes(MEMORY_SECRET_BYTES) if generator is None else generator(MEMORY_SECRET_BYTES)
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) < MEMORY_SECRET_BYTES:
+        raise ValueError("secret generator must return at least 256 bits")
+    return base64.urlsafe_b64encode(bytes(raw)).rstrip(b"=").decode("ascii")
+
+
+def memory_secret_token_is_valid(token: Any) -> bool:
+    """Return whether a token has the bounded URL-safe shape produced by this module."""
+
+    return isinstance(token, str) and len(token) <= 256 and MEMORY_SECRET_TOKEN_PATTERN.fullmatch(token) is not None
+
+
+def memory_secret_token_digest(token: str) -> bytes:
+    """Return a one-way digest so raw preview tokens are not registry keys."""
+
+    return hashlib.sha256(token.encode("ascii")).digest()
+
+
+class SessionRegistry:
+    """Bounded process-local session registry for internal/tests-only request guards."""
+
+    cookie_policy = {
+        "name": MEMORY_SESSION_COOKIE_NAME,
+        "http_only": True,
+        "same_site": "Strict",
+        "path": "/",
+        "secure": False,
+        "reason_secure_false": "loopback_http_only",
+    }
+
+    def __init__(
+        self,
+        *,
+        max_entries: int = MEMORY_SESSION_MAX_ENTRIES,
+        idle_ttl_seconds: float = MEMORY_SESSION_IDLE_TTL_SECONDS,
+        clock: Any | None = None,
+        token_generator: Any | None = None,
+    ) -> None:
+        if not isinstance(max_entries, int) or isinstance(max_entries, bool) or max_entries <= 0:
+            raise ValueError("max_entries must be a positive integer")
+        if not isinstance(idle_ttl_seconds, (int, float)) or isinstance(idle_ttl_seconds, bool):
+            raise ValueError("idle_ttl_seconds must be numeric")
+        if not math.isfinite(float(idle_ttl_seconds)) or idle_ttl_seconds <= 0:
+            raise ValueError("idle_ttl_seconds must be finite and positive")
+        self.max_entries = max_entries
+        self.idle_ttl_seconds = float(idle_ttl_seconds)
+        self._clock = time.monotonic if clock is None else clock
+        self._token_generator = token_generator
+        self._entries: dict[str, dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def _now(self) -> float:
+        now = float(self._clock())
+        if not math.isfinite(now):
+            raise ValueError("clock must return a finite value")
+        return now
+
+    def _purge_expired_locked(self, now: float) -> None:
+        expired = [session_id for session_id, entry in self._entries.items() if now >= entry["expires_at_monotonic"]]
+        for session_id in expired:
+            self._entries.pop(session_id, None)
+
+    def issue(self) -> tuple[int, dict[str, Any]]:
+        """Issue one process-local session and server-verified CSRF token."""
+
+        try:
+            now = self._now()
+            with self._lock:
+                self._purge_expired_locked(now)
+                if len(self._entries) >= self.max_entries:
+                    return memory_internal_subsystem_error(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "session_capacity_reached",
+                    )
+                session_id = ""
+                for _ in range(MEMORY_SECRET_CREATE_ATTEMPTS):
+                    candidate = memory_secret_token(self._token_generator)
+                    if candidate not in self._entries:
+                        session_id = candidate
+                        break
+                if not session_id:
+                    return memory_internal_subsystem_error(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        "session_issue_failed",
+                    )
+                csrf_token = memory_secret_token(self._token_generator)
+                self._entries[session_id] = {
+                    "csrf_digest": memory_secret_token_digest(csrf_token),
+                    "created_at_monotonic": now,
+                    "last_seen_monotonic": now,
+                    "expires_at_monotonic": now + self.idle_ttl_seconds,
+                }
+        except Exception:
+            return memory_internal_subsystem_error(HTTPStatus.INTERNAL_SERVER_ERROR, "session_issue_failed")
+        return HTTPStatus.OK, {
+            "ok": True,
+            "session_id": session_id,
+            "csrf_token": csrf_token,
+            "idle_ttl_seconds": self.idle_ttl_seconds,
+            "cookie_policy": dict(self.cookie_policy),
+        }
+
+    def verify(self, session_id: Any, csrf_token: Any) -> tuple[int, dict[str, Any]]:
+        """Verify and touch one session while unifying all credential failures."""
+
+        if not memory_secret_token_is_valid(session_id) or not memory_secret_token_is_valid(csrf_token):
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "request_verification_failed")
+        try:
+            now = self._now()
+            csrf_digest = memory_secret_token_digest(csrf_token)
+            with self._lock:
+                self._purge_expired_locked(now)
+                entry = self._entries.get(session_id)
+                if entry is None or not hmac.compare_digest(entry["csrf_digest"], csrf_digest):
+                    return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "request_verification_failed")
+                entry["last_seen_monotonic"] = now
+                entry["expires_at_monotonic"] = now + self.idle_ttl_seconds
+        except Exception:
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "request_verification_failed")
+        return HTTPStatus.OK, {"ok": True, "session_id": session_id}
+
+    def active_count(self) -> int:
+        """Return the active bounded size for deterministic tests and future metadata."""
+
+        try:
+            now = self._now()
+            with self._lock:
+                self._purge_expired_locked(now)
+                return len(self._entries)
+        except Exception:
+            return 0
+
+
+class LocalRequestGuard:
+    """Validate synthetic guarded-request metadata; not connected to the HTTP handler."""
+
+    def __init__(self, bound_host: str, bound_port: int, sessions: SessionRegistry) -> None:
+        if bound_host != DEFAULT_HOST:
+            raise ValueError("request guard requires the IPv4 loopback host")
+        if not isinstance(bound_port, int) or isinstance(bound_port, bool) or not 1 <= bound_port <= 65535:
+            raise ValueError("bound_port must be a valid TCP port")
+        if not isinstance(sessions, SessionRegistry):
+            raise TypeError("sessions must be a SessionRegistry")
+        self.expected_host = f"{bound_host}:{bound_port}"
+        self.expected_origin = f"http://{self.expected_host}"
+        self.sessions = sessions
+
+    @staticmethod
+    def _single_metadata_value(metadata: dict[str, Any], key: str) -> str | None:
+        value = metadata.get(key)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], str):
+            return value[0]
+        return None
+
+    @staticmethod
+    def _content_type_is_allowed(value: str) -> bool:
+        parts = value.split(";")
+        if parts[0].strip().lower() != "application/json":
+            return False
+        if len(parts) == 1:
+            return True
+        return len(parts) == 2 and parts[1].strip().lower() == "charset=utf-8"
+
+    @staticmethod
+    def _session_from_cookie(value: str) -> str | None:
+        matches: list[str] = []
+        for part in value.split(";"):
+            item = part.strip()
+            if not item or "=" not in item:
+                return None
+            name, cookie_value = item.split("=", 1)
+            if name.strip() == MEMORY_SESSION_COOKIE_NAME:
+                matches.append(cookie_value.strip())
+        if len(matches) != 1 or not memory_secret_token_is_valid(matches[0]):
+            return None
+        return matches[0]
+
+    def validate(self, metadata: Any) -> tuple[int, dict[str, Any]]:
+        """Validate Host, Origin, JSON media type, session cookie, and CSRF header."""
+
+        if not isinstance(metadata, dict):
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "invalid_host")
+        host = self._single_metadata_value(metadata, "host")
+        if host != self.expected_host:
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "invalid_host")
+        origin = self._single_metadata_value(metadata, "origin")
+        if origin != self.expected_origin:
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "invalid_origin")
+        content_type = self._single_metadata_value(metadata, "content_type")
+        if content_type is None or not self._content_type_is_allowed(content_type):
+            return memory_internal_subsystem_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type")
+        cookie = self._single_metadata_value(metadata, "cookie")
+        csrf_token = self._single_metadata_value(metadata, "csrf")
+        if cookie is None or csrf_token is None:
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "request_verification_failed")
+        session_id = self._session_from_cookie(cookie)
+        if session_id is None:
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "request_verification_failed")
+        verify_status, verify_result = self.sessions.verify(session_id, csrf_token)
+        if verify_status != HTTPStatus.OK:
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "request_verification_failed")
+        return HTTPStatus.OK, {
+            "ok": True,
+            "guarded": True,
+            "session_id": verify_result["session_id"],
+        }
+
+
+def canonicalize_memory_candidate_snapshot(candidate_preview: Any) -> tuple[int, dict[str, Any]]:
+    """Return one validated, bounded canonical preview snapshot and its domain-separated digest."""
+
+    validation_status, validation_result = validate_memory_skills_save_dry_run(
+        {
+            "candidate_preview": candidate_preview,
+            "explicit_confirmation": True,
+            "privacy_reviewed": True,
+            "save_scope": MEMORY_SAVE_DRY_RUN_REQUIRED_SCOPE,
+        }
+    )
+    if validation_status != HTTPStatus.OK:
+        return memory_internal_subsystem_error(
+            HTTPStatus.BAD_REQUEST,
+            str(validation_result.get("error", "invalid_candidate_snapshot")),
+        )
+    normalized = validation_result["candidate"]
+    snapshot = {field: normalized[field] for field in MEMORY_CANONICAL_PREVIEW_FIELDS}
+    if not memory_json_strings_have_valid_unicode(snapshot):
+        return memory_internal_subsystem_error(HTTPStatus.BAD_REQUEST, "invalid_unicode")
+    try:
+        canonical_bytes = json.dumps(
+            snapshot,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        return memory_internal_subsystem_error(HTTPStatus.BAD_REQUEST, "invalid_unicode")
+    except (TypeError, ValueError):
+        return memory_internal_subsystem_error(HTTPStatus.BAD_REQUEST, "invalid_candidate_snapshot")
+    if len(canonical_bytes) > MEMORY_CANDIDATE_JSON_MAX_BYTES:
+        return memory_internal_subsystem_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "candidate_json_too_large")
+    candidate_digest = hashlib.sha256(MEMORY_PREVIEW_DIGEST_PREFIX + canonical_bytes).hexdigest()
+    return HTTPStatus.OK, {
+        "ok": True,
+        "candidate_digest": candidate_digest,
+        "canonical_snapshot": json.loads(canonical_bytes.decode("utf-8")),
+        "canonical_bytes": canonical_bytes,
+        "byte_size": len(canonical_bytes),
+    }
+
+
+class PreviewTokenRegistry:
+    """Bounded process-local one-time preview tokens; internal/tests-only and route-free."""
+
+    def __init__(
+        self,
+        *,
+        max_entries: int = MEMORY_PREVIEW_TOKEN_MAX_ENTRIES,
+        per_session_limit: int = MEMORY_PREVIEW_TOKEN_PER_SESSION_MAX_ENTRIES,
+        ttl_seconds: float = MEMORY_PREVIEW_TOKEN_TTL_SECONDS,
+        clock: Any | None = None,
+        token_generator: Any | None = None,
+    ) -> None:
+        for name, value in (("max_entries", max_entries), ("per_session_limit", per_session_limit)):
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        if per_session_limit > max_entries:
+            raise ValueError("per_session_limit cannot exceed max_entries")
+        if not isinstance(ttl_seconds, (int, float)) or isinstance(ttl_seconds, bool):
+            raise ValueError("ttl_seconds must be numeric")
+        if not math.isfinite(float(ttl_seconds)) or ttl_seconds <= 0:
+            raise ValueError("ttl_seconds must be finite and positive")
+        self.max_entries = max_entries
+        self.per_session_limit = per_session_limit
+        self.ttl_seconds = float(ttl_seconds)
+        self._clock = time.monotonic if clock is None else clock
+        self._token_generator = token_generator
+        self._entries: dict[bytes, dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def _now(self) -> float:
+        now = float(self._clock())
+        if not math.isfinite(now):
+            raise ValueError("clock must return a finite value")
+        return now
+
+    def _purge_expired_locked(self, now: float) -> None:
+        expired = [digest for digest, entry in self._entries.items() if now >= entry["expires_at_monotonic"]]
+        for digest in expired:
+            self._entries.pop(digest, None)
+
+    def issue(self, session_id: Any, candidate_preview: Any) -> tuple[int, dict[str, Any]]:
+        """Issue one token bound to a validated server-stored canonical snapshot."""
+
+        if not memory_secret_token_is_valid(session_id):
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "request_verification_failed")
+        snapshot_status, snapshot_result = canonicalize_memory_candidate_snapshot(candidate_preview)
+        if snapshot_status != HTTPStatus.OK:
+            return snapshot_status, snapshot_result
+        candidate_digest = snapshot_result["candidate_digest"]
+        canonical_bytes = snapshot_result["canonical_bytes"]
+        try:
+            now = self._now()
+            with self._lock:
+                self._purge_expired_locked(now)
+                if any(
+                    hmac.compare_digest(entry["session_id"], session_id)
+                    and hmac.compare_digest(entry["candidate_digest"], candidate_digest)
+                    for entry in self._entries.values()
+                ):
+                    return memory_internal_subsystem_error(HTTPStatus.CONFLICT, "preview_token_already_active")
+                if len(self._entries) >= self.max_entries:
+                    return memory_internal_subsystem_error(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "preview_token_capacity_reached",
+                    )
+                session_count = sum(
+                    1 for entry in self._entries.values() if hmac.compare_digest(entry["session_id"], session_id)
+                )
+                if session_count >= self.per_session_limit:
+                    return memory_internal_subsystem_error(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "preview_token_capacity_reached",
+                    )
+                raw_token = ""
+                token_digest = b""
+                for _ in range(MEMORY_SECRET_CREATE_ATTEMPTS):
+                    candidate_token = memory_secret_token(self._token_generator)
+                    candidate_token_digest = memory_secret_token_digest(candidate_token)
+                    if candidate_token_digest not in self._entries:
+                        raw_token = candidate_token
+                        token_digest = candidate_token_digest
+                        break
+                if not raw_token:
+                    return memory_internal_subsystem_error(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        "preview_token_issue_failed",
+                    )
+                self._entries[token_digest] = {
+                    "token_digest": token_digest,
+                    "session_id": session_id,
+                    "candidate_digest": candidate_digest,
+                    "canonical_snapshot": canonical_bytes,
+                    "issued_at_monotonic": now,
+                    "expires_at_monotonic": now + self.ttl_seconds,
+                }
+        except Exception:
+            return memory_internal_subsystem_error(HTTPStatus.INTERNAL_SERVER_ERROR, "preview_token_issue_failed")
+        return HTTPStatus.OK, {
+            "ok": True,
+            "preview_token": raw_token,
+            "candidate_digest": candidate_digest,
+            "expires_in_seconds": self.ttl_seconds,
+        }
+
+    def claim(self, session_id: Any, raw_token: Any) -> tuple[int, dict[str, Any]]:
+        """Atomically pop one session-bound token and return its server-stored snapshot once."""
+
+        if not memory_secret_token_is_valid(session_id) or not memory_secret_token_is_valid(raw_token):
+            return memory_internal_subsystem_error(
+                HTTPStatus.CONFLICT,
+                "invalid_or_expired_preview_token",
+            )
+        try:
+            now = self._now()
+            token_digest = memory_secret_token_digest(raw_token)
+            with self._lock:
+                self._purge_expired_locked(now)
+                entry = self._entries.get(token_digest)
+                if entry is None or not hmac.compare_digest(entry["session_id"], session_id):
+                    return memory_internal_subsystem_error(
+                        HTTPStatus.CONFLICT,
+                        "invalid_or_expired_preview_token",
+                    )
+                entry = self._entries.pop(token_digest)
+            snapshot = json.loads(entry["canonical_snapshot"].decode("utf-8"))
+        except Exception:
+            return memory_internal_subsystem_error(
+                HTTPStatus.CONFLICT,
+                "invalid_or_expired_preview_token",
+            )
+        return HTTPStatus.OK, {
+            "ok": True,
+            "candidate_digest": entry["candidate_digest"],
+            "canonical_snapshot": snapshot,
+        }
+
+    def active_count(self) -> int:
+        """Return the active bounded token count after deterministic expiry cleanup."""
+
+        try:
+            now = self._now()
+            with self._lock:
+                self._purge_expired_locked(now)
+                return len(self._entries)
+        except Exception:
+            return 0
 
 
 def memory_candidate_write_error(status: HTTPStatus, error: str) -> tuple[int, dict[str, Any]]:
@@ -2302,6 +2754,392 @@ def run_server(port: int, open_browser: bool) -> None:
         server.server_close()
 
 
+def run_memory_request_guard_token_self_tests() -> None:
+    """Exercise Phase 2C-3b primitives without routes, sleeps, or filesystem writes."""
+
+    class FakeClock:
+        def __init__(self, value: float = 1000.0) -> None:
+            self.value = value
+
+        def __call__(self) -> float:
+            return self.value
+
+        def advance(self, seconds: float) -> None:
+            self.value += seconds
+
+    class DeterministicBytes:
+        def __init__(self, namespace: str = "default") -> None:
+            self.namespace = namespace
+            self.counter = 0
+
+        def __call__(self, size: int) -> bytes:
+            self.counter += 1
+            seed = hashlib.sha256(
+                f"jarvis-test-secret-{self.namespace}-{self.counter}".encode("ascii")
+            ).digest()
+            return (seed * ((size + len(seed) - 1) // len(seed)))[:size]
+
+    def candidate_variant(candidate: dict[str, Any], marker: str) -> dict[str, Any]:
+        variant = dict(candidate)
+        variant["cleaned_text"] = f'{candidate["cleaned_text"]} {marker}'
+        variant["tags"] = list(candidate.get("tags", []))
+        variant["safety_notes"] = list(candidate.get("safety_notes", []))
+        return variant
+
+    before_status = run_read_only_git(("status", "--short"))
+    preview_status, preview_result = prepare_memory_candidate_preview(
+        {
+            "title": "Request guard token candidate",
+            "cleaned_text": "Keep a deterministic candidate snapshot for explicit review.",
+            "original_text_preview": "Deterministic preview only.",
+            "candidate_type": "operating_rule",
+            "confidence": "medium",
+            "source": "manual",
+            "tags": ["guard", "token"],
+            "safety_notes": ["Tests only; no live token issuance."],
+        }
+    )
+    assert preview_status == HTTPStatus.OK
+    candidate = preview_result["candidate_preview"]
+
+    session_clock = FakeClock()
+    session_generator = DeterministicBytes("sessions")
+    sessions = SessionRegistry(clock=session_clock, token_generator=session_generator)
+    first_session_status, first_session = sessions.issue()
+    second_session_status, second_session = sessions.issue()
+    assert first_session_status == HTTPStatus.OK
+    assert second_session_status == HTTPStatus.OK
+    assert sessions.active_count() == 2
+    assert memory_secret_token_is_valid(first_session["session_id"])
+    assert memory_secret_token_is_valid(first_session["csrf_token"])
+    assert first_session["session_id"] != second_session["session_id"]
+    assert first_session["csrf_token"] not in repr(sessions._entries)
+    assert first_session["cookie_policy"] == SessionRegistry.cookie_policy
+    assert first_session["cookie_policy"]["http_only"] is True
+    assert first_session["cookie_policy"]["same_site"] == "Strict"
+    assert first_session["cookie_policy"]["path"] == "/"
+    assert first_session["cookie_policy"]["secure"] is False
+
+    guard = LocalRequestGuard(DEFAULT_HOST, DEFAULT_PORT, sessions)
+    valid_request = {
+        "host": f"{DEFAULT_HOST}:{DEFAULT_PORT}",
+        "origin": f"http://{DEFAULT_HOST}:{DEFAULT_PORT}",
+        "content_type": "application/json",
+        "cookie": f'other_cookie=read_only; {MEMORY_SESSION_COOKIE_NAME}={first_session["session_id"]}',
+        "csrf": first_session["csrf_token"],
+    }
+
+    def assert_guard_error(
+        updates: dict[str, Any] | None,
+        remove: str | None,
+        expected_error: str,
+        expected_status: HTTPStatus,
+    ) -> None:
+        metadata = dict(valid_request)
+        if updates:
+            metadata.update(updates)
+        if remove:
+            metadata.pop(remove, None)
+        status, result = guard.validate(metadata)
+        assert status == expected_status
+        assert result == {"ok": False, "error": expected_error}
+        rendered = str(result)
+        assert first_session["session_id"] not in rendered
+        assert first_session["csrf_token"] not in rendered
+
+    for invalid_host in (
+        f"{DEFAULT_HOST}:{DEFAULT_PORT + 1}",
+        f"localhost:{DEFAULT_PORT}",
+        f"{DEFAULT_HOST}:{DEFAULT_PORT},evil.example",
+        f" {DEFAULT_HOST}:{DEFAULT_PORT}",
+        f"{DEFAULT_HOST}.:{DEFAULT_PORT}",
+        f"[::1]:{DEFAULT_PORT}",
+    ):
+        assert_guard_error({"host": invalid_host}, None, "invalid_host", HTTPStatus.FORBIDDEN)
+    assert_guard_error(None, "host", "invalid_host", HTTPStatus.FORBIDDEN)
+    assert_guard_error({"host": [valid_request["host"], valid_request["host"]]}, None, "invalid_host", HTTPStatus.FORBIDDEN)
+    assert guard.validate(valid_request)[0] == HTTPStatus.OK
+
+    for invalid_origin in (
+        "null",
+        f"https://{DEFAULT_HOST}:{DEFAULT_PORT}",
+        f"http://localhost:{DEFAULT_PORT}",
+        f"http://{DEFAULT_HOST}:{DEFAULT_PORT + 1}",
+        f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/path",
+        f"http://{DEFAULT_HOST}:{DEFAULT_PORT}?query=1",
+        f"http://{DEFAULT_HOST}:{DEFAULT_PORT}#fragment",
+        f"http://user@{DEFAULT_HOST}:{DEFAULT_PORT}",
+        "https://evil.example",
+    ):
+        assert_guard_error({"origin": invalid_origin}, None, "invalid_origin", HTTPStatus.FORBIDDEN)
+    assert_guard_error(None, "origin", "invalid_origin", HTTPStatus.FORBIDDEN)
+    assert guard.validate({**valid_request, "origin": f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"})[0] == HTTPStatus.OK
+
+    for invalid_content_type in (
+        "text/plain",
+        "application/x-www-form-urlencoded",
+        "multipart/form-data; boundary=test",
+        "application/json; charset=iso-8859-1",
+        "application/json, text/plain",
+    ):
+        assert_guard_error(
+            {"content_type": invalid_content_type},
+            None,
+            "unsupported_media_type",
+            HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+        )
+    assert_guard_error(None, "content_type", "unsupported_media_type", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+    assert_guard_error(
+        {"content_type": ["application/json", "application/json"]},
+        None,
+        "unsupported_media_type",
+        HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+    )
+    assert guard.validate({**valid_request, "content_type": "application/json; charset=utf-8"})[0] == HTTPStatus.OK
+
+    wrong_csrf = memory_secret_token(lambda size: b"x" * size)
+    assert_guard_error({"csrf": wrong_csrf}, None, "request_verification_failed", HTTPStatus.FORBIDDEN)
+    assert_guard_error(None, "csrf", "request_verification_failed", HTTPStatus.FORBIDDEN)
+    assert_guard_error(None, "cookie", "request_verification_failed", HTTPStatus.FORBIDDEN)
+    assert_guard_error(
+        {"cookie": f'{MEMORY_SESSION_COOKIE_NAME}={first_session["session_id"]}', "csrf": second_session["csrf_token"]},
+        None,
+        "request_verification_failed",
+        HTTPStatus.FORBIDDEN,
+    )
+    assert_guard_error(
+        {
+            "cookie": (
+                f'{MEMORY_SESSION_COOKIE_NAME}={first_session["session_id"]}; '
+                f'{MEMORY_SESSION_COOKIE_NAME}={second_session["session_id"]}'
+            )
+        },
+        None,
+        "request_verification_failed",
+        HTTPStatus.FORBIDDEN,
+    )
+    valid_guard_status, valid_guard = guard.validate(valid_request)
+    assert valid_guard_status == HTTPStatus.OK
+    assert valid_guard == {"ok": True, "guarded": True, "session_id": first_session["session_id"]}
+
+    expiring_clock = FakeClock()
+    expiring_sessions = SessionRegistry(clock=expiring_clock, token_generator=DeterministicBytes())
+    expiring_session_status, expiring_session = expiring_sessions.issue()
+    assert expiring_session_status == HTTPStatus.OK
+    expiring_guard = LocalRequestGuard(DEFAULT_HOST, DEFAULT_PORT, expiring_sessions)
+    expiring_request = {
+        **valid_request,
+        "cookie": f'{MEMORY_SESSION_COOKIE_NAME}={expiring_session["session_id"]}',
+        "csrf": expiring_session["csrf_token"],
+    }
+    expiring_clock.advance(MEMORY_SESSION_IDLE_TTL_SECONDS)
+    expired_session_status, expired_session = expiring_guard.validate(expiring_request)
+    assert expired_session_status == HTTPStatus.FORBIDDEN
+    assert expired_session == {"ok": False, "error": "request_verification_failed"}
+    assert expiring_sessions.active_count() == 0
+
+    capacity_sessions = SessionRegistry(max_entries=1, clock=FakeClock(), token_generator=DeterministicBytes())
+    assert capacity_sessions.issue()[0] == HTTPStatus.OK
+    capacity_session_status, capacity_session = capacity_sessions.issue()
+    assert capacity_session_status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert capacity_session == {"ok": False, "error": "session_capacity_reached"}
+    restarted_sessions = SessionRegistry(clock=FakeClock(), token_generator=DeterministicBytes("restart-session"))
+    assert restarted_sessions.verify(first_session["session_id"], first_session["csrf_token"]) == (
+        HTTPStatus.FORBIDDEN,
+        {"ok": False, "error": "request_verification_failed"},
+    )
+
+    canonical_status, canonical = canonicalize_memory_candidate_snapshot(candidate)
+    assert canonical_status == HTTPStatus.OK
+    changed_status, changed = canonicalize_memory_candidate_snapshot(candidate_variant(candidate, "x"))
+    assert changed_status == HTTPStatus.OK
+    assert canonical["candidate_digest"] != changed["candidate_digest"]
+    assert canonical["candidate_digest"] == hashlib.sha256(
+        MEMORY_PREVIEW_DIGEST_PREFIX + canonical["canonical_bytes"]
+    ).hexdigest()
+    assert canonical["canonical_bytes"] == json.dumps(
+        canonical["canonical_snapshot"],
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    assert set(canonical["canonical_snapshot"]) == set(MEMORY_CANONICAL_PREVIEW_FIELDS)
+    assert not (set(MEMORY_SAVE_DRY_RUN_DISALLOWED_RAW_FIELDS) & set(canonical["canonical_snapshot"]))
+    assert not (set(MEMORY_SAVE_DRY_RUN_DISALLOWED_PATH_FIELDS) & set(canonical["canonical_snapshot"]))
+    candidate_with_ignored_ui_field = dict(candidate)
+    candidate_with_ignored_ui_field["ui_only_note"] = "C:\\private\\not-authority"
+    ignored_status, ignored = canonicalize_memory_candidate_snapshot(candidate_with_ignored_ui_field)
+    assert ignored_status == HTTPStatus.OK
+    assert ignored["candidate_digest"] == canonical["candidate_digest"]
+    assert "ui_only_note" not in ignored["canonical_snapshot"]
+    for forbidden_field, expected_error in (
+        ("raw_transcript", "raw_transcript_not_allowed"),
+        ("storage_path", "path_field_not_allowed"),
+    ):
+        unsafe_candidate = dict(candidate)
+        unsafe_candidate[forbidden_field] = "C:\\private\\sensitive"
+        unsafe_status, unsafe_result = canonicalize_memory_candidate_snapshot(unsafe_candidate)
+        assert unsafe_status == HTTPStatus.BAD_REQUEST
+        assert unsafe_result == {"ok": False, "error": expected_error}
+        assert "sensitive" not in str(unsafe_result)
+
+    token_clock = FakeClock()
+    token_registry = PreviewTokenRegistry(clock=token_clock, token_generator=DeterministicBytes("tokens"))
+    issue_status, issued = token_registry.issue(first_session["session_id"], candidate)
+    assert issue_status == HTTPStatus.OK
+    assert memory_secret_token_is_valid(issued["preview_token"])
+    assert issued["candidate_digest"] == canonical["candidate_digest"]
+    assert issued["expires_in_seconds"] == MEMORY_PREVIEW_TOKEN_TTL_SECONDS
+    assert token_registry.active_count() == 1
+    assert issued["preview_token"] not in repr(token_registry._entries)
+    entry_key, entry = next(iter(token_registry._entries.items()))
+    assert entry_key == memory_secret_token_digest(issued["preview_token"])
+    assert entry["token_digest"] == entry_key
+    assert set(entry) == {
+        "token_digest",
+        "session_id",
+        "candidate_digest",
+        "canonical_snapshot",
+        "issued_at_monotonic",
+        "expires_at_monotonic",
+    }
+    duplicate_status, duplicate = token_registry.issue(first_session["session_id"], candidate)
+    assert duplicate_status == HTTPStatus.CONFLICT
+    assert duplicate == {"ok": False, "error": "preview_token_already_active"}
+    assert token_registry.active_count() == 1
+    wrong_session_status, wrong_session = token_registry.claim(
+        second_session["session_id"],
+        issued["preview_token"],
+    )
+    assert wrong_session_status == HTTPStatus.CONFLICT
+    assert wrong_session == {"ok": False, "error": "invalid_or_expired_preview_token"}
+    assert token_registry.active_count() == 1
+    claim_status, claimed = token_registry.claim(first_session["session_id"], issued["preview_token"])
+    assert claim_status == HTTPStatus.OK
+    assert claimed["candidate_digest"] == canonical["candidate_digest"]
+    assert claimed["canonical_snapshot"] == canonical["canonical_snapshot"]
+    assert token_registry.active_count() == 0
+    second_claim_status, second_claim = token_registry.claim(
+        first_session["session_id"],
+        issued["preview_token"],
+    )
+    assert second_claim_status == HTTPStatus.CONFLICT
+    assert second_claim == {"ok": False, "error": "invalid_or_expired_preview_token"}
+    for secret_text in (
+        issued["preview_token"],
+        first_session["session_id"],
+        candidate["cleaned_text"],
+        "C:\\private",
+    ):
+        assert secret_text not in str(second_claim)
+
+    before_expiry_clock = FakeClock()
+    before_expiry_registry = PreviewTokenRegistry(
+        clock=before_expiry_clock,
+        token_generator=DeterministicBytes(),
+    )
+    before_expiry_status, before_expiry_token = before_expiry_registry.issue(first_session["session_id"], candidate)
+    assert before_expiry_status == HTTPStatus.OK
+    before_expiry_clock.advance(MEMORY_PREVIEW_TOKEN_TTL_SECONDS - 0.001)
+    assert before_expiry_registry.claim(first_session["session_id"], before_expiry_token["preview_token"])[0] == HTTPStatus.OK
+
+    boundary_clock = FakeClock()
+    boundary_registry = PreviewTokenRegistry(clock=boundary_clock, token_generator=DeterministicBytes())
+    boundary_status, boundary_token = boundary_registry.issue(first_session["session_id"], candidate)
+    assert boundary_status == HTTPStatus.OK
+    boundary_clock.advance(MEMORY_PREVIEW_TOKEN_TTL_SECONDS)
+    expired_token_status, expired_token = boundary_registry.claim(
+        first_session["session_id"],
+        boundary_token["preview_token"],
+    )
+    assert expired_token_status == HTTPStatus.CONFLICT
+    assert expired_token == {"ok": False, "error": "invalid_or_expired_preview_token"}
+    assert boundary_registry.active_count() == 0
+
+    cleanup_clock = FakeClock()
+    cleanup_registry = PreviewTokenRegistry(
+        max_entries=1,
+        per_session_limit=1,
+        ttl_seconds=MEMORY_PREVIEW_TOKEN_TTL_SECONDS,
+        clock=cleanup_clock,
+        token_generator=DeterministicBytes("issue-cleanup"),
+    )
+    assert cleanup_registry.issue(first_session["session_id"], candidate)[0] == HTTPStatus.OK
+    cleanup_clock.advance(MEMORY_PREVIEW_TOKEN_TTL_SECONDS)
+    assert cleanup_registry.issue(
+        first_session["session_id"],
+        candidate_variant(candidate, "after-expiry-cleanup"),
+    )[0] == HTTPStatus.OK
+    assert cleanup_registry.active_count() == 1
+
+    per_session_registry = PreviewTokenRegistry(
+        max_entries=2,
+        per_session_limit=1,
+        clock=FakeClock(),
+        token_generator=DeterministicBytes(),
+    )
+    assert per_session_registry.issue(first_session["session_id"], candidate)[0] == HTTPStatus.OK
+    per_session_status, per_session_error = per_session_registry.issue(
+        first_session["session_id"],
+        candidate_variant(candidate, "per-session"),
+    )
+    assert per_session_status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert per_session_error == {"ok": False, "error": "preview_token_capacity_reached"}
+
+    third_session_status, third_session = sessions.issue()
+    assert third_session_status == HTTPStatus.OK
+    global_registry = PreviewTokenRegistry(
+        max_entries=2,
+        per_session_limit=2,
+        clock=FakeClock(),
+        token_generator=DeterministicBytes(),
+    )
+    assert global_registry.issue(first_session["session_id"], candidate)[0] == HTTPStatus.OK
+    assert global_registry.issue(second_session["session_id"], candidate_variant(candidate, "global-2"))[0] == HTTPStatus.OK
+    global_status, global_error = global_registry.issue(
+        third_session["session_id"],
+        candidate_variant(candidate, "global-3"),
+    )
+    assert global_status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert global_error == {"ok": False, "error": "preview_token_capacity_reached"}
+    assert global_registry.active_count() == 2
+
+    original_registry = PreviewTokenRegistry(clock=FakeClock(), token_generator=DeterministicBytes())
+    restart_issue_status, restart_issue = original_registry.issue(first_session["session_id"], candidate)
+    assert restart_issue_status == HTTPStatus.OK
+    restarted_registry = PreviewTokenRegistry(clock=FakeClock(), token_generator=DeterministicBytes())
+    restart_claim_status, restart_claim = restarted_registry.claim(
+        first_session["session_id"],
+        restart_issue["preview_token"],
+    )
+    assert restart_claim_status == HTTPStatus.CONFLICT
+    assert restart_claim == {"ok": False, "error": "invalid_or_expired_preview_token"}
+
+    live_registry = PreviewTokenRegistry(clock=FakeClock(), token_generator=DeterministicBytes())
+    live_count_before = live_registry.active_count()
+    live_preview_status, live_preview = handle_post_api(
+        MEMORY_PREVIEW_ENDPOINT,
+        {"cleaned_text": "Live preview stays write-free and token-free."},
+    )
+    assert live_preview_status == HTTPStatus.OK
+    assert "preview_token" not in live_preview
+    assert "candidate_digest" not in live_preview
+    assert live_registry.active_count() == live_count_before == 0
+    assert handle_post_api(MEMORY_SAVE_ENDPOINT, {}) == (
+        HTTPStatus.NOT_FOUND,
+        {"ok": False, "error": "not_found"},
+    )
+    assert "LocalRequestGuard" not in inspect.getsource(JarvisConsoleHandler)
+    assert "PreviewTokenRegistry" not in inspect.getsource(handle_post_api)
+    assert "preview_token" not in str(prepare_voice_inbox_task({"transcript": "이 반복 작업을 기억해줘"}))
+    assert not (APP_ROOT / "state").exists()
+    assert not (REPO_ROOT / ".jarvis-local").exists()
+    assert not (REPO_ROOT / "memory" / "skills").exists()
+    after_status = run_read_only_git(("status", "--short"))
+    assert before_status == after_status
+
+
 def run_self_test() -> None:
     """Run deterministic helper checks without starting a long-lived server."""
 
@@ -2668,6 +3506,9 @@ def run_self_test() -> None:
     assert memory["approval_gated_save_api"] is False
     assert memory["approval_gated_save_endpoint"] is False
     assert memory["candidate_write_helper"] == "tests_only"
+    assert memory["request_guard"] == "internal_tests_only"
+    assert memory["preview_token_subsystem"] == "internal_tests_only"
+    assert memory["preview_token_issuance"] is False
     assert memory["ui_save_action"] is False
     assert memory["voice_inbox_auto_save"] is False
     assert len(memory["candidates"]) == len(MEMORY_SKILLS_SAMPLE_CANDIDATES)
@@ -2683,6 +3524,8 @@ def run_self_test() -> None:
     assert "No approval-gated save API endpoint." in memory["safety_boundary"]
     for candidate in memory["candidates"]:
         assert_memory_candidate_safety(candidate)
+
+    run_memory_request_guard_token_self_tests()
 
     with TemporaryDirectory(prefix="jarvis-localappdata-") as fake_local_appdata_text:
         fake_local_appdata = Path(fake_local_appdata_text)

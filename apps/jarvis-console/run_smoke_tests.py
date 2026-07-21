@@ -147,6 +147,9 @@ def main() -> None:
     assert memory["approval_gated_save_api"] is False
     assert memory["approval_gated_save_endpoint"] is False
     assert memory["candidate_write_helper"] == "tests_only"
+    assert memory["request_guard"] == "internal_tests_only"
+    assert memory["preview_token_subsystem"] == "internal_tests_only"
+    assert memory["preview_token_issuance"] is False
     assert memory["ui_save_action"] is False
     assert memory["voice_inbox_auto_save"] is False
     assert len(memory["candidates"]) == 3
@@ -162,6 +165,8 @@ def main() -> None:
     assert "No approval-gated save API endpoint." in memory["safety_boundary"]
     for candidate in memory["candidates"]:
         run_web_app.assert_memory_candidate_safety(candidate)
+
+    run_web_app.run_memory_request_guard_token_self_tests()
 
     with TemporaryDirectory(prefix="jarvis-localappdata-") as fake_local_appdata_text:
         fake_local_appdata = Path(fake_local_appdata_text)
