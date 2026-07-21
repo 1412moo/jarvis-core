@@ -1,6 +1,6 @@
 # Memory / Skills v0.1 Design
 
-Last updated: 2026-07-12
+Last updated: 2026-07-22
 
 ## 1. Purpose
 
@@ -40,10 +40,12 @@ The Skill Registry already contains `memory_skills` as a planned skill. Voice
 Inbox and Chat / Command can route repeated workflow requests to
 `memory_skills`, for example `이 반복 작업 skill 후보로 기억해줘`.
 
-There is still no user-facing memory persistence, no save endpoint, no saved
-candidates dashboard, no approval queue, and no skill creation workflow. Phase
-2B preview-only capture and Phase 2C-0/1/2 helpers exist, but the write helper
-is tests-only and is not connected to API, UI, or Voice Inbox.
+There is still no user-facing memory persistence, live save endpoint, saved
+candidates dashboard, approval queue, or skill creation workflow. Phase 2B
+preview-only capture and the Phase 2C-0/1/2/3a/3b internal helpers exist. The
+candidate writer, request guard, session registry, and preview token registry
+remain internal/tests-only and are not connected to live HTTP routes, UI, or
+Voice Inbox.
 
 ## 3. v0.1 Scope
 
@@ -70,7 +72,7 @@ Memory / Skills v0.1 excludes:
 - automatic code modification;
 - automatic Codex, ChatGPT, or Hermes invocation;
 - automatic Research Council or Daily AI Radar execution;
-- repo or file writes;
+- automatic or user-facing repo/file writes;
 - `git add`, `git commit`, `git push`, or other git write operations;
 - external API, web, or LLM calls;
 - microphone, STT, TTS, or recording;
@@ -90,20 +92,25 @@ The intended flow is:
    review.
 6. Phase 2B preview-only capture can show a normalized candidate with no
    persistence.
-7. Phase 2C-3 may decide how to expose explicit approval-gated local saving.
-8. Phase 3 may add skill draft preparation, still without automatic skill
+7. Phase 2C-3a/3b hardens internal storage and guarded-request primitives, but
+   does not expose local saving.
+8. A later explicitly approved phase may decide whether and how to expose
+   approval-gated local saving.
+9. Phase 3 may add skill draft preparation, still without automatic skill
    creation.
 
 This flow keeps Memory / Skills as an inbox for proposals, not an automation
 engine.
 
-Phase 2 is not automatic memory. A saved candidate, if Phase 2C later adds one,
-is still not a skill, not an approved skill, not a Skill Registry entry, and not
-an execution target.
+Phase 2 is not automatic memory. A saved candidate, if a later user-facing
+phase adds one, is still not a skill, not an approved skill, not a Skill
+Registry entry, and not an execution target.
 
-After Phase 2C-2, a candidate write helper exists, but user-facing local save is
-not enabled yet. There is no save endpoint, no UI `Save` / `Confirm Local Save`
-flow, no Voice Inbox auto-save, and no saved candidates dashboard.
+After Phase 2C-3b, hardened candidate-write and guarded-request/token primitives
+exist, but user-facing local save is not enabled. `POST
+/api/memory-skills/candidates` remains disabled/non-success, and there is no UI
+`Save` / `Confirm Local Save` flow, Voice Inbox token/save path, or saved
+candidates dashboard.
 
 ## 5. Candidate Data Model
 
@@ -186,8 +193,15 @@ Recommended path:
 - Phase 2C-2: a candidate write helper is implemented for self-test and smoke
   test coverage only. It uses the storage path helper and TemporaryDirectory
   tests. It is not connected to API, UI, or Voice Inbox.
-- Phase 2C-3: if user-facing persistence is exposed, it should connect to the
-  existing path, validation, and write helpers instead of duplicating logic.
+- Phase 2C-3a: the tests-only candidate writer is hardened against reparse-point
+  paths, collisions, overwrite races, invalid Unicode, oversized JSON, and
+  unsafe publication. The live save route remains disabled.
+- Phase 2C-3b: process-local `SessionRegistry`, `LocalRequestGuard`, canonical
+  preview snapshot/digest, and one-time `PreviewTokenRegistry` primitives are
+  implemented for internal tests only. They issue no live cookie or token and
+  are not connected to HTTP dispatch, UI, or Voice Inbox.
+- A later explicitly approved phase may connect to these helpers instead of
+  duplicating validation, storage, or request-guard logic.
 - Avoid tracked repo paths such as `memory/tasks/`, `memory/skills/`, or
   `apps/jarvis-console/data/` for user memory. They can mix sensitive personal
   text into git history, increase `git add .` accident risk, and make users feel
@@ -276,9 +290,9 @@ are listed here as future candidates, not as Phase 1 scope.
 | Endpoint | Purpose | Read/Write | Approval Required | Phase | Safety Risk | v0.1 Recommendation |
 | --- | --- | --- | --- | --- | --- | --- |
 | `GET /api/memory-skills` | Return Memory / Skills status, notes, and sample overview. | Read | No | Phase 1 | Low | Include if implementing the panel. |
-| `GET /api/memory-skills/candidates` | Return sample or saved read-only candidate metadata. | Read | No | Phase 1 or Phase 2D | Low | Include sample/read-only only until saved candidates exist. |
+| `GET /api/memory-skills/candidates` | Return sample or saved read-only candidate metadata. | Read | No | Phase 2D or later | Low | Not implemented; keep saved-candidate listing deferred. |
 | `POST /api/memory-skills/candidates/preview` | Normalize input and return the payload that would be saved, plus privacy warnings. | Read-like, no write | No | Phase 2B | Low-medium | Implemented; write-free. |
-| `POST /api/memory-skills/candidates` | Save a candidate locally. | Write | Yes | Phase 2C-3 or later | Medium | Not implemented through Phase 2C-2; requires explicit approval. |
+| `POST /api/memory-skills/candidates` | Save a candidate locally. | Write | Yes | Later explicit phase | Medium | Disabled/non-success through Phase 2C-3b; internal save composition remains tests-only. |
 | `POST /api/memory-skills/candidates/{id}/approve` | Mark a candidate approved. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/reject` | Mark a candidate rejected. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/archive` | Archive a candidate. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
@@ -298,13 +312,14 @@ Phase 2 API direction:
 - `POST /api/memory-skills/candidates/preview` exists as the implemented Phase
   2B endpoint. It must not write files; it only returns normalized preview
   fields and privacy warnings.
-- `POST /api/memory-skills/candidates` still does not exist. Phase 2C-1 added
-  dry-run validation for the future request shape only; it does not enable a
-  save endpoint.
-- Defer `POST /api/memory-skills/candidates` until Phase 2C-3 or later. It must
-  reject requests without explicit confirmation.
-- Defer `GET /api/memory-skills/candidates` until saved candidates exist in
-  Phase 2D or later.
+- `POST /api/memory-skills/candidates` remains disabled/non-success. Phase
+  2C-1/2/3a added validation and hardened write composition for internal tests,
+  while Phase 2C-3b added route-free request-guard and preview-token primitives.
+- Defer any live `POST /api/memory-skills/candidates` route until separate
+  explicit approval. It must reject requests without explicit confirmation and
+  must not trust a client-supplied digest as standalone authorization.
+- `GET /api/memory-skills/candidates` is not implemented. Defer it until saved
+  candidates exist in Phase 2D or later.
 - Defer archive/discard endpoints until Phase 2E or later.
 - Voice Inbox must never call the save endpoint automatically.
 - All POST endpoints must reject malformed JSON, oversized input, and any path
@@ -319,10 +334,10 @@ phrases. It must not save the candidate automatically. The result should remain
 a task candidate with manual copy or detail handoff actions.
 
 In Phase 2B, Voice Inbox can link manually to a preview-only Memory / Skills
-flow. That preview must not write files. After Phase 2C-2, Voice Inbox still
-does not auto-save and still has no save endpoint to call. In Phase 2C-3 or
-later, a local save can happen only after the user reviews the preview and
-confirms the local save.
+flow. That preview must not write files or issue preview tokens. After Phase
+2C-3b, Voice Inbox still does not auto-save, request tokens, or call a save
+endpoint. Any future local save requires separate explicit approval and can
+happen only after the user reviews the preview and confirms the local save.
 
 ### Chat / Command Skill Suggestion
 
@@ -389,16 +404,18 @@ Memory / Skills must preserve these boundaries:
 - no background agents;
 - human-approved only;
 - local-first only;
-- user-facing save is still not enabled after Phase 2C-2.
+- user-facing save is still not enabled after Phase 2C-3b.
 
 ## 11. Phase 2 Write Safety
 
-Phase 2B is preview-only and does not write any file. Phase 2C-0/1/2 has
-implemented helpers, but it has not enabled user-facing local save. If Phase
-2C-3 or later exposes persistence, the write design should follow these rules:
+Phase 2B is preview-only and does not write any file. Phase
+2C-0/1/2/3a/3b has implemented internal helpers, but it has not enabled
+user-facing local save. If a later explicitly approved phase exposes
+persistence, the write design should follow these rules:
 
 - prefer one per-candidate JSON file in repo-external user-local app state;
-- write through a temporary file and atomic replace;
+- write through an exclusively created temporary file and no-overwrite atomic
+  publication;
 - validate the JSON schema and `schema_version`;
 - cap candidate file size and individual field lengths;
 - reject path traversal and arbitrary path input;
@@ -408,7 +425,7 @@ implemented helpers, but it has not enabled user-facing local save. If Phase
 - do not run git commands as part of save;
 - do not let app runtime write to arbitrary paths.
 
-Current helper status through Phase 2C-2:
+Current helper status through Phase 2C-3b:
 
 - Phase 2C-0 implemented a storage path helper. It calculates and validates
   paths only. It rejects repo-internal paths, relative overrides, and
@@ -425,11 +442,18 @@ Current helper status through Phase 2C-2:
   files, creates no directories, and enables no save endpoint.
 - Phase 2C-2 implemented a candidate write helper. It can write one
   per-candidate JSON file, uses the storage path helper, rejects repo-internal
-  paths before `mkdir` or write, uses a safe schema, writes atomically through a
-  temp file plus flush/fsync plus `os.replace`, avoids overwrite on collision,
-  and does not write raw transcript or path fields. It is used only by
-  self-test/smoke tests, and candidate JSON writes occur only inside
-  TemporaryDirectory tests.
+  paths before `mkdir` or write, uses a safe schema, and does not write raw
+  transcript or path fields. It is used only by self-test/smoke tests, and
+  candidate JSON writes occur only inside TemporaryDirectory tests.
+- Phase 2C-3a hardened the writer with repeated path validation, reparse-point
+  rejection, exclusive temporary-file creation, strict UTF-8 and size checks,
+  flush/fsync, and no-overwrite publication through a hard link. Collision and
+  failure paths clean up temporary files without exposing private paths.
+- Phase 2C-3b implemented bounded process-local session/CSRF request-guard and
+  one-time preview-token primitives. Tokens are bound to canonical server-held
+  snapshots, expire deterministically, use digest keys, and are claimed once
+  under a lock. These primitives perform no filesystem write and remain
+  route-free/internal-tests-only.
 - Saved JSON uses `status: saved`, but a saved candidate is still only a local
   candidate, not an approved skill and not executable.
 - The write helper is not connected to API, UI, or Voice Inbox. There is still
@@ -486,14 +510,19 @@ Current helper status through Phase 2C-2:
   no unexpected git status files.
 - Do not: store raw transcripts long term, write user memory into tracked repo
   paths, save without preview, or save without explicit confirmation.
-- Current status through Phase 2C-2: storage path helper, dry-run validation
-  helper, and tests-only candidate write helper exist. User-facing save is not
-  enabled yet, and the write helper is not connected to API, UI, or Voice Inbox.
+- Current status through Phase 2C-3b: storage path, dry-run validation, hardened
+  candidate writer, request guard, session registry, canonical snapshot/digest,
+  and preview token helpers exist. They remain internal/tests-only; user-facing
+  save is disabled and none is connected to live HTTP routes, UI, or Voice
+  Inbox.
 
-### Phase 2C-3: Expose Approval-gated Local Save Decision
+### Phase 2C-3: Approval-gated Local Save Safety Decision
 
-- Goal: explicitly decide how to expose approval-gated local save.
-- It should not be automatic.
+- Goal: determine whether the safety and product prerequisites are sufficient
+  before any decision to expose approval-gated local save.
+- Phase 2C-3a/3b does not expose local save, and Phase 2C-3c is design/review
+  only. Any later implementation still requires separate explicit approval.
+- Any future save must not be automatic.
 - It should require preview, explicit confirmation, privacy review, and
   `local_only` scope.
 - It should connect to the existing helpers instead of duplicating validation or
@@ -501,6 +530,38 @@ Current helper status through Phase 2C-2:
 - It must keep Voice Inbox from auto-saving.
 - It must keep saved candidates separate from Skill Registry and skill
   execution.
+
+#### Phase 2C-3a: Storage Primitive Hardening
+
+- Status: implemented for internal/tests-only writer coverage.
+- Result: hardened path validation, serialization, collision handling, and
+  no-overwrite publication.
+- Boundary: the save route remains disabled/non-success.
+
+#### Phase 2C-3b: Request Guard and Preview Token Primitives
+
+- Status: implemented for internal/tests-only coverage.
+- Result: bounded process-local sessions, strict loopback request metadata
+  checks, canonical candidate digesting, and session-bound one-time preview
+  tokens.
+- Boundary: no live session/bootstrap/token route, no save route, no UI action,
+  and no Voice Inbox token/save path.
+
+#### Phase 2C-3c: Live Save Design and Reopen Conditions Review
+
+- Status: next design/review step; not implemented.
+- Goal: define the complete safety and product conditions that would have to be
+  satisfied before reconsidering a live approval-gated save route.
+- Required review areas: session/bootstrap lifecycle, actual-port request-guard
+  integration, explicit preview-token issuance and one-time claim, canonical
+  server-held snapshot authority, privacy/redaction policy, error recovery,
+  restart behavior, UI confirmation semantics, and deterministic HTTP tests.
+- Reopen condition: separate explicit human approval after the design and test
+  plan are reviewed. Phase 2C-3c documentation alone does not authorize route,
+  UI, Voice Inbox, or persistence changes.
+- Boundary: `POST /api/memory-skills/candidates` remains disabled/non-success;
+  the preview endpoint remains write-free/token-free; request guard/token
+  primitives remain internal/tests-only.
 
 ### Phase 2D: Saved Candidates Read-only List
 
@@ -559,11 +620,12 @@ The safest first implementation for the original v0.1 plan was Phase 1:
 This gives users a clear place to understand the future Memory / Skills flow
 without introducing state mutation or automation risk.
 
-At the current Phase 2C-2 status, Phase 2B preview-only capture and the Phase
-2C-0/1/2 helpers are implemented. The next implementation decision is Phase
-2C-3: whether and how to expose approval-gated local save.
+At the current Phase 2C-3b status, Phase 2B preview-only capture and the Phase
+2C-0/1/2/3a/3b internal helpers are implemented. The next step is Phase 2C-3c:
+a design-only review of live-save safety and reopen conditions. It does not
+authorize a live approval-gated save route.
 
-User-facing persistence should still wait for an explicit Phase 2C-3 decision.
+User-facing persistence should still wait for a separate explicit decision.
 It should prefer repo-external user-local app state, should not store raw
 transcripts long term, should not ship without a privacy/redaction policy, and
 must remain local-only and human-approved.
@@ -601,7 +663,7 @@ Phase 2B validation should additionally verify:
 - Voice Inbox never calls a save endpoint;
 - `git status --short` has no unexpected files.
 
-Phase 2C-0/1/2 validation should additionally verify:
+Phase 2C-0/1/2/3a validation should additionally verify:
 
 - storage path helper rejects repo-internal, relative override, and
   traversal-like repo-internal paths;
@@ -614,10 +676,24 @@ Phase 2C-0/1/2 validation should additionally verify:
 - malformed JSON, oversized input, and path traversal are rejected;
 - write helper tests write only inside TemporaryDirectory tests;
 - no save endpoint, UI save action, Voice Inbox auto-save, or saved candidates
-  dashboard is enabled or available through Phase 2C-2.
+  dashboard is enabled or available through Phase 2C-3a.
 
-Phase 2C-3 validation, if user-facing save is exposed, should additionally
-verify:
+Phase 2C-3b validation should additionally verify:
+
+- the request guard accepts only the actual `127.0.0.1:<port>` Host and matching
+  HTTP Origin, approved JSON content types, and a valid session/CSRF pair;
+- sessions and preview tokens are bounded, process-local, deterministic under
+  fake clocks, and invalidated by expiry or process restart;
+- canonical snapshots contain only allowed normalized fields and use
+  domain-separated deterministic SHA-256 digests;
+- preview tokens are session-bound, digest-keyed, one-time, and never issued by
+  the live preview endpoint;
+- the subsystem writes no file or directory and remains disconnected from HTTP
+  dispatch, UI, and Voice Inbox;
+- `POST /api/memory-skills/candidates` remains disabled/non-success.
+
+Future live-save validation, if user-facing save is explicitly approved, should
+additionally verify:
 
 - save endpoint rejects missing explicit confirmation;
 - preview, explicit confirmation, privacy review, and `local_only` scope are
@@ -657,10 +733,13 @@ Questions to defer until later phases:
 
 Current Phase 2 recommendation:
 
-- Do not expose user-facing persistence until Phase 2C-3 explicitly decides
+- Do not expose user-facing persistence without separate explicit approval of
   the approval-gated local save flow.
+- Use Phase 2C-3c to review design and reopen conditions only; do not connect
+  routes, UI, Voice Inbox, or persistence as part of that review.
 - Keep the implemented Phase 2B preview-only capture flow write-free.
-- Keep the implemented Phase 2C-0/1/2 helpers as helpers, not user-facing save.
+- Keep the implemented Phase 2C-0/1/2/3a/3b helpers internal/tests-only, not
+  user-facing save.
 - Avoid tracked repo user-memory storage.
 - Use repo-external user-local app state for any future saved candidates.
 - Do not add persistence without privacy/redaction policy.

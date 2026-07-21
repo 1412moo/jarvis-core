@@ -1,6 +1,6 @@
 # Jarvis Console v0.1 Checkpoint
 
-Last updated: 2026-07-03
+Last updated: 2026-07-22
 
 ## Summary
 
@@ -179,9 +179,14 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
 
 ### Memory / Skills
 
-- Planned skill for repeated workflow and skill candidate capture.
-- Currently has no command.
-- It appears in skill suggestion and detail surfaces as a planned capability.
+- Phase 2B provides a read-only sample candidate inbox and write-free preview.
+- Phase 2C-0/1/2/3a/3b provides internal/tests-only storage path, validation,
+  hardened writer, request-guard, session, canonical snapshot/digest, and
+  preview-token primitives.
+- `POST /api/memory-skills/candidates` remains disabled/non-success.
+- The live preview endpoint remains write-free and token-free.
+- No UI Save/Confirm, Voice Inbox token/save, or saved candidates dashboard is
+  enabled.
 
 ### Settings
 
@@ -408,11 +413,13 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Current Known Backlog
 
-- Planned skill UX polish: Memory / Skills has no command yet, so the no-command state can be clearer.
+- Memory / Skills remains a proposal surface; any live save route or UI action
+  requires a separate explicit decision.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
 - Tasks / Reports grouping refinement: grouping can become more precise as real task/report/checkpoint indexes appear.
 - History/checkpoint index refinement: a structured checkpoint index would make history grouping more intentional than filename markers alone.
-- Memory / Skills v0.1: repeated workflow capture can become a first-class proposal surface.
+- Saved candidates dashboard remains deferred until a live save lifecycle is
+  separately approved.
 - Daily AI Radar real source collection later, approval-gated.
 - Hermes/Codex automation later, approval-gated.
 - Skill Detail visual polish: usage cards can become easier to scan without changing behavior.
@@ -445,11 +452,15 @@ Priority: P2
 
 Improve source-area and item-type inference as real task, report, and checkpoint indexes become available.
 
-### E. Memory / Skills v0.1
+### E. Memory / Skills Next Safety Decision
 
 Priority: P2
 
-Turn repeated workflow capture into a clearer proposal workflow without installing or modifying skills automatically.
+Proceed to Phase 2C-3c as a design/reopen-conditions review only. Define the
+session/bootstrap, request-guard integration, preview-token lifecycle,
+privacy/redaction, confirmation, recovery, and HTTP-test conditions required
+before reconsidering a live approval-gated save route. Keep the current request
+guard/token primitives route-free until separately approved.
 
 ### F. Skill Detail Visual Polish
 

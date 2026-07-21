@@ -164,10 +164,19 @@ Jarvis Console does not fetch sources or run Daily AI Radar automatically.
 
 ### Memory / Skills
 
-Purpose: future area for repeated workflow candidates, approved skills, and
-Jarvis operating rules.
+Purpose: review repeated workflow candidates and future Jarvis operating rules
+without turning proposals into automatic memory or executable skills.
 
-Status: planned placeholder in v0.1.
+Status: Phase 2B provides a read-only sample inbox and write-free candidate
+preview. Phase 2C-0/1/2/3a/3b adds internal/tests-only path, validation,
+hardened writer, request-guard, session, canonical snapshot/digest, and preview
+token primitives. The save endpoint remains disabled/non-success; no live token
+issuance, UI Save/Confirm, Voice Inbox save, or saved candidates dashboard is
+enabled.
+
+Next: Phase 2C-3c is a design and reopen-conditions review only. It does not
+authorize connecting the request guard/token subsystem, enabling the save
+endpoint, adding UI Save/Confirm, or adding Voice Inbox persistence.
 
 ## Safety Boundary
 
