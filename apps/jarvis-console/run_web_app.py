@@ -7,6 +7,7 @@ import inspect
 import json
 import os
 import re
+import stat
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -244,6 +245,8 @@ MEMORY_SAVE_DRY_RUN_DISALLOWED_PATH_FIELDS = {
 }
 MEMORY_SAVE_DRY_RUN_NOTE_MAX_CHARS = 240
 MEMORY_CANDIDATE_STORAGE_VERSION = "memory_candidate_storage.v1"
+MEMORY_CANDIDATE_JSON_MAX_BYTES = 32 * 1024
+MEMORY_CANDIDATE_TEMP_CREATE_ATTEMPTS = 3
 MEMORY_CANDIDATE_ID_PATTERN = re.compile(r"^mem_[a-f0-9]{12,32}$")
 JARVIS_LOCAL_STATE_DIR_ENV = "JARVIS_LOCAL_STATE_DIR"
 MEMORY_SKILLS_STATE_ROOT_NAME = "Jarvis-Core"
@@ -315,6 +318,39 @@ def normalize_filesystem_path(path: Path) -> Path:
     return path.expanduser().resolve(strict=False)
 
 
+def absolute_filesystem_path(path: Path) -> Path:
+    """Return a lexical absolute path without resolving symlinks or reparse points."""
+
+    return Path(os.path.abspath(os.fspath(path.expanduser())))
+
+
+def filesystem_stat_is_reparse_point(path_stat: Any) -> bool:
+    """Return whether an lstat result represents a symlink or Windows reparse point."""
+
+    if stat.S_ISLNK(path_stat.st_mode):
+        return True
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)
+    return bool(getattr(path_stat, "st_file_attributes", 0) & reparse_flag)
+
+
+def existing_path_chain_has_reparse_point(path: Path) -> bool:
+    """Inspect existing lexical path components without following a detected reparse point."""
+
+    current = absolute_filesystem_path(path)
+    components = [current]
+    while current.parent != current:
+        current = current.parent
+        components.append(current)
+    for component in reversed(components):
+        try:
+            component_stat = os.lstat(component)
+        except FileNotFoundError:
+            continue
+        if filesystem_stat_is_reparse_point(component_stat):
+            return True
+    return False
+
+
 def is_path_inside_repo(path: Path, repo_root: Path = REPO_ROOT) -> bool:
     """Return whether a path is inside the repository, without requiring it to exist."""
 
@@ -375,8 +411,10 @@ def resolve_memory_skills_state_paths(
     else:
         state_root, source = default_jarvis_local_state_root(env=env_map, home_dir=home_dir, is_windows=is_windows)
 
-    state_root = normalize_filesystem_path(state_root)
-    candidate_dir = normalize_filesystem_path(state_root.joinpath(*MEMORY_SKILLS_STATE_SEGMENTS))
+    state_root_policy_path = absolute_filesystem_path(state_root)
+    candidate_dir_policy_path = state_root_policy_path.joinpath(*MEMORY_SKILLS_STATE_SEGMENTS)
+    state_root = normalize_filesystem_path(state_root_policy_path)
+    candidate_dir = normalize_filesystem_path(candidate_dir_policy_path)
     repo_internal = is_path_inside_repo(candidate_dir, repo_root)
     if repo_internal:
         return {
@@ -385,6 +423,8 @@ def resolve_memory_skills_state_paths(
             "source": source,
             "state_root": state_root,
             "candidate_dir": candidate_dir,
+            "state_root_policy_path": state_root_policy_path,
+            "candidate_dir_policy_path": candidate_dir_policy_path,
             "repo_root": normalize_filesystem_path(repo_root),
             "repo_internal": True,
             "will_create_directory": False,
@@ -397,6 +437,8 @@ def resolve_memory_skills_state_paths(
         "source": source,
         "state_root": state_root,
         "candidate_dir": candidate_dir,
+        "state_root_policy_path": state_root_policy_path,
+        "candidate_dir_policy_path": candidate_dir_policy_path,
         "repo_root": normalize_filesystem_path(repo_root),
         "repo_internal": False,
         "will_create_directory": False,
@@ -1069,6 +1111,34 @@ def assert_memory_candidate_safety(candidate: dict[str, Any]) -> None:
     assert "original_text" not in candidate
 
 
+def memory_string_has_valid_unicode(value: str) -> bool:
+    """Return whether a string is NUL-free and strictly UTF-8 encodable."""
+
+    if "\x00" in value:
+        return False
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def memory_json_strings_have_valid_unicode(value: Any) -> bool:
+    """Recursively validate every string key and value destined for candidate JSON."""
+
+    if isinstance(value, str):
+        return memory_string_has_valid_unicode(value)
+    if isinstance(value, dict):
+        return all(
+            (not isinstance(key, str) or memory_string_has_valid_unicode(key))
+            and memory_json_strings_have_valid_unicode(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return all(memory_json_strings_have_valid_unicode(item) for item in value)
+    return True
+
+
 def normalize_memory_preview_string(
     payload: dict[str, Any],
     field: str,
@@ -1085,6 +1155,8 @@ def normalize_memory_preview_string(
     value = payload[field]
     if not isinstance(value, str):
         return HTTPStatus.BAD_REQUEST, f"{field}_must_be_string", ""
+    if not memory_string_has_valid_unicode(value):
+        return HTTPStatus.BAD_REQUEST, "invalid_unicode", ""
     text = re.sub(r"\s+", " ", value).strip()
     if required and not text:
         return HTTPStatus.BAD_REQUEST, f"empty_{field}", ""
@@ -1112,6 +1184,8 @@ def normalize_memory_preview_list(
     for item in value:
         if not isinstance(item, str):
             return HTTPStatus.BAD_REQUEST, f"{field}_items_must_be_string", []
+        if not memory_string_has_valid_unicode(item):
+            return HTTPStatus.BAD_REQUEST, "invalid_unicode", []
         text = re.sub(r"\s+", " ", item).strip()
         if not text:
             continue
@@ -1121,14 +1195,21 @@ def normalize_memory_preview_list(
     return HTTPStatus.OK, None, normalized
 
 
-def normalize_memory_preview_choice(payload: dict[str, Any], field: str, allowed: set[str], fallback: str) -> str:
+def normalize_memory_preview_choice(
+    payload: dict[str, Any],
+    field: str,
+    allowed: set[str],
+    fallback: str,
+) -> tuple[int, str | None, str]:
     """Normalize enum-like preview values with conservative fallback."""
 
     value = payload.get(field)
     if not isinstance(value, str):
-        return fallback
+        return HTTPStatus.OK, None, fallback
+    if not memory_string_has_valid_unicode(value):
+        return HTTPStatus.BAD_REQUEST, "invalid_unicode", fallback
     normalized = value.strip().lower()
-    return normalized if normalized in allowed else fallback
+    return HTTPStatus.OK, None, normalized if normalized in allowed else fallback
 
 
 def memory_preview_title(title: str, cleaned_text: str) -> str:
@@ -1182,14 +1263,25 @@ def prepare_memory_candidate_preview(payload: dict[str, Any]) -> tuple[int, dict
     if status != HTTPStatus.OK:
         return status, {"ok": False, "error": error}
 
-    candidate_type = normalize_memory_preview_choice(
+    status, error, candidate_type = normalize_memory_preview_choice(
         payload,
         "candidate_type",
         MEMORY_PREVIEW_CANDIDATE_TYPES,
         "unknown",
     )
-    confidence = normalize_memory_preview_choice(payload, "confidence", MEMORY_PREVIEW_CONFIDENCE_VALUES, "low")
-    source = normalize_memory_preview_choice(payload, "source", MEMORY_PREVIEW_SOURCES, "manual")
+    if status != HTTPStatus.OK:
+        return status, {"ok": False, "error": error}
+    status, error, confidence = normalize_memory_preview_choice(
+        payload,
+        "confidence",
+        MEMORY_PREVIEW_CONFIDENCE_VALUES,
+        "low",
+    )
+    if status != HTTPStatus.OK:
+        return status, {"ok": False, "error": error}
+    status, error, source = normalize_memory_preview_choice(payload, "source", MEMORY_PREVIEW_SOURCES, "manual")
+    if status != HTTPStatus.OK:
+        return status, {"ok": False, "error": error}
     candidate_preview = {
         "schema_version": "memory_candidate.v1",
         "id": "preview_only_not_persisted",
@@ -1264,6 +1356,8 @@ def validate_memory_save_dry_run_choice(
     value = candidate.get(field)
     if not isinstance(value, str):
         return HTTPStatus.BAD_REQUEST, error, ""
+    if not memory_string_has_valid_unicode(value):
+        return HTTPStatus.BAD_REQUEST, "invalid_unicode", ""
     normalized = value.strip().lower()
     if normalized not in allowed:
         return HTTPStatus.BAD_REQUEST, error, ""
@@ -1293,6 +1387,8 @@ def validate_memory_skills_save_dry_run(payload: Any) -> tuple[int, dict[str, An
     disallowed_error = reject_memory_save_dry_run_disallowed_fields(candidate)
     if disallowed_error:
         return memory_save_dry_run_error(disallowed_error)
+    if not memory_json_strings_have_valid_unicode(candidate):
+        return memory_save_dry_run_error("invalid_unicode")
 
     if candidate.get("schema_version") != "memory_candidate.v1":
         return memory_save_dry_run_error("invalid_schema_version")
@@ -1509,6 +1605,59 @@ def cleanup_memory_candidate_temp_file(temp_file: Path) -> None:
         pass
 
 
+def serialize_memory_candidate_json(
+    stored_candidate: Any,
+    *,
+    max_bytes: int = MEMORY_CANDIDATE_JSON_MAX_BYTES,
+) -> tuple[int, str, bytes]:
+    """Serialize one candidate completely before any filesystem path is resolved or created."""
+
+    if not memory_json_strings_have_valid_unicode(stored_candidate):
+        return HTTPStatus.BAD_REQUEST, "invalid_unicode", b""
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes <= 0:
+        return HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed", b""
+    try:
+        serialized_text = json.dumps(
+            stored_candidate,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=2,
+            sort_keys=True,
+        )
+        serialized_bytes = f"{serialized_text}\n".encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        return HTTPStatus.BAD_REQUEST, "invalid_unicode", b""
+    except (TypeError, ValueError):
+        return HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed", b""
+    if len(serialized_bytes) > max_bytes:
+        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "candidate_json_too_large", b""
+    return HTTPStatus.OK, "", serialized_bytes
+
+
+def validate_memory_candidate_directory_path(
+    candidate_dir_policy_path: Path,
+    *,
+    repo_root: Path = REPO_ROOT,
+    expected_candidate_dir: Path | None = None,
+    require_exists: bool = False,
+) -> tuple[int, str, Path]:
+    """Apply best-effort repo and reparse checks to a lexical candidate directory path."""
+
+    try:
+        if existing_path_chain_has_reparse_point(candidate_dir_policy_path):
+            return HTTPStatus.BAD_REQUEST, "candidate_path_not_safe", Path()
+        candidate_dir = candidate_dir_policy_path.resolve(strict=require_exists)
+        if require_exists and not candidate_dir.is_dir():
+            return HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed", Path()
+        if expected_candidate_dir is not None and candidate_dir != expected_candidate_dir:
+            return HTTPStatus.BAD_REQUEST, "candidate_path_not_safe", Path()
+        if is_path_inside_repo(candidate_dir, repo_root):
+            return HTTPStatus.BAD_REQUEST, "local_state_dir_inside_repo", Path()
+    except (OSError, RuntimeError):
+        return HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed", Path()
+    return HTTPStatus.OK, "", candidate_dir
+
+
 def write_memory_skills_candidate(
     dry_run_result: Any,
     *,
@@ -1518,6 +1667,8 @@ def write_memory_skills_candidate(
     is_windows: bool | None = None,
     id_generator: Any | None = None,
     clock: Any | None = None,
+    max_json_bytes: int = MEMORY_CANDIDATE_JSON_MAX_BYTES,
+    linker: Any | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """Write one validated candidate JSON file; not connected to any API or UI route."""
 
@@ -1543,46 +1694,120 @@ def write_memory_skills_candidate(
     if validation_status != HTTPStatus.OK:
         return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, validation_result.get("error", "invalid_candidate"))
 
-    state_paths = resolve_memory_skills_state_paths(
-        env=env,
-        home_dir=home_dir,
-        repo_root=repo_root,
-        is_windows=is_windows,
-    )
+    try:
+        candidate_id = generate_memory_candidate_id(id_generator)
+        if not memory_string_has_valid_unicode(candidate_id):
+            return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "invalid_unicode")
+        if not is_safe_memory_candidate_id(candidate_id):
+            return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "invalid_candidate_id")
+        timestamp = memory_candidate_timestamp(clock)
+        stored_candidate = saved_memory_candidate_from_dry_run(
+            validation_result["candidate"],
+            candidate_id,
+            timestamp,
+        )
+        serialization_status, serialization_error, serialized_candidate = serialize_memory_candidate_json(
+            stored_candidate,
+            max_bytes=max_json_bytes,
+        )
+    except Exception:
+        return memory_candidate_write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed")
+    if serialization_status != HTTPStatus.OK:
+        return memory_candidate_write_error(serialization_status, serialization_error)
+
+    try:
+        state_paths = resolve_memory_skills_state_paths(
+            env=env,
+            home_dir=home_dir,
+            repo_root=repo_root,
+            is_windows=is_windows,
+        )
+    except (OSError, RuntimeError):
+        return memory_candidate_write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed")
     if not state_paths.get("ok"):
         return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, state_paths.get("error", "invalid_state_path"))
-    candidate_dir = normalize_filesystem_path(state_paths["candidate_dir"])
-    if is_path_inside_repo(candidate_dir, repo_root):
-        return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "local_state_dir_inside_repo")
+    candidate_dir_policy_path = state_paths.get("candidate_dir_policy_path")
+    if not isinstance(candidate_dir_policy_path, Path):
+        return memory_candidate_write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed")
+    path_status, path_error, candidate_dir = validate_memory_candidate_directory_path(
+        candidate_dir_policy_path,
+        repo_root=repo_root,
+    )
+    if path_status != HTTPStatus.OK:
+        return memory_candidate_write_error(path_status, path_error)
 
-    candidate_id = generate_memory_candidate_id(id_generator)
-    if not is_safe_memory_candidate_id(candidate_id):
-        return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "invalid_candidate_id")
-
-    candidate_file = normalize_filesystem_path(candidate_dir / f"{candidate_id}.json")
-    if candidate_file.parent != candidate_dir or is_path_inside_repo(candidate_file, repo_root):
+    candidate_file = candidate_dir / f"{candidate_id}.json"
+    if candidate_file.parent != candidate_dir or is_path_inside_repo(candidate_dir, repo_root):
         return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "candidate_path_not_safe")
-    temp_file = normalize_filesystem_path(candidate_dir / f".{candidate_id}.json.tmp")
-    if temp_file.parent != candidate_dir or is_path_inside_repo(temp_file, repo_root):
-        return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "candidate_temp_path_not_safe")
-    if candidate_file.exists():
+    if os.path.lexists(candidate_file):
         return memory_candidate_write_error(HTTPStatus.CONFLICT, "candidate_file_exists")
 
-    timestamp = memory_candidate_timestamp(clock)
-    stored_candidate = saved_memory_candidate_from_dry_run(validation_result["candidate"], candidate_id, timestamp)
+    temp_file: Path | None = None
+    publish_link = os.link if linker is None else linker
     try:
-        candidate_dir.mkdir(parents=True, exist_ok=True)
-        with temp_file.open("w", encoding="utf-8", newline="\n") as file:
-            json.dump(stored_candidate, file, ensure_ascii=False, indent=2, sort_keys=True)
-            file.write("\n")
-            file.flush()
-            os.fsync(file.fileno())
-        if candidate_file.exists():
-            cleanup_memory_candidate_temp_file(temp_file)
+        candidate_dir_policy_path.mkdir(parents=True, exist_ok=True)
+        path_status, path_error, candidate_dir_after_mkdir = validate_memory_candidate_directory_path(
+            candidate_dir_policy_path,
+            repo_root=repo_root,
+            expected_candidate_dir=candidate_dir,
+            require_exists=True,
+        )
+        if path_status != HTTPStatus.OK:
+            return memory_candidate_write_error(path_status, path_error)
+        candidate_dir = candidate_dir_after_mkdir
+        candidate_file = candidate_dir / f"{candidate_id}.json"
+        if candidate_file.parent != candidate_dir or is_path_inside_repo(candidate_dir, repo_root):
+            return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "candidate_path_not_safe")
+        if os.path.lexists(candidate_file):
             return memory_candidate_write_error(HTTPStatus.CONFLICT, "candidate_file_exists")
-        os.replace(temp_file, candidate_file)
+
+        for _ in range(MEMORY_CANDIDATE_TEMP_CREATE_ATTEMPTS):
+            temp_candidate = candidate_dir / f".{candidate_id}.{uuid.uuid4().hex}.tmp"
+            if temp_candidate.parent != candidate_dir or is_path_inside_repo(candidate_dir, repo_root):
+                return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "candidate_temp_path_not_safe")
+            try:
+                file = temp_candidate.open("xb")
+            except FileExistsError:
+                continue
+            temp_file = temp_candidate
+            with file:
+                file.write(serialized_candidate)
+                file.flush()
+                os.fsync(file.fileno())
+            break
+        if temp_file is None:
+            return memory_candidate_write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed")
+
+        path_status, path_error, candidate_dir_before_publish = validate_memory_candidate_directory_path(
+            candidate_dir_policy_path,
+            repo_root=repo_root,
+            expected_candidate_dir=candidate_dir,
+            require_exists=True,
+        )
+        if path_status != HTTPStatus.OK:
+            return memory_candidate_write_error(path_status, path_error)
+        if candidate_dir_before_publish != candidate_dir:
+            return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "candidate_path_not_safe")
+        candidate_file = candidate_dir / f"{candidate_id}.json"
+        if candidate_file.parent != candidate_dir or is_path_inside_repo(candidate_dir, repo_root):
+            return memory_candidate_write_error(HTTPStatus.BAD_REQUEST, "candidate_path_not_safe")
+        if os.path.lexists(candidate_file):
+            return memory_candidate_write_error(HTTPStatus.CONFLICT, "candidate_file_exists")
+        try:
+            publish_link(temp_file, candidate_file)
+        except FileExistsError:
+            return memory_candidate_write_error(HTTPStatus.CONFLICT, "candidate_file_exists")
+        except OSError:
+            return memory_candidate_write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed")
     except OSError:
-        cleanup_memory_candidate_temp_file(temp_file)
+        return memory_candidate_write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed")
+    except Exception:
+        return memory_candidate_write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed")
+    finally:
+        if temp_file is not None:
+            cleanup_memory_candidate_temp_file(temp_file)
+
+    if not os.path.lexists(candidate_file):
         return memory_candidate_write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_write_failed")
 
     return HTTPStatus.OK, {
@@ -2515,6 +2740,12 @@ def run_self_test() -> None:
     )
     assert traversal_like_state["ok"] is False
     assert traversal_like_state["error"] == "local_state_dir_inside_repo"
+    fake_reparse_stat = type(
+        "FakeReparseStat",
+        (),
+        {"st_mode": stat.S_IFDIR, "st_file_attributes": 0x0400},
+    )()
+    assert filesystem_stat_is_reparse_point(fake_reparse_stat) is True
     assert not APP_ROOT.joinpath("state").exists()
     assert not REPO_ROOT.joinpath(".jarvis-local").exists()
 
@@ -2565,6 +2796,38 @@ def run_self_test() -> None:
         MEMORY_PREVIEW_ENDPOINT,
         {"cleaned_text": "valid", "original_text_preview": "x" * (MEMORY_PREVIEW_ORIGINAL_TEXT_MAX_CHARS + 1)},
     )[0] == HTTPStatus.BAD_REQUEST
+    invalid_preview_payloads = (
+        {"cleaned_text": "\ud800"},
+        {"cleaned_text": "valid", "title": "bad\udfff"},
+        {"cleaned_text": "valid", "original_text_preview": "bad\ud800"},
+        {"cleaned_text": "valid", "tags": ["bad\ud800"]},
+        {"cleaned_text": "valid", "safety_notes": ["bad\udfff"]},
+        {"cleaned_text": "valid", "candidate_type": "bad\ud800"},
+        {"cleaned_text": "valid", "confidence": "bad\ud800"},
+        {"cleaned_text": "valid", "source": "bad\ud800"},
+        {"cleaned_text": "bad\x00text"},
+    )
+    for invalid_preview_payload in invalid_preview_payloads:
+        invalid_unicode_code, invalid_unicode_preview = handle_post_api(
+            MEMORY_PREVIEW_ENDPOINT,
+            invalid_preview_payload,
+        )
+        assert invalid_unicode_code == HTTPStatus.BAD_REQUEST
+        assert invalid_unicode_preview == {"ok": False, "error": "invalid_unicode"}
+
+    valid_unicode_code, valid_unicode_preview = handle_post_api(
+        MEMORY_PREVIEW_ENDPOINT,
+        {
+            "title": "정상 한글 😀 𐐷",
+            "cleaned_text": "반복 작업을 안전하게 정리 😀 𐐷",
+            "original_text_preview": "원문 미리보기 😀",
+            "tags": ["한글", "emoji-😀"],
+            "safety_notes": ["정상 Unicode만 저장 후보로 사용 😀"],
+        },
+    )
+    assert valid_unicode_code == HTTPStatus.OK
+    assert valid_unicode_preview["candidate_preview"]["title"] == "정상 한글 😀 𐐷"
+    assert valid_unicode_preview["candidate_preview"]["cleaned_text"] == "반복 작업을 안전하게 정리 😀 𐐷"
     save_dry_run_request = {
         "candidate_preview": candidate_preview,
         "explicit_confirmation": True,
@@ -2671,6 +2934,49 @@ def run_self_test() -> None:
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"file_path": "memory/tasks/x.json"}), "path_field_not_allowed")
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"candidate_file": "candidate.json"}), "path_field_not_allowed")
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"id": "../memory/tasks/x"}), "invalid_candidate_id")
+    for scalar_field in (
+        "title",
+        "cleaned_text",
+        "original_text_preview",
+        "next_action",
+        "privacy_note",
+        "candidate_type",
+        "confidence",
+        "source",
+    ):
+        assert_save_dry_run_rejected(
+            save_dry_run_body(candidate_updates={scalar_field: "bad\ud800"}),
+            "invalid_unicode",
+        )
+    for list_field in ("tags", "safety_notes"):
+        assert_save_dry_run_rejected(
+            save_dry_run_body(candidate_updates={list_field: ["bad\udfff"]}),
+            "invalid_unicode",
+        )
+    assert_save_dry_run_rejected(
+        save_dry_run_body(candidate_updates={"cleaned_text": "bad\x00text"}),
+        "invalid_unicode",
+    )
+
+    serialized_code, serialized_error, serialized_candidate = serialize_memory_candidate_json(
+        {"title": "정상 한글 😀 𐐷"},
+        max_bytes=1024,
+    )
+    assert serialized_code == HTTPStatus.OK
+    assert serialized_error == ""
+    assert json.loads(serialized_candidate.decode("utf-8"))["title"] == "정상 한글 😀 𐐷"
+    assert serialize_memory_candidate_json({"title": "bad\ud800"})[:2] == (
+        HTTPStatus.BAD_REQUEST,
+        "invalid_unicode",
+    )
+    assert serialize_memory_candidate_json({"title": "bad\x00text"})[:2] == (
+        HTTPStatus.BAD_REQUEST,
+        "invalid_unicode",
+    )
+    assert serialize_memory_candidate_json({"title": "too large"}, max_bytes=1)[:2] == (
+        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+        "candidate_json_too_large",
+    )
 
     def assert_save_endpoint_rejected(
         body: Any,
@@ -2795,6 +3101,96 @@ def run_self_test() -> None:
     assert endpoint_repo_write["error"] == "local_state_dir_inside_repo"
     assert not REPO_ROOT.joinpath(".jarvis-local").exists()
 
+    valid_unicode_save_request = {
+        "candidate_preview": valid_unicode_preview["candidate_preview"],
+        "explicit_confirmation": True,
+        "privacy_reviewed": True,
+        "save_scope": "local_only",
+    }
+    valid_unicode_dry_run_code, valid_unicode_dry_run = validate_memory_skills_save_dry_run(
+        valid_unicode_save_request
+    )
+    assert valid_unicode_dry_run_code == HTTPStatus.OK
+    with TemporaryDirectory(prefix="jarvis-unicode-candidate-write-") as unicode_write_root_text:
+        unicode_write_root = Path(unicode_write_root_text)
+        unicode_write_code, unicode_write = write_memory_skills_candidate(
+            valid_unicode_dry_run,
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(unicode_write_root)},
+            id_generator=lambda: "mem_555555555555",
+            clock=lambda: "2026-07-08T00:00:00Z",
+        )
+        assert unicode_write_code == HTTPStatus.OK
+        unicode_candidate_file = unicode_write_root / "memory-skills" / "candidates" / "mem_555555555555.json"
+        unicode_stored_candidate = json.loads(unicode_candidate_file.read_text(encoding="utf-8"))
+        assert unicode_stored_candidate["title"] == "정상 한글 😀 𐐷"
+        assert unicode_stored_candidate["cleaned_text"] == "반복 작업을 안전하게 정리 😀 𐐷"
+        assert not list(unicode_candidate_file.parent.glob("*.tmp"))
+
+    for invalid_stored_text in ("bad\ud800", "bad\x00text"):
+        with TemporaryDirectory(prefix="jarvis-invalid-unicode-write-") as invalid_unicode_root_text:
+            invalid_unicode_root = Path(invalid_unicode_root_text)
+            invalid_unicode_dry_run = dict(save_dry_run)
+            invalid_unicode_dry_run["candidate"] = dict(save_dry_run["candidate"])
+            invalid_unicode_dry_run["candidate"]["cleaned_text"] = invalid_stored_text
+            invalid_unicode_write_code, invalid_unicode_write = write_memory_skills_candidate(
+                invalid_unicode_dry_run,
+                env={JARVIS_LOCAL_STATE_DIR_ENV: str(invalid_unicode_root)},
+                id_generator=lambda: "mem_666666666666",
+                clock=lambda: "2026-07-08T00:00:00Z",
+            )
+            assert invalid_unicode_write_code == HTTPStatus.BAD_REQUEST
+            assert invalid_unicode_write["error"] == "invalid_unicode"
+            assert "candidate_file" not in invalid_unicode_write
+            assert str(invalid_unicode_root) not in str(invalid_unicode_write)
+            assert not (invalid_unicode_root / "memory-skills").exists()
+
+    with TemporaryDirectory(prefix="jarvis-invalid-timestamp-write-") as invalid_timestamp_root_text:
+        invalid_timestamp_root = Path(invalid_timestamp_root_text)
+        invalid_timestamp_code, invalid_timestamp = write_memory_skills_candidate(
+            save_dry_run,
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(invalid_timestamp_root)},
+            id_generator=lambda: "mem_777777777777",
+            clock=lambda: "bad\ud800",
+        )
+        assert invalid_timestamp_code == HTTPStatus.BAD_REQUEST
+        assert invalid_timestamp["error"] == "invalid_unicode"
+        assert not (invalid_timestamp_root / "memory-skills").exists()
+
+    with TemporaryDirectory(prefix="jarvis-oversize-candidate-write-") as oversize_root_text:
+        oversize_root = Path(oversize_root_text)
+        oversize_code, oversize = write_memory_skills_candidate(
+            save_dry_run,
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(oversize_root)},
+            id_generator=lambda: "mem_888888888888",
+            clock=lambda: "2026-07-08T00:00:00Z",
+            max_json_bytes=1,
+        )
+        assert oversize_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+        assert oversize["error"] == "candidate_json_too_large"
+        assert "candidate_file" not in oversize
+        assert not (oversize_root / "memory-skills").exists()
+
+    with TemporaryDirectory(prefix="jarvis-reparse-candidate-write-") as reparse_root_text:
+        reparse_root = Path(reparse_root_text)
+        reparse_target = reparse_root / "target"
+        reparse_target.mkdir()
+        reparse_state_root = reparse_root / "state-link"
+        try:
+            reparse_state_root.symlink_to(reparse_target, target_is_directory=True)
+        except (NotImplementedError, OSError):
+            pass
+        else:
+            reparse_code, reparse_result = write_memory_skills_candidate(
+                save_dry_run,
+                env={JARVIS_LOCAL_STATE_DIR_ENV: str(reparse_state_root)},
+                id_generator=lambda: "mem_999999999999",
+                clock=lambda: "2026-07-08T00:00:00Z",
+            )
+            assert reparse_code == HTTPStatus.BAD_REQUEST
+            assert reparse_result["error"] == "candidate_path_not_safe"
+            assert "candidate_file" not in reparse_result
+            assert not (reparse_target / "memory-skills").exists()
+
     fixed_candidate_id = "mem_0123456789ab"
     fixed_timestamp = "2026-07-08T00:00:00Z"
     with TemporaryDirectory(prefix="jarvis-candidate-write-") as write_root_text:
@@ -2835,7 +3231,7 @@ def run_self_test() -> None:
         assert "candidate_file" not in stored_candidate
         assert "storage_path" not in stored_candidate
         assert "repo_path" not in stored_candidate
-        assert not (candidate_dir / f".{fixed_candidate_id}.json.tmp").exists()
+        assert not list(candidate_dir.glob(f".{fixed_candidate_id}.*.tmp"))
         before_collision_text = candidate_file.read_text(encoding="utf-8")
         collision_code, collision = write_memory_skills_candidate(
             save_dry_run,
@@ -2847,7 +3243,7 @@ def run_self_test() -> None:
         assert collision["saved"] is False
         assert collision["error"] == "candidate_file_exists"
         assert candidate_file.read_text(encoding="utf-8") == before_collision_text
-        assert not (candidate_dir / f".{fixed_candidate_id}.json.tmp").exists()
+        assert not list(candidate_dir.glob(f".{fixed_candidate_id}.*.tmp"))
         invalid_id_code, invalid_id = write_memory_skills_candidate(
             save_dry_run,
             env={JARVIS_LOCAL_STATE_DIR_ENV: str(write_root)},
@@ -2857,6 +3253,51 @@ def run_self_test() -> None:
         assert invalid_id_code == HTTPStatus.BAD_REQUEST
         assert invalid_id["error"] == "invalid_candidate_id"
         assert len(list(candidate_dir.glob("*.json"))) == 1
+
+    with TemporaryDirectory(prefix="jarvis-link-collision-write-") as link_collision_root_text:
+        link_collision_root = Path(link_collision_root_text)
+        link_collision_candidate = (
+            link_collision_root / "memory-skills" / "candidates" / "mem_aaaaaaaaaaaa.json"
+        )
+
+        def collide_during_publish(_temp_file: Path, final_file: Path) -> None:
+            final_file.write_bytes(b"existing candidate")
+            raise FileExistsError
+
+        link_collision_code, link_collision = write_memory_skills_candidate(
+            save_dry_run,
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(link_collision_root)},
+            id_generator=lambda: "mem_aaaaaaaaaaaa",
+            clock=lambda: fixed_timestamp,
+            linker=collide_during_publish,
+        )
+        assert link_collision_code == HTTPStatus.CONFLICT
+        assert link_collision["error"] == "candidate_file_exists"
+        assert "candidate_file" not in link_collision
+        assert link_collision_candidate.read_bytes() == b"existing candidate"
+        assert not list(link_collision_candidate.parent.glob("*.tmp"))
+
+    with TemporaryDirectory(prefix="jarvis-link-failure-write-") as link_failure_root_text:
+        link_failure_root = Path(link_failure_root_text)
+
+        def fail_candidate_publish(_temp_file: Path, _final_file: Path) -> None:
+            raise OSError("private filesystem detail")
+
+        link_failure_code, link_failure = write_memory_skills_candidate(
+            save_dry_run,
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(link_failure_root)},
+            id_generator=lambda: "mem_bbbbbbbbbbbb",
+            clock=lambda: fixed_timestamp,
+            linker=fail_candidate_publish,
+        )
+        link_failure_candidate_dir = link_failure_root / "memory-skills" / "candidates"
+        assert link_failure_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert link_failure["error"] == "candidate_write_failed"
+        assert "candidate_file" not in link_failure
+        assert "private filesystem detail" not in str(link_failure)
+        assert str(link_failure_root) not in str(link_failure)
+        assert not list(link_failure_candidate_dir.glob("*.tmp"))
+        assert not list(link_failure_candidate_dir.glob("*.json"))
 
     with TemporaryDirectory(prefix="jarvis-invalid-candidate-write-") as invalid_write_root_text:
         invalid_write_root = Path(invalid_write_root_text)

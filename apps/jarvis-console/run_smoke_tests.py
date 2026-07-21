@@ -227,6 +227,12 @@ def main() -> None:
     )
     assert traversal_like_state["ok"] is False
     assert traversal_like_state["error"] == "local_state_dir_inside_repo"
+    fake_reparse_stat = type(
+        "FakeReparseStat",
+        (),
+        {"st_mode": 0, "st_file_attributes": 0x0400},
+    )()
+    assert run_web_app.filesystem_stat_is_reparse_point(fake_reparse_stat) is True
     assert not run_web_app.APP_ROOT.joinpath("state").exists()
     assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
 
@@ -267,6 +273,39 @@ def main() -> None:
     )
     assert traversal_preview_code == HTTPStatus.OK
     assert traversal_preview["candidate_preview"]["id"] == "preview_only_not_persisted"
+
+    invalid_preview_payloads = (
+        {"cleaned_text": "\ud800"},
+        {"cleaned_text": "valid", "title": "bad\udfff"},
+        {"cleaned_text": "valid", "original_text_preview": "bad\ud800"},
+        {"cleaned_text": "valid", "tags": ["bad\ud800"]},
+        {"cleaned_text": "valid", "safety_notes": ["bad\udfff"]},
+        {"cleaned_text": "valid", "candidate_type": "bad\ud800"},
+        {"cleaned_text": "valid", "confidence": "bad\ud800"},
+        {"cleaned_text": "valid", "source": "bad\ud800"},
+        {"cleaned_text": "bad\x00text"},
+    )
+    for invalid_preview_payload in invalid_preview_payloads:
+        invalid_unicode_code, invalid_unicode_preview = run_web_app.handle_post_api(
+            run_web_app.MEMORY_PREVIEW_ENDPOINT,
+            invalid_preview_payload,
+        )
+        assert invalid_unicode_code == HTTPStatus.BAD_REQUEST
+        assert invalid_unicode_preview == {"ok": False, "error": "invalid_unicode"}
+
+    valid_unicode_code, valid_unicode_preview = run_web_app.handle_post_api(
+        run_web_app.MEMORY_PREVIEW_ENDPOINT,
+        {
+            "title": "정상 한글 😀 𐐷",
+            "cleaned_text": "반복 작업을 안전하게 정리 😀 𐐷",
+            "original_text_preview": "원문 미리보기 😀",
+            "tags": ["한글", "emoji-😀"],
+            "safety_notes": ["정상 Unicode만 저장 후보로 사용 😀"],
+        },
+    )
+    assert valid_unicode_code == HTTPStatus.OK
+    assert valid_unicode_preview["candidate_preview"]["title"] == "정상 한글 😀 𐐷"
+    assert valid_unicode_preview["candidate_preview"]["cleaned_text"] == "반복 작업을 안전하게 정리 😀 𐐷"
 
     save_dry_run_request = {
         "candidate_preview": preview["candidate_preview"],
@@ -372,6 +411,49 @@ def main() -> None:
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"file_path": "memory/tasks/x.json"}), "path_field_not_allowed")
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"candidate_file": "candidate.json"}), "path_field_not_allowed")
     assert_save_dry_run_rejected(save_dry_run_body(candidate_updates={"id": "../memory/tasks/x"}), "invalid_candidate_id")
+    for scalar_field in (
+        "title",
+        "cleaned_text",
+        "original_text_preview",
+        "next_action",
+        "privacy_note",
+        "candidate_type",
+        "confidence",
+        "source",
+    ):
+        assert_save_dry_run_rejected(
+            save_dry_run_body(candidate_updates={scalar_field: "bad\ud800"}),
+            "invalid_unicode",
+        )
+    for list_field in ("tags", "safety_notes"):
+        assert_save_dry_run_rejected(
+            save_dry_run_body(candidate_updates={list_field: ["bad\udfff"]}),
+            "invalid_unicode",
+        )
+    assert_save_dry_run_rejected(
+        save_dry_run_body(candidate_updates={"cleaned_text": "bad\x00text"}),
+        "invalid_unicode",
+    )
+
+    serialized_code, serialized_error, serialized_candidate = run_web_app.serialize_memory_candidate_json(
+        {"title": "정상 한글 😀 𐐷"},
+        max_bytes=1024,
+    )
+    assert serialized_code == HTTPStatus.OK
+    assert serialized_error == ""
+    assert json.loads(serialized_candidate.decode("utf-8"))["title"] == "정상 한글 😀 𐐷"
+    assert run_web_app.serialize_memory_candidate_json({"title": "bad\ud800"})[:2] == (
+        HTTPStatus.BAD_REQUEST,
+        "invalid_unicode",
+    )
+    assert run_web_app.serialize_memory_candidate_json({"title": "bad\x00text"})[:2] == (
+        HTTPStatus.BAD_REQUEST,
+        "invalid_unicode",
+    )
+    assert run_web_app.serialize_memory_candidate_json({"title": "too large"}, max_bytes=1)[:2] == (
+        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+        "candidate_json_too_large",
+    )
 
     def assert_save_endpoint_rejected(body, expected_error, expected_status=HTTPStatus.BAD_REQUEST):
         rejected_code, rejected = run_web_app.save_memory_skills_candidate(body)
@@ -490,6 +572,96 @@ def main() -> None:
     assert endpoint_repo_write["error"] == "local_state_dir_inside_repo"
     assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
 
+    valid_unicode_save_request = {
+        "candidate_preview": valid_unicode_preview["candidate_preview"],
+        "explicit_confirmation": True,
+        "privacy_reviewed": True,
+        "save_scope": "local_only",
+    }
+    valid_unicode_dry_run_code, valid_unicode_dry_run = run_web_app.validate_memory_skills_save_dry_run(
+        valid_unicode_save_request
+    )
+    assert valid_unicode_dry_run_code == HTTPStatus.OK
+    with TemporaryDirectory(prefix="jarvis-unicode-candidate-write-") as unicode_write_root_text:
+        unicode_write_root = Path(unicode_write_root_text)
+        unicode_write_code, unicode_write = run_web_app.write_memory_skills_candidate(
+            valid_unicode_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(unicode_write_root)},
+            id_generator=lambda: "mem_555555555555",
+            clock=lambda: "2026-07-08T00:00:00Z",
+        )
+        assert unicode_write_code == HTTPStatus.OK
+        unicode_candidate_file = unicode_write_root / "memory-skills" / "candidates" / "mem_555555555555.json"
+        unicode_stored_candidate = json.loads(unicode_candidate_file.read_text(encoding="utf-8"))
+        assert unicode_stored_candidate["title"] == "정상 한글 😀 𐐷"
+        assert unicode_stored_candidate["cleaned_text"] == "반복 작업을 안전하게 정리 😀 𐐷"
+        assert not list(unicode_candidate_file.parent.glob("*.tmp"))
+
+    for invalid_stored_text in ("bad\ud800", "bad\x00text"):
+        with TemporaryDirectory(prefix="jarvis-invalid-unicode-write-") as invalid_unicode_root_text:
+            invalid_unicode_root = Path(invalid_unicode_root_text)
+            invalid_unicode_dry_run = dict(save_dry_run)
+            invalid_unicode_dry_run["candidate"] = dict(save_dry_run["candidate"])
+            invalid_unicode_dry_run["candidate"]["cleaned_text"] = invalid_stored_text
+            invalid_unicode_write_code, invalid_unicode_write = run_web_app.write_memory_skills_candidate(
+                invalid_unicode_dry_run,
+                env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(invalid_unicode_root)},
+                id_generator=lambda: "mem_666666666666",
+                clock=lambda: "2026-07-08T00:00:00Z",
+            )
+            assert invalid_unicode_write_code == HTTPStatus.BAD_REQUEST
+            assert invalid_unicode_write["error"] == "invalid_unicode"
+            assert "candidate_file" not in invalid_unicode_write
+            assert str(invalid_unicode_root) not in str(invalid_unicode_write)
+            assert not (invalid_unicode_root / "memory-skills").exists()
+
+    with TemporaryDirectory(prefix="jarvis-invalid-timestamp-write-") as invalid_timestamp_root_text:
+        invalid_timestamp_root = Path(invalid_timestamp_root_text)
+        invalid_timestamp_code, invalid_timestamp = run_web_app.write_memory_skills_candidate(
+            save_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(invalid_timestamp_root)},
+            id_generator=lambda: "mem_777777777777",
+            clock=lambda: "bad\ud800",
+        )
+        assert invalid_timestamp_code == HTTPStatus.BAD_REQUEST
+        assert invalid_timestamp["error"] == "invalid_unicode"
+        assert not (invalid_timestamp_root / "memory-skills").exists()
+
+    with TemporaryDirectory(prefix="jarvis-oversize-candidate-write-") as oversize_root_text:
+        oversize_root = Path(oversize_root_text)
+        oversize_code, oversize = run_web_app.write_memory_skills_candidate(
+            save_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(oversize_root)},
+            id_generator=lambda: "mem_888888888888",
+            clock=lambda: "2026-07-08T00:00:00Z",
+            max_json_bytes=1,
+        )
+        assert oversize_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+        assert oversize["error"] == "candidate_json_too_large"
+        assert "candidate_file" not in oversize
+        assert not (oversize_root / "memory-skills").exists()
+
+    with TemporaryDirectory(prefix="jarvis-reparse-candidate-write-") as reparse_root_text:
+        reparse_root = Path(reparse_root_text)
+        reparse_target = reparse_root / "target"
+        reparse_target.mkdir()
+        reparse_state_root = reparse_root / "state-link"
+        try:
+            reparse_state_root.symlink_to(reparse_target, target_is_directory=True)
+        except (NotImplementedError, OSError):
+            pass
+        else:
+            reparse_code, reparse_result = run_web_app.write_memory_skills_candidate(
+                save_dry_run,
+                env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(reparse_state_root)},
+                id_generator=lambda: "mem_999999999999",
+                clock=lambda: "2026-07-08T00:00:00Z",
+            )
+            assert reparse_code == HTTPStatus.BAD_REQUEST
+            assert reparse_result["error"] == "candidate_path_not_safe"
+            assert "candidate_file" not in reparse_result
+            assert not (reparse_target / "memory-skills").exists()
+
     fixed_candidate_id = "mem_0123456789ab"
     fixed_timestamp = "2026-07-08T00:00:00Z"
     with TemporaryDirectory(prefix="jarvis-candidate-write-") as write_root_text:
@@ -530,7 +702,7 @@ def main() -> None:
         assert "candidate_file" not in stored_candidate
         assert "storage_path" not in stored_candidate
         assert "repo_path" not in stored_candidate
-        assert not (candidate_dir / f".{fixed_candidate_id}.json.tmp").exists()
+        assert not list(candidate_dir.glob(f".{fixed_candidate_id}.*.tmp"))
         before_collision_text = candidate_file.read_text(encoding="utf-8")
         collision_code, collision = run_web_app.write_memory_skills_candidate(
             save_dry_run,
@@ -542,7 +714,7 @@ def main() -> None:
         assert collision["saved"] is False
         assert collision["error"] == "candidate_file_exists"
         assert candidate_file.read_text(encoding="utf-8") == before_collision_text
-        assert not (candidate_dir / f".{fixed_candidate_id}.json.tmp").exists()
+        assert not list(candidate_dir.glob(f".{fixed_candidate_id}.*.tmp"))
         invalid_id_code, invalid_id = run_web_app.write_memory_skills_candidate(
             save_dry_run,
             env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(write_root)},
@@ -552,6 +724,51 @@ def main() -> None:
         assert invalid_id_code == HTTPStatus.BAD_REQUEST
         assert invalid_id["error"] == "invalid_candidate_id"
         assert len(list(candidate_dir.glob("*.json"))) == 1
+
+    with TemporaryDirectory(prefix="jarvis-link-collision-write-") as link_collision_root_text:
+        link_collision_root = Path(link_collision_root_text)
+        link_collision_candidate = (
+            link_collision_root / "memory-skills" / "candidates" / "mem_aaaaaaaaaaaa.json"
+        )
+
+        def collide_during_publish(_temp_file: Path, final_file: Path) -> None:
+            final_file.write_bytes(b"existing candidate")
+            raise FileExistsError
+
+        link_collision_code, link_collision = run_web_app.write_memory_skills_candidate(
+            save_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(link_collision_root)},
+            id_generator=lambda: "mem_aaaaaaaaaaaa",
+            clock=lambda: fixed_timestamp,
+            linker=collide_during_publish,
+        )
+        assert link_collision_code == HTTPStatus.CONFLICT
+        assert link_collision["error"] == "candidate_file_exists"
+        assert "candidate_file" not in link_collision
+        assert link_collision_candidate.read_bytes() == b"existing candidate"
+        assert not list(link_collision_candidate.parent.glob("*.tmp"))
+
+    with TemporaryDirectory(prefix="jarvis-link-failure-write-") as link_failure_root_text:
+        link_failure_root = Path(link_failure_root_text)
+
+        def fail_candidate_publish(_temp_file: Path, _final_file: Path) -> None:
+            raise OSError("private filesystem detail")
+
+        link_failure_code, link_failure = run_web_app.write_memory_skills_candidate(
+            save_dry_run,
+            env={run_web_app.JARVIS_LOCAL_STATE_DIR_ENV: str(link_failure_root)},
+            id_generator=lambda: "mem_bbbbbbbbbbbb",
+            clock=lambda: fixed_timestamp,
+            linker=fail_candidate_publish,
+        )
+        link_failure_candidate_dir = link_failure_root / "memory-skills" / "candidates"
+        assert link_failure_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert link_failure["error"] == "candidate_write_failed"
+        assert "candidate_file" not in link_failure
+        assert "private filesystem detail" not in str(link_failure)
+        assert str(link_failure_root) not in str(link_failure)
+        assert not list(link_failure_candidate_dir.glob("*.tmp"))
+        assert not list(link_failure_candidate_dir.glob("*.json"))
 
     with TemporaryDirectory(prefix="jarvis-invalid-candidate-write-") as invalid_write_root_text:
         invalid_write_root = Path(invalid_write_root_text)
