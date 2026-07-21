@@ -9,6 +9,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+from hermes_manager_pilot.approval_binding import (
+    build_commit_approval_binding,
+    build_review_approval_binding,
+    build_scope_approval_binding,
+    digest_matches,
+)
 from hermes_manager_pilot.pipeline import run_hermes_manager_pilot
 from hermes_manager_pilot.prompt_queue import (
     REQUIRED_FORBIDDEN_ACTIONS,
@@ -566,6 +572,210 @@ def _test_prompt_queue_renderer_mapping_preserves_safety_boundaries() -> None:
     _assert(not approved_session.push_allowed, "approved commit must still prohibit push")
 
 
+def _test_approval_bindings_are_deterministic_and_domain_separated() -> None:
+    implementation_queue = normalize_prompt_queue(_sample_queue_payload())
+    project = implementation_queue.projects[0]
+    implementation_item = implementation_queue.items[0]
+    first_scope = build_scope_approval_binding(project, implementation_item)
+    second_scope = build_scope_approval_binding(project, implementation_item)
+    _assert(first_scope == second_scope, "scope approval binding should be deterministic")
+    _assert(digest_matches(first_scope, first_scope.digest), "scope digest should match itself")
+    _assert(not digest_matches(first_scope, first_scope.digest.upper()), "uppercase digest should fail closed")
+
+    evidence_digest = "1" * 64
+    review_queue = normalize_prompt_queue(_sample_queue_payload(result_type="review"))
+    review = build_review_approval_binding(
+        review_queue.projects[0],
+        review_queue.items[0],
+        scope_digest=first_scope.digest,
+        change_evidence_digest=evidence_digest,
+    )
+
+    commit_payload = _sample_queue_payload(result_type="commit")
+    commit_items = commit_payload["items"]
+    assert isinstance(commit_items, list) and isinstance(commit_items[0], dict)
+    commit_items[0]["commit_message"] = "hermes: bind prompt queue approvals"
+    commit_queue = normalize_prompt_queue(commit_payload)
+    commit = build_commit_approval_binding(
+        commit_queue.projects[0],
+        commit_queue.items[0],
+        scope_digest=first_scope.digest,
+        review_digest=review.digest,
+        change_evidence_digest=evidence_digest,
+    )
+
+    _assert(len({first_scope.digest, review.digest, commit.digest}) == 3, "binding domains overlap")
+    _assert(first_scope.snapshot()["result_type"] == "implementation", "scope result type missing")
+    _assert(review.snapshot()["result_type"] == "review", "review result type missing")
+    _assert(commit.snapshot()["result_type"] == "commit", "commit result type missing")
+    _assert(commit.snapshot()["commit_message"] == commit_queue.items[0].commit_message, "commit message not bound")
+
+
+def _test_scope_binding_is_stable_for_set_order_and_changes_for_scope_mutation() -> None:
+    payload = _sample_queue_payload()
+    queue = normalize_prompt_queue(payload)
+    baseline = build_scope_approval_binding(queue.projects[0], queue.items[0])
+
+    reordered = copy.deepcopy(payload)
+    projects = reordered["projects"]
+    items = reordered["items"]
+    assert isinstance(projects, list) and isinstance(projects[0], dict)
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    forbidden_actions = projects[0]["forbidden_actions"]
+    target_files = items[0]["target_files"]
+    assert isinstance(forbidden_actions, list) and isinstance(target_files, list)
+    projects[0]["forbidden_actions"] = list(reversed(forbidden_actions))
+    items[0]["target_files"] = list(reversed(target_files))
+    reordered_queue = normalize_prompt_queue(reordered)
+    reordered_binding = build_scope_approval_binding(
+        reordered_queue.projects[0], reordered_queue.items[0]
+    )
+    _assert(baseline.digest == reordered_binding.digest, "set-like input order changed scope digest")
+
+    mutations = (
+        ("expected HEAD", lambda value: value["projects"][0].__setitem__("expected_head", "changed-head")),
+        ("goal", lambda value: value["items"][0].__setitem__("current_goal", "Changed goal.")),
+        (
+            "target files",
+            lambda value: value["items"][0]["target_files"].append("docs/new-scope.md"),
+        ),
+        (
+            "protected paths",
+            lambda value: value["projects"][0]["protected_paths"].append("protected.local"),
+        ),
+    )
+    for label, mutate in mutations:
+        changed_payload = copy.deepcopy(payload)
+        mutate(changed_payload)
+        changed_queue = normalize_prompt_queue(changed_payload)
+        changed = build_scope_approval_binding(changed_queue.projects[0], changed_queue.items[0])
+        _assert(changed.digest != baseline.digest, f"{label} mutation did not invalidate scope digest")
+
+
+def _test_approval_binding_chain_rejects_stale_scope_review_and_message() -> None:
+    implementation_queue = normalize_prompt_queue(_sample_queue_payload())
+    scope = build_scope_approval_binding(
+        implementation_queue.projects[0], implementation_queue.items[0]
+    )
+    evidence_digest = "2" * 64
+
+    changed_review_payload = _sample_queue_payload(result_type="review")
+    changed_review_items = changed_review_payload["items"]
+    assert isinstance(changed_review_items, list) and isinstance(changed_review_items[0], dict)
+    targets = changed_review_items[0]["target_files"]
+    assert isinstance(targets, list)
+    targets.append("docs/stale-scope.md")
+    changed_review_queue = normalize_prompt_queue(changed_review_payload)
+    try:
+        build_review_approval_binding(
+            changed_review_queue.projects[0],
+            changed_review_queue.items[0],
+            scope_digest=scope.digest,
+            change_evidence_digest=evidence_digest,
+        )
+    except ValidationError as exc:
+        _assert("scope approval binding is stale" in str(exc), f"unexpected stale scope error: {exc}")
+    else:
+        raise AssertionError("changed scope should reject a prior scope binding")
+
+    review_queue = normalize_prompt_queue(_sample_queue_payload(result_type="review"))
+    review = build_review_approval_binding(
+        review_queue.projects[0],
+        review_queue.items[0],
+        scope_digest=scope.digest,
+        change_evidence_digest=evidence_digest,
+    )
+    commit_payload = _sample_queue_payload(result_type="commit")
+    commit_items = commit_payload["items"]
+    assert isinstance(commit_items, list) and isinstance(commit_items[0], dict)
+    commit_items[0]["commit_message"] = "hermes: bind prompt queue approvals"
+    commit_queue = normalize_prompt_queue(commit_payload)
+    try:
+        build_commit_approval_binding(
+            commit_queue.projects[0],
+            commit_queue.items[0],
+            scope_digest=scope.digest,
+            review_digest=review.digest,
+            change_evidence_digest="3" * 64,
+        )
+    except ValidationError as exc:
+        _assert("review approval binding is stale" in str(exc), f"unexpected stale review error: {exc}")
+    else:
+        raise AssertionError("changed evidence should reject a prior review binding")
+
+    first_commit = build_commit_approval_binding(
+        commit_queue.projects[0],
+        commit_queue.items[0],
+        scope_digest=scope.digest,
+        review_digest=review.digest,
+        change_evidence_digest=evidence_digest,
+    )
+    commit_items[0]["commit_message"] = "hermes: use a different approved message"
+    changed_commit_queue = normalize_prompt_queue(commit_payload)
+    changed_commit = build_commit_approval_binding(
+        changed_commit_queue.projects[0],
+        changed_commit_queue.items[0],
+        scope_digest=scope.digest,
+        review_digest=review.digest,
+        change_evidence_digest=evidence_digest,
+    )
+    _assert(first_commit.digest != changed_commit.digest, "commit message change did not invalidate binding")
+
+
+def _test_approval_binding_rejects_wrong_stage_bad_digest_and_oversize_snapshot() -> None:
+    review_queue = normalize_prompt_queue(_sample_queue_payload(result_type="review"))
+    try:
+        build_scope_approval_binding(review_queue.projects[0], review_queue.items[0])
+    except ValidationError as exc:
+        _assert("result_type=implementation" in str(exc), f"unexpected stage error: {exc}")
+    else:
+        raise AssertionError("scope binding should reject a review item")
+
+    try:
+        build_review_approval_binding(
+            review_queue.projects[0],
+            review_queue.items[0],
+            scope_digest="not-a-digest",
+            change_evidence_digest="4" * 64,
+        )
+    except ValidationError as exc:
+        _assert("lowercase SHA-256" in str(exc), f"unexpected digest error: {exc}")
+    else:
+        raise AssertionError("malformed prior digest should fail validation")
+
+    oversized_payload = _sample_queue_payload()
+    projects = oversized_payload["projects"]
+    assert isinstance(projects, list) and isinstance(projects[0], dict)
+    projects[0]["validation_commands"] = ["x" * 1000 for _ in range(128)]
+    oversized_queue = normalize_prompt_queue(oversized_payload)
+    try:
+        build_scope_approval_binding(oversized_queue.projects[0], oversized_queue.items[0])
+    except ValidationError as exc:
+        _assert("snapshot is too large" in str(exc), f"unexpected size error: {exc}")
+    else:
+        raise AssertionError("oversized approval snapshot should fail validation")
+
+
+def _test_approval_binding_excludes_mutable_summaries_and_authorization_flags() -> None:
+    payload = _sample_queue_payload()
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    items[0]["last_prompt_summary"] = "mutable prompt summary"
+    items[0]["last_result_summary"] = "mutable result summary"
+    items[0]["scope_approved"] = True
+    queue = normalize_prompt_queue(payload)
+    binding = build_scope_approval_binding(queue.projects[0], queue.items[0])
+    canonical_text = binding.canonical_bytes.decode("utf-8")
+    for excluded in (
+        "mutable prompt summary",
+        "mutable result summary",
+        "scope_approved",
+        "review_passed",
+        "commit_approved",
+    ):
+        _assert(excluded not in canonical_text, f"non-authority field leaked into binding: {excluded}")
+
+
 def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     index_html = (APP_ROOT / "web" / "index.html").read_text(encoding="utf-8")
     _assert("Jarvis Console Memory / Skills candidate prompt" in index_html, "Jarvis Console handoff guidance missing")
@@ -612,6 +822,11 @@ def main() -> None:
         _test_prompt_queue_missing_safety_policy_blocks,
         _test_prompt_queue_rejects_unknown_fields_and_unsafe_paths,
         _test_prompt_queue_renderer_mapping_preserves_safety_boundaries,
+        _test_approval_bindings_are_deterministic_and_domain_separated,
+        _test_scope_binding_is_stable_for_set_order_and_changes_for_scope_mutation,
+        _test_approval_binding_chain_rejects_stale_scope_review_and_message,
+        _test_approval_binding_rejects_wrong_stage_bad_digest_and_oversize_snapshot,
+        _test_approval_binding_excludes_mutable_summaries_and_authorization_flags,
         _test_browser_ui_mentions_manual_jarvis_handoff,
     )
     for test in tests:
