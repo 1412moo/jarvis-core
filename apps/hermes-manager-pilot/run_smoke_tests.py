@@ -1,4 +1,4 @@
-"""Smoke tests for the Hermes Manager Pilot v0.2 deterministic renderer."""
+"""Smoke tests for the Hermes renderer and in-memory Prompt Queue primitives."""
 
 from __future__ import annotations
 
@@ -10,6 +10,12 @@ import tempfile
 from pathlib import Path
 
 from hermes_manager_pilot.pipeline import run_hermes_manager_pilot
+from hermes_manager_pilot.prompt_queue import (
+    REQUIRED_FORBIDDEN_ACTIONS,
+    build_hermes_session,
+    evaluate_queue_item,
+    normalize_prompt_queue,
+)
 from hermes_manager_pilot.prompt_renderer import render_commit_prompt
 from hermes_manager_pilot.schemas import ValidationError, normalize_session_state
 
@@ -36,6 +42,55 @@ def _sample_payload() -> dict[str, object]:
 
 def _render_sample(mode: str) -> str:
     return run_hermes_manager_pilot(SAMPLE_INPUT, mode)
+
+
+def _sample_queue_payload(result_type: str = "implementation") -> dict[str, object]:
+    return {
+        "queue_type": "hermes_prompt_queue",
+        "version": "0.1A",
+        "projects": [
+            {
+                "project_id": "jarvis-core",
+                "display_name": "Jarvis Core",
+                "repo_path": r"C:\work\jarvis-core",
+                "expected_branch": "main",
+                "expected_head": "3b64e92",
+                "protected_paths": ["jarvis.bat"],
+                "expected_untracked": ["jarvis.bat"],
+                "forbidden_actions": sorted(REQUIRED_FORBIDDEN_ACTIONS),
+                "validation_commands": [
+                    "python -B apps/hermes-manager-pilot/run_smoke_tests.py",
+                    "git diff --check",
+                ],
+            }
+        ],
+        "items": [
+            {
+                "item_id": "queue-001",
+                "project_id": "jarvis-core",
+                "current_goal": "Build a human-approved local prompt queue.",
+                "current_task": "Add in-memory queue validation.",
+                "result_type": result_type,
+                "target_files": [
+                    "apps/hermes-manager-pilot/hermes_manager_pilot/prompt_queue.py",
+                    "apps/hermes-manager-pilot/run_smoke_tests.py",
+                ],
+                "observed_branch": "main",
+                "observed_head": "3b64e92",
+                "observed_git_status": [
+                    " M apps/hermes-manager-pilot/run_smoke_tests.py",
+                    "?? apps/hermes-manager-pilot/hermes_manager_pilot/prompt_queue.py",
+                    "?? jarvis.bat",
+                ],
+                "scope_approved": True,
+                "review_passed": False,
+                "commit_approved": False,
+                "commit_message": "",
+                "last_prompt_summary": "Implement the approved v0.1A unit.",
+                "last_result_summary": "",
+            }
+        ],
+    }
 
 
 def _test_implementation_prompt_deterministic() -> None:
@@ -276,6 +331,241 @@ def _test_commit_prompt_refuses_when_commit_disallowed() -> None:
     _assert("`commit_allowed` is false" in rendered, "commit refusal reason missing")
 
 
+def _test_prompt_queue_evaluation_is_deterministic() -> None:
+    payload = _sample_queue_payload()
+    first_queue = normalize_prompt_queue(payload)
+    second_queue = normalize_prompt_queue(copy.deepcopy(payload))
+    first = evaluate_queue_item(first_queue, "queue-001")
+    second = evaluate_queue_item(second_queue, "queue-001")
+    _assert(first_queue == second_queue, "prompt queue normalization should be deterministic")
+    _assert(first == second, "prompt queue evaluation should be deterministic")
+    _assert(not first.is_blocked, f"valid implementation item was blocked: {first.blocking_reasons}")
+    _assert(first.result_type == "implementation", "implementation result type was not preserved")
+    _assert(first.next_action == "PROMPT_FOR_CODEX", "implementation next action is wrong")
+    _assert(first.render_mode == "implementation-prompt", "implementation render mode is wrong")
+
+
+def _test_prompt_queue_result_types_map_to_safe_actions() -> None:
+    expected = {
+        "design": ("STATUS_SUMMARY", "checkpoint-summary", False),
+        "review": ("REVIEW_REQUEST", "review-prompt", False),
+        "blocked": ("BLOCKED_NEEDS_USER", "checkpoint-summary", True),
+    }
+    for requested_type, (next_action, render_mode, should_block) in expected.items():
+        queue = normalize_prompt_queue(_sample_queue_payload(result_type=requested_type))
+        evaluation = evaluate_queue_item(queue, "queue-001")
+        _assert(evaluation.is_blocked == should_block, f"wrong blocked state for {requested_type}")
+        _assert(evaluation.next_action == next_action, f"wrong next action for {requested_type}")
+        _assert(evaluation.render_mode == render_mode, f"wrong render mode for {requested_type}")
+
+
+def _test_prompt_queue_supports_multiple_project_cards() -> None:
+    payload = _sample_queue_payload(result_type="design")
+    projects = payload["projects"]
+    assert isinstance(projects, list)
+    second_project = copy.deepcopy(projects[0])
+    assert isinstance(second_project, dict)
+    second_project.update(
+        {
+            "project_id": "second-local-project",
+            "display_name": "Second Local Project",
+            "repo_path": r"C:\work\second-local-project",
+            "expected_head": "abc1234",
+            "protected_paths": ["local-only.bat"],
+            "expected_untracked": [],
+        }
+    )
+    projects.append(second_project)
+    queue = normalize_prompt_queue(payload)
+    _assert(len(queue.projects) == 2, "multiple project cards were not preserved")
+    _assert(queue.projects[1].repo_path == r"C:\work\second-local-project", "second repo path changed")
+
+
+def _test_prompt_queue_git_mismatch_blocks_for_user() -> None:
+    payload = _sample_queue_payload()
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    items[0]["observed_head"] = "unexpected-head"
+    items[0]["observed_git_status"] = [
+        " M docs/unrelated.md",
+        "?? unexpected.tmp",
+    ]
+    queue = normalize_prompt_queue(payload)
+    evaluation = evaluate_queue_item(queue, "queue-001")
+    reasons = "\n".join(evaluation.blocking_reasons)
+    _assert(evaluation.is_blocked, "git mismatch should block the queue item")
+    _assert(evaluation.result_type == "blocked", "blocked result type was not assigned")
+    _assert(evaluation.next_action == "BLOCKED_NEEDS_USER", "blocked next action is wrong")
+    _assert(evaluation.render_mode == "checkpoint-summary", "blocked item should only render a summary")
+    _assert("does not match expected HEAD" in reasons, "HEAD mismatch reason missing")
+    _assert("outside target files" in reasons, "out-of-scope change reason missing")
+    _assert("unexpected untracked path" in reasons, "unexpected untracked reason missing")
+    _assert("expected untracked path is missing" in reasons, "missing expected untracked reason missing")
+
+
+def _test_prompt_queue_protected_or_staged_change_blocks() -> None:
+    payload = _sample_queue_payload()
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    items[0]["observed_git_status"] = [
+        "M  apps/hermes-manager-pilot/run_smoke_tests.py",
+        "M  jarvis.bat",
+        "?? jarvis.bat",
+    ]
+    queue = normalize_prompt_queue(payload)
+    evaluation = evaluate_queue_item(queue, "queue-001")
+    reasons = "\n".join(evaluation.blocking_reasons)
+    _assert(evaluation.is_blocked, "protected or staged changes should block")
+    _assert("protected path has tracked changes: jarvis.bat" in reasons, "protected path reason missing")
+    _assert("staged change exists" in reasons, "staged change reason missing")
+
+    payload = _sample_queue_payload()
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    target_files = items[0]["target_files"]
+    assert isinstance(target_files, list)
+    target_files.append("jarvis.bat")
+    target_evaluation = evaluate_queue_item(normalize_prompt_queue(payload), "queue-001")
+    _assert(target_evaluation.is_blocked, "protected target file should block")
+    _assert(
+        "target file is protected: jarvis.bat" in target_evaluation.blocking_reasons,
+        "protected target reason missing",
+    )
+
+
+def _test_prompt_queue_scope_and_commit_approvals_are_separate() -> None:
+    implementation_payload = _sample_queue_payload()
+    implementation_items = implementation_payload["items"]
+    assert isinstance(implementation_items, list) and isinstance(implementation_items[0], dict)
+    implementation_items[0]["scope_approved"] = False
+    implementation_queue = normalize_prompt_queue(implementation_payload)
+    implementation_evaluation = evaluate_queue_item(implementation_queue, "queue-001")
+    _assert(implementation_evaluation.is_blocked, "implementation without scope approval should block")
+    _assert(
+        "scope approval is required" in implementation_evaluation.blocking_reasons,
+        "scope approval gate reason missing",
+    )
+
+    empty_scope_payload = _sample_queue_payload()
+    empty_scope_items = empty_scope_payload["items"]
+    assert isinstance(empty_scope_items, list) and isinstance(empty_scope_items[0], dict)
+    empty_scope_items[0]["target_files"] = []
+    empty_scope_items[0]["observed_git_status"] = ["?? jarvis.bat"]
+    empty_scope_evaluation = evaluate_queue_item(
+        normalize_prompt_queue(empty_scope_payload), "queue-001"
+    )
+    _assert(empty_scope_evaluation.is_blocked, "implementation with empty target scope should block")
+    _assert(
+        "an explicit target file scope is required" in empty_scope_evaluation.blocking_reasons,
+        "empty target scope reason missing",
+    )
+
+    empty_review_payload = _sample_queue_payload(result_type="review")
+    empty_review_items = empty_review_payload["items"]
+    assert isinstance(empty_review_items, list) and isinstance(empty_review_items[0], dict)
+    empty_review_items[0]["observed_git_status"] = ["?? jarvis.bat"]
+    empty_review_evaluation = evaluate_queue_item(
+        normalize_prompt_queue(empty_review_payload), "queue-001"
+    )
+    _assert(empty_review_evaluation.is_blocked, "review without observed changes should block")
+    _assert(
+        "review and commit steps require observed target changes"
+        in empty_review_evaluation.blocking_reasons,
+        "missing review evidence reason absent",
+    )
+
+    payload = _sample_queue_payload(result_type="commit")
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    queue = normalize_prompt_queue(payload)
+    evaluation = evaluate_queue_item(queue, "queue-001")
+    reasons = "\n".join(evaluation.blocking_reasons)
+    _assert(evaluation.is_blocked, "commit without review and approval should block")
+    _assert("passed review" in reasons, "review gate reason missing")
+    _assert("explicit commit approval" in reasons, "commit approval gate reason missing")
+    _assert("approved commit message" in reasons, "commit message gate reason missing")
+
+    items[0]["review_passed"] = True
+    items[0]["commit_approved"] = True
+    items[0]["commit_message"] = "hermes: add prompt queue primitives"
+    approved_queue = normalize_prompt_queue(payload)
+    approved = evaluate_queue_item(approved_queue, "queue-001")
+    _assert(not approved.is_blocked, f"approved commit item was blocked: {approved.blocking_reasons}")
+    _assert(approved.result_type == "commit", "approved commit result type is wrong")
+    _assert(approved.next_action == "COMMIT_REQUEST", "approved commit next action is wrong")
+    _assert(approved.render_mode == "commit-prompt", "approved commit render mode is wrong")
+
+
+def _test_prompt_queue_missing_safety_policy_blocks() -> None:
+    payload = _sample_queue_payload()
+    projects = payload["projects"]
+    assert isinstance(projects, list) and isinstance(projects[0], dict)
+    projects[0]["forbidden_actions"] = ["push"]
+    queue = normalize_prompt_queue(payload)
+    evaluation = evaluate_queue_item(queue, "queue-001")
+    reasons = "\n".join(evaluation.blocking_reasons)
+    _assert(evaluation.is_blocked, "incomplete forbidden actions should block")
+    _assert("missing forbidden actions" in reasons, "missing safety policy reason absent")
+
+
+def _test_prompt_queue_rejects_unknown_fields_and_unsafe_paths() -> None:
+    payload = _sample_queue_payload()
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    items[0]["api_key"] = "must-not-be-stored"
+    try:
+        normalize_prompt_queue(payload)
+    except ValidationError as exc:
+        _assert("unknown fields" in str(exc), f"unexpected unknown-field error: {exc}")
+    else:
+        raise AssertionError("unknown secret-like fields should fail closed")
+
+    payload = _sample_queue_payload()
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    items[0]["target_files"] = [r"C:\work\outside.txt"]
+    try:
+        normalize_prompt_queue(payload)
+    except ValidationError as exc:
+        _assert("repository-relative paths" in str(exc), f"unexpected path error: {exc}")
+    else:
+        raise AssertionError("absolute target paths should fail validation")
+
+    payload = _sample_queue_payload()
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    items[0]["observed_git_status"] = [" ? unsafe.txt", "?? jarvis.bat"]
+    queue = normalize_prompt_queue(payload)
+    evaluation = evaluate_queue_item(queue, "queue-001")
+    _assert(evaluation.is_blocked, "unsupported git status codes should fail closed")
+    _assert(
+        any("unsupported git status code" in reason for reason in evaluation.blocking_reasons),
+        "unsupported status reason missing",
+    )
+
+
+def _test_prompt_queue_renderer_mapping_preserves_safety_boundaries() -> None:
+    payload = _sample_queue_payload(result_type="commit")
+    queue = normalize_prompt_queue(payload)
+    blocked_session = build_hermes_session(queue, "queue-001")
+    _assert(blocked_session.next_action == "BLOCKED_NEEDS_USER", "blocked session next action is unsafe")
+    _assert(not blocked_session.commit_allowed, "blocked session must not allow commit")
+    _assert(not blocked_session.push_allowed, "queue sessions must never allow push")
+    _assert(not blocked_session.human_approval_granted, "blocked session must not grant approval")
+    _assert("jarvis.bat" not in blocked_session.files_touched, "protected path leaked into files_touched")
+
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    items[0]["review_passed"] = True
+    items[0]["commit_approved"] = True
+    items[0]["commit_message"] = "hermes: add prompt queue primitives"
+    approved_session = build_hermes_session(normalize_prompt_queue(payload), "queue-001")
+    _assert(approved_session.next_action == "COMMIT_REQUEST", "approved session next action is wrong")
+    _assert(approved_session.commit_allowed, "approved session should allow a local commit prompt")
+    _assert(approved_session.human_approval_granted, "explicit commit approval was not mapped")
+    _assert(not approved_session.push_allowed, "approved commit must still prohibit push")
+
+
 def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     index_html = (APP_ROOT / "web" / "index.html").read_text(encoding="utf-8")
     _assert("Jarvis Console Memory / Skills candidate prompt" in index_html, "Jarvis Console handoff guidance missing")
@@ -313,6 +603,15 @@ def main() -> None:
         _test_prompts_include_no_auto_push,
         _test_prompts_include_validation_commands,
         _test_commit_prompt_refuses_when_commit_disallowed,
+        _test_prompt_queue_evaluation_is_deterministic,
+        _test_prompt_queue_result_types_map_to_safe_actions,
+        _test_prompt_queue_supports_multiple_project_cards,
+        _test_prompt_queue_git_mismatch_blocks_for_user,
+        _test_prompt_queue_protected_or_staged_change_blocks,
+        _test_prompt_queue_scope_and_commit_approvals_are_separate,
+        _test_prompt_queue_missing_safety_policy_blocks,
+        _test_prompt_queue_rejects_unknown_fields_and_unsafe_paths,
+        _test_prompt_queue_renderer_mapping_preserves_safety_boundaries,
         _test_browser_ui_mentions_manual_jarvis_handoff,
     )
     for test in tests:
