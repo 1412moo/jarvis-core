@@ -259,3 +259,53 @@ Rules:
 - A skill candidate must be reviewed by a human before use.
 - If the skill changes code, permissions, memory behavior, or orchestration, it
   requires explicit approval and may require Research Council review.
+
+## 13. Prompt Queue v0.1A Implementation Boundary
+
+Prompt Queue v0.1A is implemented as an internal, in-memory schema and safety
+evaluator. It extends the contract with multi-project coordination primitives;
+it does not make the documented workflow autonomous or user-facing.
+
+Project cards declare:
+
+- Project identity and repository-path metadata.
+- Expected branch and HEAD.
+- Protected paths and expected pre-existing untracked paths.
+- Forbidden actions and validation-command drafts.
+
+Queue items declare:
+
+- Project reference, goal, task, and result type.
+- Exact target files.
+- Caller-supplied branch, HEAD, and `git status --short` observations.
+- Separate scope, review, and commit approval booleans.
+- Optional bounded prompt/result summaries and commit message.
+
+The v0.1A evaluator must fail closed:
+
+- Structurally invalid input is rejected.
+- Unknown project references are rejected.
+- Branch or HEAD mismatch produces `BLOCKED_NEEDS_USER`.
+- Missing expected untracked paths or unexpected out-of-scope untracked paths
+  produce `BLOCKED_NEEDS_USER`.
+- Tracked changes outside exact target files produce `BLOCKED_NEEDS_USER`.
+- Protected target paths, protected tracked changes, and pre-staged changes
+  produce `BLOCKED_NEEDS_USER`.
+- Implementation, review, and commit require approved non-empty target scope.
+- Review and commit require observed target changes.
+- Commit additionally requires a passed review, explicit commit approval, and
+  an approved commit message.
+- Any blocked result maps only to a checkpoint summary, not an executable
+  implementation, review, or commit prompt.
+- Renderer mapping always keeps `push_allowed=false`.
+
+Prompt Queue v0.1A is not an authorization boundary. Approval booleans are
+internal metadata and are not authenticated, signed, or bound to a stable input
+digest. The module does not read Git or the filesystem, persist state, expose an
+HTTP/API/GUI route, execute a command, call an external service, stage, commit,
+push, or create a pull request.
+
+Before any route, UI, persistence, or unattended workflow is considered, a
+future design step must define stale-approval invalidation and bind approval to
+the exact project, expected HEAD, target files, result type, and commit message.
+That future approval-binding step is not implemented in v0.1A.

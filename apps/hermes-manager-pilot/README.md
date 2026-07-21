@@ -2,7 +2,8 @@
 
 Hermes Manager Pilot is a Jarvis-Core app module for testing Hermes as a middle
 manager in the Jarvis-Core development workflow. It started as a v0.1
-design-only contract and now includes local-only v0.2/v0.3 helper tools.
+design-only contract and now includes local-only v0.2-v0.4 helper tools plus
+internal Prompt Queue v0.1A primitives.
 
 Hermes is not a coding worker. Hermes does not replace Codex. Hermes helps
 manage Codex work by preserving context, waiting for responses, summarizing
@@ -269,6 +270,39 @@ The browser UI does not call Codex, call ChatGPT, run Hermes, use external
 network services, modify repository files, run `git add`, commit, or push.
 Commit approval only changes local session state so a commit prompt can be
 rendered for the user to paste into Codex.
+
+## Prompt Queue v0.1A Internal Primitives
+
+Prompt Queue v0.1A adds an in-memory schema and conservative safety evaluator
+for future multi-project prompt coordination. It is an internal/tests-only
+primitive, not a user-facing queue or an autonomous worker.
+
+The current primitive can:
+
+- Normalize multiple project cards and queue items.
+- Keep expected branch, HEAD, protected paths, and known untracked paths
+  separate from caller-supplied Git observations.
+- Classify design, implementation, review, commit, and blocked result types.
+- Convert branch, HEAD, scope, protected-path, staged-change, or approval
+  mismatches to `BLOCKED_NEEDS_USER`.
+- Require separate scope, review, and commit approval states.
+- Map a safe result into the existing Hermes session renderer contract while
+  keeping `push_allowed=false`.
+
+The current primitive does not:
+
+- Read a repository, execute Git, or validate claims against the filesystem.
+- Persist project cards, queue items, approval state, prompts, or results.
+- Add an HTTP route, browser API, GUI panel, dashboard, or mobile workflow.
+- Call Codex, ChatGPT, Hermes, an external API, or an LLM.
+- Modify files, stage changes, commit, push, or create a pull request.
+- Treat approval booleans as authenticated proof of a human decision.
+
+`repo_path` is metadata only, and all observed Git evidence must be supplied by
+an internal caller. Prompt Queue v0.1A must remain route-free until a later
+design step defines how approval is bound to the exact project, HEAD, target
+files, result type, and commit message. That approval-binding step is not
+implemented.
 
 ## Contract
 
