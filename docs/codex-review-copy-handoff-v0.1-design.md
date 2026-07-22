@@ -1,5 +1,9 @@
 # Codex Review Copy-only Handoff v0.1
 
+Status: implemented and locally verified on 2026-07-22.
+
+Implementation commit: `2a63b4e6911738feb154be83b5e00a2a4010e7f8`.
+
 ## Owner outcome
 
 After a Codex result is pasted into Hermes Manager, the user can copy one exact
@@ -55,3 +59,16 @@ before the unchanged write-free preview request is sent.
 - arbitrary repository selection;
 - Memory / Skills save, UI Save/Confirm, or Voice Inbox auto-save;
 - external API, web, or LLM calls.
+
+## Verification result
+
+- Deterministic tests verified exact envelope fields, scope-drift binding,
+  trusted-root enforcement, and absence of review/commit approval metadata.
+- The full Hermes Manager and Jarvis Console smoke suites passed.
+- One real uncommitted Codex work package containing nine expected files was
+  prepared in Hermes, copied as one envelope, and accepted by Jarvis fresh
+  evidence revalidation.
+- Jarvis auto-filled the item ID and displayed the exact changed/target files
+  with review unapproved, commit/push disabled, and no prompt or command run.
+- Both local browser consoles reported zero errors. Test servers were stopped
+  and no queue, session, handoff, or evidence was persisted.

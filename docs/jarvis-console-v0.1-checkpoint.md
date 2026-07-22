@@ -19,15 +19,15 @@ It provides:
 - Recent item grouping for tasks, reports, checkpoints, docs, examples, configs, and related metadata.
 - Checkpoints / History view with recent commits, checkpoint docs, related reports/examples, and read-only history discovery rules.
 - Voice Inbox v0.1 for turning pasted voice-like transcripts or rough thoughts into task candidates and manual skill handoffs.
-- Codex Review for revalidating one already scope-approved Hermes queue snapshot
-  and displaying a bounded review-only session.
+- Codex Review for revalidating one copy-only Hermes envelope or an already
+  scope-approved raw queue and displaying a bounded review-only session.
 
 Jarvis Console does not execute skills automatically. It suggests, prepares, and displays handoffs; it is a starting point and operations dashboard, not an autonomous runner.
 
 ## Current HEAD / Status
 
-- Verified implementation HEAD: `666bde6831d9a7d1edd35bc1ebe5fd5bfe621f0a`
-- Commit: `jarvis-console: add read-only codex review slice`
+- Verified implementation HEAD: `2a63b4e6911738feb154be83b5e00a2a4010e7f8`
+- Commit: `hermes-manager: add copy-only codex review handoff`
 - Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -160,7 +160,8 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
 ### Codex Review Read-only Vertical Slice
 
 - `POST /api/codex-review/preview` is a local-only, write-free preview route.
-- Input is one complete Hermes queue snapshot plus a selected review item ID.
+- Input is one exact Hermes `queue + item_id` envelope or one complete raw queue
+  snapshot plus a selected review item ID.
 - The input must already contain a current scope approval and must not contain
   prior change evidence, review approval, or commit-stage metadata.
 - The HTTP handler fixes the trusted filesystem root to Jarvis-Core; the request
@@ -175,6 +176,8 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
   review session.
 - The browser escapes all supplied values and has no approve, execute, save,
   commit, or push control.
+- The copy-only envelope fills its item ID in the browser; the server preview
+  contract and fresh revalidation chain are unchanged.
 
 ## Connected Skills
 
@@ -184,8 +187,10 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
 - Provides copy-only launch commands.
 - Provides a local URL handoff to `http://127.0.0.1:8787/`.
 - Verified end-to-end from Jarvis Console suggestion to Hermes Manager local handoff.
-- The separate `Codex Review` tab now consumes the approved C0C-6 chain through
-  a manual, write-free queue-snapshot handoff; Hermes is still not invoked.
+- Hermes Step 5 can create and copy the exact scope-bound envelope after the
+  user confirms scope and pastes a Codex result.
+- The handoff is still manual: Hermes does not call Jarvis, and Jarvis does not
+  invoke Hermes.
 
 ### Research Council
 
@@ -404,6 +409,8 @@ Server and API checks passed:
 - `/api/skill?skill_id=hermes_manager` returned the Hermes Manager detail payload.
 - `/api/codex-review/preview` produced one bounded review payload for a temporary
   local Git change and blocked unsafe variants without a session.
+- Hermes `/api/review-handoff` produced a deterministic two-field envelope from
+  trusted-root, read-only Git metadata without persistence.
 
 Manual browser checks passed:
 
@@ -417,6 +424,9 @@ Manual browser checks passed:
 - Unsafe-looking HTML-like text is rendered through escaped/text-safe paths, not as executable HTML.
 - Codex Review showed its empty and blocked states with permanent no-save,
   no-approval, no-render, no-execution wording and zero browser console errors.
+- One real nine-file Codex work package passed from Hermes scope confirmation
+  and copy through Jarvis item-ID recognition, fresh evidence, and the read-only
+  success screen. Review remained unapproved and commit/push remained disabled.
 
 Regression commands passed:
 
@@ -426,6 +436,7 @@ Regression commands passed:
 - `python -B apps\research-council\run_smoke_tests.py`
 - `python -B apps\daily-ai-radar\run_smoke_tests.py`
 - `node --check apps\jarvis-console\web\app.js`
+- `node --check apps\hermes-manager-pilot\web\app.js`
 - `git diff --check`
 
 Voice Inbox browser QA passed:
@@ -435,7 +446,8 @@ Voice Inbox browser QA passed:
 - Unknown guidance appears for unmatched candidates.
 - Unknown guidance does not display automatic execution affordances.
 
-The Jarvis Console test server was stopped after QA, and no `127.0.0.1:8790` listener remained.
+The Hermes and Jarvis test servers were stopped after QA, and no
+`127.0.0.1:8787` or `127.0.0.1:8790` listener remained.
 
 During QA, `jarvis.bat` remained untracked and untouched.
 
@@ -443,8 +455,8 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 - Memory / Skills remains a proposal surface; any live save route or UI action
   requires a separate explicit decision.
-- Codex Review still requires manual construction/paste of a valid approved
-  Hermes queue snapshot; a copy-only Hermes export is the next usability gap.
+- Codex Review remains deliberately copy/paste-only and has no durable review
+  history; further UX changes should come from repeated local-use feedback.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
 - Tasks / Reports grouping refinement: grouping can become more precise as real task/report/checkpoint indexes appear.
 - History/checkpoint index refinement: a structured checkpoint index would make history grouping more intentional than filename markers alone.
@@ -458,13 +470,13 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Copy-only Hermes To Jarvis Review Handoff
+### A. Owner Workstream Decision
 
 Priority: P1
 
-Generate the exact queue JSON required by Codex Review from Hermes Manager and
-let the user copy it manually. Do not add cross-server calls, persistence,
-approval creation, prompt execution, commit, or push.
+Choose the next product axis before implementation: either Phase 2C-3c
+Memory/Skills reopen-conditions design or bounded read-only review UX refinement
+based on repeated use. Do not add authority while making this decision.
 
 ### B. Planned Skill UX Polish
 

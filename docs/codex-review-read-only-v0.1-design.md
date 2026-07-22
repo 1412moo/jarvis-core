@@ -4,6 +4,8 @@ Status: implemented and locally verified on 2026-07-22.
 
 Implementation commit: `666bde6831d9a7d1edd35bc1ebe5fd5bfe621f0a`.
 
+Copy-only usability follow-up: `2a63b4e6911738feb154be83b5e00a2a4010e7f8`.
+
 ## 1. Owner Outcome
 
 Jarvis Console should show one current Codex work package only after the existing
@@ -66,7 +68,8 @@ session. No failure path falls back to an unverified display.
 
 Add one `Codex Review` tab with:
 
-- a textarea for manual paste of the approved Hermes queue snapshot;
+- a textarea for manual paste of the approved Hermes queue snapshot or the
+  exact copy-only `queue + item_id` envelope;
 - an item-ID input;
 - a `Load Read-Only Review` button;
 - an initially empty review panel;
@@ -120,3 +123,6 @@ Out of scope:
   safety wording, and zero browser console errors.
 - The test server was stopped; no listener, generated runtime state, or saved
   queue/session/evidence remained.
+- The copy-only follow-up passed one real-work browser path from Hermes scope
+  confirmation and envelope copy through Jarvis item-ID recognition and fresh
+  read-only display.

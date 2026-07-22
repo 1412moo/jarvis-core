@@ -1070,3 +1070,33 @@ enable commit/push authority.
 Any broader renderer, persistence, automatic handoff, approval, execution,
 arbitrary-repository, or external consumer still requires a new explicit scope
 approval.
+
+## 19. Copy-only Jarvis Review Handoff Boundary
+
+The separately approved copy-only integration adds one local Hermes route,
+`POST /api/review-handoff`, and one Step 5 UI action. The route accepts the
+current in-memory browser session plus the explicit claim that the existing
+`Confirm Scope` step was completed. It fixes all Git reads to the Jarvis-Core
+root and uses only the existing read-only Git allowlist.
+
+The route builds one deterministic JSON envelope with exactly `queue` and
+`item_id`. It binds the confirmed goal, task, target files, project safety
+policy, branch, and HEAD with the existing scope-binding primitive. The binding
+detects later changes to those inputs. It is not authentication, proof of human
+identity, review approval, commit approval, or execution authority.
+
+The exported item is at the unreviewed `review` stage. Change-evidence,
+review-approval, and commit-approval digests are empty; `review_passed` and
+`commit_approved` are false; the commit message is empty. Required forbidden
+actions remain present and `jarvis.bat` must remain protected and untracked.
+
+Jarvis accepts the exact envelope only as browser convenience, extracts its
+queue and item ID locally, and sends the unchanged write-free preview request.
+There is no Hermes-to-Jarvis request, durable queue/session/handoff storage,
+prompt rendering, command execution, automatic commit/push/PR, arbitrary repo
+selection, external call, Memory/Skills save, UI Save/Confirm, or Voice Inbox
+auto-save.
+
+The implementation was verified with deterministic tests, the full Hermes and
+Jarvis smoke suites, and one real current-work browser path through fresh local
+evidence and a read-only review display.

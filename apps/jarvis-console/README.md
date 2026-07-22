@@ -70,8 +70,8 @@ Included:
 - Skill detail usage cards for what it does, when to use it, next action,
   commands, docs, safety notes, and non-goals.
 - Copy command buttons that never execute commands.
-- A `Codex Review` tab that accepts one already scope-approved Hermes queue
-  snapshot and displays a freshly revalidated review session.
+- A `Codex Review` tab that accepts one copy-only Hermes handoff or an already
+  scope-approved raw queue and displays a freshly revalidated review session.
 - A write-free `POST /api/codex-review/preview` route fixed to the Jarvis-Core
   repository root.
 - Read-only skill registry validation.
@@ -135,11 +135,13 @@ Purpose: show one current Codex work package only after the committed Hermes
 evidence chain confirms that the supplied review handoff still matches the local
 working tree.
 
-The user manually pastes a complete, already scope-approved Hermes queue JSON
-snapshot and enters its review item ID. Jarvis Console normalizes the queue,
-collects bounded local evidence, evaluates the observed item, performs C0C-6a
-fresh revalidation, builds the C0C-6b review-only `SessionState`, and returns a
-bounded presentation payload.
+Hermes Manager can produce one exact `queue + item_id` JSON envelope after the
+user confirms scope and pastes a Codex result. The user copies that envelope
+manually; Jarvis fills the item ID in the browser. A raw, already scope-approved
+queue plus manually entered item ID remains supported. Jarvis Console normalizes
+the queue, collects bounded local evidence, evaluates the observed item,
+performs C0C-6a fresh revalidation, builds the C0C-6b review-only `SessionState`,
+and returns a bounded presentation payload.
 
 The preview route is local-only and write-free. It fixes filesystem authority to
 the Jarvis-Core root and does not return raw file contents, evidence bytes,
@@ -236,8 +238,7 @@ Possible later phases:
 
 1. Add richer registry metadata such as icons, examples, and handoff contracts.
 2. Add local report preview forms for existing deterministic renderers.
-3. Add a copy-only Hermes-to-Jarvis review handoff so the user does not need to
-   construct queue JSON manually.
+3. Refine the read-only review surface only from repeated local-use feedback.
 4. Consider an approval queue only after a separate human-approval design.
 5. Consider deeper worker handoff integration only after separate design and
    review.
@@ -245,5 +246,7 @@ Possible later phases:
 See also [../../docs/jarvis-console.md](../../docs/jarvis-console.md).
 See the read-only review design at
 [../../docs/codex-review-read-only-v0.1-design.md](../../docs/codex-review-read-only-v0.1-design.md).
+See the copy-only handoff design at
+[../../docs/codex-review-copy-handoff-v0.1-design.md](../../docs/codex-review-copy-handoff-v0.1-design.md).
 See the registry contract at
 [contracts/skill-registry-v0.1.md](contracts/skill-registry-v0.1.md).

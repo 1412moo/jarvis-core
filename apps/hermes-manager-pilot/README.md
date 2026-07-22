@@ -519,6 +519,28 @@ Console displays review fields only; prompt rendering, queue/session persistence
 command execution, approval creation, and external communication remain
 unimplemented and separately gated.
 
+### Copy-only Jarvis Review Handoff
+
+Status: implemented and verified with one real local Codex work package.
+
+After the existing `Confirm Scope` step and a pasted Codex result, Hermes can
+build one deterministic `queue + item_id` envelope through
+`POST /api/review-handoff`. The route fixes read-only Git inspection to the
+Jarvis-Core root and requires `jarvis.bat` to remain protected and untracked.
+It represents the explicitly confirmed scope with the existing scope-binding
+primitive; that digest detects drift and is not proof of identity or authority.
+
+The user copies the JSON manually into Jarvis Console. Hermes does not call the
+Jarvis server. The envelope contains no fresh evidence digest, review approval,
+commit approval, commit message, push permission, or execution authority.
+Neither app persists the envelope or session. Jarvis recollects fresh bounded
+evidence and may still block the handoff.
+
+Deterministic tests cover stable serialization, exact fields, stale/absent scope
+confirmation, trusted repository authority, missing `jarvis.bat`, and forbidden
+approval/side-effect operations. Full Hermes/Jarvis smoke suites and a real-work
+browser path passed with zero browser errors.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).
