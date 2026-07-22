@@ -27,6 +27,7 @@ from hermes_manager_pilot.change_evidence import (
     WHOLE_STATUS_COVERAGE,
     apply_review_evidence_observation,
     build_fresh_review_handoff_decision,
+    build_review_session_from_fresh_preview,
     build_review_evidence_handoff_decision,
     collect_local_change_evidence,
     collect_review_evidence_bundle,
@@ -2409,6 +2410,162 @@ def _test_fresh_review_handoff_verifies_collector_output() -> None:
         )
 
 
+def _test_fresh_review_session_adapter_is_review_only_and_fail_closed() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-session-") as temp_dir:
+        repo, project, _, _, observation = _create_valid_review_observation_fixture(
+            temp_dir
+        )
+        decision = build_fresh_review_handoff_decision(repo, observation)
+        _assert(decision.preview is not None, "fresh session fixture has no preview")
+        preview = decision.preview
+        original_preview = copy.deepcopy(preview)
+        original_builder = change_evidence_module.build_hermes_session
+        builder_calls = 0
+
+        def counting_builder(*args: object, **kwargs: object) -> object:
+            nonlocal builder_calls
+            builder_calls += 1
+            return original_builder(*args, **kwargs)
+
+        change_evidence_module.build_hermes_session = counting_builder
+        try:
+            first = build_review_session_from_fresh_preview(preview)
+        finally:
+            change_evidence_module.build_hermes_session = original_builder
+
+        second = build_review_session_from_fresh_preview(preview)
+        _assert(first == second, "fresh review session should be deterministic")
+        _assert(builder_calls == 1, "fresh review session should build exactly once")
+        _assert(preview == original_preview, "session adapter mutated the fresh preview")
+        _assert(first.repo == project.repo_path, "review session repository is wrong")
+        _assert(first.branch == project.expected_branch, "review session branch is wrong")
+        _assert(first.head == project.expected_head, "review session HEAD is wrong")
+        _assert(
+            first.files_touched == preview.evaluation.observed_changed_files,
+            "review session changed observed files",
+        )
+        _assert(first.target_files == preview.item.target_files, "review targets changed")
+        _assert(first.next_action == "REVIEW_REQUEST", "review session action is wrong")
+        _assert(not first.blocked_by, "review session unexpectedly contains blockers")
+        _assert(not first.commit_allowed, "review session allowed commit")
+        _assert(not first.push_allowed, "review session allowed push")
+        _assert(first.human_approval_required, "review session removed human approval")
+        _assert(
+            not first.human_approval_granted,
+            "review session granted human approval",
+        )
+        _assert(not first.commit_message, "review session exposed a commit message")
+
+        original_run_git = change_evidence_module._run_git_bytes
+
+        def forbidden_git_read(*args: object, **kwargs: object) -> bytes:
+            raise AssertionError("session adapter must not read Git")
+
+        change_evidence_module._run_git_bytes = forbidden_git_read
+        try:
+            pure = build_review_session_from_fresh_preview(preview)
+            _assert(pure == first, "pure review session adapter changed its result")
+        finally:
+            change_evidence_module._run_git_bytes = original_run_git
+
+        def forbidden_builder(*args: object, **kwargs: object) -> object:
+            raise AssertionError("invalid preview must fail before session construction")
+
+        change_evidence_module.build_hermes_session = forbidden_builder
+        try:
+            _assert_validation_error(
+                lambda: build_review_session_from_fresh_preview(object()),
+                "preview must be FreshReviewHandoffPreview",
+            )
+            _assert_validation_error(
+                lambda: build_review_session_from_fresh_preview(
+                    replace(
+                        preview,
+                        item=replace(
+                            preview.item,
+                            last_result_summary="tampered preview item",
+                        ),
+                    ),
+                ),
+                "observation item does not match its queue snapshot",
+            )
+            _assert_validation_error(
+                lambda: build_review_session_from_fresh_preview(
+                    replace(
+                        preview,
+                        evaluation=replace(
+                            preview.evaluation,
+                            next_action="BLOCKED_NEEDS_USER",
+                        ),
+                    ),
+                ),
+                "observation evaluation does not match its queue snapshot",
+            )
+            _assert_validation_error(
+                lambda: build_review_session_from_fresh_preview(
+                    replace(preview, fresh_bundle_digest="0" * 64),
+                ),
+                "fresh preview digest does not match its queue item",
+            )
+
+            commit_message_item = replace(
+                preview.item,
+                commit_message="must not reach review session",
+            )
+            commit_message_queue = replace(
+                preview.queue,
+                items=(commit_message_item,),
+            )
+            commit_message_preview = replace(
+                preview,
+                queue=commit_message_queue,
+                item=commit_message_item,
+                evaluation=evaluate_queue_item(
+                    commit_message_queue,
+                    commit_message_item.item_id,
+                ),
+            )
+            _assert_validation_error(
+                lambda: build_review_session_from_fresh_preview(
+                    commit_message_preview,
+                ),
+                "contains commit-stage metadata",
+            )
+
+            blocked_item = replace(
+                preview.item,
+                scope_approved=False,
+                scope_approval_digest="",
+            )
+            blocked_queue = replace(preview.queue, items=(blocked_item,))
+            blocked_preview = replace(
+                preview,
+                queue=blocked_queue,
+                item=blocked_item,
+                evaluation=evaluate_queue_item(blocked_queue, blocked_item.item_id),
+            )
+            _assert_validation_error(
+                lambda: build_review_session_from_fresh_preview(blocked_preview),
+                "requires an actionable review item",
+            )
+        finally:
+            change_evidence_module.build_hermes_session = original_builder
+
+        valid_session = original_builder(preview.queue, preview.item.item_id)
+
+        def unsafe_builder(*args: object, **kwargs: object) -> object:
+            return replace(valid_session, push_allowed=True)
+
+        change_evidence_module.build_hermes_session = unsafe_builder
+        try:
+            _assert_validation_error(
+                lambda: build_review_session_from_fresh_preview(preview),
+                "violates review-only safety conditions",
+            )
+        finally:
+            change_evidence_module.build_hermes_session = original_builder
+
+
 def _test_local_change_evidence_rejects_scope_root_stage_and_size_violations() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-safety-") as temp_dir:
         repo, project, item = _create_change_evidence_fixture(temp_dir)
@@ -2634,6 +2791,7 @@ def main() -> None:
         _test_fresh_review_handoff_rejects_inconsistent_wrappers_before_io,
         _test_fresh_review_handoff_detects_stale_content_status_branch_and_head,
         _test_fresh_review_handoff_verifies_collector_output,
+        _test_fresh_review_session_adapter_is_review_only_and_fail_closed,
         _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,

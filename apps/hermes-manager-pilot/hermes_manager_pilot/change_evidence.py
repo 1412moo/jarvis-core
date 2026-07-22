@@ -26,9 +26,10 @@ from .prompt_queue import (
     PromptQueueState,
     QueueEvaluation,
     QueueItem,
+    build_hermes_session,
     evaluate_queue_item,
 )
-from .schemas import ValidationError
+from .schemas import SessionState, ValidationError
 
 
 VERSION = "0.1C-0B"
@@ -773,6 +774,87 @@ def build_fresh_review_handoff_decision(
         blocking_reasons=(),
         preview=preview,
     )
+
+
+def build_review_session_from_fresh_preview(
+    preview: FreshReviewHandoffPreview,
+) -> SessionState:
+    """Build one validated local review session without rendering or execution."""
+
+    if not isinstance(preview, FreshReviewHandoffPreview):
+        raise ValidationError("preview must be FreshReviewHandoffPreview")
+    observation = QueueObservationEvaluation(
+        queue=preview.queue,
+        item=preview.item,
+        evaluation=preview.evaluation,
+    )
+    item, project, evaluation = _validate_queue_observation_evaluation(observation)
+    if (
+        evaluation.is_blocked
+        or item.result_type != "review"
+        or evaluation.result_type != "review"
+        or evaluation.next_action != "REVIEW_REQUEST"
+        or evaluation.render_mode != "review-prompt"
+    ):
+        raise ValidationError("fresh preview requires an actionable review item")
+    if item.review_passed or item.review_approval_digest:
+        raise ValidationError("fresh preview requires an unreviewed item")
+    if item.commit_approved or item.commit_approval_digest or item.commit_message:
+        raise ValidationError("fresh preview contains commit-stage metadata")
+    if (
+        not isinstance(preview.fresh_bundle_digest, str)
+        or not _DIGEST_PATTERN.fullmatch(preview.fresh_bundle_digest)
+        or not hmac.compare_digest(
+            preview.fresh_bundle_digest,
+            item.change_evidence_digest,
+        )
+    ):
+        raise ValidationError("fresh preview digest does not match its queue item")
+
+    session = build_hermes_session(preview.queue, item.item_id)
+    _validate_fresh_review_session(session, project, item, evaluation)
+    return session
+
+
+def _validate_fresh_review_session(
+    session: SessionState,
+    project: ProjectCard,
+    item: QueueItem,
+    evaluation: QueueEvaluation,
+) -> None:
+    if not isinstance(session, SessionState):
+        raise ValidationError("review session builder must return SessionState")
+
+    working_tree_status = (
+        "clean" if not item.observed_git_status else "; ".join(item.observed_git_status)
+    )
+    expected_working_tree_status = " ".join(working_tree_status.strip().split())
+    exact_values = (
+        (session.repo, project.repo_path),
+        (session.branch, project.expected_branch),
+        (session.head, project.expected_head),
+        (session.working_tree_status, expected_working_tree_status),
+        (session.current_goal, item.current_goal),
+        (session.active_task, item.current_task),
+        (session.last_codex_prompt, item.last_prompt_summary),
+        (session.last_codex_result_summary, item.last_result_summary),
+        (session.validation_commands, project.validation_commands),
+        (session.files_touched, evaluation.observed_changed_files),
+        (session.protected_paths, project.protected_paths),
+        (session.target_files, item.target_files),
+    )
+    if any(actual != expected for actual, expected in exact_values):
+        raise ValidationError("review session does not match its fresh preview")
+    if (
+        session.blocked_by
+        or session.commit_allowed
+        or session.push_allowed
+        or not session.human_approval_required
+        or session.human_approval_granted
+        or session.next_action != "REVIEW_REQUEST"
+        or session.commit_message
+    ):
+        raise ValidationError("review session violates review-only safety conditions")
 
 
 def _validate_queue_observation_evaluation(
