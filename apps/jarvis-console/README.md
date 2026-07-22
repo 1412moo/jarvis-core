@@ -178,6 +178,13 @@ paths nor discovers other repositories.
 This view reuses `GET /api/overview`. It creates no task, approval, prompt,
 runtime state, commit, cross-app call, or external request.
 
+Project Control v0.1B is design-only. It defines a future bounded tracked
+registry containing portable card metadata and a `trusted_root_key`, while a
+separate server-owned map retains filesystem authority. Browser-supplied paths,
+parent-directory scans, automatic repo discovery, and a real second-repo
+connection remain absent. See
+[`../../docs/project-control-multi-project-source-v0.1-design.md`](../../docs/project-control-multi-project-source-v0.1-design.md).
+
 ### Research Council
 
 Purpose: evaluate ideas, MVP assumptions, risks, evidence gaps, and experiment
@@ -294,8 +301,8 @@ Protected path shown by default:
 
 Possible later phases:
 
-1. Design a trusted multi-project card source without accepting arbitrary repo
-   paths or adding persistence.
+1. Implement the v0.1B contract as an internal/tests-only registry normalizer;
+   do not read or connect a second live repository.
 2. Add richer registry metadata such as icons, examples, and handoff contracts.
 3. Add local report preview forms for existing deterministic renderers.
 4. Refine the read-only review surface only from repeated local-use feedback.

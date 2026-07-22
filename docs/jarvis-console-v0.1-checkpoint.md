@@ -136,6 +136,11 @@ multi-project support, but this milestone exposes only Jarvis-Core. It rejects
 master-plan sources outside the trusted root and missing, duplicate, invalid
 UTF-8, or oversized metadata. It does not accept arbitrary repo paths.
 
+Project Control v0.1B is design-only. It separates portable tracked registry
+metadata from a server-owned trusted-root map, defines declared vs observed
+fields and `observed`/`attention`/`unavailable` states, and prohibits browser
+paths, automatic discovery, persistence, and a live second-repo connection.
+
 Recent items are normalized with deterministic read-only metadata:
 
 - `item_id`
@@ -507,9 +512,10 @@ During QA, `jarvis.bat` remained untracked and untouched.
   default omission of `original_text_preview`.
 - Codex Review remains deliberately copy/paste-only and has no durable review
   history; further UX changes should come from repeated local-use feedback.
-- Project Control v0.1A supports one trusted Jarvis-Core card only. A second repo
-  must not be connected until a trusted multi-project source contract defines
-  allowlists, missing-repo behavior, stale metadata, and per-repo boundaries.
+- Project Control v0.1A supports one trusted Jarvis-Core card only. The v0.1B
+  source contract now defines trusted-root ownership and failure states, but a
+  second repo remains unselected and unconnected. Implement and review the
+  internal normalizer before any live multi-repo integration.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
 - Project Control artifact grouping refinement: grouping can become more precise
   as real task/report/checkpoint indexes appear.
@@ -524,15 +530,15 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Trusted Multi-project Card Source Design
+### A. Internal Project Registry Normalizer
 
 Priority: P1
 
-Design Project Control v0.1B without implementing another repo connection.
-Define trusted-root/allowlist ownership, master-plan vs live observation fields,
-per-repo protected and expected-untracked paths, validation commands, and
-fail-closed missing/branch/stale states. Keep arbitrary path input, persistence,
-cross-app calls, action buttons, and approval creation out of scope.
+Implement Project Control v0.1C as internal/tests-only normalization and
+decision primitives. Accept only an in-memory mapping plus server-supplied
+trusted-root-key and validation-command-ID sets. Cover one/two-project fixtures
+and strict field/path/list failures. Do not read a second repo or connect HTTP,
+UI, persistence, cross-app calls, actions, or approvals.
 
 ### B. Planned Skill UX Polish
 
