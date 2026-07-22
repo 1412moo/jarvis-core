@@ -23,6 +23,7 @@ from hermes_manager_pilot.change_evidence import (
     MAX_FILE_BYTES,
     MAX_GIT_OUTPUT_BYTES,
     WHOLE_STATUS_COVERAGE,
+    apply_review_evidence_observation,
     build_review_evidence_handoff_decision,
     collect_local_change_evidence,
     collect_review_evidence_bundle,
@@ -1681,6 +1682,129 @@ def _test_review_evidence_handoff_blocks_unsafe_incomplete_or_tampered_evidence(
         )
 
 
+def _test_review_evidence_observation_adapter_updates_only_observations() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-evidence-observation-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        stale_observations = replace(
+            item,
+            observed_branch="stale-branch",
+            observed_head="stale-head",
+            observed_git_status=("?? stale.txt",),
+            scope_approved=True,
+            scope_approval_digest="a" * 64,
+            last_prompt_summary="keep prompt summary",
+            last_result_summary="keep result summary",
+        )
+        bundle = collect_review_evidence_bundle(repo, project, stale_observations)
+        original_item = copy.deepcopy(stale_observations)
+
+        first = apply_review_evidence_observation(project, stale_observations, bundle)
+        second = apply_review_evidence_observation(project, stale_observations, bundle)
+        expected = replace(
+            stale_observations,
+            observed_branch=bundle.branch,
+            observed_head=bundle.head,
+            observed_git_status=bundle.whole_status_evidence.whole_git_status,
+            change_evidence_digest=bundle.bundle_digest,
+        )
+        _assert(first == second, "evidence observation adapter should be deterministic")
+        _assert(first == expected, "adapter changed fields outside queue observations")
+        _assert(first is not stale_observations, "adapter must return a new queue item")
+        _assert(stale_observations == original_item, "adapter mutated the original queue item")
+        _assert(first.result_type == "review", "adapter changed the result type")
+        _assert(first.scope_approved, "adapter changed scope approval")
+        _assert(
+            first.scope_approval_digest == "a" * 64,
+            "adapter changed scope approval binding",
+        )
+        _assert(not first.review_passed, "adapter granted review approval")
+        _assert(not first.commit_approved, "adapter granted commit approval")
+        _assert(not first.review_approval_digest, "adapter created review approval binding")
+        _assert(not first.commit_approval_digest, "adapter created commit approval binding")
+
+        original_run_git = change_evidence_module._run_git_bytes
+
+        def forbidden_git_read(*args: object, **kwargs: object) -> bytes:
+            raise AssertionError("observation adapter must not read Git")
+
+        change_evidence_module._run_git_bytes = forbidden_git_read
+        try:
+            pure = apply_review_evidence_observation(project, stale_observations, bundle)
+            _assert(pure == first, "pure observation adapter changed its result")
+        finally:
+            change_evidence_module._run_git_bytes = original_run_git
+
+
+def _test_review_evidence_observation_adapter_fails_closed() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-evidence-observation-blocked-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        bundle = collect_review_evidence_bundle(repo, project, item)
+
+        _assert_validation_error(
+            lambda: apply_review_evidence_observation(
+                project,
+                replace(item, result_type="commit"),
+                bundle,
+            ),
+            "requires result_type=review",
+        )
+        _assert_validation_error(
+            lambda: apply_review_evidence_observation(
+                project,
+                replace(item, change_evidence_digest="b" * 64),
+                bundle,
+            ),
+            "must not replace an existing digest",
+        )
+        _assert_validation_error(
+            lambda: apply_review_evidence_observation(
+                project,
+                replace(item, review_passed=True),
+                bundle,
+            ),
+            "requires an unreviewed item",
+        )
+        _assert_validation_error(
+            lambda: apply_review_evidence_observation(
+                project,
+                replace(item, review_approval_digest="c" * 64),
+                bundle,
+            ),
+            "requires an unreviewed item",
+        )
+        _assert_validation_error(
+            lambda: apply_review_evidence_observation(
+                project,
+                replace(item, commit_approved=True),
+                bundle,
+            ),
+            "requires an unapproved commit state",
+        )
+        _assert_validation_error(
+            lambda: apply_review_evidence_observation(
+                project,
+                replace(item, commit_approval_digest="d" * 64),
+                bundle,
+            ),
+            "requires an unapproved commit state",
+        )
+        _assert_validation_error(
+            lambda: apply_review_evidence_observation(
+                project,
+                item,
+                replace(bundle, bundle_digest="0" * 64),
+            ),
+            "evidence observation is blocked: review evidence validation failed:",
+        )
+
+        (repo / "outside.txt").write_text("unexpected\n", encoding="utf-8")
+        unsafe_bundle = collect_review_evidence_bundle(repo, project, item)
+        _assert_validation_error(
+            lambda: apply_review_evidence_observation(project, item, unsafe_bundle),
+            "evidence observation is blocked: unexpected untracked path: outside.txt",
+        )
+
+
 def _test_local_change_evidence_rejects_scope_root_stage_and_size_violations() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-safety-") as temp_dir:
         repo, project, item = _create_change_evidence_fixture(temp_dir)
@@ -1897,6 +2021,8 @@ def main() -> None:
         _test_review_evidence_bundle_rejects_tampering_and_collection_races,
         _test_review_evidence_handoff_returns_only_verified_safe_preview,
         _test_review_evidence_handoff_blocks_unsafe_incomplete_or_tampered_evidence,
+        _test_review_evidence_observation_adapter_updates_only_observations,
+        _test_review_evidence_observation_adapter_fails_closed,
         _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,

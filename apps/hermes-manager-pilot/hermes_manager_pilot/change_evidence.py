@@ -6,7 +6,7 @@ files. It does not persist evidence, execute a prompt, or grant approval.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import hmac
 import json
@@ -601,6 +601,39 @@ def build_review_evidence_handoff_decision(
         item_id=item.item_id,
         blocking_reasons=(),
         preview=preview,
+    )
+
+
+def apply_review_evidence_observation(
+    project: ProjectCard,
+    item: QueueItem,
+    bundle: ReviewEvidenceBundle,
+) -> QueueItem:
+    """Return a review item with verified observations and no approval mutation."""
+
+    if not isinstance(item, QueueItem):
+        raise ValidationError("item must be a normalized QueueItem")
+    if item.result_type != "review":
+        raise ValidationError("evidence observation requires result_type=review")
+    if item.change_evidence_digest:
+        raise ValidationError("evidence observation must not replace an existing digest")
+    if item.review_passed or item.review_approval_digest:
+        raise ValidationError("evidence observation requires an unreviewed item")
+    if item.commit_approved or item.commit_approval_digest:
+        raise ValidationError("evidence observation requires an unapproved commit state")
+
+    decision = build_review_evidence_handoff_decision(project, item, bundle)
+    if decision.is_blocked or decision.preview is None:
+        detail = "; ".join(decision.blocking_reasons) or "safe preview is unavailable"
+        raise ValidationError(f"evidence observation is blocked: {detail}")
+
+    preview = decision.preview
+    return replace(
+        item,
+        observed_branch=preview.observed_branch,
+        observed_head=preview.observed_head,
+        observed_git_status=preview.observed_git_status,
+        change_evidence_digest=preview.change_evidence_digest,
     )
 
 
