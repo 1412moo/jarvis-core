@@ -309,7 +309,8 @@ Before any route, UI, persistence, or unattended workflow is considered, a
 future design step must define stale-approval invalidation and bind approval to
 the exact project, expected HEAD, target files, result type, and commit message.
 That approval-binding behavior is not implemented in v0.1A; the separate
-v0.1B-1 primitives below are not yet enforced by the evaluator.
+v0.1B-1 primitives below are enforced only by the later v0.1B-2 evaluator, not
+by the historical v0.1A evaluator.
 
 ## 14. Prompt Queue v0.1B-1 Approval-Binding Boundary
 
@@ -350,11 +351,56 @@ v0.1B-1 limitations are mandatory boundaries:
 - A digest is not a signature, secret, token, identity check, or human approval.
 - `change_evidence_digest` is supplied by the caller and does not prove which
   Git diff or file content produced it.
-- The v0.1A evaluator does not require or compare binding digests yet.
 - No Git/filesystem reader, persistence, HTTP/API/GUI route, command execution,
   external call, staging, commit, push, or pull-request behavior is added.
 
-The next implementation step is v0.1B-2 evaluator enforcement. It must remain
-internal/tests-only and convert missing or stale bindings to
-`BLOCKED_NEEDS_USER`. Route, UI, persistence, and unattended execution remain
-out of scope.
+The v0.1B-2 evaluator integration below enforces these bindings without changing
+their non-authority boundary.
+
+## 15. Prompt Queue v0.1B-2 Evaluator Enforcement Boundary
+
+Prompt Queue v0.1B-2 is implemented as an internal/tests-only enforcement layer
+over the v0.1A queue model and v0.1B-1 binding primitives. The accepted queue
+schema version is now `0.1B-2`; explicitly versioned `0.1A` input is rejected
+instead of being migrated implicitly.
+
+Queue items add:
+
+- `scope_approval_digest`
+- `change_evidence_digest`
+- `review_approval_digest`
+- `commit_approval_digest`
+
+Enforcement rules are:
+
+- Implementation requires `scope_approved=true` and a matching current scope
+  binding.
+- Review requires the matching scope binding and a valid change-evidence
+  digest. If `review_passed=true`, its review binding must also match.
+- Commit requires matching scope, evidence, review, and commit bindings. It also
+  retains the v0.1A passed-review, explicit-commit-approval, observed-change,
+  and exact commit-message requirements.
+- Design and blocked result types reject approval binding metadata.
+- Implementation rejects review, commit, and change-evidence metadata.
+- Review rejects commit approval metadata.
+- Missing, malformed, stale, or orphan binding data produces
+  `BLOCKED_NEEDS_USER`.
+
+The standard queue evaluator performs binding checks before classifying an item
+as actionable. `build_hermes_session()` calls that evaluator, filters protected
+paths as before, and cannot turn a stale or incomplete commit binding into
+`commit_allowed=true`.
+
+v0.1B-2 remains non-authoritative:
+
+- Approval booleans and digests can still be supplied by an internal caller.
+- No human identity, signature, trusted session, or one-time approval is
+  established.
+- `change_evidence_digest` remains caller-supplied and is not derived by a
+  trusted Git/filesystem collector.
+- No route, UI, persistence, filesystem reader, command execution, external
+  call, stage, commit, push, or pull-request behavior is added.
+
+Before any user-facing integration, a future design must define trusted local
+change-evidence collection and a human approval authority. Route, UI,
+persistence, and unattended execution remain out of scope until then.

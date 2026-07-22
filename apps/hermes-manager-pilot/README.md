@@ -3,7 +3,8 @@
 Hermes Manager Pilot is a Jarvis-Core app module for testing Hermes as a middle
 manager in the Jarvis-Core development workflow. It started as a v0.1
 design-only contract and now includes local-only v0.2-v0.4 helper tools plus
-internal Prompt Queue v0.1A and approval-binding v0.1B-1 primitives.
+internal Prompt Queue v0.1A, approval-binding v0.1B-1, and evaluator-enforcement
+v0.1B-2 primitives.
 
 Hermes is not a coding worker. Hermes does not replace Codex. Hermes helps
 manage Codex work by preserving context, waiting for responses, summarizing
@@ -273,7 +274,7 @@ rendered for the user to paste into Codex.
 
 ## Prompt Queue v0.1A Internal Primitives
 
-Prompt Queue v0.1A adds an in-memory schema and conservative safety evaluator
+Prompt Queue v0.1A established an in-memory schema and conservative safety evaluator
 for future multi-project prompt coordination. It is an internal/tests-only
 primitive, not a user-facing queue or an autonomous worker.
 
@@ -306,8 +307,9 @@ fields.
 ## Prompt Queue v0.1B-1 Approval-Binding Primitives
 
 Prompt Queue v0.1B-1 adds deterministic, domain-separated approval-binding
-primitives for normalized project cards and queue items. The primitives are
-internal/tests-only and are not connected to the v0.1A evaluator.
+primitives for normalized project cards and queue items. The primitives remain
+internal/tests-only; v0.1B-2 connects them to the queue evaluator as described
+below.
 
 The binding chain has three purposes:
 
@@ -327,14 +329,43 @@ snapshots are rejected.
 These digests provide deterministic change detection only. They are not
 signatures, secrets, one-time tokens, authenticated human approval, or
 permission to execute. `change_evidence_digest` is caller-supplied and has no
-trusted evidence collector in v0.1B-1. Approval booleans are still evaluated by
-v0.1A without binding enforcement.
+trusted evidence collector in v0.1B-1 or v0.1B-2.
 
 Prompt Queue v0.1B-1 does not read Git or the filesystem, persist data, expose a
 route or UI, execute a prompt or command, stage, commit, push, create a pull
-request, or call an external service. A future v0.1B-2 step must explicitly
-integrate binding fields with evaluator blocking rules before any route, UI, or
-persistence work is considered.
+request, or call an external service.
+
+## Prompt Queue v0.1B-2 Evaluator Enforcement
+
+Prompt Queue v0.1B-2 changes the accepted internal queue schema version to
+`0.1B-2` and adds these queue-item fields:
+
+- `scope_approval_digest`
+- `change_evidence_digest`
+- `review_approval_digest`
+- `commit_approval_digest`
+
+The evaluator now requires approval booleans and their corresponding current
+bindings to agree:
+
+- Implementation requires an approved, matching scope binding.
+- Review requires the matching scope binding and a bounded change-evidence
+  digest. A passed review also requires a matching review binding.
+- Commit requires matching scope, evidence, review, and commit bindings plus
+  the exact approved commit message.
+- Design and blocked items reject leftover approval metadata.
+- Approval metadata from a later stage is rejected in an earlier stage.
+
+Missing, malformed, stale, or stage-inappropriate binding metadata produces
+`BLOCKED_NEEDS_USER`. Explicit legacy `version=0.1A` queue input is rejected
+rather than silently upgraded. The existing `build_hermes_session()` path uses
+the same evaluator, so stale commit approval cannot bypass enforcement through
+renderer mapping.
+
+v0.1B-2 is still internal/tests-only. It does not authenticate a user or prove
+that change evidence came from Git. It adds no trusted evidence collector,
+filesystem access, persistence, HTTP/API/GUI route, automated prompt execution,
+staging, commit, push, pull request, network, or external-service behavior.
 
 ## Contract
 
