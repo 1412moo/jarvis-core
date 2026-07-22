@@ -507,7 +507,7 @@ plus stale-evidence handling and human approval authority.
 
 Status: the v0.1C-0C-1 bounded whole-status collector/verifier and v0.1C-0C-2
 composite bundle/verifier are implemented as internal/tests-only primitives.
-The handoff layer remains design-only.
+The v0.1C-0C-3 pure handoff decision is also implemented internal/tests-only.
 
 ### 18.1 Problem
 
@@ -604,9 +604,10 @@ Declared known-untracked paths must also remain present and bound in complete
 status. They may be classified as expected only by exact normalized path; that
 classification must not make them targets or authorize reading their content.
 
-### 18.6 Proposed Handoff Boundary
+### 18.6 Handoff Boundary
 
-A later pure handoff decision may verify the composite bundle and return either:
+The v0.1C-0C-3 pure handoff decision verifies the composite bundle and returns
+either:
 
 - A blocked result with explicit reasons and no queue-observation fields; or
 - An immutable preview of `observed_branch`, `observed_head`, complete
@@ -632,8 +633,8 @@ v0.1C-0C does not design or authorize:
 
 Implementation remains split into separately reviewable internal/tests-only
 units: bounded whole-status collection, composite-bundle verification, and pure
-handoff decision. The first two units are implemented. They do not authorize
-the remaining handoff unit or user-facing integration.
+handoff decision. All three units are implemented. They do not authorize queue,
+route, UI, persistence, execution, or other user-facing integration.
 
 ### 18.8 v0.1C-0C-1 Implementation Boundary
 
@@ -679,6 +680,38 @@ status disagreement, and mutation between target samples.
 
 C0C-2 does not mutate a queue item, populate observation fields, call the queue
 evaluator, create approval bindings, or grant authority. Its unkeyed bundle
-digest proves neither provenance nor human approval. A future pure handoff
-decision must still return either blocking reasons or an immutable observation
-preview, never an automatic queue transition.
+digest proves neither provenance nor human approval. C0C-3 consumes it only for
+a pure blocked-or-preview decision, never an automatic queue transition.
+
+### 18.10 v0.1C-0C-3 Implementation Boundary
+
+`build_review_evidence_handoff_decision()` first verifies the complete C0C-2
+bundle. Malformed, stale, inconsistent, or tampered evidence returns one
+deterministic validation blocking reason and no preview.
+
+For valid bundles, the decision classifies the complete whole-worktree status:
+
+- Exact declared known-untracked paths remain tolerated exclusions.
+- Protected paths and descendants produce blocking reasons.
+- Tracked or untracked changes outside exact target files produce blocking
+  reasons and remain visible.
+- At least one target must have an observed Git change.
+- A target may not overlap a declared known-untracked exclusion.
+
+Only a decision with no blocking reasons contains an immutable
+`QueueObservationPreview`. The preview carries project/item identity, observed
+branch and HEAD, complete whole-worktree Git status, the C0C-2 composite digest,
+and the explicit whole-worktree coverage marker. It carries no approval flags,
+review result, commit message, or execution authority.
+
+The handoff decision is deterministic and performs no Git/filesystem read. Tests
+cover safe preview creation, complete-status and composite-digest selection,
+absence of approval fields, QueueItem immutability, pure verification,
+unexpected paths, protected descendants, tampered bundles, missing target
+changes, and target/known-untracked overlap. The test Git fixture now pins
+`core.autocrlf=false` so results do not depend on user-global Git configuration.
+
+C0C-3 does not update queue state, call `evaluate_queue_item()`, build scope,
+review, or commit approval bindings, or expose any route/UI/persistence. Mapping
+the preview into a newly normalized queue item remains a separate design and
+approval step.

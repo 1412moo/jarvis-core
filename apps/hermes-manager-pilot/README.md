@@ -425,8 +425,8 @@ integration is implemented.
 
 ## Prompt Queue v0.1C-0C Whole-Worktree Evidence
 
-Status: v0.1C-0C-1 bounded collector and v0.1C-0C-2 composite bundle
-implemented as internal/tests-only; handoff remains design-only.
+Status: v0.1C-0C-1 bounded collector, v0.1C-0C-2 composite bundle, and
+v0.1C-0C-3 pure handoff decision implemented as internal/tests-only.
 
 v0.1C-0C keeps v0.1C-0B target-content evidence and proposes a separate,
 bounded observation of the complete Git-visible working tree. A composite
@@ -457,8 +457,14 @@ C0C-2 repeatedly samples whole status and exact target evidence, rejects any
 change between samples, verifies status agreement, and binds the two nested
 digests into a small domain-separated review-evidence bundle. Bundle verification
 is pure and the composite remains unkeyed, non-authoritative, and disconnected
-from the queue evaluator. A pure blocked-or-preview handoff decision is the next
-internal-only unit.
+from the queue evaluator.
+
+C0C-3 verifies the bundle and returns either deterministic blocking reasons with
+no preview, or an immutable preview containing complete status and the composite
+digest. Protected and out-of-scope paths, missing target changes, malformed
+evidence, and target/expected-untracked overlap fail closed. The decision does
+not mutate a QueueItem, set approvals, build approval bindings, or call the
+evaluator. Queue integration remains unimplemented and separately gated.
 
 ## Contract
 
