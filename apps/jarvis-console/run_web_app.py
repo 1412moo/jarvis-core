@@ -264,6 +264,7 @@ MEMORY_PREVIEW_TOKEN_SUBSYSTEM_STATUS = "internal_tests_only"
 MEMORY_GUARDED_SAVE_COORDINATOR_STATUS = "internal_tests_only"
 MEMORY_HTTP_METADATA_ADAPTER_STATUS = "internal_tests_only"
 MEMORY_SESSION_BOOTSTRAP_PRIMITIVE_STATUS = "internal_tests_only"
+MEMORY_SAVE_PREPARATION_COORDINATOR_STATUS = "internal_tests_only"
 MEMORY_SESSION_COOKIE_NAME = "jarvis_session"
 MEMORY_SESSION_COOKIE_PATH = "/api/memory-skills/"
 MEMORY_CSRF_HEADER_NAME = "X-Jarvis-CSRF"
@@ -295,6 +296,10 @@ MEMORY_SESSION_BOOTSTRAP_NOTE = (
     "Temporary local request-guard session only; not save, privacy, skill, or execution approval."
 )
 MEMORY_GUARDED_SAVE_ALLOWED_FIELDS = frozenset({"preview_token", "confirmation"})
+MEMORY_SAVE_PREPARATION_ALLOWED_FIELDS = frozenset({"candidate_preview", "privacy_reviewed"})
+MEMORY_SAVE_PREPARATION_RETENTION_NOTE = (
+    "A future confirmed local candidate would remain until manually removed; no automatic deletion is enabled."
+)
 MEMORY_SECRET_BYTES = 32
 MEMORY_SECRET_CREATE_ATTEMPTS = 3
 MEMORY_SECRET_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43,}$")
@@ -1141,6 +1146,7 @@ def memory_skills_payload() -> dict[str, Any]:
         "guarded_save_coordinator": MEMORY_GUARDED_SAVE_COORDINATOR_STATUS,
         "http_metadata_adapter": MEMORY_HTTP_METADATA_ADAPTER_STATUS,
         "session_bootstrap_primitive": MEMORY_SESSION_BOOTSTRAP_PRIMITIVE_STATUS,
+        "save_preparation_coordinator": MEMORY_SAVE_PREPARATION_COORDINATOR_STATUS,
         "persisted_original_text_preview": False,
         "preview_token_issuance": False,
         "ui_save_action": False,
@@ -2353,6 +2359,180 @@ class PreviewTokenRegistry:
                 return len(self._entries)
         except Exception:
             return 0
+
+
+@dataclass(frozen=True, slots=True)
+class MemorySavePreparationSuccess:
+    """Private route-free result whose token is hidden from incidental repr output."""
+
+    preview_token: str = field(repr=False)
+    candidate_digest: str
+    expires_in_seconds: float
+    title: str
+    candidate_type: str
+    source: str
+
+    def public_payload(self) -> dict[str, Any]:
+        """Return bounded future display metadata plus the intentionally issued token."""
+
+        return {
+            "ok": True,
+            "prepared": True,
+            "saved": False,
+            "preview_token": self.preview_token,
+            "candidate_digest": self.candidate_digest,
+            "expires_in_seconds": self.expires_in_seconds,
+            "review": {
+                "title": self.title,
+                "candidate_type": self.candidate_type,
+                "source": self.source,
+                "storage_scope": MEMORY_SAVE_DRY_RUN_REQUIRED_SCOPE,
+                "retention_note": MEMORY_SAVE_PREPARATION_RETENTION_NOTE,
+                "candidate_only": True,
+                "skill_created": False,
+                "will_run_automatically": False,
+                "original_text_preview_stored": False,
+            },
+        }
+
+
+def memory_save_preparation_error(status: HTTPStatus, error: str) -> tuple[int, dict[str, Any]]:
+    """Return one bounded preparation error without request, token, or candidate material."""
+
+    return status, {
+        "ok": False,
+        "prepared": False,
+        "saved": False,
+        "error": error,
+    }
+
+
+def parse_memory_save_preparation_body(raw_body: Any) -> tuple[int, dict[str, Any]]:
+    """Parse one strict UTF-8 JSON object while rejecting duplicate keys at every depth."""
+
+    if not isinstance(raw_body, bytes):
+        return memory_save_preparation_error(HTTPStatus.BAD_REQUEST, "invalid_save_preparation_request")
+
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in parsed:
+                raise ValueError("duplicate JSON key")
+            parsed[key] = value
+        return parsed
+
+    try:
+        payload = json.loads(
+            raw_body.decode("utf-8", errors="strict"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError, RecursionError):
+        return memory_save_preparation_error(HTTPStatus.BAD_REQUEST, "invalid_save_preparation_request")
+    if not isinstance(payload, dict):
+        return memory_save_preparation_error(HTTPStatus.BAD_REQUEST, "invalid_save_preparation_request")
+    return HTTPStatus.OK, payload
+
+
+def coordinate_memory_skills_save_preparation(
+    request_guard: Any,
+    preview_tokens: Any,
+    raw_headers: Any,
+    raw_body: Any,
+    *,
+    max_body_bytes: int = MAX_JSON_BODY_BYTES,
+    max_header_count: int = MEMORY_HTTP_METADATA_MAX_HEADER_COUNT,
+) -> tuple[int, MemorySavePreparationSuccess | dict[str, Any]]:
+    """Compose raw guarded validation and session-bound token issue without a route."""
+
+    if not isinstance(request_guard, LocalRequestGuard) or not isinstance(preview_tokens, PreviewTokenRegistry):
+        return memory_save_preparation_error(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "save_preparation_configuration_invalid",
+        )
+
+    adapter_status, adapter_result = adapt_memory_guarded_http_metadata(
+        raw_headers,
+        max_body_bytes=max_body_bytes,
+        max_header_count=max_header_count,
+    )
+    if adapter_status != HTTPStatus.OK:
+        return memory_save_preparation_error(
+            HTTPStatus(adapter_status),
+            str(adapter_result.get("error", "invalid_request_metadata")),
+        )
+
+    if not isinstance(raw_body, bytes) or adapter_result.get("content_length") != len(raw_body):
+        return memory_save_preparation_error(HTTPStatus.BAD_REQUEST, "content_length_mismatch")
+
+    guard_status, guard_result = request_guard.validate(adapter_result.get("request_metadata"))
+    if guard_status != HTTPStatus.OK:
+        error = (
+            "unsupported_media_type"
+            if guard_status == HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+            else "request_verification_failed"
+        )
+        return memory_save_preparation_error(HTTPStatus(guard_status), error)
+
+    parse_status, payload = parse_memory_save_preparation_body(raw_body)
+    if parse_status != HTTPStatus.OK:
+        return parse_status, payload
+    if set(payload) != MEMORY_SAVE_PREPARATION_ALLOWED_FIELDS:
+        return memory_save_preparation_error(HTTPStatus.BAD_REQUEST, "invalid_save_preparation_request")
+    if payload.get("privacy_reviewed") is not True:
+        return memory_save_preparation_error(HTTPStatus.BAD_REQUEST, "privacy_review_required")
+
+    snapshot_status, snapshot_result = canonicalize_memory_candidate_snapshot(payload.get("candidate_preview"))
+    if snapshot_status != HTTPStatus.OK:
+        return memory_save_preparation_error(
+            HTTPStatus(snapshot_status),
+            str(snapshot_result.get("error", "invalid_candidate_snapshot")),
+        )
+
+    issue_status, issue_result = preview_tokens.issue(
+        guard_result.get("session_id"),
+        snapshot_result["canonical_snapshot"],
+        privacy_reviewed=True,
+    )
+    if issue_status != HTTPStatus.OK:
+        if issue_status in {
+            HTTPStatus.CONFLICT,
+            HTTPStatus.SERVICE_UNAVAILABLE,
+        }:
+            return memory_save_preparation_error(
+                HTTPStatus(issue_status),
+                "save_preparation_unavailable",
+            )
+        return memory_save_preparation_error(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "save_preparation_failed",
+        )
+
+    preview_token = issue_result.get("preview_token")
+    candidate_digest = issue_result.get("candidate_digest")
+    expires_in_seconds = issue_result.get("expires_in_seconds")
+    issued_result_is_valid = (
+        memory_secret_token_is_valid(preview_token)
+        and isinstance(candidate_digest, str)
+        and hmac.compare_digest(candidate_digest, snapshot_result["candidate_digest"])
+        and isinstance(expires_in_seconds, (int, float))
+        and not isinstance(expires_in_seconds, bool)
+        and math.isfinite(float(expires_in_seconds))
+        and 0 < float(expires_in_seconds) <= preview_tokens.ttl_seconds
+    )
+    if not issued_result_is_valid:
+        if memory_secret_token_is_valid(preview_token):
+            preview_tokens.claim(guard_result.get("session_id"), preview_token)
+        return memory_save_preparation_error(HTTPStatus.INTERNAL_SERVER_ERROR, "save_preparation_failed")
+
+    canonical_snapshot = snapshot_result["canonical_snapshot"]
+    return HTTPStatus.OK, MemorySavePreparationSuccess(
+        preview_token=preview_token,
+        candidate_digest=candidate_digest,
+        expires_in_seconds=float(expires_in_seconds),
+        title=canonical_snapshot["title"],
+        candidate_type=canonical_snapshot["candidate_type"],
+        source=canonical_snapshot["source"],
+    )
 
 
 def memory_candidate_write_error(status: HTTPStatus, error: str) -> tuple[int, dict[str, Any]]:
@@ -4279,6 +4459,357 @@ def run_memory_session_bootstrap_primitive_self_tests() -> None:
     assert before_status == after_status
 
 
+def run_memory_save_preparation_coordinator_self_tests() -> None:
+    """Verify guarded token preparation remains route-free, bounded, and write-free."""
+
+    class DeterministicBytes:
+        def __init__(self, namespace: str) -> None:
+            self.namespace = namespace
+            self.counter = 0
+
+        def __call__(self, size: int) -> bytes:
+            self.counter += 1
+            seed = hashlib.sha256(
+                f"jarvis-save-preparation-{self.namespace}-{self.counter}".encode("ascii")
+            ).digest()
+            return (seed * ((size + len(seed) - 1) // len(seed)))[:size]
+
+    def encode_payload(payload: Any) -> bytes:
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+
+    def raw_headers(session: dict[str, Any], body: bytes) -> list[tuple[str, str]]:
+        return [
+            ("Host", f"{DEFAULT_HOST}:{DEFAULT_PORT}"),
+            ("Origin", f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"),
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Cookie", f'{MEMORY_SESSION_COOKIE_NAME}={session["session_id"]}'),
+            (MEMORY_CSRF_HEADER_NAME, session["csrf_token"]),
+            ("Content-Length", str(len(body))),
+        ]
+
+    def preparation_payload(candidate: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "candidate_preview": candidate,
+            "privacy_reviewed": True,
+        }
+
+    def candidate_variant(candidate: dict[str, Any], marker: str) -> dict[str, Any]:
+        variant = dict(candidate)
+        variant["cleaned_text"] = f'{candidate["cleaned_text"]} {marker}'
+        variant["tags"] = list(candidate.get("tags", []))
+        variant["safety_notes"] = list(candidate.get("safety_notes", []))
+        return variant
+
+    before_status = run_read_only_git(("status", "--short"))
+    preview_status, preview = prepare_memory_candidate_preview(
+        {
+            "title": "Guarded save preparation candidate",
+            "cleaned_text": "Bind one reviewed canonical candidate to a short-lived token.",
+            "original_text_preview": "Bounded private preview stays out of preparation responses.",
+            "candidate_type": "operating_rule",
+            "confidence": "high",
+            "source": "manual",
+            "tags": ["guarded", "preparation"],
+            "safety_notes": ["Internal tests only; no route or write."],
+        }
+    )
+    assert preview_status == HTTPStatus.OK
+    candidate = preview["candidate_preview"]
+    canonical_status, canonical = canonicalize_memory_candidate_snapshot(candidate)
+    assert canonical_status == HTTPStatus.OK
+
+    sessions = SessionRegistry(clock=lambda: 100.0, token_generator=DeterministicBytes("sessions"))
+    first_status, first_session = sessions.issue()
+    second_status, second_session = sessions.issue()
+    assert first_status == second_status == HTTPStatus.OK
+    guard = LocalRequestGuard(DEFAULT_HOST, DEFAULT_PORT, sessions)
+
+    tokens = PreviewTokenRegistry(clock=lambda: 200.0, token_generator=DeterministicBytes("success"))
+    body = encode_payload(preparation_payload(candidate))
+    success_status, success = coordinate_memory_skills_save_preparation(
+        guard,
+        tokens,
+        iter(raw_headers(first_session, body)),
+        body,
+    )
+    assert success_status == HTTPStatus.OK
+    assert isinstance(success, MemorySavePreparationSuccess)
+    public = success.public_payload()
+    assert public["prepared"] is True
+    assert public["saved"] is False
+    assert public["candidate_digest"] == canonical["candidate_digest"]
+    assert public["expires_in_seconds"] == MEMORY_PREVIEW_TOKEN_TTL_SECONDS
+    assert public["review"] == {
+        "title": candidate["title"],
+        "candidate_type": candidate["candidate_type"],
+        "source": candidate["source"],
+        "storage_scope": MEMORY_SAVE_DRY_RUN_REQUIRED_SCOPE,
+        "retention_note": MEMORY_SAVE_PREPARATION_RETENTION_NOTE,
+        "candidate_only": True,
+        "skill_created": False,
+        "will_run_automatically": False,
+        "original_text_preview_stored": False,
+    }
+    assert set(public) == {
+        "ok",
+        "prepared",
+        "saved",
+        "preview_token",
+        "candidate_digest",
+        "expires_in_seconds",
+        "review",
+    }
+    assert success.preview_token not in repr(success)
+    assert first_session["session_id"] not in repr(success)
+    assert first_session["csrf_token"] not in repr(success)
+    assert candidate["cleaned_text"] not in str(public)
+    assert candidate["original_text_preview"] not in str(public)
+    assert tokens.active_count() == 1
+
+    wrong_claim_status, wrong_claim = tokens.claim(second_session["session_id"], success.preview_token)
+    assert wrong_claim_status == HTTPStatus.CONFLICT
+    assert wrong_claim == {"ok": False, "error": "invalid_or_expired_preview_token"}
+    assert tokens.active_count() == 1
+    claim_status, claimed = tokens.claim(first_session["session_id"], success.preview_token)
+    assert claim_status == HTTPStatus.OK
+    assert claimed["candidate_digest"] == canonical["candidate_digest"]
+    assert claimed["canonical_snapshot"] == canonical["canonical_snapshot"]
+    assert tokens.active_count() == 0
+
+    invalid_tokens = PreviewTokenRegistry(
+        clock=lambda: 300.0,
+        token_generator=DeterministicBytes("invalid"),
+    )
+
+    def assert_rejected(
+        rejected_body: bytes,
+        *,
+        headers: Any | None = None,
+        status: HTTPStatus = HTTPStatus.BAD_REQUEST,
+        error: str = "invalid_save_preparation_request",
+    ) -> None:
+        rejected_status, rejected = coordinate_memory_skills_save_preparation(
+            guard,
+            invalid_tokens,
+            iter(raw_headers(first_session, rejected_body)) if headers is None else headers,
+            rejected_body,
+        )
+        assert rejected_status == status
+        assert rejected == {
+            "ok": False,
+            "prepared": False,
+            "saved": False,
+            "error": error,
+        }
+        assert invalid_tokens.active_count() == 0
+        assert first_session["session_id"] not in str(rejected)
+        assert first_session["csrf_token"] not in str(rejected)
+        assert candidate["cleaned_text"] not in str(rejected)
+
+    assert_rejected(b"{not-json")
+    assert_rejected(b"\xff")
+    assert_rejected((b"[" * 1100) + b"0" + (b"]" * 1100))
+    assert_rejected(encode_payload([]))
+    assert_rejected(
+        b'{"candidate_preview":{},"privacy_reviewed":true,"privacy_reviewed":true}'
+    )
+    assert_rejected(
+        b'{"candidate_preview":{"title":"one","title":"two"},"privacy_reviewed":true}'
+    )
+    assert_rejected(encode_payload({"candidate_preview": candidate}))
+    assert_rejected(
+        encode_payload({"candidate_preview": candidate, "privacy_reviewed": False}),
+        error="privacy_review_required",
+    )
+    assert_rejected(
+        encode_payload({**preparation_payload(candidate), "confirmation": True})
+    )
+
+    path_candidate = dict(candidate)
+    path_candidate["storage_path"] = "C:/private/path"
+    path_body = encode_payload(preparation_payload(path_candidate))
+    assert_rejected(path_body, error="path_field_not_allowed")
+
+    mapping_status, mapping = coordinate_memory_skills_save_preparation(
+        guard,
+        invalid_tokens,
+        dict(raw_headers(first_session, body)),
+        body,
+    )
+    assert mapping_status == HTTPStatus.BAD_REQUEST
+    assert mapping["error"] == "invalid_request_metadata"
+    assert invalid_tokens.active_count() == 0
+
+    mismatch_headers = raw_headers(first_session, body)
+    mismatch_headers[-1] = ("Content-Length", str(len(body) + 1))
+    assert_rejected(body, headers=iter(mismatch_headers), error="content_length_mismatch")
+
+    duplicate_headers = [*raw_headers(first_session, body), ("Origin", f"http://{DEFAULT_HOST}:{DEFAULT_PORT}")]
+    assert_rejected(body, headers=iter(duplicate_headers), error="invalid_request_metadata")
+
+    wrong_origin_headers = raw_headers(first_session, body)
+    wrong_origin_headers[1] = ("Origin", "https://evil.example")
+    assert_rejected(
+        body,
+        headers=iter(wrong_origin_headers),
+        status=HTTPStatus.FORBIDDEN,
+        error="request_verification_failed",
+    )
+
+    wrong_csrf_headers = raw_headers(first_session, body)
+    wrong_csrf_headers[4] = (MEMORY_CSRF_HEADER_NAME, second_session["csrf_token"])
+    assert_rejected(
+        body,
+        headers=iter(wrong_csrf_headers),
+        status=HTTPStatus.FORBIDDEN,
+        error="request_verification_failed",
+    )
+
+    unsupported_headers = raw_headers(first_session, body)
+    unsupported_headers[2] = ("Content-Type", "text/plain")
+    assert_rejected(
+        body,
+        headers=iter(unsupported_headers),
+        status=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+        error="unsupported_media_type",
+    )
+
+    duplicate_tokens = PreviewTokenRegistry(
+        clock=lambda: 400.0,
+        token_generator=DeterministicBytes("duplicate"),
+    )
+    first_duplicate_status, first_duplicate = coordinate_memory_skills_save_preparation(
+        guard,
+        duplicate_tokens,
+        iter(raw_headers(first_session, body)),
+        body,
+    )
+    assert first_duplicate_status == HTTPStatus.OK
+    assert isinstance(first_duplicate, MemorySavePreparationSuccess)
+    second_duplicate_status, second_duplicate = coordinate_memory_skills_save_preparation(
+        guard,
+        duplicate_tokens,
+        iter(raw_headers(first_session, body)),
+        body,
+    )
+    assert second_duplicate_status == HTTPStatus.CONFLICT
+    assert second_duplicate["error"] == "save_preparation_unavailable"
+    assert duplicate_tokens.active_count() == 1
+    assert duplicate_tokens.claim(first_session["session_id"], first_duplicate.preview_token)[0] == HTTPStatus.OK
+
+    capacity_tokens = PreviewTokenRegistry(
+        max_entries=1,
+        per_session_limit=1,
+        clock=lambda: 500.0,
+        token_generator=DeterministicBytes("capacity"),
+    )
+    capacity_first_status, capacity_first = coordinate_memory_skills_save_preparation(
+        guard,
+        capacity_tokens,
+        iter(raw_headers(first_session, body)),
+        body,
+    )
+    assert capacity_first_status == HTTPStatus.OK
+    assert isinstance(capacity_first, MemorySavePreparationSuccess)
+    capacity_candidate = candidate_variant(candidate, "capacity")
+    capacity_body = encode_payload(preparation_payload(capacity_candidate))
+    capacity_status, capacity = coordinate_memory_skills_save_preparation(
+        guard,
+        capacity_tokens,
+        iter(raw_headers(first_session, capacity_body)),
+        capacity_body,
+    )
+    assert capacity_status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert capacity["error"] == "save_preparation_unavailable"
+    assert capacity_tokens.active_count() == 1
+    assert capacity_tokens.claim(first_session["session_id"], capacity_first.preview_token)[0] == HTTPStatus.OK
+
+    failing_tokens = PreviewTokenRegistry(clock=lambda: 600.0, token_generator=lambda _size: b"short")
+    failing_status, failing = coordinate_memory_skills_save_preparation(
+        guard,
+        failing_tokens,
+        iter(raw_headers(first_session, body)),
+        body,
+    )
+    assert failing_status == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert failing["error"] == "save_preparation_failed"
+    assert failing_tokens.active_count() == 0
+
+    class CorruptingRegistry(PreviewTokenRegistry):
+        def issue(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, Any]]:
+            issue_status, issue_result = super().issue(*args, **kwargs)
+            if issue_status == HTTPStatus.OK:
+                issue_result = {**issue_result, "candidate_digest": "0" * 64}
+            return issue_status, issue_result
+
+    corrupt_tokens = CorruptingRegistry(
+        clock=lambda: 700.0,
+        token_generator=DeterministicBytes("corrupt"),
+    )
+    corrupt_status, corrupt = coordinate_memory_skills_save_preparation(
+        guard,
+        corrupt_tokens,
+        iter(raw_headers(first_session, body)),
+        body,
+    )
+    assert corrupt_status == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert corrupt["error"] == "save_preparation_failed"
+    assert corrupt_tokens.active_count() == 0
+
+    concurrent_tokens = PreviewTokenRegistry(
+        clock=lambda: 800.0,
+        token_generator=DeterministicBytes("concurrent"),
+    )
+    concurrent_results: list[tuple[int, MemorySavePreparationSuccess | dict[str, Any]]] = []
+    concurrent_lock = threading.Lock()
+    barrier = threading.Barrier(4)
+
+    def prepare_concurrently() -> None:
+        barrier.wait()
+        result = coordinate_memory_skills_save_preparation(
+            guard,
+            concurrent_tokens,
+            iter(raw_headers(first_session, body)),
+            body,
+        )
+        with concurrent_lock:
+            concurrent_results.append(result)
+
+    threads = [threading.Thread(target=prepare_concurrently) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(concurrent_results) == 4
+    successful = [result for status, result in concurrent_results if status == HTTPStatus.OK]
+    unavailable = [result for status, result in concurrent_results if status == HTTPStatus.CONFLICT]
+    assert len(successful) == 1
+    assert len(unavailable) == 3
+    assert all(isinstance(result, MemorySavePreparationSuccess) for result in successful)
+    assert all(result["error"] == "save_preparation_unavailable" for result in unavailable)
+    assert concurrent_tokens.active_count() == 1
+
+    assert handle_post_api(MEMORY_SAVE_ENDPOINT, {}) == (
+        HTTPStatus.NOT_FOUND,
+        {"ok": False, "error": "not_found"},
+    )
+    assert "coordinate_memory_skills_save_preparation" not in inspect.getsource(handle_post_api)
+    assert "coordinate_memory_skills_save_preparation" not in inspect.getsource(JarvisConsoleHandler)
+    assert "coordinate_memory_skills_save_preparation" not in inspect.getsource(prepare_memory_candidate_preview)
+    assert "preview_token" not in str(prepare_voice_inbox_task({"transcript": "remember this safely"}))
+    assert not (APP_ROOT / "state").exists()
+    assert not (REPO_ROOT / ".jarvis-local").exists()
+    assert not (REPO_ROOT / "memory" / "skills").exists()
+    after_status = run_read_only_git(("status", "--short"))
+    assert before_status == after_status
+
+
 def run_memory_guarded_save_coordinator_self_tests() -> None:
     """Verify the route-free one-claim coordinator only against temporary local state."""
 
@@ -4915,6 +5446,7 @@ def run_self_test() -> None:
     assert memory["guarded_save_coordinator"] == "internal_tests_only"
     assert memory["http_metadata_adapter"] == "internal_tests_only"
     assert memory["session_bootstrap_primitive"] == "internal_tests_only"
+    assert memory["save_preparation_coordinator"] == "internal_tests_only"
     assert memory["persisted_original_text_preview"] is False
     assert memory["preview_token_issuance"] is False
     assert memory["ui_save_action"] is False
@@ -4936,6 +5468,7 @@ def run_self_test() -> None:
     run_memory_http_metadata_adapter_self_tests()
     run_memory_session_bootstrap_primitive_self_tests()
     run_memory_request_guard_token_self_tests()
+    run_memory_save_preparation_coordinator_self_tests()
     run_memory_guarded_save_coordinator_self_tests()
 
     with TemporaryDirectory(prefix="jarvis-localappdata-") as fake_local_appdata_text:
