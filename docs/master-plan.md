@@ -14,9 +14,10 @@
 
 ### 현재 만드는 것
 
-Memory / Skills의 user-facing local save를 다시 열기 전에 필요한 신뢰 경계와
-재오픈 조건을 검토했다. Phase 2C-3c 설계 결과는 `keep locked`이며, 실제 HTTP
-route, UI, Voice Inbox, persistence에는 아무 권한도 추가하지 않았다.
+Memory / Skills의 privacy-review token, exact confirmation, one-claim write
+시퀀스를 route-free internal/tests-only coordinator로 묶었다. 저장 JSON은
+`original_text_preview`를 기본 제외한다. 실제 HTTP route, UI, Voice Inbox,
+runtime persistence에는 아무 권한도 추가하지 않았다.
 
 ### 이 작업 축이 끝나면 가능한 것
 
@@ -37,7 +38,7 @@ route, UI, Voice Inbox, persistence에는 아무 권한도 추가하지 않았�
 운영 기반       ████░  사용자 기능
 역할별 앱       ████░  사용자 기능
 안전 작업 운영  ████░  사용자 기능 — 실제 작업 1건 검증
-Memory / Skills ██░░░  내부 구현·재오픈 설계 — 저장 잠금
+Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 통합 Console    █░░░░  설계·기반
 홈서버 / 모바일 █░░░░  장기 설계
 ```
@@ -54,13 +55,13 @@ Memory / Skills ██░░░  내부 구현·재오픈 설계 — 저장 잠�
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Memory / Skills Phase 2C-3c 재오픈 조건 검토**
-- 현재 다음 작업: **persisted `original_text_preview` 개인정보 기본값 결정**
+- 최근 완료: **Memory / Skills Phase 2C-4a route-free guarded save coordinator**
+- 현재 다음 작업: **raw HTTP metadata adapter — Phase 2C-4b, route-free/internal-tests-only**
 - 다음 사용자 체감 milestone: **모든 재오픈 조건을 통과한 명시적 local-save
   확인 흐름** — 아직 승인되지 않음
 - vertical slice 완료 기준: 정확한 snapshot을 사람이 확인한 뒤 한 번만 저장하고,
   실패·restart·재시도에서도 자동 저장이나 실행 권한이 생기지 않음
-- 현재 결정 필요: **원문 미리보기 기본 미저장(권장)** 또는 **별도 명시 동의 후 저장**
+- 현재 결정 필요: **없음** — 다음 구현은 별도 work package 승인 대상
 
 ### 언제부터 실제로 편해지는가
 
@@ -102,19 +103,20 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `2a63b4e6911738feb154be83b5e00a2a4010e7f8`
+- Verified implementation HEAD: `4c333a9de9732b289ddeeb067b764ad9c4436679`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Memory / Skills approval-gated local-save safety
-- Current milestone: Phase 2C-3c design/reopen review 완료, live save 잠금 유지
-- Recommended next implementation: privacy-field 결정 전 없음
+- Current milestone: Phase 2C-4a guarded save coordinator 내부 구현 완료, live save 잠금 유지
+- Recommended next implementation: Phase 2C-4b route-free raw HTTP metadata adapter
 - Next user-visible milestone: 모든 조건을 통과한 명시적 local-save 확인 흐름
 
-Phase 2C-3c는 기존 internal/tests-only storage, request-guard, session, canonical
-snapshot, preview-token primitive를 실제 HTTP에 연결하기 전에 필요한 조건을
-확정했다. 현재 preview는 계속 write-free/token-free이고 save endpoint는
-disabled/non-success다. UI Save/Confirm, Voice Inbox auto-save, saved candidates
-dashboard도 없다.
+Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
+confirmation literal과 server-held canonical snapshot만 writer에 전달한다. token은
+write 전에 한 번 claim되며 실패 시 자동 retry되지 않는다. 저장 JSON은
+`original_text_preview`를 제외한다. 현재 preview는 계속 write-free/token-free이고
+save endpoint는 disabled/non-success다. UI Save/Confirm, Voice Inbox auto-save,
+saved candidates dashboard도 없다.
 
 ## 3. 전체 단계
 
@@ -123,7 +125,7 @@ dashboard도 없다.
 | 0. 운영 기반 | 작업·승인·결과를 같은 규칙으로 지시하고 보고받음 | task, 승인, 상태 전이, 보고 계약 | 사용자 기능 | 반복 실사용 검증 |
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
 | 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff, read-only 검토 화면 | **사용자 기능 — 실제 작업 1건 검증** | 반복 사용 피드백 또는 다음 축 선택 |
-| 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 내부 구현·재오픈 설계, 저장 잠금 | 개인정보 필드 결정과 route-free coordinator 승인 |
+| 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 내부 coordinator 구현, 저장 잠금 | raw HTTP metadata adapter와 남은 재오픈 조건 |
 | 4. 통합 Jarvis Console | 여러 프로젝트의 검토·승인·보고를 한 화면에서 관리함 | read-only부터 확장하는 local control panel | 설계·기반 | 2·3단계 안전 계약 안정화 |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
 
@@ -137,16 +139,17 @@ flowchart LR
     B --> C["storage hardening<br/>2C-3a"]
     C --> D["request guard·token<br/>2C-3b"]
     D --> E["재오픈 조건 검토<br/>2C-3c"]
-    E --> F["개인정보 필드 기본값<br/>소유자 결정"]
-    F --> G["route-free save coordinator<br/>별도 승인"]
-    G --> H["실제 HTTP·UI 통합<br/>모든 조건 충족 후"]
+    E --> F["개인정보 기본 미저장<br/>정책 확정"]
+    F --> G["route-free save coordinator<br/>2C-4a"]
+    G --> H["raw HTTP metadata adapter<br/>2C-4b 다음 후보"]
+    H --> I["실제 HTTP·UI 통합<br/>모든 조건 충족 후"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E done;
-    class F current;
-    class G,H future;
+    class A,B,C,D,E,F,G done;
+    class H current;
+    class I future;
 ```
 
 ### 구현된 기반
@@ -157,37 +160,40 @@ flowchart LR
 - bounded process-local `SessionRegistry`와 strict loopback `LocalRequestGuard`
 - server-held canonical snapshot/digest와 one-time `PreviewTokenRegistry`
 - live-save trust model, proposed approval sequence, mandatory reopen checklist
+- explicit privacy review token issue와 exact confirmation literal
+- one-claim fail-closed coordinator와 persisted source-preview 기본 제외
 
-### 최근 완료: Phase 2C-3c 재오픈 조건 검토
+### 최근 완료: Phase 2C-4a guarded save coordinator
 
-설계 검토는 preview, session/bootstrap, save preparation, exact confirmation,
-token claim, writer를 서로 다른 단계로 정의했다. client payload나 digest는 저장
-권한이 아니며 server-held canonical snapshot만 미래 저장 후보가 될 수 있다.
+preview-token issue는 `privacy_reviewed=True`를 요구한다. coordinator는 valid
+session/request metadata, one-time token, exact confirmation literal만 받아
+server-held snapshot을 다시 canonicalize·validate한 뒤 hardened writer에 전달한다.
+client candidate, path, digest는 final save 권한으로 받지 않는다.
 
-검토 결과 실제 HTTP metadata adapter, bootstrap lifecycle, save coordinator,
-privacy-field policy, recovery UX, deterministic HTTP/browser tests가 아직 없으므로
-live save는 재오픈하지 않는다. 문서 변경 외 애플리케이션 동작은 추가되지 않았다.
+성공, 잘못된 Origin/session, extra payload, replay, writer failure after claim,
+dead-token retry, digest corruption을 TemporaryDirectory에서 검증했다. writer는
+bounded `original_text_preview`도 저장 JSON에서 제외한다.
 
-### 현재 결정: 저장할 개인정보 필드
+### 다음 안전 단위: raw HTTP metadata adapter — Phase 2C-4b
 
-현재 내부 writer는 bounded `original_text_preview`를 저장할 수 있다. live save를
-연결하기 전에 소유자가 아래 기본값 중 하나를 선택해야 한다.
+실제 handler 연결 전에 `BaseHTTPRequestHandler`의 security header와 body-length
+metadata를 중복·누락 상태 그대로 검증 가능한 bounded 형태로 바꿔야 한다.
 
 ```text
-1. 권장: original_text_preview는 화면에서만 확인하고 저장 JSON에서는 기본 제외
-2. 대안: 별도 명시 동의를 받은 후보에만 bounded original_text_preview 저장
+허용: exact single Host/Origin/Content-Type/Cookie/CSRF/Content-Length
+차단: duplicate, missing, conflicting, negative, malformed, oversized metadata
 ```
 
-이 결정 전에는 app code를 바꾸지 않는다. 결정 후에도 첫 구현 후보는
-TemporaryDirectory에서만 검증하는 route-free internal/tests-only coordinator다.
-save endpoint, UI Save/Confirm, Voice Inbox, runtime persistence는 계속 별도 승인이다.
+이 단위도 route-free/internal-tests-only로 제한한다. handler allowlist, session
+bootstrap, token route, save endpoint, UI, Voice Inbox, runtime persistence는 계속
+별도 승인이다.
 
 ## 5. 작업 축별 상태
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
-| Memory / Skills | Phase 2C-3c 재오픈 검토 완료, `keep locked` | write-free preview | persisted 원문 미리보기 정책 결정 |
+| Memory / Skills | Phase 2C-4a guarded coordinator 내부 구현 완료, `keep locked` | write-free preview | Phase 2C-4b route-free raw HTTP metadata adapter |
 | Jarvis Console | Codex Review 실제 작업 성공 화면 검증 완료 | fresh read-only work review | 반복 실사용 피드백 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |

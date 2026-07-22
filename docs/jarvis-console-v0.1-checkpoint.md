@@ -26,8 +26,8 @@ Jarvis Console does not execute skills automatically. It suggests, prepares, and
 
 ## Current HEAD / Status
 
-- Verified implementation HEAD: `2a63b4e6911738feb154be83b5e00a2a4010e7f8`
-- Commit: `hermes-manager: add copy-only codex review handoff`
+- Verified implementation HEAD: `4c333a9de9732b289ddeeb067b764ad9c4436679`
+- Commit: `jarvis-console: add guarded memory save coordinator`
 - Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -215,6 +215,11 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
   preview-token primitives.
 - Phase 2C-3c completed the live-save design/reopen-conditions review with a
   `keep locked` verdict; it added no application behavior.
+- Phase 2C-4a implements a route-free internal/tests-only guarded save
+  coordinator. Token issue requires explicit privacy review, final composition
+  accepts only a one-time token plus an exact confirmation literal, writer
+  failures consume the token without retry, and stored test candidates omit
+  `original_text_preview`.
 - `POST /api/memory-skills/candidates` remains disabled/non-success.
 - The live preview endpoint remains write-free and token-free.
 - No UI Save/Confirm, Voice Inbox token/save, or saved candidates dashboard is
@@ -456,8 +461,9 @@ During QA, `jarvis.bat` remained untracked and untouched.
 ## Current Known Backlog
 
 - Memory / Skills remains a proposal surface; any live save route or UI action
-  requires the Phase 2C-3c checklist, privacy-field decision, local validation,
-  and a separate explicit approval.
+  requires the remaining Phase 2C-3c checklist, local validation, and a separate
+  explicit approval. The privacy-field decision is resolved as default
+  omission of `original_text_preview`.
 - Codex Review remains deliberately copy/paste-only and has no durable review
   history; further UX changes should come from repeated local-use feedback.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
@@ -473,13 +479,14 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Memory Privacy-field Decision
+### A. Raw HTTP Metadata Adapter — Phase 2C-4b
 
 Priority: P1
 
-Decide whether a future persisted candidate omits `original_text_preview` by
-default or retains it only after a separate explicit disclosure. The safer
-default is omission. Keep live save locked until the decision is recorded.
+Design and implement the smallest route-free internal/tests-only adapter that
+preserves or rejects duplicate Host, Origin, Content-Type, Cookie, CSRF, and
+Content-Length metadata before request-guard use. Add no handler registration,
+session bootstrap, token route, UI, or runtime persistence.
 
 ### B. Planned Skill UX Polish
 
@@ -509,11 +516,10 @@ Improve source-area and item-type inference as real task, report, and checkpoint
 
 Priority: P2
 
-Phase 2C-3c design/reopen review is complete and the live-save verdict is `keep
-locked`. After the privacy-field decision, the smallest separately approved
-implementation candidate is a route-free internal/tests-only guarded save
-coordinator with TemporaryDirectory tests. Keep the current request guard/token
-primitives disconnected from HTTP, UI, and Voice Inbox.
+Phase 2C-4a guarded save coordination and the privacy-default decision are
+complete for internal/tests-only coverage. The next candidate is the route-free
+Phase 2C-4b raw HTTP metadata adapter described above. Keep the request guard, token, and
+coordinator disconnected from HTTP dispatch, UI, and Voice Inbox.
 
 ### G. Skill Detail Visual Polish
 
