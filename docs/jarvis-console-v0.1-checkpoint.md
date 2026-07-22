@@ -131,10 +131,10 @@ The Project Control tab shows:
 - Read-only Discovery Rules
 - Refresh Project Control
 
-The `project_control.v0.1A` payload is list-shaped for later trusted
-multi-project support, but this milestone exposes only Jarvis-Core. It rejects
-master-plan sources outside the trusted root and missing, duplicate, invalid
-UTF-8, or oversized metadata. It does not accept arbitrary repo paths.
+The `project_control.v0.1A` payload is list-shaped, but that shape is an
+implementation detail and the current product scope exposes only Jarvis-Core.
+It rejects master-plan sources outside the trusted root and missing, duplicate,
+invalid UTF-8, or oversized metadata. It does not accept arbitrary repo paths.
 
 Project Control v0.1B is design-only. It separates portable tracked registry
 metadata from a server-owned trusted-root map, defines declared vs observed
@@ -146,6 +146,14 @@ normalizer and blocking decision. It validates one/two-project fixtures,
 server-supplied root/command IDs, strict fields/lists, branch names, traversal,
 Unicode controls, duplicates, and portable Windows/POSIX path boundaries. It
 has no filesystem, Git, HTTP, UI, persistence, or second-repo connection.
+
+The v0.1B/v0.1C multi-project foundation is dormant and is not the current
+integration roadmap. Project Control remains a single-repo owner dashboard for
+Jarvis-Core. Jarvis Console, Hermes Manager, Memory / Skills, Research Council,
+and Daily AI Radar are internal workstreams/apps/capabilities, not separate
+projects. The next direction is to make their status, recent completion,
+current milestone, next step, locked features, and approval needs easier for a
+non-developer owner to understand.
 
 Recent items are normalized with deterministic read-only metadata:
 
@@ -519,9 +527,9 @@ During QA, `jarvis.bat` remained untracked and untouched.
 - Codex Review remains deliberately copy/paste-only and has no durable review
   history; further UX changes should come from repeated local-use feedback.
 - Project Control v0.1A supports one trusted Jarvis-Core card only. v0.1B source
-  design and v0.1C internal normalization are complete, but a second repo
-  remains unselected and unconnected. The owner must specify its root and
-  read-only boundary before any live multi-repo integration.
+  design and v0.1C internal normalization are complete but dormant. Do not
+  register or connect a second repo, add path input, wire routes/UI, or add
+  persistence without a separate future product-direction decision.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
 - Project Control artifact grouping refinement: grouping can become more precise
   as real task/report/checkpoint indexes appear.
@@ -536,15 +544,16 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Owner Selection of a Second Project
+### A. Single-repo Internal Workstream Visibility
 
 Priority: P1
 
-Select one real local project for the next read-only integration design. Record
-its repo path, display name, expected branch, master-plan relative path,
-protected paths, and expected untracked paths. Until the owner supplies and
-approves that boundary, do not scan `C:\work`, guess a project, read another
-repo, or connect HTTP/UI/persistence/actions.
+Design the smallest read-only vertical slice that shows Jarvis-Core's internal
+workstream status, recent completion, current milestone, next step, locked
+features, and approval need. Put plain-language `why this is being built` and
+`what the owner gets when this stage is complete` ahead of technical stage
+codes. Keep the dashboard single-repo and do not connect the dormant registry
+primitive to HTTP, UI, filesystem paths, or persistence in that design step.
 
 ### B. Planned Skill UX Polish
 

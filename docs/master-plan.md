@@ -8,31 +8,34 @@
 
 ### 최종 목표
 
-여러 프로젝트와 AI 작업자를 한곳에서 관리하고, 사용자는 중요한 승인과
-방향 결정만 수행한다. 기본 운영은 local-first이며 관찰, 제안, 승인, 실행을
-서로 다른 단계로 유지한다.
+Jarvis-Core 한 저장소 안의 AI 작업자와 내부 workstream을 한곳에서 관리하고,
+사용자는 중요한 승인과 방향 결정만 수행한다. 기본 운영은 local-first이며
+관찰, 제안, 승인, 실행을 서로 다른 단계로 유지한다.
 
-### 현재 만드는 것
+### 현재 만드는 이유
 
-Memory / Skills live save는 readiness review의 `keep locked` 판정을 유지한다.
-소유자는 다음 사용자 체감 작업으로 Jarvis/Hermes Prompt Queue / Project Control
-Panel을 선택했다. Project Control v0.1A는 기존 read-only overview 안에서
-`docs/master-plan.md`의 bounded 필드와 fixed read-only Git 결과를 결합해
-Jarvis-Core 한 개의 소유자 프로젝트 카드로 보여준다. 목표, 현재 작업 축,
-milestone, 다음 체감 결과, live HEAD, working tree, 보호 파일, 금지 동작을 한곳에
-표시하지만 task·approval·prompt·commit·cross-app call은 만들지 않는다.
-v0.1B design은 여러 프로젝트로 확장할 때도 browser path나 자동 discovery를
-받지 않고, tracked registry와 server-owned trusted-root map을 분리하도록
-확정했다. v0.1C는 이 contract의 in-memory normalizer와 blocking decision을
-internal/tests-only로 구현했다. 실제 두 번째 repo 연결은 아직 없다.
+지금 병목은 기능 부족보다 소유자가 Jarvis Console, Hermes Manager,
+Memory / Skills, Research Council, Daily AI Radar의 상태와 문서를 각각 찾아봐야
+전체 진행을 이해할 수 있다는 점이다. Project Control은 Jarvis-Core 한 저장소의
+내부 workstream을 한 화면에 요약해, 무엇을 왜 만들고 있고 다음 결정이 무엇인지
+빠르게 알게 하기 위해 만든다.
 
-### 이 작업 축이 끝나면 가능한 것
+Project Control v0.1A는 현재 목표와 live Git 상태를 한 개의 read-only Jarvis-Core
+카드로 보여준다. v0.1B design과 v0.1C internal/tests-only registry primitive는
+연결하지 않은 기반으로 보존하지만, 현재 방향은 multi-project 연결이 아니다.
+두 번째 repo 등록·경로 입력·route·UI·persistence는 추가하지 않는다. Memory /
+Skills live save도 readiness review의 `keep locked` 판정을 유지한다.
 
-- 소유자가 개발 단계 코드보다 먼저 현재 목표와 사용자 체감 결과를 확인한다.
-- 마스터플랜 방향과 실제 branch·HEAD·working tree를 같은 카드에서 비교한다.
-- 여러 신뢰된 로컬 프로젝트를 같은 형태의 read-only 카드로 확장할 수 있다.
-- 개별 작업 검토는 기존 Codex Review에 남기고 Project Control은 방향·상태
-  요약에 집중한다.
+### 이 단계가 끝나면 사용자가 얻는 것
+
+- 소유자가 기술 단계 코드보다 먼저 `왜 만드는지`와 `끝나면 무엇이 좋아지는지`
+  확인한다.
+- Jarvis-Core 내부 workstream별 상태, 최근 완료, 현재 milestone, 다음 단계를
+  한 화면에서 확인한다.
+- 잠긴 기능과 사람의 승인이 필요한 결정을 바로 구분한다.
+- 마스터플랜 방향과 실제 branch·HEAD·working tree를 같은 화면에서 비교한다.
+- Jarvis Console, Hermes Manager, Memory / Skills, Research Council, Daily AI
+  Radar를 별도 프로젝트가 아닌 Jarvis-Core 내부 workstream으로 이해한다.
 - 자동 실행, push/PR, 외부 호출, Memory save는 계속 별도 승인 경계로 둔다.
 
 ### 전체 성숙도
@@ -62,20 +65,20 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 ### 현재 위치와 다음 체감 목표
 
 - 최근 완료: **Project Control v0.1C internal registry normalizer**
-- 현재 다음 작업: **소유자의 실제 두 번째 프로젝트 선택과 read-only 연결 범위 승인**
-- 다음 사용자 체감 milestone: **여러 allowlisted local project의 목표·현재 작업·
-  안전 경계를 나란히 보는 read-only 카드 화면**
-- vertical slice 완료 기준: 신뢰된 프로젝트만 표시하고, 각 카드의 문서 방향과
-  live Git 관찰을 구분하며 어떤 action·approval·persistence도 만들지 않음
-- 현재 결정 필요: **있음** — 자동 discovery 없이 실제로 표시할 두 번째 repo 지정 필요
+- 현재 다음 작업: **Jarvis-Core 내부 workstream 가시성의 작은 vertical slice 설계**
+- 다음 사용자 체감 milestone: **내부 workstream별 상태·최근 완료·현재 milestone·
+  다음 단계·잠긴 기능·승인 필요 여부를 보여주는 single-repo Owner Dashboard**
+- vertical slice 완료 기준: Jarvis-Core 한 저장소만 표시하고, 문서 방향과 live Git
+  관찰을 구분하며 어떤 action·approval·persistence도 만들지 않음
+- 현재 결정 필요: **없음** — single-repo 방향은 소유자가 승인함
 
 ### 언제부터 실제로 편해지는가
 
 1. 현재: 각 로컬 도구와 수동 prompt drafting 기능을 사용할 수 있다.
 2. 첫 체감 milestone: 안전 검증을 통과한 Codex 작업만 read-only 검토 화면에서
    확인한다.
-3. 실용 로컬 milestone: 여러 프로젝트의 검토·승인·보고를 통합 Console에서
-   관리하되 자동 실행과 push/PR은 계속 잠근다.
+3. 실용 로컬 milestone: Jarvis-Core 내부 workstream의 진행·잠금·승인 필요 상태를
+   통합 Console에서 확인하되 자동 실행과 push/PR은 계속 잠근다.
 4. 장기 milestone: 화이트리스트 실행과 감사·복구가 검증된 뒤 모바일 승인을
    연결한다.
 
@@ -114,10 +117,10 @@ flowchart LR
 - Verified implementation HEAD: `a33f28103310cfd2210780d2ef0fe6b4df9cfc2b`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
-- Current workstream: Jarvis/Hermes Prompt Queue / Project Control Panel
-- Current milestone: Project Control v0.1C internal registry normalizer 완료
-- Recommended next step: Owner selects one real second project before read-only integration design
-- Next user-visible milestone: 여러 allowlisted local project의 owner cards
+- Current workstream: Project Control — Jarvis-Core single-repo owner dashboard
+- Current milestone: Single-repo internal workstream visibility direction confirmed
+- Recommended next step: Design the single-repo internal workstream visibility vertical slice
+- Next user-visible milestone: 내부 workstream별 상태와 다음 결정을 보여주는 Owner Dashboard
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
@@ -141,7 +144,7 @@ Voice Inbox auto-save, saved candidates dashboard도 없다.
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
 | 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff, read-only 검토 화면 | **사용자 기능 — 실제 작업 1건 검증** | 반복 사용 피드백 또는 다음 축 선택 |
 | 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 2C-4f readiness review 완료, `keep locked` | 소유자가 complete vertical slice 우선순위 결정 |
-| 4. 통합 Jarvis Console | 여러 프로젝트의 검토·승인·보고를 한 화면에서 관리함 | read-only부터 확장하는 local control panel | 사용자 기능 — 단일 owner card | trusted multi-project source design |
+| 4. 통합 Jarvis Console | Jarvis-Core 내부 workstream의 진행·잠금·승인 필요 상태를 한 화면에서 확인함 | read-only부터 확장하는 single-repo local control panel | 사용자 기능 — 단일 owner card | 내부 workstream 가시성 vertical slice |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
 
 단계 번호는 방향을 설명한다. 모든 작업 축이 완전히 직렬로 진행된다는 뜻은 아니며, 안전 경계를 넘지 않는 작은 기반 작업은 병행할 수 있다.
@@ -156,10 +159,10 @@ flowchart LR
     D --> E["Memory save<br/>keep locked"]
     E --> F["owner direction<br/>Project Control 선택"]
     F --> G["단일 owner project card<br/>v0.1A 완료"]
-    G --> H["trusted multi-project source<br/>v0.1B design 완료"]
-    H --> I["registry normalizer<br/>v0.1C 완료"]
-    I --> J{"owner selects<br/>real second project"}
-    J --> K["allowlisted project cards<br/>후속 사용자 기능"]
+    G --> H["multi-project contract<br/>v0.1B 보존"]
+    H --> I["route-free normalizer<br/>v0.1C 보존"]
+    I --> J["single-repo workstream visibility<br/>현재 설계 단계"]
+    J --> K["내부 workstream Owner Dashboard<br/>후속 사용자 기능"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
@@ -193,21 +196,23 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 다음 승인 지점: 실제 두 번째 프로젝트 선택
+### 다음 안전 단계: Jarvis-Core 내부 workstream 가시성 설계
 
-자동 repo discovery와 browser path 입력은 금지되어 있으므로, 다음 read-only
-integration의 project root를 Codex가 추측할 수 없다. 소유자는 다음을 지정해야
-한다.
+Project Control의 현재 제품 방향은 Jarvis-Core 한 저장소만 보여주는 소유자
+대시보드다. 다음 work package에서는 아래 항목을 보여주는 가장 작은 read-only
+vertical slice의 source와 표시 계약을 먼저 설계한다.
 
-- 실제 두 번째 프로젝트의 repo 경로와 표시 이름
-- expected branch
-- protected paths와 expected untracked paths
-- 사용할 master-plan 문서의 repo-relative 경로
-- read-only 카드 연결을 다음 work package로 승인하는지 여부
+- Jarvis Console, Hermes Manager, Memory / Skills, Research Council, Daily AI
+  Radar 등 내부 workstream의 제한된 목록
+- workstream별 현재 상태, 최근 완료, 현재 milestone, 다음 단계
+- 잠긴 기능과 승인 필요 여부
+- 비개발자가 이해할 수 있는 `현재 만드는 이유`와 `이 단계가 끝나면 사용자가
+  얻는 것`
 
-이 정보가 오기 전에는 두 번째 repo를 열거나 후보 디렉터리를 탐색하지 않는다.
-임의 browser path, persistence, action button도 계속 추가하지 않는다.
-Memory save endpoint, UI Save/Confirm, Voice Inbox save는 계속 잠겨 있다.
+v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
+보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
+persistence는 하지 않는다. Memory save endpoint, UI Save/Confirm, Voice Inbox
+save도 계속 잠겨 있다.
 
 ## 5. 작업 축별 상태
 
@@ -215,7 +220,7 @@ Memory save endpoint, UI Save/Confirm, Voice Inbox save는 계속 잠겨 있다.
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1A local browser 검증, v0.1B design·v0.1C internal normalizer 완료 | owner project card와 fresh read-only work review | 소유자가 실제 두 번째 project 선택 |
+| Jarvis Console | Project Control v0.1A local browser 검증, v0.1B design·v0.1C dormant internal normalizer 완료 | owner project card와 fresh read-only work review | 내부 workstream 가시성 vertical slice 설계 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
@@ -264,8 +269,9 @@ Memory save endpoint, UI Save/Confirm, Voice Inbox save는 계속 잠겨 있다.
 8. Memory / Skills는 2C-4f readiness review의 `keep locked` 판정을 유지하며,
    소유자는 다음 체감 milestone로 Prompt Queue / Project Control을 선택했다.
 9. Project Control v0.1A는 단일 owner card를 검증하고 v0.1B는 source contract,
-   v0.1C는 route-free internal normalizer를 완료했다. 실제 multi-repo 연결 전에는
-   소유자가 두 번째 project와 read-only 범위를 지정해야 한다.
+   v0.1C는 route-free internal normalizer를 완료했다. v0.1B/v0.1C는 연결하지
+   않은 기반으로 보존하며, 현재 제품 방향은 Jarvis-Core 한 저장소의 내부
+   workstream 가시성이다.
 
 ## 9. Milestone 보고 형식
 
@@ -312,7 +318,7 @@ Memory save endpoint, UI Save/Confirm, Voice Inbox save는 계속 잠겨 있다.
 - [Jarvis Console checkpoint](jarvis-console-v0.1-checkpoint.md)
 - [Codex review read-only design](codex-review-read-only-v0.1-design.md)
 - [Codex review copy-only handoff design](codex-review-copy-handoff-v0.1-design.md)
-- [Project Control trusted multi-project source design](project-control-multi-project-source-v0.1-design.md)
+- [Project Control dormant multi-project source design](project-control-multi-project-source-v0.1-design.md)
 - [Memory / Skills design](memory-skills-v0.1-design.md)
 - [Memory / Skills session bootstrap design](memory-skills-session-bootstrap-v0.1-design.md)
 - [Hermes Manager README](../apps/hermes-manager-pilot/README.md)

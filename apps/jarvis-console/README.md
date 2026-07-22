@@ -171,18 +171,17 @@ commands provide the live branch, HEAD, and working-tree status.
 
 The browser shows one Jarvis-Core card with the current goal, workstream,
 milestone, next user-visible result, known protected/untracked path, validation
-commands, and forbidden Jarvis Console actions. The payload is list-shaped for
-a later trusted multi-project design, but v0.1A neither accepts arbitrary repo
-paths nor discovers other repositories.
+commands, and forbidden Jarvis Console actions. The list-shaped payload is an
+implementation detail; the current product scope remains one Jarvis-Core
+repository and does not accept arbitrary repo paths or discover other repos.
 
 This view reuses `GET /api/overview`. It creates no task, approval, prompt,
 runtime state, commit, cross-app call, or external request.
 
-Project Control v0.1B is design-only. It defines a future bounded tracked
-registry containing portable card metadata and a `trusted_root_key`, while a
-separate server-owned map retains filesystem authority. Browser-supplied paths,
-parent-directory scans, automatic repo discovery, and a real second-repo
-connection remain absent. See
+Project Control v0.1B and the v0.1C route-free internal normalizer are retained
+as dormant foundations, not as the current integration roadmap. Browser-supplied
+paths, parent-directory scans, automatic repo discovery, a second-repo
+connection, route/UI wiring, and persistence remain absent. See
 [`../../docs/project-control-multi-project-source-v0.1-design.md`](../../docs/project-control-multi-project-source-v0.1-design.md).
 
 Project Control v0.1C implements only the route-free internal registry
@@ -190,6 +189,14 @@ normalizer and bounded blocking decision. It validates one/two-project fixtures,
 trusted root/command IDs, field and list bounds, duplicate values, portable
 relative paths, branch names, Unicode controls, and Windows path hazards. It
 does not read a registry file, open a repo, run Git, or connect to overview/UI.
+
+The next Project Control direction is a single-repo owner dashboard that makes
+Jarvis-Core's internal workstreams visible. Jarvis Console, Hermes Manager,
+Memory / Skills, Research Council, and Daily AI Radar are workstreams, apps, or
+capabilities inside Jarvis-Core, not separate projects. The intended read-only
+view summarizes why the current work exists, what the owner gains when it is
+complete, recent completion, current milestone, next step, locked features, and
+whether approval is needed.
 
 ### Research Council
 

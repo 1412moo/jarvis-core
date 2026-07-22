@@ -2,13 +2,20 @@
 
 Last updated: 2026-07-22
 
-Status: design-only. No second repository, route, persistence, action, or
-cross-app connection is implemented by this document.
+Status: dormant design/internal foundation. It is retained for reference but is
+not on the current Project Control integration roadmap. No second repository,
+route, persistence, action, or cross-app connection is implemented.
 
 Implementation note: Project Control v0.1C now implements and locally verifies
 the in-memory registry normalizer and bounded blocking decision described in
 section 10. It remains route-free and filesystem-free; the design's live
 multi-repository boundary is still unimplemented.
+
+Current direction: Project Control stays a single-repository Owner Dashboard
+for Jarvis-Core and treats Jarvis Console, Hermes Manager, Memory / Skills,
+Research Council, and Daily AI Radar as internal workstreams/apps/capabilities.
+Do not register a real second repository or connect this foundation to path
+input, HTTP routes, UI, or persistence.
 
 ## 1. Goal
 
@@ -217,5 +224,7 @@ It still must not:
 - accept a path from a browser;
 - execute validation commands.
 
-After v0.1C review, the owner must identify and approve any real second project
-before a multi-repository read-only integration is implemented.
+After v0.1C review, the owner chose to keep Project Control single-repository.
+This primitive remains dormant. Any future multi-repository reactivation would
+require a separate explicit product-direction decision before repository
+selection or read-only integration design begins.
