@@ -163,6 +163,15 @@ payload, UI, and validation contract for that single-repo view. It reuses
 `GET /api/overview`, exposes one Jarvis-Core card, and adds no action route,
 persistence, second repository, or dormant-registry connection.
 
+The first real-use validation read the latest milestone from a clean tracked
+working tree with only protected `jarvis.bat` untracked. The owner reason,
+outcome, recent completion, milestone, next step, locks, approval state, and six
+workstreams were sufficient without opening the source documents. There were no
+Project Control action buttons, browser errors, or actionable readability
+findings. The next product workstream now requires an explicit owner decision.
+The resulting `none` to `required` state transition also corrected two test-only
+assertions to validate the full designed approval-state enum.
+
 Recent items are normalized with deterministic read-only metadata:
 
 - `item_id`
@@ -560,10 +569,10 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 Priority: P1
 
-Use the implemented v0.1D dashboard for one real milestone report. Confirm that
-the owner can choose the next action without opening the underlying documents,
-then record only concrete wording or information-priority issues. Do not add a
-repository, action, route, persistence, or new authority during this validation.
+Completed without an actionable UI finding. Keep v0.1D stable and wait for the
+owner to select the next Jarvis-Core product workstream. Do not infer that
+choice from the workstream table or add repository, action, route, persistence,
+or new authority while waiting.
 
 ### B. Planned Skill UX Polish
 

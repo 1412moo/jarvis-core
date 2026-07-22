@@ -66,13 +66,12 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Project Control v0.1D single-repo Owner Dashboard vertical slice**
-- 현재 다음 작업: **실제 milestone 보고 1회로 Owner Dashboard 실사용 검증**
-- 다음 사용자 체감 milestone: **내부 workstream별 상태·최근 완료·현재 milestone·
-  다음 단계·잠긴 기능·승인 필요 여부를 보여주는 single-repo Owner Dashboard**
+- 최근 완료: **Project Control v0.1D 첫 실제 milestone 보고 검증**
+- 현재 다음 작업: **소유자가 다음 Jarvis-Core product workstream을 선택**
+- 다음 사용자 체감 milestone: **소유자가 승인한 다음 workstream의 작은 vertical slice**
 - vertical slice 완료 결과: Jarvis-Core 한 저장소만 표시하고, 문서 방향과 live Git
   관찰을 구분하며 어떤 action·approval·persistence도 만들지 않는 화면 검증 완료
-- 현재 결정 필요: **없음** — single-repo 방향은 소유자가 승인함
+- 현재 결정 필요: **있음** — Dashboard 검증 이후의 product workstream 선택 필요
 
 ### 언제부터 실제로 편해지는가
 
@@ -120,14 +119,14 @@ flowchart LR
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Project Control — Jarvis-Core single-repo owner dashboard
-- Current milestone: Project Control v0.1D single-repo Owner Dashboard implemented and browser-verified
-- Recommended next step: Use the dashboard for one real milestone report and record usability feedback
-- Next user-visible milestone: Owner Dashboard를 실제 방향 결정에 사용하는 첫 운영 검증
-- Current reason: 흩어진 Jarvis-Core 내부 workstream 상태를 소유자가 문서별로 찾아보는 부담을 줄이기 위해 만든다
-- Owner outcome: 현재 이유·최근 완료·milestone·다음 단계·잠금·승인 필요 여부를 한 화면에서 이해한다
-- Recent completed: Project Control v0.1D single-repo Owner Dashboard vertical slice
-- Approval state: none
-- Approval note: 현재는 새 권한 승인 없이 read-only dashboard 실사용 검증을 진행할 수 있다
+- Current milestone: Project Control v0.1D first real milestone report validation complete
+- Recommended next step: Owner selects the next Jarvis-Core product workstream before implementation continues
+- Next user-visible milestone: 소유자가 승인한 다음 workstream의 작은 vertical slice
+- Current reason: Owner Dashboard 검증 이후 어떤 Jarvis-Core workstream을 발전시킬지 방향을 정해야 한다
+- Owner outcome: 검증된 현재 상태를 바탕으로 다음 product workstream 하나를 명시적으로 선택한다
+- Recent completed: Project Control v0.1D first real-use milestone report validation
+- Approval state: required
+- Approval note: 다음 product workstream 선택은 소유자 결정이며 자동으로 진행하지 않는다
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
@@ -170,13 +169,16 @@ flowchart LR
     H --> I["route-free normalizer<br/>v0.1C 보존"]
     I --> J["single-repo workstream visibility<br/>v0.1D design 완료"]
     J --> K["내부 workstream Owner Dashboard<br/>v0.1D 구현 완료"]
-    K --> L["실제 milestone 보고 1회<br/>현재 실사용 검증"]
+    K --> L["실제 milestone 보고 1회<br/>실사용 검증 완료"]
+    L --> M{"owner selects<br/>next product workstream"}
+    M --> N["승인된 작은 vertical slice<br/>후속 사용자 기능"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K done;
-    class L current;
+    class A,B,C,D,E,F,G,H,I,J,K,L done;
+    class M current;
+    class N future;
 ```
 
 ### 구현된 기반
@@ -190,7 +192,16 @@ flowchart LR
 - 기존 `/api/overview` 안의 single-repo `project_control.v0.1D` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Project Control v0.1D single-repo Owner Dashboard vertical slice
+### 최근 완료: Project Control v0.1D 첫 실제 milestone 보고 검증
+
+최신 `main`의 깨끗한 working tree(`?? jarvis.bat` 제외)를 Project Control에서
+읽었다. 별도 문서를 열지 않고 현재 이유, owner outcome, 최근 완료, milestone,
+다음 단계, 잠금, 승인 상태와 6개 내부 workstream을 확인할 수 있었다. Project
+Control card의 action button과 browser error는 모두 0건이었다. 앱 코드 수정이
+필요한 가독성 finding은 없었다.
+
+이 검증으로 v0.1D 목표는 완료됐다. 다음 product workstream은 Dashboard가
+자동으로 선택하지 않으며 소유자의 명시적 방향 결정이 필요하다.
 
 구현 commit `e69dbea27a1f77d0b9fe40fc4f5ca76eb13e37fb`에서 기존 master plan과
 `GET /api/overview`를 재사용하는 complete vertical slice를 구현했다. Owner
@@ -211,16 +222,16 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 다음 안전 단계: 실제 milestone 보고 1회 실사용 검증
+### 다음 승인 지점: 다음 Jarvis-Core product workstream 선택
 
 Project Control의 현재 제품 방향은 Jarvis-Core 한 저장소만 보여주는 소유자
-대시보드다. 다음 단계에서는 새 primitive나 권한을 추가하지 않고 실제 milestone
-보고 1회를 이 화면에서 읽어 다음 작업을 결정할 수 있는지 확인한다.
+대시보드이며 v0.1D 구현과 첫 실사용 검증은 완료됐다. 다음 구현을 시작하기 전에
+소유자가 아래 방향 중 하나 또는 별도 방향을 선택해야 한다.
 
-- 소유자가 별도 문서를 열지 않고 현재 이유와 결과를 이해하는지
-- 최근 완료, milestone, 다음 단계, 잠금, 승인 상태가 실제 결정에 충분한지
-- 기술 코드보다 사용자 관점 설명이 먼저 읽히는지
-- 반복 사용에서 발견된 문구 또는 정보 우선순위 문제만 기록하는지
+- 기존 역할별 앱의 실제 사용 피드백과 작은 UX 개선
+- Memory / Skills live-save 재오픈 조건 재검토 — 현재는 계속 잠김
+- 제한 실행·모바일 승인 방향 설계 — 장기·고위험 단계
+- 다른 Jarvis-Core 내부 capability의 사용자 체감 vertical slice
 
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
@@ -233,7 +244,7 @@ save도 계속 잠겨 있다.
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1D single-repo Owner Dashboard 구현·browser 검증 완료 | owner project card, 내부 workstream 상태, fresh read-only work review | 실제 milestone 보고 1회 실사용 검증 |
+| Jarvis Console | Project Control v0.1D 구현과 첫 실제 milestone 보고 검증 완료 | owner project card, 내부 workstream 상태, fresh read-only work review | 다음 product workstream 소유자 선택 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |

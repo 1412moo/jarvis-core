@@ -5596,7 +5596,7 @@ def run_self_test() -> None:
     assert owner_card["attention_reasons"] == []
     assert owner_card["owner_summary"]["current_reason"]
     assert owner_card["owner_summary"]["owner_outcome"]
-    assert owner_card["owner_summary"]["approval_state"] == "none"
+    assert owner_card["owner_summary"]["approval_state"] in MASTER_PLAN_APPROVAL_STATES
     assert [item["workstream_id"] for item in owner_card["workstreams"]] == [
         "hermes-manager",
         "memory-skills",

@@ -622,7 +622,7 @@ def main() -> None:
     assert owner_summary["current_reason"]
     assert owner_summary["owner_outcome"]
     assert owner_summary["recent_completed"]
-    assert owner_summary["approval_state"] == "none"
+    assert owner_summary["approval_state"] in run_web_app.MASTER_PLAN_APPROVAL_STATES
     assert len(project_card["workstreams"]) == 6
     assert [item["workstream_id"] for item in project_card["workstreams"]] == [
         "hermes-manager",

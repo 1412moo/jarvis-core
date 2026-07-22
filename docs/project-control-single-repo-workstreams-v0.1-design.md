@@ -214,3 +214,22 @@ decision.
   errors.
 - The QA server was stopped without creating runtime state. Memory save, UI
   Save/Confirm, Voice Inbox save, and saved candidates remain unavailable.
+
+## 11. First Real-use Result
+
+The latest committed milestone was read from Project Control with a clean
+tracked working tree and protected `jarvis.bat` remaining untracked. Without
+opening the source documents, the screen exposed the owner reason and outcome,
+recent completion, current milestone, next step, approval state, locked
+capabilities, and all six internal workstreams.
+
+The Project Control card had zero action buttons and the browser reported zero
+errors. No actionable wording, ordering, or missing-information finding required
+an application change. The v0.1D milestone is therefore complete. Selecting the
+next Jarvis-Core product workstream is a new owner decision and is not inferred
+or authorized by this result.
+
+Changing the live approval state from `none` to `required` exposed two test-only
+assertions that had incorrectly pinned the value to `none`. They now verify
+membership in the designed `none|required|blocked` enum; production behavior is
+unchanged and the full smoke suite passes.
