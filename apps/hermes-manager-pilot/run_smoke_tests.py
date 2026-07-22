@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
+from datetime import datetime, timezone
 import io
 import json
 import os
@@ -52,6 +53,21 @@ from hermes_manager_pilot.review_handoff import (
     build_copy_only_review_handoff,
     render_copy_only_review_handoff,
 )
+import hermes_manager_pilot.review_record as review_record_module
+from hermes_manager_pilot.review_record import (
+    AUTHORITY_BOUNDARY as REVIEW_RECORD_AUTHORITY_BOUNDARY,
+    CONTRACT_TYPE as REVIEW_RECORD_CONTRACT_TYPE,
+    VERSION as REVIEW_RECORD_VERSION,
+    ReviewRecordCandidate,
+    ReviewRecordError,
+    create_review_record,
+    evaluate_review_record_freshness,
+    normalize_review_record,
+    normalize_review_record_candidate,
+    parse_review_record_json,
+    review_record_to_dict,
+    serialize_review_record,
+)
 from hermes_manager_pilot.schemas import ValidationError, normalize_session_state
 
 
@@ -79,6 +95,16 @@ def _assert_validation_error(fn: object, expected_text: str) -> None:
         _assert(expected_text in str(exc), f"unexpected validation error: {exc}")
     else:
         raise AssertionError(f"expected ValidationError containing: {expected_text}")
+
+
+def _assert_review_record_error(fn: object, expected_text: str) -> None:
+    assert callable(fn)
+    try:
+        fn()
+    except ReviewRecordError as exc:
+        _assert(expected_text in str(exc), f"unexpected ReviewRecordError: {exc}")
+    else:
+        raise AssertionError(f"expected ReviewRecordError containing: {expected_text}")
 
 
 def _sample_payload() -> dict[str, object]:
@@ -2724,6 +2750,289 @@ def _test_local_change_evidence_status_parser_is_bounded_and_fail_closed() -> No
     )
 
 
+def _review_record_candidate_payload() -> dict[str, object]:
+    return {
+        "project_id": "jarvis-core",
+        "git_snapshot": {
+            "branch": "main",
+            "head": "a" * 40,
+            "status": [
+                "?? jarvis.bat",
+                " M docs/master-plan.md",
+                " M apps/hermes-manager-pilot/README.md",
+            ],
+        },
+        "current_goal": "Make Hermes review handoffs safely reusable.",
+        "active_task": "Define a transport-neutral durable Review record.",
+        "target_files": [
+            "docs/master-plan.md",
+            "apps/hermes-manager-pilot/README.md",
+        ],
+        "validation_commands": [
+            "python -B apps/hermes-manager-pilot/run_smoke_tests.py",
+            "git diff --check",
+        ],
+        "last_codex_prompt_summary": "Implement one bounded Review contract.",
+        "result_summary": "Implemented the immutable contract and deterministic tests.",
+        "privacy_reviewed": True,
+    }
+
+
+def _test_review_record_contract_is_immutable_canonical_and_authority_free() -> None:
+    payload = _review_record_candidate_payload()
+    candidate = normalize_review_record_candidate(payload)
+    _assert(
+        candidate.target_files
+        == (
+            "apps/hermes-manager-pilot/README.md",
+            "docs/master-plan.md",
+        ),
+        "Review target scope is not canonical",
+    )
+    _assert(
+        candidate.git_snapshot.status
+        == (
+            " M apps/hermes-manager-pilot/README.md",
+            " M docs/master-plan.md",
+            "?? jarvis.bat",
+        ),
+        "Review Git snapshot is not canonical",
+    )
+    _assert(isinstance(candidate.target_files, tuple), "Review targets must be immutable")
+    _assert(isinstance(candidate.git_snapshot.status, tuple), "Review status must be immutable")
+
+    record = create_review_record(
+        candidate,
+        id_generator=lambda: "review_0123456789abcdef01234567",
+        clock=lambda: datetime(2026, 7, 22, 3, 4, 5, 999999, tzinfo=timezone.utc),
+    )
+    _assert(record.contract_type == REVIEW_RECORD_CONTRACT_TYPE, "Review contract type mismatch")
+    _assert(record.version == REVIEW_RECORD_VERSION, "Review contract version mismatch")
+    _assert(record.review_id == "review_0123456789abcdef01234567", "Review ID mismatch")
+    _assert(record.created_at == "2026-07-22T03:04:05Z", "Review timestamp is not canonical")
+    _assert(
+        record.authority_boundary == REVIEW_RECORD_AUTHORITY_BOUNDARY,
+        "Review authority boundary mismatch",
+    )
+    _assert(record.read_only is True, "Review record must be read-only")
+    _assert(record.review_passed is False, "Review record granted review authority")
+    _assert(record.commit_approved is False, "Review record granted commit authority")
+    _assert(record.push_allowed is False, "Review record granted push authority")
+
+    try:
+        record.active_task = "mutated"  # type: ignore[misc]
+    except (AttributeError, TypeError):
+        pass
+    else:
+        raise AssertionError("ReviewRecord must be immutable")
+
+    first = serialize_review_record(record)
+    second = serialize_review_record(record)
+    _assert(first == second, "Review record serialization is not stable")
+    _assert(parse_review_record_json(first) == record, "Review record JSON did not round-trip")
+    transport = review_record_to_dict(record)
+    transport["target_files"].append("docs/added-after-copy.md")
+    transport["git_snapshot"]["status"].append("?? docs/added-after-copy.md")
+    _assert(
+        "docs/added-after-copy.md" not in record.target_files,
+        "transport mapping mutated Review target scope",
+    )
+    _assert(
+        "?? docs/added-after-copy.md" not in record.git_snapshot.status,
+        "transport mapping mutated Review Git snapshot",
+    )
+
+
+def _test_review_record_contract_fails_closed_on_unsafe_input() -> None:
+    payload = _review_record_candidate_payload()
+
+    unknown = copy.deepcopy(payload)
+    unknown["raw_codex_result"] = "must not be stored"
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(unknown),
+        "unknown fields",
+    )
+    no_privacy = {**payload, "privacy_reviewed": False}
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(no_privacy),
+        "privacy_reviewed must be true",
+    )
+    wrong_project = {**payload, "project_id": "other-repo"}
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(wrong_project),
+        "project_id must be jarvis-core",
+    )
+    unsafe_target = copy.deepcopy(payload)
+    unsafe_target["target_files"] = ["../outside.md"]
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(unsafe_target),
+        "safe repository-relative path",
+    )
+    protected_target = copy.deepcopy(payload)
+    protected_target["target_files"] = ["jarvis.bat"]
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(protected_target),
+        "must not be a Review target",
+    )
+    duplicate_target = copy.deepcopy(payload)
+    duplicate_target["target_files"] = [
+        "docs/master-plan.md",
+        "DOCS/master-plan.md",
+    ]
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(duplicate_target),
+        "duplicate values",
+    )
+    missing_protected = copy.deepcopy(payload)
+    missing_protected["git_snapshot"]["status"] = [
+        " M docs/master-plan.md",
+        " M apps/hermes-manager-pilot/README.md",
+    ]
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(missing_protected),
+        "jarvis.bat must remain untracked",
+    )
+    staged = copy.deepcopy(payload)
+    staged["git_snapshot"]["status"][1] = "M  docs/master-plan.md"
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(staged),
+        "must not contain staged changes",
+    )
+    outside_scope = copy.deepcopy(payload)
+    outside_scope["git_snapshot"]["status"].append(" M docs/unexpected.md")
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(outside_scope),
+        "outside target_files",
+    )
+    contradictory_status = copy.deepcopy(payload)
+    contradictory_status["git_snapshot"]["status"].append("?? docs/master-plan.md")
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(contradictory_status),
+        "status paths contains duplicate values",
+    )
+    oversized = {**payload, "result_summary": "x" * 1201}
+    _assert_review_record_error(
+        lambda: normalize_review_record_candidate(oversized),
+        "result_summary is too long",
+    )
+
+    candidate = normalize_review_record_candidate(payload)
+    malformed_candidate = ReviewRecordCandidate(
+        project_id=candidate.project_id,
+        git_snapshot="not-a-snapshot",  # type: ignore[arg-type]
+        current_goal=candidate.current_goal,
+        active_task=candidate.active_task,
+        target_files=candidate.target_files,
+        validation_commands=candidate.validation_commands,
+        last_codex_prompt_summary=candidate.last_codex_prompt_summary,
+        result_summary=candidate.result_summary,
+        privacy_reviewed=True,
+    )
+    _assert_review_record_error(
+        lambda: create_review_record(malformed_candidate),
+        "ReviewGitSnapshot must be an immutable contract",
+    )
+    _assert_review_record_error(
+        lambda: create_review_record(
+            candidate,
+            id_generator=lambda: "review_from_user_text",
+            clock=lambda: datetime.now(timezone.utc),
+        ),
+        "generated review_id is invalid",
+    )
+    _assert_review_record_error(
+        lambda: create_review_record(
+            candidate,
+            id_generator=lambda: "review_0123456789abcdef01234567",
+            clock=lambda: datetime(2026, 7, 22, 3, 4, 5),
+        ),
+        "timezone-aware",
+    )
+
+    record = create_review_record(
+        candidate,
+        id_generator=lambda: "review_0123456789abcdef01234567",
+        clock=lambda: datetime(2026, 7, 22, 3, 4, 5, tzinfo=timezone.utc),
+    )
+    for field, unsafe_value in (
+        ("read_only", False),
+        ("review_passed", True),
+        ("commit_approved", True),
+        ("push_allowed", True),
+    ):
+        unsafe_record = review_record_to_dict(record)
+        unsafe_record[field] = unsafe_value
+        _assert_review_record_error(
+            lambda value=unsafe_record: normalize_review_record(value),
+            f"{field} must be",
+        )
+    duplicate_json = serialize_review_record(record).replace(
+        '"version":"0.1A"',
+        '"version":"0.1A","version":"0.1A"',
+        1,
+    )
+    _assert_review_record_error(
+        lambda: parse_review_record_json(duplicate_json),
+        "duplicate key",
+    )
+
+
+def _test_review_record_freshness_is_exact_and_fail_closed() -> None:
+    candidate = normalize_review_record_candidate(_review_record_candidate_payload())
+    record = create_review_record(
+        candidate,
+        id_generator=lambda: "review_0123456789abcdef01234567",
+        clock=lambda: datetime(2026, 7, 22, 3, 4, 5, tzinfo=timezone.utc),
+    )
+    same_snapshot = {
+        "branch": record.git_snapshot.branch,
+        "head": record.git_snapshot.head,
+        "status": list(reversed(record.git_snapshot.status)),
+    }
+    fresh = evaluate_review_record_freshness(record, same_snapshot)
+    _assert(fresh.matches is True, "equivalent current Review snapshot was blocked")
+    _assert(fresh.blocking_reasons == (), "fresh Review snapshot has blocking reasons")
+
+    changed = copy.deepcopy(same_snapshot)
+    changed["branch"] = "other-branch"
+    changed["head"] = "b" * 40
+    changed["status"] = [
+        "M  apps/hermes-manager-pilot/README.md",
+        " M docs/master-plan.md",
+        " M docs/unexpected.md",
+    ]
+    blocked = evaluate_review_record_freshness(record, changed)
+    _assert(blocked.matches is False, "stale or unsafe Review snapshot was accepted")
+    _assert(
+        blocked.blocking_reasons
+        == (
+            "current branch differs from the captured Review branch",
+            "current HEAD differs from the captured Review HEAD",
+            "current working tree differs from the captured Review snapshot",
+            "jarvis.bat is not protected and untracked",
+            "current working tree contains staged changes",
+            "current working tree contains changes outside the Review target scope",
+        ),
+        "Review freshness reasons are incomplete or unstable",
+    )
+
+
+def _test_review_record_core_has_no_io_route_or_clipboard_dependency() -> None:
+    source = Path(review_record_module.__file__).read_text(encoding="utf-8")
+    for forbidden in (
+        "from pathlib",
+        "import os",
+        "subprocess",
+        "requests",
+        "urlopen",
+        ".write_text(",
+        ".write_bytes(",
+        "navigator.clipboard",
+        "HANDOFF_ENDPOINT",
+    ):
+        _assert(forbidden not in source, f"Review record core contains forbidden dependency: {forbidden}")
+
+
 def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     index_html = (APP_ROOT / "web" / "index.html").read_text(encoding="utf-8")
     app_js = (APP_ROOT / "web" / "app.js").read_text(encoding="utf-8")
@@ -2985,6 +3294,10 @@ def main() -> None:
         _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,
+        _test_review_record_contract_is_immutable_canonical_and_authority_free,
+        _test_review_record_contract_fails_closed_on_unsafe_input,
+        _test_review_record_freshness_is_exact_and_fail_closed,
+        _test_review_record_core_has_no_io_route_or_clipboard_dependency,
         _test_browser_ui_mentions_manual_jarvis_handoff,
         _test_copy_only_jarvis_review_handoff_is_deterministic_and_bounded,
         _test_copy_only_review_handoff_route_fixes_repository_authority,

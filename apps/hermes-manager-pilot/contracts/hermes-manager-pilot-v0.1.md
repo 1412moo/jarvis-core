@@ -1100,3 +1100,38 @@ auto-save.
 The implementation was verified with deterministic tests, the full Hermes and
 Jarvis smoke suites, and one real current-work browser path through fresh local
 evidence and a read-only review display.
+
+## 20. Durable Review Record v0.1A Core Boundary
+
+The separately approved v0.1A core defines a transport-neutral immutable Review
+input snapshot before any durable storage or reopen UI is considered. One
+`ReviewRecordCandidate` contains only the fixed `jarvis-core` project identity,
+one bounded `ReviewGitSnapshot`, current goal and task, canonical target files,
+bounded validation commands, an optional prompt summary, a bounded result
+summary, and an explicit privacy-reviewed assertion.
+
+Candidate normalization requires a full lowercase Git object ID, exact bounded
+`git status --short` lines, at least one target change, no staged change, no
+change outside the declared target scope, safe repository-relative paths, and
+`?? jarvis.bat`. Unknown fields, duplicate values or paths, absolute or
+traversal paths, malformed status, oversized text, and `jarvis.bat` as a target
+fail closed.
+
+Creating a `ReviewRecord` adds a system-generated ID independent of user text,
+a canonical UTC timestamp, and fixed safety fields. `authority_boundary` is
+`review_input_only`; `read_only` is true; and `review_passed`,
+`commit_approved`, and `push_allowed` are false. These values cannot be changed
+by normalized input. The record does not authenticate a person, prove privacy
+review or execution, or authorize any approval or side effect.
+
+Serialization is stable bounded JSON with duplicate-key and non-finite-value
+rejection. The pure freshness decision compares caller-supplied current branch,
+HEAD, and status against the captured snapshot and also blocks missing protected
+untracked state, staged changes, and changes outside the recorded scope. It does
+not read Git itself and freshness equality is not approval authority.
+
+v0.1A adds no filesystem access, local state path, file or directory creation,
+route, UI, browser-session adapter, clipboard input, prompt execution,
+background worker, external API/LLM call, persistence, deletion, retention,
+mobile continuity, review approval, commit, push, or PR. Those capabilities each
+require a separately approved work package.

@@ -560,6 +560,32 @@ confirmation, trusted repository authority, missing `jarvis.bat`, and forbidden
 approval/side-effect operations. Full Hermes/Jarvis smoke suites and a real-work
 browser path passed with zero browser errors.
 
+## Durable Review Record v0.1A Core
+
+Status: implemented as a transport-neutral internal/tests-only contract. It is
+not connected to the browser session, a route, or local persistence.
+
+The immutable `ReviewRecordCandidate`, `ReviewGitSnapshot`, and `ReviewRecord`
+contracts capture one privacy-reviewed, bounded result summary together with the
+Jarvis-Core goal, task, target files, validation commands, and the exact branch,
+HEAD, and `git status --short` snapshot at capture time. Target and status sets
+are canonically ordered, duplicate or unsafe paths fail closed, staged changes
+are rejected, changes outside the declared target scope are rejected, and
+`jarvis.bat` must remain protected and untracked.
+
+Review IDs are generated independently of user text. Stable JSON serialization
+and a pure freshness decision allow a future consumer to block when current Git
+metadata no longer matches the captured record. A Review record always remains
+read-only with review, commit, and push authority false. The privacy-reviewed
+field is a caller assertion, not proof that arbitrary text is safe; raw Codex
+responses, file contents, private messages, secrets, credentials, and hidden
+reasoning are outside the contract.
+
+v0.1A performs no filesystem or Git read, creates no directory or file, exposes
+no route or UI, reads no clipboard, and calls no external service. Durable local
+write/read/list behavior, retention and deletion policy, browser Save/Reopen,
+cross-device continuity, and mobile access remain separate approval gates.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).
