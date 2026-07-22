@@ -549,11 +549,11 @@ local Git metadata, so clearing output or changing the clipboard does not lose
 or replace review state. Hermes never reads the clipboard programmatically;
 clipboard access is write-only output from explicit Copy actions.
 
-The Review object is deliberately process-local for this slice and is cleared
-by reset, a new prepared session, or page reload. Durable Review persistence and
-cross-device continuity require a separate contract and approval. This change
-adds no route, persistence, app-to-app call, review approval, commit approval,
-or execution authority.
+The working Review object remains process-local and is cleared by reset, a new
+prepared session, or page reload unless the user separately completes the
+explicit Durable Review Save flow described below. Clipboard output is never
+used as persistence or continuity state. Cross-device continuity remains
+unimplemented.
 
 Deterministic tests cover stable serialization, exact fields, stale/absent scope
 confirmation, trusted repository authority, missing `jarvis.bat`, and forbidden
@@ -562,8 +562,8 @@ browser path passed with zero browser errors.
 
 ## Durable Review Record v0.1A Core
 
-Status: implemented as a transport-neutral internal/tests-only contract. It is
-not connected to the browser session, a route, or local persistence.
+Status: implemented as a transport-neutral core contract. v0.1C consumes this
+contract, but the record model itself remains independent of routes and UI.
 
 The immutable `ReviewRecordCandidate`, `ReviewGitSnapshot`, and `ReviewRecord`
 contracts capture one privacy-reviewed, bounded result summary together with the
@@ -581,16 +581,16 @@ field is a caller assertion, not proof that arbitrary text is safe; raw Codex
 responses, file contents, private messages, secrets, credentials, and hidden
 reasoning are outside the contract.
 
-v0.1A performs no filesystem or Git read, creates no directory or file, exposes
-no route or UI, reads no clipboard, and calls no external service. Durable local
-write/read/list behavior, retention and deletion policy, browser Save/Reopen,
-cross-device continuity, and mobile access remain separate approval gates.
+v0.1A itself performs no filesystem or Git read, creates no directory or file,
+exposes no route or UI, reads no clipboard, and calls no external service. The
+separately approved v0.1B-1 store and v0.1C lifecycle consume it. Cross-device
+continuity and mobile access remain separate approval gates.
 
 ## Durable Review Store v0.1B-1 Internal Primitives
 
-Status: implemented as route-free internal/tests-only local store primitives.
-The browser UI, web server, and existing manual Session Save/Load do not call
-this store, and validation uses isolated temporary state only.
+Status: implemented as route-free local store primitives. The separately
+approved v0.1C lifecycle calls them through bounded local-only routes. Existing
+manual Session Save/Load remains a different file format and storage flow.
 
 The store resolves the shared Jarvis local-state root and uses the dedicated
 `hermes-manager/reviews/v1` namespace. Windows defaults to
@@ -608,17 +608,58 @@ internal ID. `list_review_records` performs an index-free bounded scan and
 returns metadata only; result summaries and absolute paths are omitted.
 
 The store holds at most 256 records and never evicts old data. Its retention
-policy is `manual_delete_only`: records remain until a separately approved
-exact-ID deletion feature exists. Orphan temporary files, foreign entries,
+policy is `manual_delete_only`: records remain until the user completes the
+v0.1C exact-ID delete confirmation. Orphan temporary files, foreign entries,
 corrupt records, and capacity overflow block the relevant operation and are not
 automatically removed or repaired. Exact-ID read remains available when an
 unrelated orphan temporary file needs recovery.
 
 File fsync plus no-overwrite atomic publication protects against partial normal
 process writes, but v0.1B-1 does not claim filesystem-wide power-loss recovery,
-encryption at rest, authentication, or cross-process transactional locking.
-There is no route, Save/Reopen UI, delete/archive/migration, automatic cleanup,
-external call, clipboard input, approval, execution, commit, push, or PR.
+encryption at rest, user authentication, or cross-process transactional locking.
+There is no archive/migration, automatic cleanup, external call, clipboard
+input, approval, execution, commit, push, or PR.
+
+## Durable Review Local Lifecycle v0.1C
+
+Status: implemented as a local-only, human-confirmed user vertical slice in
+commit `2d564e544a32c2ce839364fd3ba8cf76e9f70abb`.
+
+The browser can now explicitly preview and confirm one durable Review Save,
+list bounded metadata, reopen one exact record read-only, inspect an exact ID
+for ambiguous Save recovery, preview one exact deletion without result text,
+and delete that record only after the user types `DELETE <review_id>`.
+
+Save preview is write-free. It captures fresh trusted Jarvis-Core branch, HEAD,
+and complete `git status --short` metadata, requires confirmed target scope plus
+separate privacy and retention acknowledgements, and issues a five-minute
+single-use Save token bound to the local server session and immutable record.
+Save confirmation recollects Git metadata and blocks if the snapshot changed.
+An uncertain post-publish outcome returns the generated ID so the user can run
+exact-ID recovery inspection instead of retrying blindly.
+
+Delete uses a different operation-domain token. The preview omits result text
+and shows ID, creation time, task, branch, HEAD, target count, digest, and the
+exact confirmation text. Confirmation re-reads the canonical record and checks
+the preview digest and file identity immediately before deleting one path. A
+missing, changed, or corrupt target fails closed. Bulk delete, glob targeting,
+automatic expiry, background cleanup, orphan cleanup, and corrupt-record
+deletion are not available.
+
+Lifecycle routes require JSON, an in-memory server-restart session header, an
+exact same-origin request, loopback Host validation, and local client address.
+Responses deny framing and include a same-origin content security policy. The
+session and confirmation tokens are memory-only and never written to the Review
+store. The store remains local, unencrypted, not cloud-synced, and retained
+until exact manual deletion.
+
+Reopen and recovery do not restore review, commit, push, or execution approval.
+Memory / Skills candidate save remains disabled and separate. Hermes still does
+not call Codex, ChatGPT, Jarvis, an external API, or an LLM; does not auto-save;
+and does not stage, commit, push, or create a PR.
+
+See [Durable Review Local Lifecycle v0.1C](../../docs/hermes-durable-review-lifecycle-v0.1.md)
+for the route, confirmation, recovery, and security contract.
 
 ## Contract
 
