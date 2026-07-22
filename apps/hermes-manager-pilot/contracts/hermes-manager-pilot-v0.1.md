@@ -502,3 +502,127 @@ complete working-tree observation and must not be mapped directly to the queue
 item's `observed_git_status`. Before integration, a separate design decision
 must define fail-closed whole-repository coverage or an equivalent safety model,
 plus stale-evidence handling and human approval authority.
+
+## 18. Prompt Queue v0.1C-0C Whole-Worktree Evidence Design
+
+Status: design-only. No v0.1C-0C runtime primitive is implemented.
+
+### 18.1 Problem
+
+v0.1C-0B provides content-bound evidence for exact target files and status for
+those targets plus declared known-untracked paths. This is sufficient for a
+bounded target manifest but not for `QueueItem.observed_git_status`, whose
+evaluator semantics assume every Git-visible working-tree change is present.
+Mapping scoped status into that field would hide unrelated changes and weaken
+protected-path and out-of-scope checks.
+
+### 18.2 Decision
+
+Retain scoped target-content evidence and add a separate whole-worktree status
+artifact. A future composite review-evidence bundle must bind the two artifacts
+to one repeated collection window.
+
+The design has three layers:
+
+1. `TargetChangeEvidence`: the existing v0.1C-0B exact-target content and status
+   manifest.
+2. `WholeWorktreeStatusEvidence`: every Git-visible tracked and untracked status
+   entry, with an explicit `git-visible-whole-worktree` coverage marker.
+3. `ReviewEvidenceBundle`: project/item identity, declared and resolved roots,
+   branch, HEAD, target-evidence digest, whole-status evidence, collection
+   bounds/version, and a domain-separated composite digest.
+
+The composite digest—not the scoped target digest—would be the only future
+candidate for `change_evidence_digest`. The whole-worktree status—not scoped
+status—would be the only future candidate for `observed_git_status`.
+
+### 18.3 Rejected Alternatives
+
+- Directly map `scoped_git_status` into `observed_git_status`: rejected because
+  it would make an incomplete observation appear complete.
+- Hash or read the contents of every changed file: rejected because it expands
+  sensitive-content reads beyond approved target files. Whole-worktree evidence
+  contains paths and Git status only.
+- Store only a clean/dirty boolean: rejected because it cannot identify
+  protected, unexpected, staged, conflicted, renamed, or copied paths and is not
+  reviewable.
+- Collect target and whole-worktree evidence in unrelated calls: rejected
+  because state could change between artifacts without invalidating the bundle.
+
+### 18.4 Proposed Collection Algorithm
+
+A future local collector would:
+
+1. Require the same explicitly trusted local absolute root and normalized
+   project/item boundary as v0.1C-0B.
+2. Sample branch, HEAD, and complete Git-visible status with fixed read-only Git
+   commands before target hashing.
+3. Collect the existing exact-target content manifest.
+4. Re-sample branch, HEAD, and complete status after target hashing.
+5. Reject if any sample differs, then create one canonical composite bundle.
+
+The whole-status command must have no pathspec and must explicitly request all
+untracked file entries in NUL-delimited porcelain format. It must retain the
+existing sanitized Git environment, disabled hooks/file-system monitor,
+optional-lock protection, paging/prompt suppression, and local-only execution.
+Ignored files and filesystem objects unknown to Git are excluded; the coverage
+marker must make that limitation explicit.
+
+Collection is repeated and fail-closed, not atomic. A mutation can still occur
+after the final sample. No design wording may claim an operating-system snapshot
+or cryptographic provenance.
+
+### 18.5 Bounds And Failure Rules
+
+The first implementation must reuse conservative fixed limits for command
+duration, captured output, canonical bytes, path length, and status-entry count.
+It must terminate or reject output at the configured byte limit rather than
+accepting truncated status. Any limit violation produces no bundle.
+
+Evidence creation must also fail for:
+
+- A branch, HEAD, or status change between samples.
+- Non-UTF-8, malformed, quoted, absolute, traversal, pathspec-magic, rename, or
+  copy status that cannot be represented unambiguously.
+- Staged or conflicted changes before an approved commit workflow.
+- Missing declared known-untracked paths.
+- Target/status disagreement between the scoped manifest and complete status.
+- A protected target, symlink/reparse traversal in content targets, directory
+  target, unsupported submodule target, or content-size violation.
+
+Unexpected but well-formed out-of-scope paths must remain present in the
+whole-status artifact. They must produce blocking reasons and must never be
+filtered out to manufacture an apparently safe observation.
+
+Declared known-untracked paths must also remain present and bound in complete
+status. They may be classified as expected only by exact normalized path; that
+classification must not make them targets or authorize reading their content.
+
+### 18.6 Proposed Handoff Boundary
+
+A later pure handoff decision may verify the composite bundle and return either:
+
+- A blocked result with explicit reasons and no queue-observation fields; or
+- An immutable preview of `observed_branch`, `observed_head`, complete
+  `observed_git_status`, and the composite `change_evidence_digest`.
+
+The preview must not mutate a `QueueItem`, set approval booleans, construct a
+review/commit approval digest, or call the evaluator automatically. Connecting
+that preview to queue normalization remains a separate implementation and
+approval step.
+
+### 18.7 Safety And Non-Goals
+
+v0.1C-0C does not design or authorize:
+
+- Human identity, authenticated approval, signing, secrets, or one-time tokens.
+- Route, API, UI, persistence, background monitoring, or unattended execution.
+- Reading file contents outside exact approved targets.
+- Staging, committing, pushing, pull requests, deletion, archive, or migration.
+- External API, LLM, network, or credential use.
+- Memory/Skills save, UI Save/Confirm, or Voice Inbox auto-save behavior.
+
+Implementation must be split into separately reviewable internal/tests-only
+units: bounded whole-status collection, composite-bundle verification, and pure
+handoff decision. The first unit expands Git read coverage and therefore
+requires explicit approval before app-code changes.

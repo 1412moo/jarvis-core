@@ -423,6 +423,33 @@ were a complete working-tree observation. A future design decision must define
 safe whole-repository coverage or another fail-closed mapping before any queue
 integration is implemented.
 
+## Prompt Queue v0.1C-0C Whole-Worktree Evidence Design
+
+Status: design-only; not implemented.
+
+v0.1C-0C keeps v0.1C-0B target-content evidence and proposes a separate,
+bounded observation of the complete Git-visible working tree. A composite
+review-evidence bundle would bind both artifacts to the same project, item,
+resolved root, branch, HEAD, and repeated collection window. Only the complete
+status—not scoped status—could later populate a queue observation preview.
+
+The selected design rejects two shortcuts: treating scoped status as complete,
+and replacing explainable status with a clean/dirty boolean. Whole-worktree
+status must preserve every Git-visible changed path, including unexpected
+paths, so a fail-closed decision can explain why handoff is blocked. Ignored
+files and non-Git filesystem state remain outside the claim.
+
+The proposed collector would use fixed local read-only Git commands, sanitized
+environment settings, explicit output/entry/time limits, and repeated state
+sampling. Exceeding a bound, encountering unsupported status, or observing a
+state change would block evidence creation. This is not an atomic filesystem
+snapshot and must document that residual race boundary.
+
+No v0.1C-0C route, UI, persistence, evaluator integration, QueueItem mutation,
+approval authority, staging, commit execution, network call, or application
+code exists. Implementation requires separate approval because it expands Git
+read coverage from declared paths to the whole Git-visible working tree.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).
