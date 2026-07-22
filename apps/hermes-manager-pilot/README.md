@@ -4,7 +4,8 @@ Hermes Manager Pilot is a Jarvis-Core app module for testing Hermes as a middle
 manager in the Jarvis-Core development workflow. It started as a v0.1
 design-only contract and now includes local-only v0.2-v0.4 helper tools plus
 internal Prompt Queue v0.1A, approval-binding v0.1B-1, and evaluator-enforcement
-v0.1B-2 primitives.
+v0.1B-2 primitives, plus the internal local change-evidence collector
+v0.1C-0A.
 
 Hermes is not a coding worker. Hermes does not replace Codex. Hermes helps
 manage Codex work by preserving context, waiting for responses, summarizing
@@ -366,6 +367,37 @@ v0.1B-2 is still internal/tests-only. It does not authenticate a user or prove
 that change evidence came from Git. It adds no trusted evidence collector,
 filesystem access, persistence, HTTP/API/GUI route, automated prompt execution,
 staging, commit, push, pull request, network, or external-service behavior.
+
+## Prompt Queue v0.1C-0A Local Change-Evidence Collector
+
+Prompt Queue v0.1C-0A adds a bounded, local-only collector for normalized
+project cards and review or commit queue items. The caller must supply an
+explicitly trusted absolute local repository root. The collector verifies that
+the root matches both the declared project path and Git top-level, then reads
+the expected branch, HEAD, and status for only the exact target files and known
+untracked paths.
+
+The collector rejects unsafe or protected paths, UNC/device-prefixed roots,
+symlink/reparse traversal, directories, staged or conflicted targets,
+rename/copy status, oversized inputs, and repository changes detected between
+collection passes. It hashes exact target contents without placing raw content
+in the canonical manifest. Fixed read-only Git commands run with a sanitized
+environment, disabled hooks and file-system monitor, optional locks disabled,
+and bounded output and timeout limits.
+
+v0.1C-0A remains internal/tests-only and route-free. Its status is explicitly
+scoped rather than a whole-repository observation. Its digest is deterministic
+change evidence, not a signature, secret, token, human identity check, approval,
+or authority to execute. The collector is not connected to the queue evaluator,
+approval bindings, HTTP/API/GUI, persistence, prompt execution, staging,
+committing, pushing, or pull-request creation. It performs no external API,
+LLM, or explicit network-client call and does not write evidence or application
+state.
+
+A future design/review step must define how current collector output could be
+bound to a queue transition and invalidated when state changes. Human approval
+authority and any route, UI, persistence, or unattended workflow remain
+separate and out of scope.
 
 ## Contract
 

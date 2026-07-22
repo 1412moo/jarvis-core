@@ -401,6 +401,63 @@ v0.1B-2 remains non-authoritative:
 - No route, UI, persistence, filesystem reader, command execution, external
   call, stage, commit, push, or pull-request behavior is added.
 
-Before any user-facing integration, a future design must define trusted local
-change-evidence collection and a human approval authority. Route, UI,
-persistence, and unattended execution remain out of scope until then.
+The v0.1C-0A primitive below adds bounded local change-evidence collection, but
+does not change the v0.1B-2 evaluator or establish human approval authority.
+Route, UI, persistence, and unattended execution remain out of scope.
+
+## 16. Prompt Queue v0.1C-0A Local Change-Evidence Boundary
+
+Prompt Queue v0.1C-0A implements a bounded, local-only change-evidence
+collector for normalized project cards and review or commit queue items. The
+caller supplies an explicitly trusted absolute local repository root. The
+collector requires that root to match the declared project path and the actual
+Git top-level before it reads evidence.
+
+The collected manifest binds:
+
+- Project and queue-item identity.
+- The resolved repository root, current branch, and current HEAD.
+- The exact status scope: target files plus declared known-untracked paths.
+- Sorted scoped Git status, not a whole-repository status claim.
+- Each target's path, status, kind, byte size, and SHA-256 content digest. A
+  tracked deletion uses an explicit deletion marker and no content digest.
+
+The manifest is bounded canonical UTF-8 JSON. Its evidence digest uses a
+v0.1C-0A-specific domain prefix before SHA-256. Raw target content is never
+placed in the manifest.
+
+The collector must fail closed for:
+
+- A UNC/device-prefixed, relative, missing, mismatched, or non-Git trusted root.
+- Unsafe, protected, out-of-scope, absolute, traversal, pathspec-magic,
+  symlink, junction, or reparse paths.
+- Directory targets, unreadable files, oversized individual or combined target
+  contents, excessive Git output, or an oversized canonical manifest.
+- An unexpected branch or HEAD, a missing known-untracked path, staged or
+  conflicted changes, and rename/copy status.
+- Target or scoped repository state that changes during bounded repeated
+  collection passes.
+
+Only fixed read-only `git rev-parse` and scoped `git status --porcelain=v1 -z`
+commands are used. The Git environment removes inherited `GIT_*` variables and
+disables hooks, the file-system monitor, optional locks, paging, prompting,
+global/system configuration, system attributes, and external diff execution.
+Command duration and captured output are bounded. Deterministic tests cover
+text, binary, untracked, deleted, protected, staged, oversized, reparse,
+environment-injection, and state-mutation cases, and verify that the Git index
+is unchanged.
+
+v0.1C-0A remains an internal/tests-only evidence primitive:
+
+- It does not grant approval or authenticate a human. Its digest is not a
+  signature, secret, token, identity proof, or permission to execute.
+- It is not automatically consumed by the v0.1B-2 evaluator or approval-binding
+  chain, and it does not update queue observations.
+- It exposes no route or UI, persists no evidence or application state, and
+  performs no prompt execution, staging, commit, push, pull request, external
+  API, LLM, or explicit network-client call.
+
+Before integration, a future design/review step must define the exact mapping
+from a current evidence snapshot to one queue transition, stale-evidence
+invalidation, and a separate human approval authority. Route, UI, persistence,
+and unattended execution remain out of scope until separately approved.
