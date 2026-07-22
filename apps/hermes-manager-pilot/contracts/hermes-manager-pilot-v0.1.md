@@ -509,7 +509,8 @@ Status: the v0.1C-0C-1 bounded whole-status collector/verifier and v0.1C-0C-2
 composite bundle/verifier are implemented as internal/tests-only primitives.
 The v0.1C-0C-3 pure handoff decision and v0.1C-0C-4 review-observation adapter
 are also implemented internal/tests-only. C0C-5 adds the internal/tests-only
-pure queue observation evaluator described in Section 18.12.
+pure queue observation evaluator described in Section 18.12. C0C-6 fresh review
+revalidation and session-handoff conditions remain design-only in Section 18.13.
 
 ### 18.1 Problem
 
@@ -855,3 +856,184 @@ before evaluation when queue identity or evidence validation fails.
 
 Connecting its output to `build_hermes_session()`, the renderer pipeline, a
 route, UI, persistence, or any execution/approval flow is a separate scope gate.
+
+### 18.13 v0.1C-0C-6 Fresh Review Handoff Design
+
+Status: design-only. No C0C-6 application code, session adapter, renderer
+connection, route, UI, or persistence is implemented.
+
+#### 18.13.1 Problem
+
+C0C-5 evaluates a verified C0C-2 snapshot without reading the repository. The
+working tree can change after the bundle's final sample, so directly passing a
+C0C-5 queue to `build_hermes_session()` would let a review prompt describe stale
+branch, HEAD, target content, or whole-worktree status. The next boundary must
+recollect current local evidence while preserving the distinction between a
+fresh review observation and authority to render, execute, approve, or commit.
+
+#### 18.13.2 Decision And Unit Split
+
+C0C-6 is divided into two separately reviewable units:
+
+1. C0C-6a fresh review decision: validate the complete C0C-5 wrapper, recollect
+   current evidence, and return either blocking reasons or an immutable handoff
+   preview. It does not call `build_hermes_session()` or any renderer.
+2. C0C-6b session adapter: if separately approved later, accept only a valid
+   C0C-6a preview and map its exact queue/item through `build_hermes_session()`.
+   It still would not render, execute, persist, or communicate externally.
+
+Only C0C-6a is the recommended first implementation unit. This split keeps the
+new Git/filesystem read boundary separate from session and renderer integration.
+
+#### 18.13.3 Proposed C0C-6a Interface
+
+The first implementation unit should add immutable values equivalent to:
+
+```python
+@dataclass(frozen=True)
+class FreshReviewHandoffPreview:
+    queue: PromptQueueState
+    item: QueueItem
+    evaluation: QueueEvaluation
+    fresh_bundle_digest: str
+
+
+@dataclass(frozen=True)
+class FreshReviewHandoffDecision:
+    project_id: str
+    item_id: str
+    blocking_reasons: tuple[str, ...]
+    preview: FreshReviewHandoffPreview | None
+```
+
+and one bounded local entry point equivalent to:
+
+```python
+def build_fresh_review_handoff_decision(
+    trusted_repo_root: str | Path,
+    observation: QueueObservationEvaluation,
+) -> FreshReviewHandoffDecision:
+    ...
+```
+
+Names may be refined during implementation review, but the data and authority
+boundary must not expand.
+
+#### 18.13.4 C0C-6a Validation Before I/O
+
+Before any repository read, the function must:
+
+1. Require a `QueueObservationEvaluation` containing supported queue type and
+   version, normalized tuple structure, unique item/project identities, and no
+   orphan project references.
+2. Resolve exactly one queue item matching `observation.item.item_id` and require
+   exact equality with `observation.item`.
+3. Recompute `evaluate_queue_item()` from the supplied queue and require exact
+   equality with `observation.evaluation`. A caller-supplied evaluation is not
+   trusted merely because it is frozen.
+4. Return a blocked decision without Git/filesystem I/O if the recomputed
+   evaluation is blocked.
+5. For a non-blocked candidate, require `result_type=review`,
+   `next_action=REVIEW_REQUEST`, `render_mode=review-prompt`, a valid current
+   scope binding, a lowercase bounded change-evidence digest, no passed-review
+   metadata, and no commit-approval metadata.
+
+Malformed wrapper structure or inconsistent identities produce
+`ValidationError`. A valid wrapper whose evaluator is blocked returns the
+evaluator's deterministic blocking reasons and no preview.
+
+#### 18.13.5 Fresh Collection And Comparison
+
+Only after the pre-I/O gate passes may C0C-6a call
+`collect_review_evidence_bundle()` once with the explicitly trusted local root,
+the selected project, and the selected review item. The existing collector's
+root validation, fixed local Git commands, sanitized environment, repeated
+whole-status/target sampling, bounds, exact-target hashing, staged-state
+rejection, and no-content artifact rules remain authoritative.
+
+The fresh result must then pass `verify_review_evidence_bundle()` before any
+field or digest comparison. Collector output is not trusted merely because it
+has the expected Python type.
+
+Collection or verification failure becomes a deterministic blocking reason and
+no preview. For a newly collected bundle, all of these values must match the
+C0C-5 item exactly:
+
+- `fresh_bundle.bundle_digest` and `item.change_evidence_digest`, compared
+  without treating the unkeyed digest as a secret or signature.
+- Fresh branch and `item.observed_branch`.
+- Fresh HEAD and `item.observed_head`.
+- Fresh complete whole-worktree status and `item.observed_git_status`, including
+  ordering and declared known-untracked entries.
+- Project and item identity, declared/resolved repository root, target scope,
+  and whole-worktree coverage already bound by C0C-2 verification.
+
+Any mismatch returns a single stale-evidence blocking result and no preview. A
+successful preview carries the exact immutable C0C-5 queue, selected item,
+recomputed evaluation, and fresh bundle digest. It does not carry a session,
+rendered prompt, approval, command, or execution flag.
+
+#### 18.13.6 Renderer Handoff Conditions For Future C0C-6b
+
+C0C-6b must not accept an arbitrary queue or C0C-5 wrapper. It may accept only
+the exact queue and item carried by a non-blocked C0C-6a preview. Before
+returning a local `SessionState`, it must recompute the queue evaluation and
+require the preview fields and evaluation to remain unchanged.
+
+The resulting session must satisfy all of these review-only conditions:
+
+- `next_action=REVIEW_REQUEST` and an empty `blocked_by` value.
+- `commit_allowed=false` and `push_allowed=false`.
+- `human_approval_required=true` and `human_approval_granted=false`.
+- No commit message and no review/commit approval creation.
+- Existing protected-path filtering and validation-command boundaries remain
+  unchanged.
+
+C0C-6b would construct and validate a session only. Calling a renderer,
+displaying or persisting a prompt, invoking Codex/ChatGPT/Hermes, or executing a
+command remains a later scope gate.
+
+#### 18.13.7 Race And Authority Boundary
+
+Fresh collection is repeated and fail-closed but is not an operating-system
+snapshot. A working-tree mutation can occur after its final sample or after a
+preview is returned. C0C-6a therefore supports a fresher local review-session
+handoff only; it is not sufficient for commit authority, unattended execution,
+or a later approval decision. Any future commit or execution boundary must
+collect or verify its own current state again.
+
+The bundle digest remains unkeyed. Matching it proves deterministic equality of
+the bounded manifests, not collector provenance, human identity, authenticity,
+or permission to act.
+
+#### 18.13.8 Required C0C-6a Tests
+
+The first implementation unit must deterministically cover:
+
+- A valid C0C-5 review wrapper and unchanged repository producing one preview.
+- Exact queue/item/evaluation preservation and fresh digest propagation.
+- Blocked C0C-5 evaluation returning reasons without calling Git or the
+  collector.
+- Wrapper type, selected-item equality, queue identity, project reference, and
+  caller-supplied evaluation inconsistencies failing before repository I/O.
+- Wrong result stage, passed-review metadata, commit metadata, and malformed or
+  missing evidence digest failing before repository I/O.
+- Target content, whole status, branch, or HEAD changes producing no preview.
+- Collector validation errors, unsafe paths, staged state, bounds, and
+  collection races remaining fail-closed.
+- No queue mutation, session construction, renderer/pipeline call, approval
+  creation, route, UI, persistence, command execution, network, API, or LLM
+  behavior.
+
+#### 18.13.9 Non-Goals And Approval Boundary
+
+C0C-6 design does not authorize C0C-6b implementation, prompt rendering,
+durable queue or evidence storage, background monitoring, filesystem watching,
+route/API/UI/mobile integration, automated Codex/ChatGPT/Hermes invocation,
+review or commit approval creation, staging, commit, push, pull request,
+destructive operations, credentials, external communication, Memory/Skills
+save, UI Save/Confirm, or Voice Inbox auto-save.
+
+C0C-6a implementation must remain internal/tests-only and limited to the fresh
+blocked-or-preview decision plus deterministic tests. Implementing C0C-6b or
+any renderer/session consumer requires a new explicit scope approval.
