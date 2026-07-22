@@ -425,8 +425,8 @@ integration is implemented.
 
 ## Prompt Queue v0.1C-0C Whole-Worktree Evidence
 
-Status: v0.1C-0C-1 bounded collector implemented as internal/tests-only;
-composite bundle and handoff remain design-only.
+Status: v0.1C-0C-1 bounded collector and v0.1C-0C-2 composite bundle
+implemented as internal/tests-only; handoff remains design-only.
 
 v0.1C-0C keeps v0.1C-0B target-content evidence and proposes a separate,
 bounded observation of the complete Git-visible working tree. A composite
@@ -451,8 +451,14 @@ atomic filesystem snapshot and retains that residual race boundary.
 
 C0C-1 adds no route, UI, persistence, evaluator integration, QueueItem mutation,
 approval authority, staging, commit execution, or network call. It is not yet
-combined with target-content evidence and must not populate queue observation
-fields. Composite bundle implementation is the next internal-only unit.
+allowed to populate queue observation fields by itself.
+
+C0C-2 repeatedly samples whole status and exact target evidence, rejects any
+change between samples, verifies status agreement, and binds the two nested
+digests into a small domain-separated review-evidence bundle. Bundle verification
+is pure and the composite remains unkeyed, non-authoritative, and disconnected
+from the queue evaluator. A pure blocked-or-preview handoff decision is the next
+internal-only unit.
 
 ## Contract
 

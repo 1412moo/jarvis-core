@@ -505,9 +505,9 @@ plus stale-evidence handling and human approval authority.
 
 ## 18. Prompt Queue v0.1C-0C Whole-Worktree Evidence
 
-Status: the v0.1C-0C-1 bounded whole-status collector and verifier are
-implemented as internal/tests-only primitives. Composite bundle and handoff
-layers remain design-only.
+Status: the v0.1C-0C-1 bounded whole-status collector/verifier and v0.1C-0C-2
+composite bundle/verifier are implemented as internal/tests-only primitives.
+The handoff layer remains design-only.
 
 ### 18.1 Problem
 
@@ -554,15 +554,17 @@ status—would be the only future candidate for `observed_git_status`.
 
 ### 18.4 Composite Collection Algorithm
 
-A future composite collector would:
+The v0.1C-0C-2 composite collector:
 
 1. Require the same explicitly trusted local absolute root and normalized
    project/item boundary as v0.1C-0B.
-2. Sample branch, HEAD, and complete Git-visible status with fixed read-only Git
-   commands before target hashing.
-3. Collect the existing exact-target content manifest.
-4. Re-sample branch, HEAD, and complete status after target hashing.
-5. Reject if any sample differs, then create one canonical composite bundle.
+2. Repeatedly samples branch, HEAD, and complete Git-visible status with fixed
+   read-only Git commands around target hashing.
+3. Collects exact-target content evidence twice inside the repeated whole-status
+   window.
+4. Rejects if whole status or target evidence differs between samples.
+5. Verifies scoped/whole status agreement and creates one canonical composite
+   bundle that binds both nested evidence digests.
 
 The whole-status command must have no pathspec and must explicitly request all
 untracked file entries in NUL-delimited porcelain format. It must retain the
@@ -630,8 +632,8 @@ v0.1C-0C does not design or authorize:
 
 Implementation remains split into separately reviewable internal/tests-only
 units: bounded whole-status collection, composite-bundle verification, and pure
-handoff decision. The first unit is implemented in v0.1C-0C-1. It does not
-authorize the remaining units or user-facing integration.
+handoff decision. The first two units are implemented. They do not authorize
+the remaining handoff unit or user-facing integration.
 
 ### 18.8 v0.1C-0C-1 Implementation Boundary
 
@@ -652,6 +654,31 @@ unexpected and protected paths, known untracked paths, no-content behavior,
 index stability, inherited safety settings, tampering, missing expected paths,
 staged state, collection races, entry limits, and exact/oversized pipe bounds.
 
-C0C-1 is not connected to C0B target evidence, the queue evaluator, approval
-bindings, routes, UI, persistence, or execution. Until a composite bundle is
-implemented and verified, its status and digest must not populate a queue item.
+C0C-1 is not directly connected to the queue evaluator, approval bindings,
+routes, UI, persistence, or execution. C0C-2 now binds it to C0B target
+evidence, but neither artifact may populate a queue item automatically.
+
+### 18.9 v0.1C-0C-2 Implementation Boundary
+
+`collect_review_evidence_bundle()` collects whole status three times around two
+exact-target evidence passes. It rejects whole-status drift, target-content
+drift, and scoped/whole status disagreement. The repeated sequence reduces but
+does not eliminate the documented post-sample race.
+
+The resulting bundle binds project/item identity, declared and resolved roots,
+branch, HEAD, the v0.1C-0B target-evidence digest, the v0.1C-0C-1 whole-status
+digest and coverage marker, nested evidence versions, and a v0.1C-0C-2-specific
+domain-separated bundle digest. Raw file content is not placed in the bundle.
+
+`verify_review_evidence_bundle()` verifies both nested artifacts, their metadata
+and status agreement, canonical bundle bytes and size, and the composite digest
+without Git or filesystem reads. Deterministic tests cover complete unexpected
+status preservation, nested digest binding, no-content output, pure verification,
+target-content invalidation, metadata/canonical/digest tampering, explicit
+status disagreement, and mutation between target samples.
+
+C0C-2 does not mutate a queue item, populate observation fields, call the queue
+evaluator, create approval bindings, or grant authority. Its unkeyed bundle
+digest proves neither provenance nor human approval. A future pure handoff
+decision must still return either blocking reasons or an immutable observation
+preview, never an automatic queue transition.
