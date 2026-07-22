@@ -51,9 +51,10 @@ def _render_sample(mode: str) -> str:
 
 
 def _sample_queue_payload(result_type: str = "implementation") -> dict[str, object]:
-    return {
+    approval_stage = result_type in {"implementation", "review", "commit"}
+    payload: dict[str, object] = {
         "queue_type": "hermes_prompt_queue",
-        "version": "0.1A",
+        "version": "0.1B-2",
         "projects": [
             {
                 "project_id": "jarvis-core",
@@ -88,15 +89,68 @@ def _sample_queue_payload(result_type: str = "implementation") -> dict[str, obje
                     "?? apps/hermes-manager-pilot/hermes_manager_pilot/prompt_queue.py",
                     "?? jarvis.bat",
                 ],
-                "scope_approved": True,
+                "scope_approved": approval_stage,
                 "review_passed": False,
                 "commit_approved": False,
+                "scope_approval_digest": "",
+                "change_evidence_digest": "5" * 64 if result_type in {"review", "commit"} else "",
+                "review_approval_digest": "",
+                "commit_approval_digest": "",
                 "commit_message": "",
-                "last_prompt_summary": "Implement the approved v0.1A unit.",
+                "last_prompt_summary": "Implement the approved v0.1B-2 unit.",
                 "last_result_summary": "",
             }
         ],
     }
+    if approval_stage:
+        scope_payload = copy.deepcopy(payload)
+        scope_items = scope_payload["items"]
+        assert isinstance(scope_items, list) and isinstance(scope_items[0], dict)
+        scope_items[0]["result_type"] = "implementation"
+        scope_items[0]["change_evidence_digest"] = ""
+        scope_queue = normalize_prompt_queue(scope_payload)
+        scope_binding = build_scope_approval_binding(
+            scope_queue.projects[0],
+            scope_queue.items[0],
+        )
+        items = payload["items"]
+        assert isinstance(items, list) and isinstance(items[0], dict)
+        items[0]["scope_approval_digest"] = scope_binding.digest
+    return payload
+
+
+def _complete_commit_approval_bindings(payload: dict[str, object]) -> None:
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    item = items[0]
+    scope_digest = item["scope_approval_digest"]
+    evidence_digest = item["change_evidence_digest"]
+    assert isinstance(scope_digest, str) and isinstance(evidence_digest, str)
+
+    review_payload = copy.deepcopy(payload)
+    review_items = review_payload["items"]
+    assert isinstance(review_items, list) and isinstance(review_items[0], dict)
+    review_items[0]["result_type"] = "review"
+    review_items[0]["commit_approved"] = False
+    review_items[0]["commit_approval_digest"] = ""
+    review_queue = normalize_prompt_queue(review_payload)
+    review_binding = build_review_approval_binding(
+        review_queue.projects[0],
+        review_queue.items[0],
+        scope_digest=scope_digest,
+        change_evidence_digest=evidence_digest,
+    )
+    item["review_approval_digest"] = review_binding.digest
+
+    commit_queue = normalize_prompt_queue(payload)
+    commit_binding = build_commit_approval_binding(
+        commit_queue.projects[0],
+        commit_queue.items[0],
+        scope_digest=scope_digest,
+        review_digest=review_binding.digest,
+        change_evidence_digest=evidence_digest,
+    )
+    item["commit_approval_digest"] = commit_binding.digest
 
 
 def _test_implementation_prompt_deterministic() -> None:
@@ -494,6 +548,7 @@ def _test_prompt_queue_scope_and_commit_approvals_are_separate() -> None:
     items[0]["review_passed"] = True
     items[0]["commit_approved"] = True
     items[0]["commit_message"] = "hermes: add prompt queue primitives"
+    _complete_commit_approval_bindings(payload)
     approved_queue = normalize_prompt_queue(payload)
     approved = evaluate_queue_item(approved_queue, "queue-001")
     _assert(not approved.is_blocked, f"approved commit item was blocked: {approved.blocking_reasons}")
@@ -565,6 +620,7 @@ def _test_prompt_queue_renderer_mapping_preserves_safety_boundaries() -> None:
     items[0]["review_passed"] = True
     items[0]["commit_approved"] = True
     items[0]["commit_message"] = "hermes: add prompt queue primitives"
+    _complete_commit_approval_bindings(payload)
     approved_session = build_hermes_session(normalize_prompt_queue(payload), "queue-001")
     _assert(approved_session.next_action == "COMMIT_REQUEST", "approved session next action is wrong")
     _assert(approved_session.commit_allowed, "approved session should allow a local commit prompt")
@@ -776,6 +832,144 @@ def _test_approval_binding_excludes_mutable_summaries_and_authorization_flags() 
         _assert(excluded not in canonical_text, f"non-authority field leaked into binding: {excluded}")
 
 
+def _test_binding_enforcement_rejects_legacy_missing_malformed_and_stale_scope() -> None:
+    legacy_payload = _sample_queue_payload()
+    legacy_payload["version"] = "0.1A"
+    try:
+        normalize_prompt_queue(legacy_payload)
+    except ValidationError as exc:
+        _assert("version must be 0.1B-2" in str(exc), f"unexpected legacy version error: {exc}")
+    else:
+        raise AssertionError("legacy queue version should fail closed")
+
+    for supplied_digest, expected_reason in (
+        ("", "scope approval digest is missing"),
+        ("NOT-A-DIGEST", "scope approval digest is malformed"),
+    ):
+        payload = _sample_queue_payload()
+        items = payload["items"]
+        assert isinstance(items, list) and isinstance(items[0], dict)
+        items[0]["scope_approval_digest"] = supplied_digest
+        evaluation = evaluate_queue_item(normalize_prompt_queue(payload), "queue-001")
+        _assert(evaluation.is_blocked, "missing or malformed scope digest should block")
+        _assert(expected_reason in evaluation.blocking_reasons, f"missing binding reason: {expected_reason}")
+
+    stale_payload = _sample_queue_payload()
+    stale_items = stale_payload["items"]
+    assert isinstance(stale_items, list) and isinstance(stale_items[0], dict)
+    stale_items[0]["current_task"] = "Changed after scope approval."
+    stale_evaluation = evaluate_queue_item(normalize_prompt_queue(stale_payload), "queue-001")
+    _assert(stale_evaluation.is_blocked, "changed task should invalidate scope approval")
+    _assert(
+        "scope approval binding is stale" in stale_evaluation.blocking_reasons,
+        "stale scope binding reason missing",
+    )
+
+
+def _test_binding_enforcement_requires_review_evidence_and_matching_review_digest() -> None:
+    missing_evidence_payload = _sample_queue_payload(result_type="review")
+    missing_evidence_items = missing_evidence_payload["items"]
+    assert isinstance(missing_evidence_items, list) and isinstance(missing_evidence_items[0], dict)
+    missing_evidence_items[0]["change_evidence_digest"] = ""
+    missing_evidence = evaluate_queue_item(
+        normalize_prompt_queue(missing_evidence_payload), "queue-001"
+    )
+    _assert(missing_evidence.is_blocked, "review without change evidence should block")
+    _assert(
+        "change evidence digest is missing" in missing_evidence.blocking_reasons,
+        "missing evidence reason absent",
+    )
+
+    payload = _sample_queue_payload(result_type="review")
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    items[0]["review_passed"] = True
+    missing_review = evaluate_queue_item(normalize_prompt_queue(payload), "queue-001")
+    _assert(missing_review.is_blocked, "passed review without binding should block")
+    _assert(
+        "review approval digest is missing" in missing_review.blocking_reasons,
+        "missing review binding reason absent",
+    )
+
+    review_queue = normalize_prompt_queue(payload)
+    review_binding = build_review_approval_binding(
+        review_queue.projects[0],
+        review_queue.items[0],
+        scope_digest=review_queue.items[0].scope_approval_digest,
+        change_evidence_digest=review_queue.items[0].change_evidence_digest,
+    )
+    items[0]["review_approval_digest"] = review_binding.digest
+    approved_review = evaluate_queue_item(normalize_prompt_queue(payload), "queue-001")
+    _assert(not approved_review.is_blocked, f"matching review binding was blocked: {approved_review.blocking_reasons}")
+
+    observed_status = items[0]["observed_git_status"]
+    assert isinstance(observed_status, list)
+    observed_status[1] = " M apps/hermes-manager-pilot/hermes_manager_pilot/prompt_queue.py"
+    stale_review = evaluate_queue_item(normalize_prompt_queue(payload), "queue-001")
+    _assert(stale_review.is_blocked, "changed Git observation should invalidate review binding")
+    _assert(
+        "review approval binding is stale" in stale_review.blocking_reasons,
+        "stale review binding reason missing",
+    )
+
+
+def _test_binding_enforcement_requires_matching_commit_digest_and_blocks_renderer() -> None:
+    payload = _sample_queue_payload(result_type="commit")
+    items = payload["items"]
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    items[0]["review_passed"] = True
+    items[0]["commit_approved"] = True
+    items[0]["commit_message"] = "hermes: enforce approval bindings"
+    _complete_commit_approval_bindings(payload)
+
+    approved_queue = normalize_prompt_queue(payload)
+    approved = evaluate_queue_item(approved_queue, "queue-001")
+    _assert(not approved.is_blocked, f"complete binding chain was blocked: {approved.blocking_reasons}")
+    approved_session = build_hermes_session(approved_queue, "queue-001")
+    _assert(approved_session.commit_allowed, "complete binding chain should allow commit prompt")
+
+    items[0]["commit_message"] = "hermes: changed after commit approval"
+    stale_queue = normalize_prompt_queue(payload)
+    stale = evaluate_queue_item(stale_queue, "queue-001")
+    _assert(stale.is_blocked, "changed commit message should invalidate commit binding")
+    _assert(
+        "commit approval binding is stale" in stale.blocking_reasons,
+        "stale commit binding reason missing",
+    )
+    stale_session = build_hermes_session(stale_queue, "queue-001")
+    _assert(not stale_session.commit_allowed, "renderer mapping bypassed stale commit binding")
+    _assert(stale_session.next_action == "BLOCKED_NEEDS_USER", "stale commit did not block renderer")
+
+
+def _test_binding_enforcement_rejects_orphan_metadata() -> None:
+    design_payload = _sample_queue_payload(result_type="design")
+    design_items = design_payload["items"]
+    assert isinstance(design_items, list) and isinstance(design_items[0], dict)
+    design_items[0]["scope_approved"] = True
+    design_items[0]["scope_approval_digest"] = "6" * 64
+    design_evaluation = evaluate_queue_item(normalize_prompt_queue(design_payload), "queue-001")
+    _assert(design_evaluation.is_blocked, "design item with approval metadata should block")
+    _assert(
+        "approval binding metadata is not allowed for result_type=design"
+        in design_evaluation.blocking_reasons,
+        "orphan design approval reason missing",
+    )
+
+    implementation_payload = _sample_queue_payload()
+    implementation_items = implementation_payload["items"]
+    assert isinstance(implementation_items, list) and isinstance(implementation_items[0], dict)
+    implementation_items[0]["review_approval_digest"] = "7" * 64
+    implementation_evaluation = evaluate_queue_item(
+        normalize_prompt_queue(implementation_payload), "queue-001"
+    )
+    _assert(implementation_evaluation.is_blocked, "implementation with review metadata should block")
+    _assert(
+        "review approval metadata is not allowed for implementation"
+        in implementation_evaluation.blocking_reasons,
+        "orphan implementation review reason missing",
+    )
+
+
 def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     index_html = (APP_ROOT / "web" / "index.html").read_text(encoding="utf-8")
     _assert("Jarvis Console Memory / Skills candidate prompt" in index_html, "Jarvis Console handoff guidance missing")
@@ -827,6 +1021,10 @@ def main() -> None:
         _test_approval_binding_chain_rejects_stale_scope_review_and_message,
         _test_approval_binding_rejects_wrong_stage_bad_digest_and_oversize_snapshot,
         _test_approval_binding_excludes_mutable_summaries_and_authorization_flags,
+        _test_binding_enforcement_rejects_legacy_missing_malformed_and_stale_scope,
+        _test_binding_enforcement_requires_review_evidence_and_matching_review_digest,
+        _test_binding_enforcement_requires_matching_commit_digest_and_blocks_renderer,
+        _test_binding_enforcement_rejects_orphan_metadata,
         _test_browser_ui_mentions_manual_jarvis_handoff,
     )
     for test in tests:

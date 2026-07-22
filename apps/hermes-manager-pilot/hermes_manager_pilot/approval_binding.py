@@ -156,6 +156,143 @@ def digest_matches(binding: ApprovalBinding, supplied_digest: str) -> bool:
     return hmac.compare_digest(binding.digest, supplied_digest)
 
 
+def approval_binding_blocking_reasons(
+    project: ProjectCard,
+    item: QueueItem,
+) -> tuple[str, ...]:
+    """Return fail-closed v0.1B-2 binding reasons for one normalized item."""
+
+    _validate_pair(project, item)
+    reasons: list[str] = []
+    binding_fields = (
+        item.scope_approval_digest,
+        item.change_evidence_digest,
+        item.review_approval_digest,
+        item.commit_approval_digest,
+    )
+
+    if item.result_type in {"design", "blocked"}:
+        if item.scope_approved or item.review_passed or item.commit_approved or any(binding_fields):
+            reasons.append(
+                f"approval binding metadata is not allowed for result_type={item.result_type}"
+            )
+        return tuple(reasons)
+
+    scope_binding_valid = False
+    if not item.scope_approved:
+        if item.scope_approval_digest:
+            reasons.append("scope approval digest exists without scope approval")
+    else:
+        current_scope = _build_binding(SCOPE_PURPOSE, _scope_snapshot(project, item))
+        scope_binding_valid = _append_binding_match_reason(
+            reasons,
+            current_scope,
+            item.scope_approval_digest,
+            "scope approval",
+        )
+
+    if item.result_type == "implementation":
+        if item.change_evidence_digest:
+            reasons.append("change evidence digest is not allowed for implementation")
+        if item.review_passed or item.review_approval_digest:
+            reasons.append("review approval metadata is not allowed for implementation")
+        if item.commit_approved or item.commit_approval_digest:
+            reasons.append("commit approval metadata is not allowed for implementation")
+        return tuple(reasons)
+
+    evidence_digest = _validated_digest_reason(
+        reasons,
+        item.change_evidence_digest,
+        "change evidence",
+    )
+    current_review: ApprovalBinding | None = None
+    if evidence_digest and scope_binding_valid:
+        current_review = _build_binding(
+            REVIEW_PURPOSE,
+            _review_snapshot(
+                project,
+                item,
+                scope_digest=item.scope_approval_digest,
+                change_evidence_digest=evidence_digest,
+            ),
+        )
+
+    review_binding_valid = False
+    if not item.review_passed:
+        if item.review_approval_digest:
+            reasons.append("review approval digest exists without a passed review")
+    else:
+        review_digest = _validated_digest_reason(
+            reasons,
+            item.review_approval_digest,
+            "review approval",
+        )
+        if current_review is not None and review_digest:
+            review_binding_valid = digest_matches(current_review, review_digest)
+            if not review_binding_valid:
+                reasons.append("review approval binding is stale")
+
+    if item.result_type == "review":
+        if item.commit_approved or item.commit_approval_digest:
+            reasons.append("commit approval metadata is not allowed for review")
+        return tuple(reasons)
+
+    if not item.commit_approved:
+        if item.commit_approval_digest:
+            reasons.append("commit approval digest exists without commit approval")
+    else:
+        commit_digest = _validated_digest_reason(
+            reasons,
+            item.commit_approval_digest,
+            "commit approval",
+        )
+        if not item.commit_message:
+            reasons.append("commit approval binding requires a commit message")
+        elif evidence_digest and scope_binding_valid and review_binding_valid and commit_digest:
+            current_commit = _build_binding(
+                COMMIT_PURPOSE,
+                _commit_snapshot(
+                    project,
+                    item,
+                    scope_digest=item.scope_approval_digest,
+                    review_digest=item.review_approval_digest,
+                    change_evidence_digest=evidence_digest,
+                ),
+            )
+            if not digest_matches(current_commit, commit_digest):
+                reasons.append("commit approval binding is stale")
+    return tuple(reasons)
+
+
+def _validated_digest_reason(
+    reasons: list[str],
+    value: str,
+    label: str,
+) -> str:
+    if not value:
+        reasons.append(f"{label} digest is missing")
+        return ""
+    if not _DIGEST_PATTERN.fullmatch(value):
+        reasons.append(f"{label} digest is malformed")
+        return ""
+    return value
+
+
+def _append_binding_match_reason(
+    reasons: list[str],
+    binding: ApprovalBinding,
+    supplied_digest: str,
+    label: str,
+) -> bool:
+    normalized_digest = _validated_digest_reason(reasons, supplied_digest, label)
+    if not normalized_digest:
+        return False
+    if not digest_matches(binding, normalized_digest):
+        reasons.append(f"{label} binding is stale")
+        return False
+    return True
+
+
 def _scope_snapshot(project: ProjectCard, item: QueueItem) -> dict[str, Any]:
     return {
         "binding_type": BINDING_TYPE,

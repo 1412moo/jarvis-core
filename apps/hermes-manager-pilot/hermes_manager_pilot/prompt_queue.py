@@ -1,4 +1,4 @@
-"""In-memory Prompt Queue v0.1A schema and safety evaluation.
+"""In-memory Prompt Queue v0.1B-2 schema and safety evaluation.
 
 This module does not read repositories, persist state, call external services, or
 execute prompts.  Callers must supply observed local Git evidence explicitly.
@@ -14,7 +14,7 @@ from typing import Any
 from .schemas import SessionState, ValidationError, normalize_session_state
 
 
-VERSION = "0.1A"
+VERSION = "0.1B-2"
 QUEUE_TYPE = "hermes_prompt_queue"
 
 ALLOWED_RESULT_TYPES = frozenset(
@@ -73,6 +73,10 @@ _ITEM_FIELDS = frozenset(
         "scope_approved",
         "review_passed",
         "commit_approved",
+        "scope_approval_digest",
+        "change_evidence_digest",
+        "review_approval_digest",
+        "commit_approval_digest",
         "commit_message",
         "last_prompt_summary",
         "last_result_summary",
@@ -111,6 +115,10 @@ class QueueItem:
     scope_approved: bool
     review_passed: bool
     commit_approved: bool
+    scope_approval_digest: str
+    change_evidence_digest: str
+    review_approval_digest: str
+    commit_approval_digest: str
     commit_message: str
     last_prompt_summary: str
     last_result_summary: str
@@ -278,6 +286,13 @@ def evaluate_queue_item(queue: PromptQueueState, item_id: str) -> QueueEvaluatio
     if item.result_type == "blocked":
         reasons.append("queue item is explicitly marked blocked")
 
+    try:
+        from .approval_binding import approval_binding_blocking_reasons
+
+        reasons.extend(approval_binding_blocking_reasons(project, item))
+    except ValidationError as exc:
+        reasons.append(f"approval binding validation failed: {exc}")
+
     blocking_reasons = _deduplicate(reasons)
     if blocking_reasons:
         result_type = "blocked"
@@ -389,6 +404,10 @@ def _normalize_item(data: Mapping[str, Any], index: int) -> QueueItem:
         scope_approved=_bool(data, "scope_approved", path, default=False),
         review_passed=_bool(data, "review_passed", path, default=False),
         commit_approved=_bool(data, "commit_approved", path, default=False),
+        scope_approval_digest=_optional_text(data, "scope_approval_digest", path),
+        change_evidence_digest=_optional_text(data, "change_evidence_digest", path),
+        review_approval_digest=_optional_text(data, "review_approval_digest", path),
+        commit_approval_digest=_optional_text(data, "commit_approval_digest", path),
         commit_message=_optional_text(data, "commit_message", path),
         last_prompt_summary=_optional_text(data, "last_prompt_summary", path),
         last_result_summary=_optional_text(data, "last_result_summary", path),
