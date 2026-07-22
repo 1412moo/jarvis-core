@@ -308,4 +308,53 @@ push, or create a pull request.
 Before any route, UI, persistence, or unattended workflow is considered, a
 future design step must define stale-approval invalidation and bind approval to
 the exact project, expected HEAD, target files, result type, and commit message.
-That future approval-binding step is not implemented in v0.1A.
+That approval-binding behavior is not implemented in v0.1A; the separate
+v0.1B-1 primitives below are not yet enforced by the evaluator.
+
+## 14. Prompt Queue v0.1B-1 Approval-Binding Boundary
+
+Prompt Queue v0.1B-1 implements deterministic canonical approval-binding
+primitives for normalized v0.1A project cards and queue items. The primitives
+provide change detection only and do not grant authority.
+
+Binding purposes are domain-separated:
+
+- `scope` binds the implementation result type, project identity and repository
+  metadata, expected branch and HEAD, safety policy, goal, task, and exact
+  target files.
+- `review` binds the review result type, current scope digest, caller-supplied
+  change evidence digest, and observed Git state.
+- `commit` binds the commit result type, current scope and review digests, the
+  same change evidence digest, observed Git state, and exact commit message.
+
+Canonical snapshots use bounded UTF-8 JSON with sorted object keys and compact
+separators. Set-like path and forbidden-action lists are sorted before hashing,
+while validation-command order remains significant. Each purpose uses a
+distinct domain prefix before SHA-256 hashing so a digest cannot be replayed as
+another binding purpose.
+
+The primitive must reject:
+
+- A project/item identity mismatch.
+- A wrong result stage for the requested binding purpose.
+- Empty scope target files or an empty commit message.
+- Missing, malformed, non-lowercase, stale scope, review, or evidence digests.
+- A canonical snapshot larger than the implementation limit.
+
+Mutable prompt/result summaries and approval booleans are excluded from
+canonical binding input. This avoids circular approval state and prevents an
+untrusted summary from becoming authority.
+
+v0.1B-1 limitations are mandatory boundaries:
+
+- A digest is not a signature, secret, token, identity check, or human approval.
+- `change_evidence_digest` is supplied by the caller and does not prove which
+  Git diff or file content produced it.
+- The v0.1A evaluator does not require or compare binding digests yet.
+- No Git/filesystem reader, persistence, HTTP/API/GUI route, command execution,
+  external call, staging, commit, push, or pull-request behavior is added.
+
+The next implementation step is v0.1B-2 evaluator enforcement. It must remain
+internal/tests-only and convert missing or stale bindings to
+`BLOCKED_NEEDS_USER`. Route, UI, persistence, and unattended execution remain
+out of scope.

@@ -3,7 +3,7 @@
 Hermes Manager Pilot is a Jarvis-Core app module for testing Hermes as a middle
 manager in the Jarvis-Core development workflow. It started as a v0.1
 design-only contract and now includes local-only v0.2-v0.4 helper tools plus
-internal Prompt Queue v0.1A primitives.
+internal Prompt Queue v0.1A and approval-binding v0.1B-1 primitives.
 
 Hermes is not a coding worker. Hermes does not replace Codex. Hermes helps
 manage Codex work by preserving context, waiting for responses, summarizing
@@ -299,10 +299,42 @@ The current primitive does not:
 - Treat approval booleans as authenticated proof of a human decision.
 
 `repo_path` is metadata only, and all observed Git evidence must be supplied by
-an internal caller. Prompt Queue v0.1A must remain route-free until a later
-design step defines how approval is bound to the exact project, HEAD, target
-files, result type, and commit message. That approval-binding step is not
-implemented.
+an internal caller. Prompt Queue v0.1A remains route-free. Approval binding is
+not part of the v0.1A evaluator and is not enforced by its boolean approval
+fields.
+
+## Prompt Queue v0.1B-1 Approval-Binding Primitives
+
+Prompt Queue v0.1B-1 adds deterministic, domain-separated approval-binding
+primitives for normalized project cards and queue items. The primitives are
+internal/tests-only and are not connected to the v0.1A evaluator.
+
+The binding chain has three purposes:
+
+- Scope binding covers project identity, repository metadata, expected branch
+  and HEAD, protected paths, known untracked paths, forbidden actions,
+  validation commands, goal, task, and exact target files.
+- Review binding covers the current scope digest, caller-supplied change
+  evidence digest, observed branch and HEAD, and observed Git status.
+- Commit binding covers the current scope and review digests, the same change
+  evidence digest, observed Git state, and exact commit message.
+
+Each purpose uses a different domain-separated SHA-256 prefix. A changed scope,
+review evidence, Git observation, or commit message makes the prior binding
+stale. Malformed digests, wrong result stages, and oversized canonical
+snapshots are rejected.
+
+These digests provide deterministic change detection only. They are not
+signatures, secrets, one-time tokens, authenticated human approval, or
+permission to execute. `change_evidence_digest` is caller-supplied and has no
+trusted evidence collector in v0.1B-1. Approval booleans are still evaluated by
+v0.1A without binding enforcement.
+
+Prompt Queue v0.1B-1 does not read Git or the filesystem, persist data, expose a
+route or UI, execute a prompt or command, stage, commit, push, create a pull
+request, or call an external service. A future v0.1B-2 step must explicitly
+integrate binding fields with evaluator blocking rules before any route, UI, or
+persistence work is considered.
 
 ## Contract
 
