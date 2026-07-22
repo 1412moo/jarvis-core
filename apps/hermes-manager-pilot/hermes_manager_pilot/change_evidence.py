@@ -206,6 +206,30 @@ class QueueObservationEvaluation:
 
 
 @dataclass(frozen=True)
+class FreshReviewHandoffPreview:
+    """Exact review queue snapshot that matched one fresh local collection."""
+
+    queue: PromptQueueState
+    item: QueueItem
+    evaluation: QueueEvaluation
+    fresh_bundle_digest: str
+
+
+@dataclass(frozen=True)
+class FreshReviewHandoffDecision:
+    """Fail-closed fresh-review decision without session or renderer authority."""
+
+    project_id: str
+    item_id: str
+    blocking_reasons: tuple[str, ...]
+    preview: FreshReviewHandoffPreview | None
+
+    @property
+    def is_blocked(self) -> bool:
+        return bool(self.blocking_reasons)
+
+
+@dataclass(frozen=True)
 class _RepositoryState:
     branch: str
     head: str
@@ -674,6 +698,103 @@ def evaluate_review_evidence_in_queue(
         item=observed_item,
         evaluation=evaluation,
     )
+
+
+def build_fresh_review_handoff_decision(
+    trusted_repo_root: str | Path,
+    observation: QueueObservationEvaluation,
+) -> FreshReviewHandoffDecision:
+    """Recollect one review snapshot and return only an exact-match preview."""
+
+    item, project, evaluation = _validate_queue_observation_evaluation(observation)
+    if evaluation.is_blocked:
+        return FreshReviewHandoffDecision(
+            project_id=project.project_id,
+            item_id=item.item_id,
+            blocking_reasons=evaluation.blocking_reasons,
+            preview=None,
+        )
+
+    if (
+        item.result_type != "review"
+        or evaluation.result_type != "review"
+        or evaluation.next_action != "REVIEW_REQUEST"
+        or evaluation.render_mode != "review-prompt"
+    ):
+        raise ValidationError("fresh review handoff requires an actionable review item")
+    if item.review_passed or item.review_approval_digest:
+        raise ValidationError("fresh review handoff requires an unreviewed item")
+    if item.commit_approved or item.commit_approval_digest:
+        raise ValidationError("fresh review handoff requires an unapproved commit state")
+    if not _DIGEST_PATTERN.fullmatch(item.change_evidence_digest):
+        raise ValidationError("fresh review handoff requires a valid evidence digest")
+
+    try:
+        fresh_bundle = collect_review_evidence_bundle(
+            trusted_repo_root,
+            project,
+            item,
+        )
+        verify_review_evidence_bundle(fresh_bundle, project, item)
+    except ValidationError as exc:
+        return FreshReviewHandoffDecision(
+            project_id=project.project_id,
+            item_id=item.item_id,
+            blocking_reasons=(f"fresh review evidence validation failed: {exc}",),
+            preview=None,
+        )
+
+    if (
+        not hmac.compare_digest(
+            fresh_bundle.bundle_digest,
+            item.change_evidence_digest,
+        )
+        or fresh_bundle.branch != item.observed_branch
+        or fresh_bundle.head != item.observed_head
+        or fresh_bundle.whole_status_evidence.whole_git_status
+        != item.observed_git_status
+    ):
+        return FreshReviewHandoffDecision(
+            project_id=project.project_id,
+            item_id=item.item_id,
+            blocking_reasons=("fresh review evidence does not match queue observation",),
+            preview=None,
+        )
+
+    preview = FreshReviewHandoffPreview(
+        queue=observation.queue,
+        item=item,
+        evaluation=evaluation,
+        fresh_bundle_digest=fresh_bundle.bundle_digest,
+    )
+    return FreshReviewHandoffDecision(
+        project_id=project.project_id,
+        item_id=item.item_id,
+        blocking_reasons=(),
+        preview=preview,
+    )
+
+
+def _validate_queue_observation_evaluation(
+    observation: QueueObservationEvaluation,
+) -> tuple[QueueItem, ProjectCard, QueueEvaluation]:
+    if not isinstance(observation, QueueObservationEvaluation):
+        raise ValidationError("observation must be QueueObservationEvaluation")
+    if not isinstance(observation.item, QueueItem):
+        raise ValidationError("observation item must be a normalized QueueItem")
+    if not isinstance(observation.evaluation, QueueEvaluation):
+        raise ValidationError("observation evaluation must be QueueEvaluation")
+
+    item, project = _resolve_queue_item_and_project(
+        observation.queue,
+        observation.item.item_id,
+    )
+    if item != observation.item:
+        raise ValidationError("observation item does not match its queue snapshot")
+    evaluation = evaluate_queue_item(observation.queue, item.item_id)
+    if evaluation != observation.evaluation:
+        raise ValidationError("observation evaluation does not match its queue snapshot")
+    return item, project, evaluation
 
 
 def _resolve_queue_item_and_project(

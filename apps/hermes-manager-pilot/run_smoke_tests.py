@@ -20,10 +20,13 @@ from hermes_manager_pilot.approval_binding import (
     digest_matches,
 )
 from hermes_manager_pilot.change_evidence import (
+    FreshReviewHandoffDecision,
     MAX_FILE_BYTES,
     MAX_GIT_OUTPUT_BYTES,
+    QueueObservationEvaluation,
     WHOLE_STATUS_COVERAGE,
     apply_review_evidence_observation,
+    build_fresh_review_handoff_decision,
     build_review_evidence_handoff_decision,
     collect_local_change_evidence,
     collect_review_evidence_bundle,
@@ -264,6 +267,27 @@ def _create_change_evidence_fixture(temp_dir: str) -> tuple[Path, object, object
     }
     queue = normalize_prompt_queue(payload)
     return repo, queue.projects[0], queue.items[0]
+
+
+def _create_valid_review_observation_fixture(
+    temp_dir: str,
+) -> tuple[Path, object, object, object, QueueObservationEvaluation]:
+    repo, project, item = _create_change_evidence_fixture(temp_dir)
+    implementation_item = replace(item, result_type="implementation")
+    scope_binding = build_scope_approval_binding(project, implementation_item)
+    review_item = replace(
+        item,
+        scope_approved=True,
+        scope_approval_digest=scope_binding.digest,
+    )
+    bundle = collect_review_evidence_bundle(repo, project, review_item)
+    queue = PromptQueueState(projects=(project,), items=(review_item,))
+    observation = evaluate_review_evidence_in_queue(
+        queue,
+        review_item.item_id,
+        bundle,
+    )
+    return repo, project, review_item, bundle, observation
 
 
 def _test_implementation_prompt_deterministic() -> None:
@@ -2027,6 +2051,364 @@ def _test_review_evidence_queue_bridge_preserves_blocking_and_fails_closed() -> 
         )
 
 
+def _test_fresh_review_handoff_returns_only_exact_current_preview() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-handoff-") as temp_dir:
+        repo, _, _, bundle, observation = _create_valid_review_observation_fixture(
+            temp_dir
+        )
+        original_observation = copy.deepcopy(observation)
+        original_collect = change_evidence_module.collect_review_evidence_bundle
+        collection_calls = 0
+
+        def counting_collect(*args: object, **kwargs: object) -> object:
+            nonlocal collection_calls
+            collection_calls += 1
+            return original_collect(*args, **kwargs)
+
+        change_evidence_module.collect_review_evidence_bundle = counting_collect
+        try:
+            first = build_fresh_review_handoff_decision(repo, observation)
+        finally:
+            change_evidence_module.collect_review_evidence_bundle = original_collect
+
+        second = build_fresh_review_handoff_decision(repo, observation)
+        _assert(first == second, "fresh review handoff should be deterministic")
+        _assert(collection_calls == 1, "fresh handoff should collect exactly once")
+        _assert(
+            isinstance(first, FreshReviewHandoffDecision),
+            "fresh handoff returned the wrong decision type",
+        )
+        _assert(not first.is_blocked, "unchanged fresh review handoff was blocked")
+        _assert(first.preview is not None, "fresh review handoff preview is missing")
+        preview = first.preview
+        _assert(preview.queue is observation.queue, "fresh preview changed the queue")
+        _assert(preview.item is observation.item, "fresh preview changed the item")
+        _assert(
+            preview.evaluation == observation.evaluation,
+            "fresh preview changed the evaluation",
+        )
+        _assert(
+            preview.fresh_bundle_digest == bundle.bundle_digest,
+            "fresh preview digest is wrong",
+        )
+        _assert(not hasattr(preview, "session"), "fresh preview must not carry a session")
+        _assert(
+            observation == original_observation,
+            "fresh handoff mutated the C0C-5 observation",
+        )
+
+
+def _test_fresh_review_handoff_blocks_before_io_when_not_actionable() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-blocked-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        bundle = collect_review_evidence_bundle(repo, project, item)
+        queue = PromptQueueState(projects=(project,), items=(item,))
+        blocked_observation = evaluate_review_evidence_in_queue(
+            queue,
+            item.item_id,
+            bundle,
+        )
+        original_collect = change_evidence_module.collect_review_evidence_bundle
+
+        def forbidden_collect(*args: object, **kwargs: object) -> object:
+            raise AssertionError("blocked fresh handoff must not collect evidence")
+
+        change_evidence_module.collect_review_evidence_bundle = forbidden_collect
+        try:
+            blocked = build_fresh_review_handoff_decision(repo, blocked_observation)
+        finally:
+            change_evidence_module.collect_review_evidence_bundle = original_collect
+
+        _assert(blocked.is_blocked, "blocked queue evaluation became actionable")
+        _assert(blocked.preview is None, "blocked fresh handoff exposed a preview")
+        _assert(
+            blocked.blocking_reasons == blocked_observation.evaluation.blocking_reasons,
+            "fresh handoff changed evaluator blocking reasons",
+        )
+
+
+def _test_fresh_review_handoff_rejects_inconsistent_wrappers_before_io() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-wrapper-") as temp_dir:
+        repo, project, _, _, observation = _create_valid_review_observation_fixture(
+            temp_dir
+        )
+        original_collect = change_evidence_module.collect_review_evidence_bundle
+
+        def forbidden_collect(*args: object, **kwargs: object) -> object:
+            raise AssertionError("invalid fresh handoff must fail before collection")
+
+        change_evidence_module.collect_review_evidence_bundle = forbidden_collect
+        try:
+            _assert_validation_error(
+                lambda: build_fresh_review_handoff_decision(repo, object()),
+                "observation must be QueueObservationEvaluation",
+            )
+            _assert_validation_error(
+                lambda: build_fresh_review_handoff_decision(
+                    repo,
+                    replace(
+                        observation,
+                        item=replace(
+                            observation.item,
+                            last_result_summary="tampered item",
+                        ),
+                    ),
+                ),
+                "observation item does not match its queue snapshot",
+            )
+            _assert_validation_error(
+                lambda: build_fresh_review_handoff_decision(
+                    repo,
+                    replace(
+                        observation,
+                        evaluation=replace(
+                            observation.evaluation,
+                            next_action="BLOCKED_NEEDS_USER",
+                        ),
+                    ),
+                ),
+                "observation evaluation does not match its queue snapshot",
+            )
+            _assert_validation_error(
+                lambda: build_fresh_review_handoff_decision(
+                    repo,
+                    replace(
+                        observation,
+                        queue=replace(
+                            observation.queue,
+                            items=(
+                                observation.item,
+                                copy.deepcopy(observation.item),
+                            ),
+                        ),
+                    ),
+                ),
+                "queue item identity is ambiguous",
+            )
+            _assert_validation_error(
+                lambda: build_fresh_review_handoff_decision(
+                    repo,
+                    replace(
+                        observation,
+                        queue=replace(observation.queue, projects=()),
+                    ),
+                ),
+                "unknown project",
+            )
+
+            missing_digest_item = replace(
+                observation.item,
+                change_evidence_digest="",
+            )
+            missing_digest_queue = replace(
+                observation.queue,
+                items=(missing_digest_item,),
+            )
+            missing_digest_observation = QueueObservationEvaluation(
+                queue=missing_digest_queue,
+                item=missing_digest_item,
+                evaluation=evaluate_queue_item(
+                    missing_digest_queue,
+                    missing_digest_item.item_id,
+                ),
+            )
+            missing_digest = build_fresh_review_handoff_decision(
+                repo,
+                missing_digest_observation,
+            )
+            _assert(missing_digest.is_blocked, "missing evidence digest was accepted")
+            _assert(
+                "change evidence digest is missing"
+                in missing_digest.blocking_reasons,
+                "missing evidence digest reason is absent",
+            )
+
+            commit_metadata_item = replace(
+                observation.item,
+                commit_approved=True,
+                commit_approval_digest="f" * 64,
+            )
+            commit_metadata_queue = replace(
+                observation.queue,
+                items=(commit_metadata_item,),
+            )
+            commit_metadata_observation = QueueObservationEvaluation(
+                queue=commit_metadata_queue,
+                item=commit_metadata_item,
+                evaluation=evaluate_queue_item(
+                    commit_metadata_queue,
+                    commit_metadata_item.item_id,
+                ),
+            )
+            commit_metadata = build_fresh_review_handoff_decision(
+                repo,
+                commit_metadata_observation,
+            )
+            _assert(commit_metadata.is_blocked, "commit metadata was accepted")
+            _assert(commit_metadata.preview is None, "commit metadata exposed a preview")
+
+            design_item = replace(
+                observation.item,
+                result_type="design",
+                target_files=(),
+                observed_git_status=("?? known.local",),
+                scope_approved=False,
+                scope_approval_digest="",
+                change_evidence_digest="",
+            )
+            design_queue = replace(observation.queue, items=(design_item,))
+            design_observation = QueueObservationEvaluation(
+                queue=design_queue,
+                item=design_item,
+                evaluation=evaluate_queue_item(design_queue, design_item.item_id),
+            )
+            _assert(not design_observation.evaluation.is_blocked, "design fixture is blocked")
+            _assert_validation_error(
+                lambda: build_fresh_review_handoff_decision(
+                    repo,
+                    design_observation,
+                ),
+                "requires an actionable review item",
+            )
+
+            review_binding = build_review_approval_binding(
+                project,
+                observation.item,
+                scope_digest=observation.item.scope_approval_digest,
+                change_evidence_digest=observation.item.change_evidence_digest,
+            )
+            passed_item = replace(
+                observation.item,
+                review_passed=True,
+                review_approval_digest=review_binding.digest,
+            )
+            passed_queue = replace(observation.queue, items=(passed_item,))
+            passed_observation = QueueObservationEvaluation(
+                queue=passed_queue,
+                item=passed_item,
+                evaluation=evaluate_queue_item(passed_queue, passed_item.item_id),
+            )
+            _assert(not passed_observation.evaluation.is_blocked, "passed fixture is blocked")
+            _assert_validation_error(
+                lambda: build_fresh_review_handoff_decision(
+                    repo,
+                    passed_observation,
+                ),
+                "requires an unreviewed item",
+            )
+        finally:
+            change_evidence_module.collect_review_evidence_bundle = original_collect
+
+
+def _test_fresh_review_handoff_detects_stale_content_status_branch_and_head() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-content-") as temp_dir:
+        repo, _, _, _, observation = _create_valid_review_observation_fixture(temp_dir)
+        (repo / "src" / "tracked.txt").write_text(
+            "changed after C0C-5 observation\n",
+            encoding="utf-8",
+        )
+        stale = build_fresh_review_handoff_decision(repo, observation)
+        _assert(stale.is_blocked, "stale target content was accepted")
+        _assert(
+            stale.blocking_reasons
+            == ("fresh review evidence does not match queue observation",),
+            "stale target content reason is wrong",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-status-") as temp_dir:
+        repo, _, _, _, observation = _create_valid_review_observation_fixture(temp_dir)
+        reordered_item = replace(
+            observation.item,
+            observed_git_status=tuple(reversed(observation.item.observed_git_status)),
+        )
+        reordered_queue = replace(observation.queue, items=(reordered_item,))
+        reordered_observation = QueueObservationEvaluation(
+            queue=reordered_queue,
+            item=reordered_item,
+            evaluation=evaluate_queue_item(reordered_queue, reordered_item.item_id),
+        )
+        _assert(
+            not reordered_observation.evaluation.is_blocked,
+            "reordered status fixture is blocked",
+        )
+        stale = build_fresh_review_handoff_decision(repo, reordered_observation)
+        _assert(stale.is_blocked, "non-exact whole status was accepted")
+        _assert(stale.preview is None, "stale whole status exposed a preview")
+
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-outside-") as temp_dir:
+        repo, _, _, _, observation = _create_valid_review_observation_fixture(temp_dir)
+        (repo / "outside.txt").write_text("new whole-status entry\n", encoding="utf-8")
+        stale = build_fresh_review_handoff_decision(repo, observation)
+        _assert(stale.is_blocked, "changed whole-worktree status was accepted")
+        _assert(
+            stale.blocking_reasons
+            == ("fresh review evidence does not match queue observation",),
+            "changed whole-status reason is wrong",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-staged-") as temp_dir:
+        repo, _, _, _, observation = _create_valid_review_observation_fixture(temp_dir)
+        _run_fixture_git(repo, "add", "src/tracked.txt")
+        blocked = build_fresh_review_handoff_decision(repo, observation)
+        _assert(blocked.is_blocked, "staged state was accepted")
+        _assert(
+            blocked.blocking_reasons[0].startswith(
+                "fresh review evidence validation failed:"
+            ),
+            "staged-state validation reason is missing",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-branch-") as temp_dir:
+        repo, _, _, _, observation = _create_valid_review_observation_fixture(temp_dir)
+        _run_fixture_git(repo, "switch", "-c", "other")
+        blocked = build_fresh_review_handoff_decision(repo, observation)
+        _assert(blocked.is_blocked, "changed branch was accepted")
+        _assert(
+            blocked.blocking_reasons[0].startswith(
+                "fresh review evidence validation failed:"
+            ),
+            "changed branch validation reason is missing",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-head-") as temp_dir:
+        repo, _, _, _, observation = _create_valid_review_observation_fixture(temp_dir)
+        _run_fixture_git(repo, "commit", "--allow-empty", "-m", "head changed")
+        blocked = build_fresh_review_handoff_decision(repo, observation)
+        _assert(blocked.is_blocked, "changed HEAD was accepted")
+        _assert(
+            blocked.blocking_reasons[0].startswith(
+                "fresh review evidence validation failed:"
+            ),
+            "changed HEAD validation reason is missing",
+        )
+
+
+def _test_fresh_review_handoff_verifies_collector_output() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-fresh-review-verify-") as temp_dir:
+        repo, _, _, bundle, observation = _create_valid_review_observation_fixture(
+            temp_dir
+        )
+        original_collect = change_evidence_module.collect_review_evidence_bundle
+
+        def tampered_collect(*args: object, **kwargs: object) -> object:
+            return replace(bundle, bundle_digest="0" * 64)
+
+        change_evidence_module.collect_review_evidence_bundle = tampered_collect
+        try:
+            blocked = build_fresh_review_handoff_decision(repo, observation)
+        finally:
+            change_evidence_module.collect_review_evidence_bundle = original_collect
+
+        _assert(blocked.is_blocked, "tampered fresh collector output was accepted")
+        _assert(blocked.preview is None, "tampered collector output exposed a preview")
+        _assert(
+            blocked.blocking_reasons[0].startswith(
+                "fresh review evidence validation failed:"
+            ),
+            "tampered collector validation reason is missing",
+        )
+
+
 def _test_local_change_evidence_rejects_scope_root_stage_and_size_violations() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-safety-") as temp_dir:
         repo, project, item = _create_change_evidence_fixture(temp_dir)
@@ -2247,6 +2629,11 @@ def main() -> None:
         _test_review_evidence_observation_adapter_fails_closed,
         _test_review_evidence_queue_bridge_replaces_one_item_and_evaluates,
         _test_review_evidence_queue_bridge_preserves_blocking_and_fails_closed,
+        _test_fresh_review_handoff_returns_only_exact_current_preview,
+        _test_fresh_review_handoff_blocks_before_io_when_not_actionable,
+        _test_fresh_review_handoff_rejects_inconsistent_wrappers_before_io,
+        _test_fresh_review_handoff_detects_stale_content_status_branch_and_head,
+        _test_fresh_review_handoff_verifies_collector_output,
         _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,
