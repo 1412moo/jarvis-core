@@ -1,11 +1,12 @@
 # Project Control Owner Decision Workflow v0.1 Design
 
-Status: design-only
+Status: v0.1A transport-neutral core implemented; Console integration not implemented
 
 This document defines how the owner selects the next Jarvis-Core product
 workstream without turning Project Control into an approval, execution, or
-persistence surface. It adds no application code, route, UI control, runtime
-state, or authority.
+persistence surface. The v0.1A core implements the transport-neutral contract,
+normalization, stable serialization, Markdown rendering, and stdin/stdout CLI.
+It adds no Console integration, route, UI control, runtime state, or authority.
 
 ## 1. Owner Problem
 
@@ -76,22 +77,26 @@ complete package starts the already-established local implementation workflow.
 
 ## 4. Decision States
 
-The workflow uses these conceptual states:
+The v0.1A `OwnerDecision` contract uses only selection-domain states:
 
 ```text
-selection_required
-  -> selected_for_proposal
-  -> package_approval_required
-  -> bounded_package_approved | selection_rejected | superseded
+selection_required -> selected_for_proposal
+selection_required -> selection_rejected
+selected_for_proposal -> superseded
 ```
+
+v0.1A validates one immutable snapshot. It does not persist history or enforce a
+transition between two snapshots; a later transition adapter remains outside
+this core.
 
 - `selection_required`: no workstream is inferred and implementation stops.
 - `selected_for_proposal`: Codex may explain one bounded package only.
-- `package_approval_required`: the owner reviews scope, safety, and outcome.
-- `bounded_package_approved`: implementation may follow the standing approved
-  work-package rules, including local commit only after validation and clean
-  self-review.
 - `selection_rejected` or `superseded`: no authority carries forward.
+
+`package_approval_required` and `bounded_package_approved` belong to the
+separate work-package approval domain and are deliberately not valid
+`OwnerDecision` statuses. A renderer cannot manufacture implementation authority
+by changing selection data.
 
 Changing the workstream, desired outcome, target files, route/UI behavior,
 persistence, or any locked-capability boundary invalidates the prior package
@@ -123,11 +128,12 @@ is not the owner's selection.
 
 ## 6. Source And Record Boundary
 
-Until a separate implementation is approved, the current tracked
-`docs/master-plan.md` remains the only Project Control direction source. A
-human selection or later package approval is reflected there only after the
-corresponding explicit conversation-level decision. The document is an
-auditable project record, not proof of identity or authorization.
+The v0.1A core is not connected to `docs/master-plan.md`, Project Control, or any
+other data source. The current tracked master plan remains the only live Project
+Control direction source. A human selection or later package approval is
+reflected there only after the corresponding explicit conversation-level
+decision. The document is an auditable project record, not proof of identity or
+authorization.
 
 No v0.1 decision registry, browser storage, cookie, token, task file, candidate
 JSON, state directory, or cross-app session is introduced. The dormant
@@ -136,9 +142,9 @@ registered or displayed.
 
 ## 7. Safety Boundaries And Non-goals
 
-This design does not authorize or add:
+The v0.1A core does not authorize or add:
 
-- application code, route, UI control, persistence, or runtime state;
+- Console payload integration, route, UI control, persistence, or runtime state;
 - automatic workstream inference or implementation from an ambiguous message;
 - authenticated identity, signatures, approval tokens, or a general approval
   service;
@@ -153,7 +159,7 @@ This design does not authorize or add:
 inside an explicitly approved work package does not give Jarvis Console or
 Hermes Manager application-level commit authority.
 
-## 8. Design Acceptance Criteria
+## 8. Acceptance Criteria
 
 The design is complete when:
 
@@ -165,13 +171,41 @@ The design is complete when:
 5. locked capabilities stay locked regardless of the selected workstream;
 6. the future user-visible slice is read-only, copy-only, single-repo, and uses
    no new action route or persistence;
-7. the current master plan records that an owner decision is still required.
+7. normalization, serialization, Markdown rendering, and CLI behavior are
+   deterministic and fail closed;
+8. the current master plan records that Console integration still requires a
+   separate approved work package.
 
-## 9. Recommended Next Decision
+## 9. v0.1A Transport-neutral Core Result
 
-The owner should explicitly choose one Jarvis-Core workstream and desired user
-outcome. The recommended option is `Jarvis Console` with the outcome “show the
-next-workstream choices, consequences, and copy-only decision template in the
-single-repo Owner Dashboard.” If selected, Codex should first present the exact
-complete vertical-slice work package for approval; it must not infer approval
-from this design.
+The core is implemented in `apps/jarvis-console/owner_decision.py` as frozen,
+slotted `OwnerDecision` and `OwnerDecisionCandidate` contracts. It requires the
+exact six Jarvis-Core workstreams, fixes authority to
+`work_package_proposal_only`, validates status/selection relationships, rejects
+unknown or duplicate JSON fields, bounds text and JSON sizes, and canonicalizes
+candidate and locked-capability order before stable serialization.
+
+`apps/jarvis-console/render_owner_decision.py` reads bounded JSON from stdin and
+writes deterministic Markdown or canonical JSON to stdout. It accepts no input
+path and creates no file or runtime state. The pure Markdown renderer
+revalidates the immutable object and does not mutate it.
+
+Deterministic tests cover immutability, stable serialization, reordered input,
+Markdown escaping, selected/unselected relationships, malformed and oversized
+input, duplicate keys and candidates, noncanonical direct instances, CLI
+success/failure output, and forbidden filesystem/network/integration imports.
+
+Implementation commit:
+`58d4767d4f7c3ca53bff4cebd195d9c15665d91a`.
+
+## 10. Recommended Next Work Package
+
+Propose v0.1B as a separate read-only Console integration package. It should
+adapt the existing bounded master-plan snapshot into one normalized
+`OwnerDecision`, add that serialized object to the existing Project Control
+payload, and render it minimally in the current card. The core contract must
+remain authoritative; the adapter and UI may consume but not redefine it.
+
+v0.1B must add no new route, persistence, action button, external call,
+background worker, automatic execution, second repository, or Memory save
+surface. This recommendation is not v0.1B implementation approval.

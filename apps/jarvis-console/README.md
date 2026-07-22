@@ -201,13 +201,21 @@ accepts the fixed six-row workstream table and fails closed on missing, extra,
 duplicate, unknown, controlled, empty, or oversized values. See
 [`../../docs/project-control-single-repo-workstreams-v0.1-design.md`](../../docs/project-control-single-repo-workstreams-v0.1-design.md).
 
-The design-only Owner Decision Workflow v0.1 separates product workstream
-selection from work-package approval, Prompt Queue approval metadata, task
-`/approve`, and Memory confirmation. The owner must explicitly name one of the
-six Jarvis-Core workstreams and a desired user outcome. That selection permits
-only a bounded work-package proposal; it does not authorize implementation or
-unlock any protected capability. No route, UI control, persistence, or runtime
-state is added. See
+Owner Decision Contract v0.1A implements the transport-neutral core before any
+Console integration. Frozen `OwnerDecision` and candidate contracts normalize
+the exact six Jarvis-Core workstreams, fail closed on malformed or ambiguous
+state, serialize to stable JSON, and render deterministic Markdown without
+mutating input. The local CLI accepts bounded JSON only from stdin and writes
+Markdown or canonical JSON only to stdout:
+
+```powershell
+$decisionJson | python -B apps\jarvis-console\render_owner_decision.py --format markdown
+```
+
+The core is not connected to `run_web_app.py`, `GET /api/overview`, or the
+browser. It creates no file, route, UI control, persistence, or runtime state.
+Product workstream selection remains separate from work-package approval,
+Prompt Queue metadata, task `/approve`, and Memory confirmation. See
 [`../../docs/project-control-owner-decision-workflow-v0.1-design.md`](../../docs/project-control-owner-decision-workflow-v0.1-design.md).
 
 ### Research Council
@@ -326,9 +334,9 @@ Protected path shown by default:
 
 Possible later phases:
 
-1. After explicit owner selection, define one bounded Jarvis-Core workstream
-   vertical slice; the recommended candidate is read-only Owner Decision
-   guidance in the existing single-repo dashboard.
+1. After separate approval, connect the v0.1A Owner Decision core to the existing
+   single-repo Project Control payload and card as a minimal read-only v0.1B
+   consumer. The adapter and UI must not redefine the contract.
 2. Add richer registry metadata such as icons, examples, and handoff contracts.
 3. Add local report preview forms for existing deterministic renderers.
 4. Refine the read-only review surface only from repeated local-use feedback.

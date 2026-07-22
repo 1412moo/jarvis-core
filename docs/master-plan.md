@@ -14,10 +14,10 @@ Jarvis-Core 한 저장소 안의 AI 작업자와 내부 workstream을 한곳에�
 
 ### 현재 만드는 이유
 
-현재 병목은 Dashboard가 다음 결정이 필요하다는 점은 보여주지만, 소유자의 제품
-방향 선택과 코드 실행 승인을 구분하는 짧은 운영 계약이 없다는 점이다. Owner
-Decision Workflow는 Jarvis-Core 내부 workstream 하나를 명시적으로 선택하게 하되,
-그 선택이 구현·commit 또는 잠긴 기능의 권한으로 확대되지 않도록 만든다.
+Owner Decision v0.1A는 UI보다 먼저 transport-neutral core contract를 완성했다.
+현재 과제는 이 객체를 UI가 재정의하지 않도록 기존 Project Control의 data adapter와
+read-only renderer가 소비하는 v0.1B 범위를 검토하는 것이다. v0.1B는 아직 승인되지
+않았고 core도 구현·commit 또는 잠긴 기능의 권한을 만들지 않는다.
 
 Project Control v0.1D는 현재 목표와 live Git 상태에 더해 `현재 만드는 이유`,
 `이 단계가 끝나면 사용자가 얻는 것`, 최근 완료, 다음 단계, 내부 workstream,
@@ -29,15 +29,13 @@ save도 readiness review의 `keep locked` 판정을 유지한다.
 
 ### 이 단계가 끝나면 사용자가 얻는 것
 
-- 소유자가 6개 Jarvis-Core 내부 workstream 중 다음 방향 하나와 원하는 사용자
-  결과를 명시적으로 고른다.
-- 선택이 허용하는 것은 bounded work package 제안뿐임을 30초 안에 이해한다.
-- 제안의 정확한 범위·대상 파일·검증·잠금 경계를 확인한 뒤 구현 여부를 별도로
-  결정한다.
-- 모호한 `진행`, Dashboard 상태, digest가 제품 방향이나 실행 승인으로 해석되지
+- CLI와 이후 Console·Markdown·모바일 renderer가 같은 immutable Decision 객체를
+  읽을 수 있다.
+- 현재 CLI에서 bounded JSON을 stable JSON 또는 Markdown으로 stdout에만 렌더링한다.
+- UI가 workstream, 상태, 권한 또는 응답 형식을 자체적으로 정의하지 않는다.
+- 선택이 허용하는 것은 bounded work package 제안뿐이며 별도 구현 승인과 섞이지
   않는다.
-- 자동 실행, push/PR, 외부 호출, Memory save는 선택한 workstream과 무관하게
-  계속 별도 승인 경계로 둔다.
+- 자동 실행, push/PR, 외부 호출, Memory save는 renderer와 무관하게 계속 잠긴다.
 
 ### 전체 성숙도
 
@@ -65,12 +63,12 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Owner Decision Workflow v0.1 design**
-- 현재 다음 작업: **소유자가 다음 Jarvis-Core product workstream과 원하는 결과를 명시적으로 선택**
-- 다음 사용자 체감 milestone: **소유자가 승인한 다음 workstream의 작은 vertical slice**
-- vertical slice 완료 결과: Jarvis-Core 한 저장소만 표시하고, 문서 방향과 live Git
+- 최근 완료: **Owner Decision Contract v0.1A transport-neutral core**
+- 현재 다음 작업: **v0.1B read-only Console integration work package 검토**
+- 다음 사용자 체감 milestone: **CLI와 기존 Owner Dashboard가 같은 Decision 객체를 읽기 전용으로 표시**
+- 최근 사용자 기능 검증 결과: Jarvis-Core 한 저장소만 표시하고, 문서 방향과 live Git
   관찰을 구분하며 어떤 action·approval·persistence도 만들지 않는 화면 검증 완료
-- 현재 결정 필요: **있음** — 설계 완료는 product workstream 선택이나 구현 승인이 아님
+- 현재 결정 필요: **있음** — v0.1A 완료는 v0.1B Console integration 승인이 아님
 
 ### 언제부터 실제로 편해지는가
 
@@ -114,18 +112,18 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `9e797e680bbb67dd2d6ed119c1874dd117f84ab2`
+- Verified implementation HEAD: `58d4767d4f7c3ca53bff4cebd195d9c15665d91a`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
-- Current workstream: Project Control — Owner Decision Workflow design
-- Current milestone: Owner Decision Workflow v0.1 design complete
-- Recommended next step: Owner explicitly selects one Jarvis-Core workstream and desired outcome; Jarvis Console read-only decision guidance is recommended
-- Next user-visible milestone: 소유자가 승인한 다음 workstream의 작은 vertical slice
-- Current reason: 제품 방향 선택을 구현 승인이나 잠긴 기능 활성화와 혼동하지 않고 다음 workstream을 정해야 한다
-- Owner outcome: Jarvis-Core workstream 하나와 원하는 사용자 결과를 명시해 bounded work package 제안을 받는다
-- Recent completed: Project Control Owner Decision Workflow v0.1 design
+- Current workstream: Project Control — Owner Decision Contract
+- Current milestone: Owner Decision Contract v0.1A transport-neutral core complete
+- Recommended next step: Review a separate v0.1B read-only Console integration work package; do not implement without approval
+- Next user-visible milestone: CLI와 기존 Owner Dashboard가 같은 Decision 객체를 read-only로 표시
+- Current reason: transport-neutral core를 UI보다 먼저 고정했으며 다음 adapter와 renderer가 이를 재정의하지 않게 해야 한다
+- Owner outcome: 동일한 immutable Decision 객체를 CLI와 이후 Console에서 읽고 선택과 구현 승인을 구분한다
+- Recent completed: Owner Decision Contract v0.1A core, Markdown renderer, and stdout-only CLI
 - Approval state: required
-- Approval note: 설계 완료는 선택이나 구현 승인이 아니며 소유자의 명시적 workstream 결정이 필요하다
+- Approval note: v0.1B Console integration은 별도 work package이며 아직 구현 승인되지 않았다
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
@@ -170,16 +168,17 @@ flowchart LR
     J --> K["내부 workstream Owner Dashboard<br/>v0.1D 구현 완료"]
     K --> L["실제 milestone 보고 1회<br/>실사용 검증 완료"]
     L --> M["Owner Decision Workflow<br/>v0.1 design 완료"]
-    M --> N{"owner selects workstream<br/>and desired outcome"}
-    N --> O["bounded work package<br/>별도 승인"]
-    O --> P["승인된 작은 vertical slice<br/>후속 사용자 기능"]
+    M --> N["transport-neutral contract<br/>v0.1A core 완료"]
+    N --> O{"v0.1B read-only Console<br/>integration 승인"}
+    O --> P["같은 Decision 객체<br/>CLI + Console 표시"]
+    P --> Q["명시적 owner selection<br/>후속 work package"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K,L,M done;
-    class N current;
-    class O,P future;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,N done;
+    class O current;
+    class P,Q future;
 ```
 
 ### 구현된 기반
@@ -193,7 +192,25 @@ flowchart LR
 - 기존 `/api/overview` 안의 single-repo `project_control.v0.1D` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Owner Decision Workflow v0.1 design
+### 최근 완료: Owner Decision Contract v0.1A transport-neutral core
+
+UI가 Decision 구조를 정의하지 않도록 frozen/slotted `OwnerDecision`과 candidate
+contract, fail-closed normalization, canonical JSON serialization, pure Markdown
+renderer를 독립 모듈로 구현했다. 정확한 6개 내부 workstream과 proposal-only
+authority를 고정하고 unknown/duplicate/malformed/oversized 입력, 상태와 선택의 불일치,
+noncanonical 직접 객체를 차단한다.
+
+로컬 CLI는 bounded JSON을 stdin에서만 받고 Markdown 또는 canonical JSON을
+stdout에만 쓴다. 파일·route·payload·UI·persistence·external API·background worker와
+연결하지 않았다. deterministic contract/renderer/CLI test와 전체 Jarvis Console
+self-test/smoke가 통과했다. 구현 commit은
+`58d4767d4f7c3ca53bff4cebd195d9c15665d91a`다.
+
+다음 v0.1B는 기존 master-plan snapshot을 core 객체로 변환하고 기존 Project Control
+payload/card가 읽기만 하는 complete read-only slice로 별도 제안한다. v0.1A 완료는
+v0.1B 구현 승인이 아니다.
+
+### 이전 완료: Owner Decision Workflow v0.1 design
 
 Project Control이 `Approval required`를 정확히 보여준 다음, 제품 방향 선택을
 Prompt Queue approval metadata, task `/approve`, Memory confirmation 또는 구현
@@ -241,19 +258,20 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 다음 승인 지점: 다음 Jarvis-Core product workstream과 원하는 결과 선택
+### 다음 승인 지점: Owner Decision v0.1B read-only Console integration
 
-Project Control의 현재 제품 방향은 Jarvis-Core 한 저장소만 보여주는 소유자
-대시보드이며 v0.1D 구현과 첫 실사용 검증은 완료됐다. 다음 구현을 시작하기 전에
-소유자가 기존 6개 내부 workstream 중 하나와 원하는 사용자 결과를 명시해야 한다.
-선택은 bounded work package 제안만 허용하며 구현을 자동 승인하지 않는다.
+소유자는 transport-neutral core를 먼저 완성하도록 v0.1A를 승인했고, 완료 후
+v0.1B Console integration을 별도 work package로 제안하도록 방향을 정했다. 따라서
+다음 결정은 workstream 재선택이 아니라 exact v0.1B 범위의 구현 승인 여부다.
 
-- Hermes Manager
-- Memory / Skills — 선택하더라도 live save는 계속 잠김
-- Jarvis Console — read-only Owner Decision 안내 slice 권장
-- Research Council
-- Daily AI Radar — 선택하더라도 외부 source 수집은 잠김
-- Task / Discord / Dashboard — 선택하더라도 unattended/remote 실행은 잠김
+제안할 v0.1B는 기존 master-plan snapshot을 v0.1A contract로 변환하는 data
+adapter, 기존 Project Control payload의 read-only Decision 객체, 현재 card의 최소
+renderer와 deterministic/browser validation을 하나의 bounded vertical slice로
+묶어야 한다. core가 구조를 정의하며 adapter와 UI는 소비만 한다.
+
+새 route, persistence, action/select/approve button, background worker, external API,
+auto execution은 제안 범위 밖이다. v0.1A 완료나 이 문서의 권장은 v0.1B 구현
+승인이 아니다.
 
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
@@ -266,7 +284,7 @@ save도 계속 잠겨 있다.
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1D 검증과 Owner Decision Workflow v0.1 설계 완료 | owner project card, 내부 workstream 상태, fresh read-only work review | 소유자의 workstream·원하는 결과 선택 대기 |
+| Jarvis Console | Project Control v0.1D 검증과 Owner Decision v0.1A transport-neutral core 완료 | owner project card, 내부 workstream 상태, fresh read-only work review, stdout-only Decision CLI | v0.1B read-only Console integration 별도 승인 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
