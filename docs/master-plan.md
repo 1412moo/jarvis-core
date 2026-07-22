@@ -14,11 +14,10 @@ Jarvis-Core 한 저장소 안의 AI 작업자와 내부 workstream을 한곳에�
 
 ### 현재 만드는 이유
 
-지금 병목은 기능 부족보다 소유자가 Jarvis Console, Hermes Manager,
-Memory / Skills, Research Council, Daily AI Radar의 상태와 문서를 각각 찾아봐야
-전체 진행을 이해할 수 있다는 점이다. Project Control은 Jarvis-Core 한 저장소의
-내부 workstream을 한 화면에 요약해, 무엇을 왜 만들고 있고 다음 결정이 무엇인지
-빠르게 알게 하기 위해 만든다.
+현재 병목은 Dashboard가 다음 결정이 필요하다는 점은 보여주지만, 소유자의 제품
+방향 선택과 코드 실행 승인을 구분하는 짧은 운영 계약이 없다는 점이다. Owner
+Decision Workflow는 Jarvis-Core 내부 workstream 하나를 명시적으로 선택하게 하되,
+그 선택이 구현·commit 또는 잠긴 기능의 권한으로 확대되지 않도록 만든다.
 
 Project Control v0.1D는 현재 목표와 live Git 상태에 더해 `현재 만드는 이유`,
 `이 단계가 끝나면 사용자가 얻는 것`, 최근 완료, 다음 단계, 내부 workstream,
@@ -30,15 +29,15 @@ save도 readiness review의 `keep locked` 판정을 유지한다.
 
 ### 이 단계가 끝나면 사용자가 얻는 것
 
-- 소유자가 기술 단계 코드보다 먼저 `왜 만드는지`와 `끝나면 무엇이 좋아지는지`
-  확인한다.
-- Jarvis-Core 내부 workstream별 상태, 최근 완료, 현재 milestone, 다음 단계를
-  한 화면에서 확인한다.
-- 잠긴 기능과 사람의 승인이 필요한 결정을 바로 구분한다.
-- 마스터플랜 방향과 실제 branch·HEAD·working tree를 같은 화면에서 비교한다.
-- Jarvis Console, Hermes Manager, Memory / Skills, Research Council, Daily AI
-  Radar를 별도 프로젝트가 아닌 Jarvis-Core 내부 workstream으로 이해한다.
-- 자동 실행, push/PR, 외부 호출, Memory save는 계속 별도 승인 경계로 둔다.
+- 소유자가 6개 Jarvis-Core 내부 workstream 중 다음 방향 하나와 원하는 사용자
+  결과를 명시적으로 고른다.
+- 선택이 허용하는 것은 bounded work package 제안뿐임을 30초 안에 이해한다.
+- 제안의 정확한 범위·대상 파일·검증·잠금 경계를 확인한 뒤 구현 여부를 별도로
+  결정한다.
+- 모호한 `진행`, Dashboard 상태, digest가 제품 방향이나 실행 승인으로 해석되지
+  않는다.
+- 자동 실행, push/PR, 외부 호출, Memory save는 선택한 workstream과 무관하게
+  계속 별도 승인 경계로 둔다.
 
 ### 전체 성숙도
 
@@ -66,12 +65,12 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Project Control v0.1D 첫 실제 milestone 보고 검증**
-- 현재 다음 작업: **소유자가 다음 Jarvis-Core product workstream을 선택**
+- 최근 완료: **Owner Decision Workflow v0.1 design**
+- 현재 다음 작업: **소유자가 다음 Jarvis-Core product workstream과 원하는 결과를 명시적으로 선택**
 - 다음 사용자 체감 milestone: **소유자가 승인한 다음 workstream의 작은 vertical slice**
 - vertical slice 완료 결과: Jarvis-Core 한 저장소만 표시하고, 문서 방향과 live Git
   관찰을 구분하며 어떤 action·approval·persistence도 만들지 않는 화면 검증 완료
-- 현재 결정 필요: **있음** — Dashboard 검증 이후의 product workstream 선택 필요
+- 현재 결정 필요: **있음** — 설계 완료는 product workstream 선택이나 구현 승인이 아님
 
 ### 언제부터 실제로 편해지는가
 
@@ -115,18 +114,18 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `e69dbea27a1f77d0b9fe40fc4f5ca76eb13e37fb`
+- Verified implementation HEAD: `9e797e680bbb67dd2d6ed119c1874dd117f84ab2`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
-- Current workstream: Project Control — Jarvis-Core single-repo owner dashboard
-- Current milestone: Project Control v0.1D first real milestone report validation complete
-- Recommended next step: Owner selects the next Jarvis-Core product workstream before implementation continues
+- Current workstream: Project Control — Owner Decision Workflow design
+- Current milestone: Owner Decision Workflow v0.1 design complete
+- Recommended next step: Owner explicitly selects one Jarvis-Core workstream and desired outcome; Jarvis Console read-only decision guidance is recommended
 - Next user-visible milestone: 소유자가 승인한 다음 workstream의 작은 vertical slice
-- Current reason: Owner Dashboard 검증 이후 어떤 Jarvis-Core workstream을 발전시킬지 방향을 정해야 한다
-- Owner outcome: 검증된 현재 상태를 바탕으로 다음 product workstream 하나를 명시적으로 선택한다
-- Recent completed: Project Control v0.1D first real-use milestone report validation
+- Current reason: 제품 방향 선택을 구현 승인이나 잠긴 기능 활성화와 혼동하지 않고 다음 workstream을 정해야 한다
+- Owner outcome: Jarvis-Core workstream 하나와 원하는 사용자 결과를 명시해 bounded work package 제안을 받는다
+- Recent completed: Project Control Owner Decision Workflow v0.1 design
 - Approval state: required
-- Approval note: 다음 product workstream 선택은 소유자 결정이며 자동으로 진행하지 않는다
+- Approval note: 설계 완료는 선택이나 구현 승인이 아니며 소유자의 명시적 workstream 결정이 필요하다
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
@@ -150,7 +149,7 @@ Voice Inbox auto-save, saved candidates dashboard도 없다.
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
 | 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff, read-only 검토 화면 | **사용자 기능 — 실제 작업 1건 검증** | 반복 사용 피드백 또는 다음 축 선택 |
 | 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 2C-4f readiness review 완료, `keep locked` | 소유자가 complete vertical slice 우선순위 결정 |
-| 4. 통합 Jarvis Console | Jarvis-Core 내부 workstream의 진행·잠금·승인 필요 상태를 한 화면에서 확인함 | read-only부터 확장하는 single-repo local control panel | **사용자 기능 — v0.1D Owner Dashboard 검증** | 실제 milestone 보고 1회 실사용 검증 |
+| 4. 통합 Jarvis Console | Jarvis-Core 내부 workstream의 진행·잠금·승인 필요 상태를 한 화면에서 확인함 | read-only부터 확장하는 single-repo local control panel | **사용자 기능 — v0.1D Owner Dashboard 검증** | 소유자가 다음 bounded slice 선택 |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
 
 단계 번호는 방향을 설명한다. 모든 작업 축이 완전히 직렬로 진행된다는 뜻은 아니며, 안전 경계를 넘지 않는 작은 기반 작업은 병행할 수 있다.
@@ -170,15 +169,17 @@ flowchart LR
     I --> J["single-repo workstream visibility<br/>v0.1D design 완료"]
     J --> K["내부 workstream Owner Dashboard<br/>v0.1D 구현 완료"]
     K --> L["실제 milestone 보고 1회<br/>실사용 검증 완료"]
-    L --> M{"owner selects<br/>next product workstream"}
-    M --> N["승인된 작은 vertical slice<br/>후속 사용자 기능"]
+    L --> M["Owner Decision Workflow<br/>v0.1 design 완료"]
+    M --> N{"owner selects workstream<br/>and desired outcome"}
+    N --> O["bounded work package<br/>별도 승인"]
+    O --> P["승인된 작은 vertical slice<br/>후속 사용자 기능"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K,L done;
-    class M current;
-    class N future;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M done;
+    class N current;
+    class O,P future;
 ```
 
 ### 구현된 기반
@@ -192,7 +193,25 @@ flowchart LR
 - 기존 `/api/overview` 안의 single-repo `project_control.v0.1D` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Project Control v0.1D 첫 실제 milestone 보고 검증
+### 최근 완료: Owner Decision Workflow v0.1 design
+
+Project Control이 `Approval required`를 정확히 보여준 다음, 제품 방향 선택을
+Prompt Queue approval metadata, task `/approve`, Memory confirmation 또는 구현
+승인과 섞지 않는 별도 copy-only 운영 계약을 설계했다. 소유자가 선택할 수 있는
+범위는 Jarvis-Core의 기존 6개 내부 workstream이며, 선택은 exact bounded work
+package 제안만 허용한다. 모호한 `진행`, dashboard 상태 또는 digest는 선택으로
+취급하지 않는다.
+
+설계는 route, UI action, persistence, runtime state를 추가하지 않는다. 첫 사용자
+체감 후보로 기존 Owner Dashboard에 선택지·안전 결과·복사용 결정 형식을 보여주는
+`Jarvis Console` read-only slice를 권장하지만, 이 권장은 소유자의 선택이나 구현
+승인이 아니다.
+
+상세 계약은
+[Owner Decision Workflow v0.1 design](project-control-owner-decision-workflow-v0.1-design.md)에
+기록했다.
+
+### 이전 완료: Project Control v0.1D 첫 실제 milestone 보고 검증
 
 최신 `main`의 깨끗한 working tree(`?? jarvis.bat` 제외)를 Project Control에서
 읽었다. 별도 문서를 열지 않고 현재 이유, owner outcome, 최근 완료, milestone,
@@ -222,16 +241,19 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 다음 승인 지점: 다음 Jarvis-Core product workstream 선택
+### 다음 승인 지점: 다음 Jarvis-Core product workstream과 원하는 결과 선택
 
 Project Control의 현재 제품 방향은 Jarvis-Core 한 저장소만 보여주는 소유자
 대시보드이며 v0.1D 구현과 첫 실사용 검증은 완료됐다. 다음 구현을 시작하기 전에
-소유자가 아래 방향 중 하나 또는 별도 방향을 선택해야 한다.
+소유자가 기존 6개 내부 workstream 중 하나와 원하는 사용자 결과를 명시해야 한다.
+선택은 bounded work package 제안만 허용하며 구현을 자동 승인하지 않는다.
 
-- 기존 역할별 앱의 실제 사용 피드백과 작은 UX 개선
-- Memory / Skills live-save 재오픈 조건 재검토 — 현재는 계속 잠김
-- 제한 실행·모바일 승인 방향 설계 — 장기·고위험 단계
-- 다른 Jarvis-Core 내부 capability의 사용자 체감 vertical slice
+- Hermes Manager
+- Memory / Skills — 선택하더라도 live save는 계속 잠김
+- Jarvis Console — read-only Owner Decision 안내 slice 권장
+- Research Council
+- Daily AI Radar — 선택하더라도 외부 source 수집은 잠김
+- Task / Discord / Dashboard — 선택하더라도 unattended/remote 실행은 잠김
 
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
@@ -244,7 +266,7 @@ save도 계속 잠겨 있다.
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1D 구현과 첫 실제 milestone 보고 검증 완료 | owner project card, 내부 workstream 상태, fresh read-only work review | 다음 product workstream 소유자 선택 대기 |
+| Jarvis Console | Project Control v0.1D 검증과 Owner Decision Workflow v0.1 설계 완료 | owner project card, 내부 workstream 상태, fresh read-only work review | 소유자의 workstream·원하는 결과 선택 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
@@ -345,6 +367,7 @@ save도 계속 잠겨 있다.
 - [Codex review copy-only handoff design](codex-review-copy-handoff-v0.1-design.md)
 - [Project Control dormant multi-project source design](project-control-multi-project-source-v0.1-design.md)
 - [Project Control single-repo workstream visibility design](project-control-single-repo-workstreams-v0.1-design.md)
+- [Project Control Owner Decision Workflow design](project-control-owner-decision-workflow-v0.1-design.md)
 - [Memory / Skills design](memory-skills-v0.1-design.md)
 - [Memory / Skills session bootstrap design](memory-skills-session-bootstrap-v0.1-design.md)
 - [Hermes Manager README](../apps/hermes-manager-pilot/README.md)

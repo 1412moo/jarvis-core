@@ -172,6 +172,14 @@ findings. The next product workstream now requires an explicit owner decision.
 The resulting `none` to `required` state transition also corrected two test-only
 assertions to validate the full designed approval-state enum.
 
+Owner Decision Workflow v0.1 is now documented as a design-only next-direction
+contract. It separates product workstream selection from work-package approval,
+Prompt Queue metadata, task `/approve`, and Memory confirmation. An explicit
+Jarvis-Core workstream plus desired user outcome permits only a bounded package
+proposal. It adds no route, UI control, persistence, runtime state, second repo,
+or implementation authority, so Project Control correctly remains
+`Approval required` until the owner makes that decision.
+
 Recent items are normalized with deterministic read-only metadata:
 
 - `item_id`
@@ -565,14 +573,16 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Single-repo Owner Dashboard Real-use Validation
+### A. Owner Workstream Decision
 
 Priority: P1
 
-Completed without an actionable UI finding. Keep v0.1D stable and wait for the
-owner to select the next Jarvis-Core product workstream. Do not infer that
-choice from the workstream table or add repository, action, route, persistence,
-or new authority while waiting.
+The v0.1 design is complete. Keep v0.1D stable and wait for the owner to name one
+Jarvis-Core workstream and desired user outcome. The recommended candidate is a
+Jarvis Console read-only decision-guidance slice using the existing dashboard
+and a copy-only response template. The recommendation is not a selection or
+implementation approval. Do not infer the choice or add an action, route,
+persistence, second repository, or new authority while waiting.
 
 ### B. Planned Skill UX Polish
 

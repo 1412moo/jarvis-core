@@ -201,6 +201,15 @@ accepts the fixed six-row workstream table and fails closed on missing, extra,
 duplicate, unknown, controlled, empty, or oversized values. See
 [`../../docs/project-control-single-repo-workstreams-v0.1-design.md`](../../docs/project-control-single-repo-workstreams-v0.1-design.md).
 
+The design-only Owner Decision Workflow v0.1 separates product workstream
+selection from work-package approval, Prompt Queue approval metadata, task
+`/approve`, and Memory confirmation. The owner must explicitly name one of the
+six Jarvis-Core workstreams and a desired user outcome. That selection permits
+only a bounded work-package proposal; it does not authorize implementation or
+unlock any protected capability. No route, UI control, persistence, or runtime
+state is added. See
+[`../../docs/project-control-owner-decision-workflow-v0.1-design.md`](../../docs/project-control-owner-decision-workflow-v0.1-design.md).
+
 ### Research Council
 
 Purpose: evaluate ideas, MVP assumptions, risks, evidence gaps, and experiment
@@ -317,8 +326,9 @@ Protected path shown by default:
 
 Possible later phases:
 
-1. Have the owner identify one real second project and its read-only boundary
-   before designing live multi-repo integration.
+1. After explicit owner selection, define one bounded Jarvis-Core workstream
+   vertical slice; the recommended candidate is read-only Owner Decision
+   guidance in the existing single-repo dashboard.
 2. Add richer registry metadata such as icons, examples, and handoff contracts.
 3. Add local report preview forms for existing deterministic renderers.
 4. Refine the read-only review surface only from repeated local-use feedback.
