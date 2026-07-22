@@ -262,12 +262,16 @@ Browser guided workflow:
 4. Click `Continue To Task Prompt`.
 5. Click `Copy Task Prompt for Codex`.
 6. Paste the generated prompt into Codex.
-7. Paste Codex's result back into the browser UI.
-8. Click `Copy Review Prompt for Codex`.
-9. Approve commit prompt generation only after review passes.
-10. Click `Copy Commit Prompt for Codex`.
-11. Paste the commit result back and create a checkpoint summary.
-12. Reset approval before starting the next task.
+7. Copy Codex's result to the clipboard.
+8. Recommended: click `Paste Result & Copy Jarvis Review Handoff`, then paste
+   the copied JSON once into Jarvis Console Codex Review. The button reuses the
+   existing bounded handoff and does not call Jarvis.
+9. Alternative: paste or save the result, then click `Copy Review Prompt for
+   Codex` for the existing direct review path.
+10. Approve commit prompt generation only after review passes.
+11. Click `Copy Commit Prompt for Codex`.
+12. Paste the commit result back and create a checkpoint summary.
+13. Reset approval before starting the next task.
 
 The browser UI does not call Codex, call ChatGPT, run Hermes, use external
 network services, modify repository files, run `git add`, commit, or push.
@@ -535,6 +539,14 @@ Jarvis server. The envelope contains no fresh evidence digest, review approval,
 commit approval, commit message, push permission, or execution authority.
 Neither app persists the envelope or session. Jarvis recollects fresh bounded
 evidence and may still block the handoff.
+
+The guided UI also offers `Paste Result & Copy Jarvis Review Handoff` as a
+single explicit local action. It reads the current clipboard, places the result
+in the visible session field, calls only the existing copy-only handoff route,
+and copies the resulting JSON back to the clipboard. Missing session, missing
+scope confirmation, an empty or unreadable clipboard, route rejection, and
+clipboard-copy failure remain visible failures. It adds no route, persistence,
+app-to-app call, review approval, commit approval, or execution authority.
 
 Deterministic tests cover stable serialization, exact fields, stale/absent scope
 confirmation, trusted repository authority, missing `jarvis.bat`, and forbidden

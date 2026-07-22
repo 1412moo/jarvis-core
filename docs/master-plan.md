@@ -16,9 +16,10 @@ Jarvis-Core 한 저장소 안의 AI 작업자와 내부 workstream을 한곳에�
 
 Owner Decision v0.1A는 UI보다 먼저 transport-neutral core contract를 완성했고,
 v0.1B는 그 객체를 기존 Project Control payload와 read-only renderer에 연결했다.
-현재 과제는 소유자가 같은 Decision 객체에서 6개 내부 workstream의 사용자 결과와
-잠금을 비교한 뒤 다음 제안 대상을 명시적으로 고르는 것이다. 화면은 선택·구현·commit
-또는 잠긴 기능의 권한을 만들지 않는다.
+소유자는 이 객체에서 `Hermes Manager`를 선택했고, 첫 bounded package로 Codex 결과를
+clipboard에서 받아 기존 Jarvis review handoff JSON까지 한 번에 복사하는 UI를
+완료했다. 현재 과제는 실제 결과 1건으로 이 흐름을 사용해 조작 감소와 실패 안내를
+확인하는 것이다. 화면은 review·commit 또는 잠긴 기능의 권한을 만들지 않는다.
 
 Project Control v0.1D는 현재 목표와 live Git 상태에 더해 `현재 만드는 이유`,
 `이 단계가 끝나면 사용자가 얻는 것`, 최근 완료, 다음 단계, 내부 workstream,
@@ -64,13 +65,12 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Owner Decision v0.1B read-only Console integration**
-- 현재 다음 작업: **6개 내부 workstream 중 다음 제안 대상을 소유자가 명시적으로 선택**
-- 다음 사용자 체감 milestone: **선택한 workstream의 사용자 결과를 위한 bounded work package 제안**
-- 최근 사용자 기능 검증 결과: CLI와 기존 Owner Dashboard가 같은 Decision 객체를
-  읽고, 6개 후보와 잠금·응답 형식을 표시하며 action control을 만들지 않음을 확인
-- 현재 결정 필요: **있음** — 추천은 `Hermes Manager`지만 선택은 소유자가 해야 하며
-  선택 후에도 구현이 아니라 work-package 제안만 허용
+- 최근 완료: **Hermes Manager one-click Jarvis review handoff**
+- 현재 다음 작업: **실제 Codex 결과 1건으로 one-click copy-only 흐름 사용 검증**
+- 다음 사용자 체감 milestone: **결과 복사 뒤 Hermes 한 번 클릭과 Jarvis 한 번 붙여넣기로 fresh review 시작**
+- 최근 사용자 기능 검증 결과: 기존 handoff route를 재사용해 review-only JSON을
+  만들고 clipboard에 복사하며 review/commit 승인을 만들지 않음을 browser에서 확인
+- 현재 결정 필요: **없음** — 다음은 새 구현이 아니라 실제 사용 피드백 수집
 
 ### 언제부터 실제로 편해지는가
 
@@ -114,18 +114,18 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `e6ef70b15a9c3d7f15369b7baf1b5008ea0ab10f`
+- Verified implementation HEAD: `4772eda8878842af47f87bc6e57d626d75c8e609`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
-- Current workstream: Project Control — Owner Decision Contract
-- Current milestone: Owner Decision v0.1B read-only Console integration complete
-- Recommended next step: Owner selects one exact workstream for a bounded work-package proposal; recommendation is Hermes Manager
-- Next user-visible milestone: 선택한 workstream에 대해 사용자 결과 중심의 bounded work package 제안을 받음
-- Current reason: 소유자가 6개 내부 workstream의 다음 결과와 잠금을 한 화면에서 비교하고 명시적으로 방향을 정해야 한다
-- Owner outcome: 동일한 immutable Decision 객체를 CLI와 Console에서 읽고 선택·구현 승인·실행 권한을 구분한다
-- Recent completed: Owner Decision v0.1B data adapter, existing-payload integration, read-only browser renderer, and local QA
-- Approval state: required
-- Approval note: 다음 exact workstream 선택이 필요하며 선택은 work-package 제안만 허용한다
+- Current workstream: Hermes Manager — guided review handoff
+- Current milestone: one-click copy-only Jarvis review handoff complete
+- Recommended next step: Validate the one-click flow with one real copied Codex result before proposing more automation
+- Next user-visible milestone: 결과 복사 뒤 Hermes 한 번 클릭과 Jarvis 한 번 붙여넣기로 fresh review 시작
+- Current reason: 기존 안전한 copy-only handoff를 유지하면서 반복되는 paste/save/copy 조작을 줄여야 한다
+- Owner outcome: 한 번의 명시적 클릭으로 Codex 결과를 받아 Jarvis review JSON까지 복사하되 앱 간 자동 호출은 하지 않는다
+- Recent completed: Hermes one-click clipboard intake, existing-handoff reuse, deterministic tests, and local browser QA
+- Approval state: none
+- Approval note: 구현은 완료됐으며 다음은 실제 사용 피드백 수집이다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
 
@@ -175,13 +175,15 @@ flowchart LR
     M --> N["transport-neutral contract<br/>v0.1A core 완료"]
     N --> O["v0.1B read-only Console<br/>integration 완료"]
     O --> P["같은 Decision 객체<br/>CLI + Console 표시"]
-    P --> Q["명시적 owner selection<br/>후속 work package"]
+    P --> Q["명시적 owner selection<br/>Hermes 선택"]
+    Q --> R["one-click review handoff<br/>구현 완료"]
+    R --> S["실제 Codex 결과 1건<br/>사용 검증"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P done;
-    class Q current;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R done;
+    class S current;
 ```
 
 ### 구현된 기반
@@ -195,7 +197,25 @@ flowchart LR
 - 기존 `/api/overview` 안의 single-repo `project_control.v0.1D` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Owner Decision v0.1B read-only Console integration
+### 최근 완료: Hermes Manager one-click Jarvis review handoff
+
+Codex 결과를 clipboard에 복사한 뒤 `Paste Result & Copy Jarvis Review Handoff`를
+한 번 누르면 결과를 session에 반영하고 기존 `/api/review-handoff`를 호출한 다음
+copy-only JSON을 clipboard에 다시 넣는 complete local UI slice를 구현했다. 기존
+scope confirmation, fixed Jarvis-Core authority, `jarvis.bat` 보호와 review-only
+envelope를 그대로 재사용한다.
+
+Hermes self-test, 전체 smoke, JavaScript syntax와 local browser QA가 통과했다.
+browser QA에서 정확한 one-click button 1개, `item_id + queue` envelope,
+`result_type=review`, `review_passed=false`, `commit_approved=false`, 빈 commit message,
+zero browser warning/error를 확인했다. 구현 commit은
+`4772eda8878842af47f87bc6e57d626d75c8e609`다.
+
+새 route, persistence, Jarvis 자동 호출, review/commit 승인, external API, push/PR는
+추가하지 않았다. 다음은 실제 Codex 결과 1건으로 조작 감소와 오류 안내를 검증하는
+실사용 단계다.
+
+### 이전 완료: Owner Decision v0.1B read-only Console integration
 
 bounded master-plan snapshot을 v0.1A core로 정규화하는 pure data adapter를 추가하고,
 직렬화된 객체를 새 route 없이 기존 `/api/overview`의 single-repo Project Control
@@ -275,17 +295,12 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 현재 결정 지점: 다음 workstream 명시 선택
+### 현재 검증 지점: Hermes one-click handoff 실제 사용 1회
 
-v0.1B가 완료되어 Owner Dashboard는 정확한 6개 내부 workstream의 현재 사용자 기능,
-선택 후 결과, 계속 잠기는 기능과 copy-only 응답 형식을 보여준다. 현재 추천은 기존
-운영 병목인 수동 prompt/review handoff를 줄이기 위한 `Hermes Manager`다. 추천은
-자동 선택이 아니며 소유자는 exact workstream과 bounded desired outcome을 명시해야
-한다.
-
-이 선택은 하나의 work-package 제안을 받을 권한만 만든다. 구현·commit·route·UI
-action·persistence·external API·auto execution 권한은 별도 exact package 승인 전까지
-생기지 않는다.
+소유자의 `Hermes Manager` 선택과 exact work package 승인에 따라 first slice가
+완료됐다. 다음은 새 primitive나 자동 연결이 아니라 실제 Codex 결과를 clipboard에
+복사하고 one-click handoff를 거쳐 Jarvis Console에 직접 붙여넣는 사용 검증이다.
+이 검증 결과가 없으면 추가 UX나 automation package를 추정하지 않는다.
 
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
@@ -296,9 +311,9 @@ save도 계속 잠겨 있다.
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
-| Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료, 다음 추천 후보 | prompt drafting과 수동 review handoff | 소유자의 exact workstream 선택 대기 |
+| Hermes Manager | copy-only handoff와 one-click result intake 구현·browser 검증 완료 | prompt drafting, 수동 review handoff, one-click Jarvis handoff 복사 | 실제 Codex 결과 1건 사용 피드백 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1D와 Owner Decision v0.1A/v0.1B 완료 | owner project card, 내부 workstream 상태, fresh read-only work review, 동일 Decision 객체의 CLI/Console 표시 | 실제 선택 1회로 운영 경계 검증 |
+| Jarvis Console | Project Control v0.1D와 Owner Decision v0.1A/v0.1B 완료, Hermes 선택 1회 사용 | owner project card, 내부 workstream 상태, fresh read-only work review, 동일 Decision 객체의 CLI/Console 표시 | 다음 product selection 전 현재 handoff 실사용 피드백 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
