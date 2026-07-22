@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import json
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+import hermes_manager_pilot.change_evidence as change_evidence_module
 from hermes_manager_pilot.approval_binding import (
     build_commit_approval_binding,
     build_review_approval_binding,
     build_scope_approval_binding,
     digest_matches,
+)
+from hermes_manager_pilot.change_evidence import (
+    MAX_FILE_BYTES,
+    collect_local_change_evidence,
 )
 from hermes_manager_pilot.pipeline import run_hermes_manager_pilot
 from hermes_manager_pilot.prompt_queue import (
@@ -40,6 +47,16 @@ SAMPLE_RENDERED_FILES = {
 def _assert(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def _assert_validation_error(fn: object, expected_text: str) -> None:
+    assert callable(fn)
+    try:
+        fn()
+    except ValidationError as exc:
+        _assert(expected_text in str(exc), f"unexpected validation error: {exc}")
+    else:
+        raise AssertionError(f"expected ValidationError containing: {expected_text}")
 
 
 def _sample_payload() -> dict[str, object]:
@@ -151,6 +168,89 @@ def _complete_commit_approval_bindings(payload: dict[str, object]) -> None:
         change_evidence_digest=evidence_digest,
     )
     item["commit_approval_digest"] = commit_binding.digest
+
+
+def _run_fixture_git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ("git", *args),
+        cwd=repo,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(f"fixture git command failed: git {' '.join(args)}: {completed.stderr}")
+    return completed.stdout.strip()
+
+
+def _create_change_evidence_fixture(temp_dir: str) -> tuple[Path, object, object]:
+    repo = Path(temp_dir).resolve()
+    _run_fixture_git(repo, "init", "-b", "main")
+    _run_fixture_git(repo, "config", "user.email", "hermes-smoke@example.invalid")
+    _run_fixture_git(repo, "config", "user.name", "Hermes Smoke")
+
+    source_dir = repo / "src"
+    source_dir.mkdir()
+    (source_dir / "tracked.txt").write_text("baseline tracked\n", encoding="utf-8")
+    (source_dir / "deleted.txt").write_text("delete this baseline\n", encoding="utf-8")
+    (source_dir / "binary.bin").write_bytes(b"\x00baseline\xff")
+    _run_fixture_git(repo, "add", "src/tracked.txt", "src/deleted.txt", "src/binary.bin")
+    _run_fixture_git(repo, "commit", "-m", "baseline")
+    head = _run_fixture_git(repo, "rev-parse", "HEAD")
+
+    (repo / "known.local").write_text("known untracked boundary\n", encoding="utf-8")
+    (source_dir / "tracked.txt").write_text("changed tracked evidence\n", encoding="utf-8")
+    (source_dir / "deleted.txt").unlink()
+    (source_dir / "binary.bin").write_bytes(b"\x00changed evidence\xfe")
+    (source_dir / "new.txt").write_text("new untracked evidence\n", encoding="utf-8")
+
+    payload = {
+        "queue_type": "hermes_prompt_queue",
+        "version": "0.1B-2",
+        "projects": [
+            {
+                "project_id": "evidence-fixture",
+                "display_name": "Evidence Fixture",
+                "repo_path": str(repo),
+                "expected_branch": "main",
+                "expected_head": head,
+                "protected_paths": ["known.local"],
+                "expected_untracked": ["known.local"],
+                "forbidden_actions": sorted(REQUIRED_FORBIDDEN_ACTIONS),
+                "validation_commands": ["git diff --check"],
+            }
+        ],
+        "items": [
+            {
+                "item_id": "evidence-001",
+                "project_id": "evidence-fixture",
+                "current_goal": "Collect bounded local change evidence.",
+                "current_task": "Hash exact target files without persistence.",
+                "result_type": "review",
+                "target_files": [
+                    "src/tracked.txt",
+                    "src/deleted.txt",
+                    "src/binary.bin",
+                    "src/new.txt",
+                ],
+                "observed_branch": "main",
+                "observed_head": head,
+                "observed_git_status": [],
+                "scope_approved": False,
+                "review_passed": False,
+                "commit_approved": False,
+                "scope_approval_digest": "",
+                "change_evidence_digest": "",
+                "review_approval_digest": "",
+                "commit_approval_digest": "",
+                "commit_message": "",
+                "last_prompt_summary": "",
+                "last_result_summary": "",
+            }
+        ],
+    }
+    queue = normalize_prompt_queue(payload)
+    return repo, queue.projects[0], queue.items[0]
 
 
 def _test_implementation_prompt_deterministic() -> None:
@@ -970,6 +1070,210 @@ def _test_binding_enforcement_rejects_orphan_metadata() -> None:
     )
 
 
+def _test_local_change_evidence_is_deterministic_bounded_and_read_only() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        index_path = repo / ".git" / "index"
+        index_mtime_before = index_path.stat().st_mtime_ns
+        prior_git_dir = os.environ.get("GIT_DIR")
+        prior_config = os.environ.get("GIT_CONFIG_PARAMETERS")
+        os.environ["GIT_DIR"] = str(repo / "missing-git-dir")
+        os.environ["GIT_CONFIG_PARAMETERS"] = "'core.fsmonitor'='malicious-helper'"
+        try:
+            first = collect_local_change_evidence(repo, project, item)
+        finally:
+            if prior_git_dir is None:
+                os.environ.pop("GIT_DIR", None)
+            else:
+                os.environ["GIT_DIR"] = prior_git_dir
+            if prior_config is None:
+                os.environ.pop("GIT_CONFIG_PARAMETERS", None)
+            else:
+                os.environ["GIT_CONFIG_PARAMETERS"] = prior_config
+
+        second = collect_local_change_evidence(repo, project, item)
+        _assert(first == second, "local change evidence should be deterministic")
+        _assert(len(first.change_evidence_digest) == 64, "change evidence digest length is wrong")
+        _assert(first.branch == "main", "trusted branch was not collected")
+        _assert(first.head == project.expected_head, "trusted HEAD was not collected")
+        _assert("?? known.local" in first.scoped_git_status, "known untracked status missing")
+        _assert("known.local" in first.status_scope_paths, "known untracked scope is not explicit")
+        _assert("scoped_git_status" in first.snapshot(), "scoped status label missing")
+        _assert("observed_git_status" not in first.snapshot(), "scoped status looks globally authoritative")
+        _assert(index_path.stat().st_mtime_ns == index_mtime_before, "collector modified Git index")
+
+        target_by_path = {target.path: target for target in first.targets}
+        _assert(target_by_path["src/deleted.txt"].kind == "deleted", "deletion marker missing")
+        _assert(target_by_path["src/deleted.txt"].content_sha256 == "", "deleted content digest must be empty")
+        _assert(target_by_path["src/new.txt"].status == "??", "untracked target status missing")
+        _assert(target_by_path["src/binary.bin"].content_sha256, "binary target digest missing")
+        _assert(b"changed tracked evidence" not in first.canonical_bytes, "raw text leaked into evidence")
+        _assert(b"new untracked evidence" not in first.canonical_bytes, "untracked content leaked")
+        _assert(b"changed evidence" not in first.canonical_bytes, "binary content leaked")
+
+        (repo / "src" / "tracked.txt").write_text(
+            "changed again after first evidence\n",
+            encoding="utf-8",
+        )
+        changed = collect_local_change_evidence(repo, project, item)
+        _assert(
+            changed.change_evidence_digest != first.change_evidence_digest,
+            "content change did not change evidence digest",
+        )
+
+
+def _test_local_change_evidence_rejects_scope_root_stage_and_size_violations() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-safety-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(repo.parent, project, item),
+            "trusted repo root does not match project repo_path",
+        )
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                r"\\example.invalid\share\repo",
+                project,
+                item,
+            ),
+            "trusted repo root must be a local absolute path",
+        )
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                repo,
+                project,
+                replace(item, target_files=("../outside.txt",)),
+            ),
+            "repository-relative",
+        )
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                repo,
+                project,
+                replace(item, target_files=(".git/config",)),
+            ),
+            "repository-relative",
+        )
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                repo,
+                project,
+                replace(item, target_files=(":(glob)**",)),
+            ),
+            "repository-relative",
+        )
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                repo,
+                project,
+                replace(item, target_files=("known.local",)),
+            ),
+            "target path is protected",
+        )
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                repo,
+                replace(project, protected_paths=("src",)),
+                item,
+            ),
+            "target path is protected",
+        )
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                repo,
+                project,
+                replace(item, result_type="implementation"),
+            ),
+            "result_type=review or commit",
+        )
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                repo,
+                project,
+                replace(item, target_files=("src",)),
+            ),
+            "target path must be a file",
+        )
+
+        large_path = repo / "src" / "large.bin"
+        large_path.write_bytes(b"x" * (MAX_FILE_BYTES + 1))
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                repo,
+                project,
+                replace(item, target_files=("src/large.bin",)),
+            ),
+            "target file exceeds evidence size limit",
+        )
+
+        _run_fixture_git(repo, "add", "src/tracked.txt")
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(repo, project, item),
+            "staged target changes are not allowed",
+        )
+
+
+def _test_local_change_evidence_rejects_reparse_and_unstable_reads() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-reparse-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        original_reparse_check = change_evidence_module._is_reparse_or_symlink
+
+        def simulated_reparse(path: Path) -> bool:
+            return path.name == "tracked.txt" or original_reparse_check(path)
+
+        change_evidence_module._is_reparse_or_symlink = simulated_reparse
+        try:
+            _assert_validation_error(
+                lambda: collect_local_change_evidence(repo, project, item),
+                "crosses a symlink or reparse point",
+            )
+        finally:
+            change_evidence_module._is_reparse_or_symlink = original_reparse_check
+
+    with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-unstable-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        original_collect = change_evidence_module._collect_target_manifest
+        call_count = 0
+
+        def mutating_collect(*args: object, **kwargs: object) -> object:
+            nonlocal call_count
+            result = original_collect(*args, **kwargs)
+            call_count += 1
+            if call_count == 1:
+                (repo / "src" / "tracked.txt").write_text(
+                    "changed during evidence collection\n",
+                    encoding="utf-8",
+                )
+            return result
+
+        change_evidence_module._collect_target_manifest = mutating_collect
+        try:
+            _assert_validation_error(
+                lambda: collect_local_change_evidence(repo, project, item),
+                "repository changed during evidence collection",
+            )
+        finally:
+            change_evidence_module._collect_target_manifest = original_collect
+
+
+def _test_local_change_evidence_status_parser_is_bounded_and_fail_closed() -> None:
+    rename_status = b"R  src/new-name.txt\x00src/old-name.txt\x00"
+    parsed = change_evidence_module._parse_porcelain_status(rename_status)
+    _assert(parsed == (("R ", "src/new-name.txt"),), "rename status parsing is not deterministic")
+
+    too_many = b"".join(
+        f"?? generated/file-{index:03d}.txt".encode("utf-8") + b"\x00"
+        for index in range(129)
+    )
+    _assert_validation_error(
+        lambda: change_evidence_module._parse_porcelain_status(too_many),
+        "too many evidence entries",
+    )
+    _assert_validation_error(
+        lambda: change_evidence_module._parse_porcelain_status(b"?? ../escape.txt\x00"),
+        "repository-relative",
+    )
+
+
 def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     index_html = (APP_ROOT / "web" / "index.html").read_text(encoding="utf-8")
     _assert("Jarvis Console Memory / Skills candidate prompt" in index_html, "Jarvis Console handoff guidance missing")
@@ -1025,6 +1329,10 @@ def main() -> None:
         _test_binding_enforcement_requires_review_evidence_and_matching_review_digest,
         _test_binding_enforcement_requires_matching_commit_digest_and_blocks_renderer,
         _test_binding_enforcement_rejects_orphan_metadata,
+        _test_local_change_evidence_is_deterministic_bounded_and_read_only,
+        _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
+        _test_local_change_evidence_rejects_reparse_and_unstable_reads,
+        _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,
         _test_browser_ui_mentions_manual_jarvis_handoff,
     )
     for test in tests:
