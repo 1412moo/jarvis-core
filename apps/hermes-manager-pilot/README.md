@@ -586,6 +586,40 @@ no route or UI, reads no clipboard, and calls no external service. Durable local
 write/read/list behavior, retention and deletion policy, browser Save/Reopen,
 cross-device continuity, and mobile access remain separate approval gates.
 
+## Durable Review Store v0.1B-1 Internal Primitives
+
+Status: implemented as route-free internal/tests-only local store primitives.
+The browser UI, web server, and existing manual Session Save/Load do not call
+this store, and validation uses isolated temporary state only.
+
+The store resolves the shared Jarvis local-state root and uses the dedicated
+`hermes-manager/reviews/v1` namespace. Windows defaults to
+`%LOCALAPPDATA%\Jarvis-Core`; other systems default to `~/.jarvis-core`.
+`JARVIS_LOCAL_STATE_DIR` may override the root only with an absolute path.
+Repository-internal state, symlink/reparse paths, unsafe entries, and arbitrary
+record filenames fail closed.
+
+`write_review_record` accepts only a canonical v0.1A `ReviewRecord`, writes one
+private exclusive temporary file, flushes and fsyncs it, and atomically
+publishes a no-overwrite hard link. It never updates an existing Review ID.
+`read_review_record` accepts one generated ID and requires a bounded regular
+file, strict UTF-8, exact canonical bytes, a stable file snapshot, and matching
+internal ID. `list_review_records` performs an index-free bounded scan and
+returns metadata only; result summaries and absolute paths are omitted.
+
+The store holds at most 256 records and never evicts old data. Its retention
+policy is `manual_delete_only`: records remain until a separately approved
+exact-ID deletion feature exists. Orphan temporary files, foreign entries,
+corrupt records, and capacity overflow block the relevant operation and are not
+automatically removed or repaired. Exact-ID read remains available when an
+unrelated orphan temporary file needs recovery.
+
+File fsync plus no-overwrite atomic publication protects against partial normal
+process writes, but v0.1B-1 does not claim filesystem-wide power-loss recovery,
+encryption at rest, authentication, or cross-process transactional locking.
+There is no route, Save/Reopen UI, delete/archive/migration, automatic cleanup,
+external call, clipboard input, approval, execution, commit, push, or PR.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).

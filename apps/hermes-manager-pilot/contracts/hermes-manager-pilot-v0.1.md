@@ -1135,3 +1135,65 @@ route, UI, browser-session adapter, clipboard input, prompt execution,
 background worker, external API/LLM call, persistence, deletion, retention,
 mobile continuity, review approval, commit, push, or PR. Those capabilities each
 require a separately approved work package.
+
+## 21. Durable Review Store v0.1B-1 Internal Boundary
+
+The separately approved v0.1B-1 package adds append-only local write, exact-ID
+read, and bounded metadata-list primitives for canonical v0.1A Review records.
+They remain internal/tests-only and are not called by the Hermes web server,
+browser UI, or the older manual Session Save/Load feature.
+
+### 21.1 State Location
+
+The common Jarvis local-state root is `%LOCALAPPDATA%\Jarvis-Core` on Windows
+when `LOCALAPPDATA` exists and `~/.jarvis-core` otherwise. An absolute
+`JARVIS_LOCAL_STATE_DIR` override may replace that root. Review records live
+under `hermes-manager/reviews/v1`; the resolver creates nothing.
+
+The store rejects relative overrides, any resolved Review directory inside the
+repository, symlink or Windows reparse paths, path changes across validation,
+non-directory store roots, unsafe filenames, and non-regular entries. It never
+uses `.jarvis-local` or `apps/hermes-manager-pilot/state` as runtime storage.
+
+### 21.2 Append-only Write
+
+One record is serialized completely before path creation. The writer creates a
+private same-directory temporary file exclusively, writes bounded canonical
+UTF-8 bytes, flushes and fsyncs the file, revalidates the directory, and uses a
+hard link for atomic no-overwrite publication. An existing generated ID is a
+collision and is never updated. A failed pre-publication attempt removes only
+its own exact temporary file; it never deletes a Review record.
+
+File fsync and atomic publication protect normal process-crash boundaries but
+do not claim filesystem-wide power-loss durability. v0.1B-1 has a process-local
+lock and is not a cross-process transaction protocol.
+
+### 21.3 Exact Read And Bounded List
+
+Exact read accepts only `review_<24 lowercase hex>`, follows no caller path,
+requires a bounded regular non-reparse file, reads with no-follow support when
+the platform provides it, compares before/during/after file metadata, decodes
+strict UTF-8, parses the v0.1A contract, and requires byte-for-byte canonical
+serialization plus filename/internal-ID equality.
+
+The list performs no mutable index write. It scans at most 512 directory entries
+and at most 256 Review records, validates every record, sorts newest-first by
+canonical timestamp and ID, and exposes only ID, timestamp, task, branch, HEAD,
+and target count. It does not expose result summary, prompt summary, local path,
+or record bytes. Corrupt, foreign, excessive, and orphan-temporary states fail
+closed instead of returning a partial list.
+
+### 21.4 Retention, Recovery, And Non-goals
+
+Retention is `manual_delete_only`. There is no automatic expiry, oldest-record
+eviction, background cleanup, startup deletion, archive, bulk delete, or format
+migration. Capacity blocks new writes. An orphan temporary file requires a
+future explicit recovery action; exact read of another known ID remains
+available. Corrupt records are neither repaired nor overwritten.
+
+No real local Review record is created by application integration in this
+milestone. Tests use temporary state. v0.1B-1 adds no HTTP route, browser
+Save/Reopen, existing Session Save/Load change, delete action, cross-device or
+mobile access, encryption/key storage, external API/LLM call, clipboard input,
+Git read, background worker, review/commit approval, execution, stage, commit,
+push, or PR.

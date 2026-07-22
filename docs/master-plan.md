@@ -126,7 +126,7 @@ flowchart LR
 - Current reason: durable continuity를 열기 전에 UI와 저장소가 함께 소비할 불변 Review 계약과 stale-state 차단 기준이 필요하다
 - Owner outcome: 미래 저장·재열기 기능이 과거 결과를 변경된 코드에 잘못 연결하지 않는 공통 Review 객체를 사용한다
 - Recent completed: immutable Review candidate/record, canonical JSON, exact Git freshness, privacy and no-authority invariants
-- Approval state: required_for_persistence_scope
+- Approval state: required
 - Approval note: v0.1A core는 완료됐고 v0.1B 실제 저장 primitive 전 별도 설계 승인이 필요하다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager

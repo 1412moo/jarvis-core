@@ -58,6 +58,7 @@ from hermes_manager_pilot.review_record import (
     AUTHORITY_BOUNDARY as REVIEW_RECORD_AUTHORITY_BOUNDARY,
     CONTRACT_TYPE as REVIEW_RECORD_CONTRACT_TYPE,
     VERSION as REVIEW_RECORD_VERSION,
+    ReviewRecord,
     ReviewRecordCandidate,
     ReviewRecordError,
     create_review_record,
@@ -67,6 +68,16 @@ from hermes_manager_pilot.review_record import (
     parse_review_record_json,
     review_record_to_dict,
     serialize_review_record,
+)
+import hermes_manager_pilot.review_store as review_store_module
+from hermes_manager_pilot.review_store import (
+    JARVIS_LOCAL_STATE_DIR_ENV as REVIEW_STORE_STATE_DIR_ENV,
+    RETENTION_POLICY as REVIEW_STORE_RETENTION_POLICY,
+    ReviewStoreError,
+    list_review_records,
+    read_review_record,
+    resolve_review_store_paths,
+    write_review_record,
 )
 from hermes_manager_pilot.schemas import ValidationError, normalize_session_state
 
@@ -105,6 +116,17 @@ def _assert_review_record_error(fn: object, expected_text: str) -> None:
         _assert(expected_text in str(exc), f"unexpected ReviewRecordError: {exc}")
     else:
         raise AssertionError(f"expected ReviewRecordError containing: {expected_text}")
+
+
+def _assert_review_store_error(fn: object, expected_code: str) -> None:
+    assert callable(fn)
+    try:
+        fn()
+    except ReviewStoreError as exc:
+        _assert(exc.code == expected_code, f"unexpected ReviewStoreError: {exc.code}")
+        _assert(str(exc) == expected_code, "Review store error disclosed extra detail")
+    else:
+        raise AssertionError(f"expected ReviewStoreError: {expected_code}")
 
 
 def _sample_payload() -> dict[str, object]:
@@ -3033,6 +3055,310 @@ def _test_review_record_core_has_no_io_route_or_clipboard_dependency() -> None:
         _assert(forbidden not in source, f"Review record core contains forbidden dependency: {forbidden}")
 
 
+def _review_store_record(index: int) -> ReviewRecord:
+    candidate = normalize_review_record_candidate(_review_record_candidate_payload())
+    return create_review_record(
+        candidate,
+        id_generator=lambda: f"review_{index:024x}",
+        clock=lambda: datetime(2026, 7, 22, 3, 4, index, tzinfo=timezone.utc),
+    )
+
+
+def _review_store_fixture(temp_dir: str) -> tuple[Path, Path, dict[str, str]]:
+    root = Path(temp_dir)
+    repo = root / "repo"
+    repo.mkdir()
+    state_root = root / "local-state"
+    return repo, state_root, {REVIEW_STORE_STATE_DIR_ENV: str(state_root)}
+
+
+def _test_review_store_path_policy_is_external_and_write_free() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-paths-") as temp_dir:
+        root = Path(temp_dir)
+        repo = root / "repo"
+        repo.mkdir()
+        local_appdata = root / "local-appdata"
+        windows_paths = resolve_review_store_paths(
+            env={"LOCALAPPDATA": str(local_appdata)},
+            repo_root=repo,
+            is_windows=True,
+        )
+        _assert(
+            windows_paths.review_dir
+            == (local_appdata / "Jarvis-Core" / "hermes-manager" / "reviews" / "v1").resolve(),
+            "Windows Review store path mismatch",
+        )
+        _assert(windows_paths.source == "default_windows_localappdata", "Windows path source mismatch")
+        _assert(not windows_paths.review_dir.exists(), "path resolution created the Review store")
+
+        home = root / "home"
+        home_paths = resolve_review_store_paths(
+            env={},
+            home_dir=home,
+            repo_root=repo,
+            is_windows=False,
+        )
+        _assert(
+            home_paths.review_dir
+            == (home / ".jarvis-core" / "hermes-manager" / "reviews" / "v1").resolve(),
+            "home Review store path mismatch",
+        )
+        _assert(not home_paths.review_dir.exists(), "home path resolution created state")
+
+        _assert_review_store_error(
+            lambda: resolve_review_store_paths(
+                env={REVIEW_STORE_STATE_DIR_ENV: "relative-state"},
+                repo_root=repo,
+            ),
+            "local_state_dir_must_be_absolute",
+        )
+        _assert_review_store_error(
+            lambda: resolve_review_store_paths(
+                env={REVIEW_STORE_STATE_DIR_ENV: str(repo / ".jarvis-local")},
+                repo_root=repo,
+            ),
+            "local_state_dir_inside_repo",
+        )
+
+        state_root = root / "simulated-reparse-state"
+        original_check = review_store_module._existing_path_chain_has_reparse_point
+        review_store_module._existing_path_chain_has_reparse_point = lambda _path: True
+        try:
+            _assert_review_store_error(
+                lambda: list_review_records(
+                    env={REVIEW_STORE_STATE_DIR_ENV: str(state_root)},
+                    repo_root=repo,
+                ),
+                "review_store_path_not_safe",
+            )
+        finally:
+            review_store_module._existing_path_chain_has_reparse_point = original_check
+
+
+def _test_review_store_append_read_and_bounded_list() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-roundtrip-") as temp_dir:
+        repo, state_root, env = _review_store_fixture(temp_dir)
+        empty = list_review_records(env=env, repo_root=repo)
+        _assert(empty.records == (), "missing Review store was not listed as empty")
+        _assert(empty.count == 0, "empty Review store count mismatch")
+        _assert(empty.retention_policy == REVIEW_STORE_RETENTION_POLICY, "retention policy mismatch")
+        _assert(not state_root.exists(), "empty list created local state")
+
+        first = _review_store_record(1)
+        second = _review_store_record(2)
+        first_receipt = write_review_record(first, env=env, repo_root=repo)
+        second_receipt = write_review_record(second, env=env, repo_root=repo)
+        _assert(first_receipt.stored is True, "first Review record was not stored")
+        _assert(second_receipt.review_id == second.review_id, "second Review receipt ID mismatch")
+        _assert(first_receipt.retention_policy == "manual_delete_only", "write retention mismatch")
+        _assert(not hasattr(first_receipt, "path"), "write receipt exposed a local path")
+
+        paths = resolve_review_store_paths(env=env, repo_root=repo)
+        stored_files = sorted(paths.review_dir.glob("*.json"))
+        _assert(len(stored_files) == 2, "Review store did not contain exactly two JSON files")
+        _assert(not list(paths.review_dir.glob("*.tmp")), "Review store left a temporary file")
+        if os.name != "nt":
+            for stored_file in stored_files:
+                _assert(
+                    stat.S_IMODE(stored_file.stat().st_mode) == 0o600,
+                    "Review record file permissions are not private",
+                )
+
+        _assert(read_review_record(first.review_id, env=env, repo_root=repo) == first, "first Review read mismatch")
+        listing = list_review_records(env=env, repo_root=repo)
+        _assert(listing.count == 2, "Review listing count mismatch")
+        _assert(
+            tuple(summary.review_id for summary in listing.records)
+            == (second.review_id, first.review_id),
+            "Review listing order is not deterministic newest-first",
+        )
+        _assert(listing.records[0].active_task == second.active_task, "Review listing task mismatch")
+        _assert(listing.records[0].target_count == len(second.target_files), "Review target count mismatch")
+        _assert(not hasattr(listing.records[0], "result_summary"), "Review listing exposed result text")
+        _assert(not hasattr(listing.records[0], "file_path"), "Review listing exposed a file path")
+
+        before_collision = (paths.review_dir / f"{first.review_id}.json").read_bytes()
+        _assert_review_store_error(
+            lambda: write_review_record(first, env=env, repo_root=repo),
+            "review_record_exists",
+        )
+        _assert(
+            (paths.review_dir / f"{first.review_id}.json").read_bytes() == before_collision,
+            "Review collision overwrote the existing record",
+        )
+        _assert_review_store_error(
+            lambda: read_review_record("../escape", env=env, repo_root=repo),
+            "review_id_invalid",
+        )
+        _assert_review_store_error(
+            lambda: read_review_record("review_ffffffffffffffffffffffff", env=env, repo_root=repo),
+            "review_record_not_found",
+        )
+
+
+def _test_review_store_write_failure_and_recovery_states_fail_closed() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-failure-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        record = _review_store_record(3)
+
+        def fail_publish(_temp: Path, _final: Path) -> None:
+            raise OSError("simulated publish failure")
+
+        _assert_review_store_error(
+            lambda: write_review_record(
+                record,
+                env=env,
+                repo_root=repo,
+                publisher=fail_publish,
+                temp_token_generator=lambda: "a" * 32,
+            ),
+            "review_record_write_failed",
+        )
+        paths = resolve_review_store_paths(env=env, repo_root=repo)
+        _assert(not list(paths.review_dir.iterdir()), "failed Review write left an artifact")
+        _assert_review_store_error(
+            lambda: write_review_record(
+                record,
+                env=env,
+                repo_root=repo,
+                temp_token_generator=lambda: "unsafe-token",
+            ),
+            "review_record_write_failed",
+        )
+        _assert(not list(paths.review_dir.iterdir()), "invalid token write left an artifact")
+
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-recovery-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        first = _review_store_record(4)
+        second = _review_store_record(5)
+        write_review_record(first, env=env, repo_root=repo)
+        paths = resolve_review_store_paths(env=env, repo_root=repo)
+        orphan = paths.review_dir / f".{first.review_id}.{'b' * 32}.tmp"
+        orphan.write_bytes(b"incomplete")
+        _assert_review_store_error(
+            lambda: list_review_records(env=env, repo_root=repo),
+            "review_store_recovery_required",
+        )
+        _assert_review_store_error(
+            lambda: write_review_record(second, env=env, repo_root=repo),
+            "review_store_recovery_required",
+        )
+        _assert(
+            read_review_record(first.review_id, env=env, repo_root=repo) == first,
+            "exact read was incorrectly blocked by an unrelated orphan temp file",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-foreign-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        record = _review_store_record(6)
+        write_review_record(record, env=env, repo_root=repo)
+        paths = resolve_review_store_paths(env=env, repo_root=repo)
+        (paths.review_dir / "unexpected.txt").write_text("foreign", encoding="utf-8")
+        _assert_review_store_error(
+            lambda: list_review_records(env=env, repo_root=repo),
+            "review_store_unexpected_entry",
+        )
+
+
+def _test_review_store_rejects_corruption_id_mismatch_and_capacity_overflow() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-corrupt-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        record = _review_store_record(7)
+        write_review_record(record, env=env, repo_root=repo)
+        paths = resolve_review_store_paths(env=env, repo_root=repo)
+        record_file = paths.review_dir / f"{record.review_id}.json"
+        record_file.write_bytes(b"{not canonical json}\n")
+        _assert_review_store_error(
+            lambda: read_review_record(record.review_id, env=env, repo_root=repo),
+            "review_record_corrupt",
+        )
+        _assert_review_store_error(
+            lambda: list_review_records(env=env, repo_root=repo),
+            "review_record_corrupt",
+        )
+        _assert_review_store_error(
+            lambda: write_review_record(_review_store_record(13), env=env, repo_root=repo),
+            "review_record_corrupt",
+        )
+        record_file.write_bytes(b"\xff\xfe\n")
+        _assert_review_store_error(
+            lambda: read_review_record(record.review_id, env=env, repo_root=repo),
+            "review_record_corrupt",
+        )
+        record_file.write_bytes(
+            f"{serialize_review_record(record)} \n".encode("utf-8")
+        )
+        _assert_review_store_error(
+            lambda: read_review_record(record.review_id, env=env, repo_root=repo),
+            "review_record_corrupt",
+        )
+        record_file.write_bytes(b"x" * (review_store_module.MAX_STORED_BYTES + 1))
+        _assert_review_store_error(
+            lambda: read_review_record(record.review_id, env=env, repo_root=repo),
+            "review_record_corrupt",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-id-mismatch-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        first = _review_store_record(8)
+        second = _review_store_record(9)
+        write_review_record(first, env=env, repo_root=repo)
+        paths = resolve_review_store_paths(env=env, repo_root=repo)
+        first_file = paths.review_dir / f"{first.review_id}.json"
+        mismatched_file = paths.review_dir / f"{second.review_id}.json"
+        mismatched_file.write_bytes(first_file.read_bytes())
+        _assert_review_store_error(
+            lambda: read_review_record(second.review_id, env=env, repo_root=repo),
+            "review_record_corrupt",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-capacity-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        original_capacity = review_store_module.MAX_RECORDS
+        review_store_module.MAX_RECORDS = 2
+        try:
+            write_review_record(_review_store_record(10), env=env, repo_root=repo)
+            write_review_record(_review_store_record(11), env=env, repo_root=repo)
+            listing = list_review_records(env=env, repo_root=repo)
+            _assert(listing.capacity == 2 and listing.count == 2, "bounded capacity metadata mismatch")
+            _assert_review_store_error(
+                lambda: write_review_record(_review_store_record(12), env=env, repo_root=repo),
+                "review_store_capacity_reached",
+            )
+        finally:
+            review_store_module.MAX_RECORDS = original_capacity
+        original_entry_limit = review_store_module.MAX_DIRECTORY_ENTRIES
+        review_store_module.MAX_DIRECTORY_ENTRIES = 1
+        try:
+            _assert_review_store_error(
+                lambda: list_review_records(env=env, repo_root=repo),
+                "review_store_too_many_entries",
+            )
+        finally:
+            review_store_module.MAX_DIRECTORY_ENTRIES = original_entry_limit
+
+
+def _test_review_store_remains_route_ui_delete_and_external_free() -> None:
+    source = Path(review_store_module.__file__).read_text(encoding="utf-8")
+    for forbidden in (
+        "BaseHTTPRequestHandler",
+        "handle_api_request",
+        "navigator.clipboard",
+        "requests",
+        "urlopen",
+        "subprocess",
+        "delete_review_record",
+        "archive_review_record",
+        "shutil.rmtree",
+    ):
+        _assert(forbidden not in source, f"Review store contains forbidden integration: {forbidden}")
+    web_source = (APP_ROOT / "run_web_app.py").read_text(encoding="utf-8")
+    app_js = (APP_ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    _assert("review_store" not in web_source, "Review store was connected to Hermes routes")
+    _assert("/api/review-store" not in app_js, "Review store was connected to browser UI")
+    _assert("Reopen Saved Review" not in app_js, "durable Review reopen UI was added")
+
+
 def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     index_html = (APP_ROOT / "web" / "index.html").read_text(encoding="utf-8")
     app_js = (APP_ROOT / "web" / "app.js").read_text(encoding="utf-8")
@@ -3298,6 +3624,11 @@ def main() -> None:
         _test_review_record_contract_fails_closed_on_unsafe_input,
         _test_review_record_freshness_is_exact_and_fail_closed,
         _test_review_record_core_has_no_io_route_or_clipboard_dependency,
+        _test_review_store_path_policy_is_external_and_write_free,
+        _test_review_store_append_read_and_bounded_list,
+        _test_review_store_write_failure_and_recovery_states_fail_closed,
+        _test_review_store_rejects_corruption_id_mismatch_and_capacity_overflow,
+        _test_review_store_remains_route_ui_delete_and_external_free,
         _test_browser_ui_mentions_manual_jarvis_handoff,
         _test_copy_only_jarvis_review_handoff_is_deterministic_and_bounded,
         _test_copy_only_review_handoff_route_fixes_repository_authority,
