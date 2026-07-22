@@ -19,7 +19,15 @@ import threading
 import time
 from typing import Any
 
-from .prompt_queue import ProjectCard, QueueItem
+from .prompt_queue import (
+    QUEUE_TYPE as PROMPT_QUEUE_TYPE,
+    VERSION as PROMPT_QUEUE_VERSION,
+    ProjectCard,
+    PromptQueueState,
+    QueueEvaluation,
+    QueueItem,
+    evaluate_queue_item,
+)
 from .schemas import ValidationError
 
 
@@ -186,6 +194,15 @@ class EvidenceHandoffDecision:
     @property
     def is_blocked(self) -> bool:
         return bool(self.blocking_reasons)
+
+
+@dataclass(frozen=True)
+class QueueObservationEvaluation:
+    """One pure queue snapshot and its evidence-aware review evaluation."""
+
+    queue: PromptQueueState
+    item: QueueItem
+    evaluation: QueueEvaluation
 
 
 @dataclass(frozen=True)
@@ -635,6 +652,82 @@ def apply_review_evidence_observation(
         observed_git_status=preview.observed_git_status,
         change_evidence_digest=preview.change_evidence_digest,
     )
+
+
+def evaluate_review_evidence_in_queue(
+    queue: PromptQueueState,
+    item_id: str,
+    bundle: ReviewEvidenceBundle,
+) -> QueueObservationEvaluation:
+    """Apply verified review observations to a new queue snapshot and evaluate it."""
+
+    item, project = _resolve_queue_item_and_project(queue, item_id)
+    observed_item = apply_review_evidence_observation(project, item, bundle)
+    observed_items = tuple(
+        observed_item if candidate.item_id == item_id else candidate
+        for candidate in queue.items
+    )
+    observed_queue = replace(queue, items=observed_items)
+    evaluation = evaluate_queue_item(observed_queue, item_id)
+    return QueueObservationEvaluation(
+        queue=observed_queue,
+        item=observed_item,
+        evaluation=evaluation,
+    )
+
+
+def _resolve_queue_item_and_project(
+    queue: PromptQueueState,
+    item_id: str,
+) -> tuple[QueueItem, ProjectCard]:
+    if not isinstance(queue, PromptQueueState):
+        raise ValidationError("queue must be a normalized PromptQueueState")
+    if queue.queue_type != PROMPT_QUEUE_TYPE or queue.version != PROMPT_QUEUE_VERSION:
+        raise ValidationError("queue type or version is unsupported")
+    if not isinstance(queue.projects, tuple) or not all(
+        isinstance(project, ProjectCard) for project in queue.projects
+    ):
+        raise ValidationError("queue projects must be normalized ProjectCard values")
+    if not isinstance(queue.items, tuple) or not all(
+        isinstance(item, QueueItem) for item in queue.items
+    ):
+        raise ValidationError("queue items must be normalized QueueItem values")
+    if (
+        not isinstance(item_id, str)
+        or not item_id
+        or len(item_id) > MAX_EVIDENCE_TEXT_LENGTH
+        or item_id != " ".join(item_id.strip().split())
+    ):
+        raise ValidationError("queue item_id must be a bounded normalized string")
+
+    item_matches = tuple(item for item in queue.items if item.item_id == item_id)
+    if not item_matches:
+        raise ValidationError(f"unknown queue item: {item_id}")
+    if len(item_matches) != 1:
+        raise ValidationError(f"queue item identity is ambiguous: {item_id}")
+    item = item_matches[0]
+
+    project_matches = tuple(
+        project for project in queue.projects if project.project_id == item.project_id
+    )
+    if not project_matches:
+        raise ValidationError(f"unknown project: {item.project_id}")
+    if len(project_matches) != 1:
+        raise ValidationError(f"project identity is ambiguous: {item.project_id}")
+
+    item_ids = tuple(candidate.item_id for candidate in queue.items)
+    if len(item_ids) != len(set(item_ids)):
+        raise ValidationError("queue item identities must be unique")
+    project_ids = tuple(candidate.project_id for candidate in queue.projects)
+    if len(project_ids) != len(set(project_ids)):
+        raise ValidationError("queue project identities must be unique")
+    project_id_set = set(project_ids)
+    for candidate in queue.items:
+        if candidate.project_id not in project_id_set:
+            raise ValidationError(
+                f"queue item references unknown project: {candidate.project_id}"
+            )
+    return item, project_matches[0]
 
 
 def _validate_project_item(project: ProjectCard, item: QueueItem) -> None:

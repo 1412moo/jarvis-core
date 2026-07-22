@@ -28,12 +28,14 @@ from hermes_manager_pilot.change_evidence import (
     collect_local_change_evidence,
     collect_review_evidence_bundle,
     collect_whole_worktree_status_evidence,
+    evaluate_review_evidence_in_queue,
     verify_local_change_evidence,
     verify_review_evidence_bundle,
     verify_whole_worktree_status_evidence,
 )
 from hermes_manager_pilot.pipeline import run_hermes_manager_pilot
 from hermes_manager_pilot.prompt_queue import (
+    PromptQueueState,
     REQUIRED_FORBIDDEN_ACTIONS,
     build_hermes_session,
     evaluate_queue_item,
@@ -1805,6 +1807,226 @@ def _test_review_evidence_observation_adapter_fails_closed() -> None:
         )
 
 
+def _test_review_evidence_queue_bridge_replaces_one_item_and_evaluates() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-evidence-queue-bridge-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        implementation_item = replace(item, result_type="implementation")
+        scope_binding = build_scope_approval_binding(project, implementation_item)
+        review_item = replace(
+            item,
+            scope_approved=True,
+            scope_approval_digest=scope_binding.digest,
+            last_prompt_summary="preserve prompt summary",
+        )
+        other_item = replace(
+            item,
+            item_id="evidence-other",
+            result_type="design",
+            target_files=(),
+            observed_git_status=(),
+        )
+        queue = PromptQueueState(
+            projects=(project,),
+            items=(other_item, review_item),
+        )
+        original_queue = copy.deepcopy(queue)
+        bundle = collect_review_evidence_bundle(repo, project, review_item)
+
+        original_evaluator = change_evidence_module.evaluate_queue_item
+        evaluation_calls = 0
+
+        def counting_evaluator(*args: object, **kwargs: object) -> object:
+            nonlocal evaluation_calls
+            evaluation_calls += 1
+            return original_evaluator(*args, **kwargs)
+
+        change_evidence_module.evaluate_queue_item = counting_evaluator
+        try:
+            first = evaluate_review_evidence_in_queue(
+                queue,
+                review_item.item_id,
+                bundle,
+            )
+        finally:
+            change_evidence_module.evaluate_queue_item = original_evaluator
+
+        second = evaluate_review_evidence_in_queue(queue, review_item.item_id, bundle)
+        expected_item = replace(
+            review_item,
+            observed_branch=bundle.branch,
+            observed_head=bundle.head,
+            observed_git_status=bundle.whole_status_evidence.whole_git_status,
+            change_evidence_digest=bundle.bundle_digest,
+        )
+        _assert(first == second, "queue evidence bridge should be deterministic")
+        _assert(evaluation_calls == 1, "queue evidence bridge should evaluate exactly once")
+        _assert(queue == original_queue, "queue evidence bridge mutated the original queue")
+        _assert(first.queue is not queue, "queue evidence bridge must return a new queue")
+        _assert(first.queue.projects is queue.projects, "queue project tuple should be preserved")
+        _assert(first.queue.items[0] is other_item, "non-selected queue item was replaced")
+        _assert(first.queue.items[1] is first.item, "selected item is not in the new queue")
+        _assert(first.item is not review_item, "selected queue item was not replaced")
+        _assert(first.item == expected_item, "queue bridge changed non-observation fields")
+        _assert(
+            first.item.observed_branch == bundle.branch
+            and first.item.observed_head == bundle.head
+            and first.item.observed_git_status
+            == bundle.whole_status_evidence.whole_git_status
+            and first.item.change_evidence_digest == bundle.bundle_digest,
+            "queue evidence bridge did not propagate exact evidence observations",
+        )
+        _assert(first.item.scope_approved, "queue evidence bridge changed scope approval")
+        _assert(
+            first.item.scope_approval_digest == scope_binding.digest,
+            "queue evidence bridge changed the scope binding",
+        )
+        _assert(not first.evaluation.is_blocked, "valid review evaluation was blocked")
+        _assert(first.evaluation.result_type == "review", "review result type changed")
+        _assert(first.evaluation.next_action == "REVIEW_REQUEST", "review action is wrong")
+
+        original_run_git = change_evidence_module._run_git_bytes
+
+        def forbidden_git_read(*args: object, **kwargs: object) -> bytes:
+            raise AssertionError("queue evidence bridge must not read Git")
+
+        change_evidence_module._run_git_bytes = forbidden_git_read
+        try:
+            pure = evaluate_review_evidence_in_queue(queue, review_item.item_id, bundle)
+            _assert(pure == first, "pure queue evidence bridge changed its result")
+        finally:
+            change_evidence_module._run_git_bytes = original_run_git
+
+
+def _test_review_evidence_queue_bridge_preserves_blocking_and_fails_closed() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-evidence-queue-blocked-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        queue = PromptQueueState(projects=(project,), items=(item,))
+        bundle = collect_review_evidence_bundle(repo, project, item)
+
+        blocked = evaluate_review_evidence_in_queue(queue, item.item_id, bundle)
+        _assert(blocked.evaluation.is_blocked, "missing scope approval should remain blocked")
+        _assert(
+            blocked.evaluation.next_action == "BLOCKED_NEEDS_USER",
+            "blocked bridge result changed next action",
+        )
+        _assert(
+            "scope approval is required" in blocked.evaluation.blocking_reasons,
+            "scope approval blocking reason is missing",
+        )
+        _assert(
+            blocked.item.change_evidence_digest == bundle.bundle_digest,
+            "blocked evaluation discarded the pure evidence snapshot",
+        )
+
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(queue, "missing-item", bundle),
+            "unknown queue item",
+        )
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                replace(queue, projects=()),
+                item.item_id,
+                bundle,
+            ),
+            "unknown project",
+        )
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                replace(queue, items=(item, copy.deepcopy(item))),
+                item.item_id,
+                bundle,
+            ),
+            "queue item identity is ambiguous",
+        )
+        other_item = replace(item, item_id="other-item")
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                replace(
+                    queue,
+                    items=(item, other_item, copy.deepcopy(other_item)),
+                ),
+                item.item_id,
+                bundle,
+            ),
+            "queue item identities must be unique",
+        )
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                replace(queue, projects=(project, copy.deepcopy(project))),
+                item.item_id,
+                bundle,
+            ),
+            "project identity is ambiguous",
+        )
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                replace(
+                    queue,
+                    items=(item, replace(other_item, project_id="missing-project")),
+                ),
+                item.item_id,
+                bundle,
+            ),
+            "queue item references unknown project",
+        )
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(queue, " item ", bundle),
+            "bounded normalized string",
+        )
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                replace(queue, version="0.1C-0C-5"),
+                item.item_id,
+                bundle,
+            ),
+            "queue type or version is unsupported",
+        )
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                queue,
+                item.item_id,
+                replace(bundle, bundle_digest="0" * 64),
+            ),
+            "evidence observation is blocked: review evidence validation failed:",
+        )
+        mismatched_item = replace(item, item_id="different-review-item")
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                replace(queue, items=(mismatched_item,)),
+                mismatched_item.item_id,
+                bundle,
+            ),
+            "review evidence bundle item does not match queue item",
+        )
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                replace(queue, items=(replace(item, result_type="commit"),)),
+                item.item_id,
+                bundle,
+            ),
+            "requires result_type=review",
+        )
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                replace(queue, items=(replace(item, review_passed=True),)),
+                item.item_id,
+                bundle,
+            ),
+            "requires an unreviewed item",
+        )
+
+        (repo / "outside.txt").write_text("unexpected\n", encoding="utf-8")
+        unsafe_bundle = collect_review_evidence_bundle(repo, project, item)
+        _assert_validation_error(
+            lambda: evaluate_review_evidence_in_queue(
+                queue,
+                item.item_id,
+                unsafe_bundle,
+            ),
+            "evidence observation is blocked: unexpected untracked path: outside.txt",
+        )
+
+
 def _test_local_change_evidence_rejects_scope_root_stage_and_size_violations() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-safety-") as temp_dir:
         repo, project, item = _create_change_evidence_fixture(temp_dir)
@@ -2023,6 +2245,8 @@ def main() -> None:
         _test_review_evidence_handoff_blocks_unsafe_incomplete_or_tampered_evidence,
         _test_review_evidence_observation_adapter_updates_only_observations,
         _test_review_evidence_observation_adapter_fails_closed,
+        _test_review_evidence_queue_bridge_replaces_one_item_and_evaluates,
+        _test_review_evidence_queue_bridge_preserves_blocking_and_fails_closed,
         _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,
