@@ -17,6 +17,7 @@ import stat
 import threading
 import time
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -262,7 +263,9 @@ MEMORY_REQUEST_GUARD_STATUS = "internal_tests_only"
 MEMORY_PREVIEW_TOKEN_SUBSYSTEM_STATUS = "internal_tests_only"
 MEMORY_GUARDED_SAVE_COORDINATOR_STATUS = "internal_tests_only"
 MEMORY_HTTP_METADATA_ADAPTER_STATUS = "internal_tests_only"
+MEMORY_SESSION_BOOTSTRAP_PRIMITIVE_STATUS = "internal_tests_only"
 MEMORY_SESSION_COOKIE_NAME = "jarvis_session"
+MEMORY_SESSION_COOKIE_PATH = "/api/memory-skills/"
 MEMORY_CSRF_HEADER_NAME = "X-Jarvis-CSRF"
 MEMORY_HTTP_METADATA_HEADER_MAP = {
     "host": "host",
@@ -277,12 +280,20 @@ MEMORY_HTTP_METADATA_MAX_HEADER_COUNT = 32
 MEMORY_HTTP_METADATA_MAX_HEADER_NAME_CHARS = 64
 MEMORY_HTTP_METADATA_MAX_HEADER_VALUE_CHARS = 4096
 MEMORY_HTTP_HEADER_NAME_PATTERN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+MEMORY_BOOTSTRAP_PATH_PATTERN = re.compile(r"^/[A-Za-z0-9/_-]+$")
+MEMORY_BOOTSTRAP_REQUIRED_HEADERS = frozenset({"host", "origin", "content-length"})
+MEMORY_BOOTSTRAP_FORBIDDEN_HEADERS = frozenset(
+    {"transfer-encoding", "content-type", MEMORY_CSRF_HEADER_NAME.lower()}
+)
 MEMORY_SESSION_IDLE_TTL_SECONDS = 30 * 60
 MEMORY_SESSION_MAX_ENTRIES = 64
 MEMORY_PREVIEW_TOKEN_TTL_SECONDS = 5 * 60
 MEMORY_PREVIEW_TOKEN_MAX_ENTRIES = 128
 MEMORY_PREVIEW_TOKEN_PER_SESSION_MAX_ENTRIES = 8
 MEMORY_GUARDED_SAVE_CONFIRMATION = "save_local_candidate"
+MEMORY_SESSION_BOOTSTRAP_NOTE = (
+    "Temporary local request-guard session only; not save, privacy, skill, or execution approval."
+)
 MEMORY_GUARDED_SAVE_ALLOWED_FIELDS = frozenset({"preview_token", "confirmation"})
 MEMORY_SECRET_BYTES = 32
 MEMORY_SECRET_CREATE_ATTEMPTS = 3
@@ -1129,6 +1140,7 @@ def memory_skills_payload() -> dict[str, Any]:
         "preview_token_subsystem": MEMORY_PREVIEW_TOKEN_SUBSYSTEM_STATUS,
         "guarded_save_coordinator": MEMORY_GUARDED_SAVE_COORDINATOR_STATUS,
         "http_metadata_adapter": MEMORY_HTTP_METADATA_ADAPTER_STATUS,
+        "session_bootstrap_primitive": MEMORY_SESSION_BOOTSTRAP_PRIMITIVE_STATUS,
         "persisted_original_text_preview": False,
         "preview_token_issuance": False,
         "ui_save_action": False,
@@ -1626,7 +1638,7 @@ class SessionRegistry:
         "name": MEMORY_SESSION_COOKIE_NAME,
         "http_only": True,
         "same_site": "Strict",
-        "path": "/",
+        "path": MEMORY_SESSION_COOKIE_PATH,
         "secure": False,
         "reason_secure_false": "loopback_http_only",
     }
@@ -1666,6 +1678,14 @@ class SessionRegistry:
     def issue(self) -> tuple[int, dict[str, Any]]:
         """Issue one process-local session and server-verified CSRF token."""
 
+        return self.rotate_or_issue()
+
+    def rotate_or_issue(self, session_hint: Any = None) -> tuple[int, dict[str, Any]]:
+        """Atomically replace a hinted session or issue one without evicting others."""
+
+        if session_hint is not None and not memory_secret_token_is_valid(session_hint):
+            return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "request_verification_failed")
+
         try:
             now = self._now()
             with self._lock:
@@ -1675,6 +1695,7 @@ class SessionRegistry:
                         HTTPStatus.SERVICE_UNAVAILABLE,
                         "session_capacity_reached",
                     )
+                replaces_existing = session_hint is not None and session_hint in self._entries
                 session_id = ""
                 for _ in range(MEMORY_SECRET_CREATE_ATTEMPTS):
                     candidate = memory_secret_token(self._token_generator)
@@ -1687,12 +1708,15 @@ class SessionRegistry:
                         "session_issue_failed",
                     )
                 csrf_token = memory_secret_token(self._token_generator)
-                self._entries[session_id] = {
+                new_entry = {
                     "csrf_digest": memory_secret_token_digest(csrf_token),
                     "created_at_monotonic": now,
                     "last_seen_monotonic": now,
                     "expires_at_monotonic": now + self.idle_ttl_seconds,
                 }
+                if replaces_existing:
+                    self._entries.pop(session_hint, None)
+                self._entries[session_id] = new_entry
         except Exception:
             return memory_internal_subsystem_error(HTTPStatus.INTERNAL_SERVER_ERROR, "session_issue_failed")
         return HTTPStatus.OK, {
@@ -1732,6 +1756,90 @@ class SessionRegistry:
                 return len(self._entries)
         except Exception:
             return 0
+
+
+@dataclass(frozen=True, slots=True)
+class MemorySessionBootstrapRequest:
+    """Validated private bootstrap input; intentionally not JSON serializable."""
+
+    session_hint: str | None = field(repr=False)
+    header_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class MemorySessionBootstrapSuccess:
+    """Private success result that keeps Cookie material out of the public payload."""
+
+    set_cookie_header: str = field(repr=False)
+    csrf_token: str = field(repr=False)
+    idle_ttl_seconds: float
+
+    def public_payload(self) -> dict[str, Any]:
+        """Return the only fields intended for a future no-store JSON success body."""
+
+        return {
+            "ok": True,
+            "csrf_token": self.csrf_token,
+            "idle_ttl_seconds": self.idle_ttl_seconds,
+            "note": MEMORY_SESSION_BOOTSTRAP_NOTE,
+        }
+
+
+def memory_raw_http_header_pair_is_valid(raw_name: Any, raw_value: Any) -> bool:
+    """Validate one bounded ASCII raw header pair without normalizing its value."""
+
+    if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+        return False
+    if (
+        not raw_name
+        or len(raw_name) > MEMORY_HTTP_METADATA_MAX_HEADER_NAME_CHARS
+        or MEMORY_HTTP_HEADER_NAME_PATTERN.fullmatch(raw_name) is None
+        or len(raw_value) > MEMORY_HTTP_METADATA_MAX_HEADER_VALUE_CHARS
+        or raw_value != raw_value.strip()
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_value)
+    ):
+        return False
+    try:
+        raw_name.encode("ascii", errors="strict")
+        raw_value.encode("ascii", errors="strict")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def memory_bootstrap_session_hint(cookie_header: str | None) -> tuple[bool, str | None]:
+    """Extract zero or one well-formed untrusted session rotation hint."""
+
+    if cookie_header is None:
+        return True, None
+    matches: list[str] = []
+    for part in cookie_header.split(";"):
+        item = part.strip()
+        if not item or "=" not in item:
+            return False, None
+        name, cookie_value = item.split("=", 1)
+        name = name.strip()
+        cookie_value = cookie_value.strip()
+        if not name or MEMORY_HTTP_HEADER_NAME_PATTERN.fullmatch(name) is None:
+            return False, None
+        if name == MEMORY_SESSION_COOKIE_NAME:
+            if not memory_secret_token_is_valid(cookie_value):
+                return False, None
+            matches.append(cookie_value)
+    if len(matches) > 1:
+        return False, None
+    return True, matches[0] if matches else None
+
+
+def format_memory_session_cookie(session_id: Any) -> str:
+    """Format one bounded loopback-HTTP session cookie for private response use."""
+
+    if not memory_secret_token_is_valid(session_id):
+        raise ValueError("invalid session id")
+    return (
+        f"{MEMORY_SESSION_COOKIE_NAME}={session_id}; "
+        f"Path={MEMORY_SESSION_COOKIE_PATH}; HttpOnly; SameSite=Strict"
+    )
 
 
 def memory_http_metadata_error(status: HTTPStatus, error: str) -> tuple[int, dict[str, Any]]:
@@ -1778,21 +1886,7 @@ def adapt_memory_guarded_http_metadata(
             if not isinstance(item, (list, tuple)) or len(item) != 2:
                 return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
             raw_name, raw_value = item
-            if not isinstance(raw_name, str) or not isinstance(raw_value, str):
-                return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
-            if (
-                not raw_name
-                or len(raw_name) > MEMORY_HTTP_METADATA_MAX_HEADER_NAME_CHARS
-                or MEMORY_HTTP_HEADER_NAME_PATTERN.fullmatch(raw_name) is None
-                or len(raw_value) > MEMORY_HTTP_METADATA_MAX_HEADER_VALUE_CHARS
-                or raw_value != raw_value.strip()
-                or any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_value)
-            ):
-                return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
-            try:
-                raw_name.encode("ascii", errors="strict")
-                raw_value.encode("ascii", errors="strict")
-            except UnicodeEncodeError:
+            if not memory_raw_http_header_pair_is_valid(raw_name, raw_value):
                 return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
 
             name = raw_name.lower()
@@ -1830,6 +1924,158 @@ def adapt_memory_guarded_http_metadata(
         "content_length": content_length,
         "header_count": header_count,
     }
+
+
+def adapt_memory_session_bootstrap_metadata(
+    raw_headers: Any,
+    *,
+    client_host: Any,
+    bound_host: Any,
+    bound_port: Any,
+    method: Any,
+    request_target: Any,
+    expected_path: Any,
+    max_header_count: int = MEMORY_HTTP_METADATA_MAX_HEADER_COUNT,
+) -> tuple[int, MemorySessionBootstrapRequest | dict[str, Any]]:
+    """Validate synthetic bootstrap transport and raw headers without issuing state."""
+
+    if (
+        isinstance(raw_headers, (str, bytes, bytearray, Mapping))
+        or not isinstance(max_header_count, int)
+        or isinstance(max_header_count, bool)
+        or max_header_count <= 0
+        or not isinstance(bound_host, str)
+        or not isinstance(bound_port, int)
+        or isinstance(bound_port, bool)
+        or not 1 <= bound_port <= 65535
+        or not isinstance(expected_path, str)
+        or MEMORY_BOOTSTRAP_PATH_PATTERN.fullmatch(expected_path) is None
+        or "//" in expected_path
+    ):
+        return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+
+    try:
+        iterator = iter(raw_headers)
+    except TypeError:
+        return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+
+    if (
+        client_host != DEFAULT_HOST
+        or bound_host != DEFAULT_HOST
+        or method != "POST"
+        or request_target != expected_path
+    ):
+        return memory_http_metadata_error(HTTPStatus.FORBIDDEN, "bootstrap_rejected")
+
+    collected: dict[str, str] = {}
+    seen_bootstrap_headers: set[str] = set()
+    header_count = 0
+    try:
+        for item in iterator:
+            header_count += 1
+            if header_count > max_header_count:
+                return memory_http_metadata_error(
+                    HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE,
+                    "request_headers_too_large",
+                )
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+            raw_name, raw_value = item
+            if not memory_raw_http_header_pair_is_valid(raw_name, raw_value):
+                return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+            name = raw_name.lower()
+            if name in MEMORY_BOOTSTRAP_FORBIDDEN_HEADERS:
+                return memory_http_metadata_error(HTTPStatus.FORBIDDEN, "bootstrap_rejected")
+            if name not in MEMORY_BOOTSTRAP_REQUIRED_HEADERS and name != "cookie":
+                continue
+            if name in seen_bootstrap_headers:
+                return memory_http_metadata_error(HTTPStatus.FORBIDDEN, "bootstrap_rejected")
+            seen_bootstrap_headers.add(name)
+            collected[name] = raw_value
+    except Exception:
+        return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+
+    if not MEMORY_BOOTSTRAP_REQUIRED_HEADERS.issubset(seen_bootstrap_headers):
+        return memory_http_metadata_error(HTTPStatus.FORBIDDEN, "bootstrap_rejected")
+    if collected["host"] != f"{bound_host}:{bound_port}":
+        return memory_http_metadata_error(HTTPStatus.FORBIDDEN, "bootstrap_rejected")
+    if collected["origin"] != f"http://{bound_host}:{bound_port}":
+        return memory_http_metadata_error(HTTPStatus.FORBIDDEN, "bootstrap_rejected")
+    if collected["content-length"] != "0":
+        return memory_http_metadata_error(HTTPStatus.FORBIDDEN, "bootstrap_rejected")
+    valid_cookie, session_hint = memory_bootstrap_session_hint(collected.get("cookie"))
+    if not valid_cookie:
+        return memory_http_metadata_error(HTTPStatus.FORBIDDEN, "bootstrap_rejected")
+
+    return HTTPStatus.OK, MemorySessionBootstrapRequest(
+        session_hint=session_hint,
+        header_count=header_count,
+    )
+
+
+def coordinate_memory_session_bootstrap(
+    sessions: Any,
+    raw_headers: Any,
+    *,
+    client_host: Any,
+    bound_host: Any,
+    bound_port: Any,
+    method: Any,
+    request_target: Any,
+    expected_path: Any,
+    max_header_count: int = MEMORY_HTTP_METADATA_MAX_HEADER_COUNT,
+) -> tuple[int, MemorySessionBootstrapSuccess | dict[str, Any]]:
+    """Validate raw transport and issue one private route-free bootstrap result."""
+
+    if not isinstance(sessions, SessionRegistry):
+        return memory_internal_subsystem_error(HTTPStatus.BAD_REQUEST, "invalid_bootstrap_request")
+
+    adapter_status, request = adapt_memory_session_bootstrap_metadata(
+        raw_headers,
+        client_host=client_host,
+        bound_host=bound_host,
+        bound_port=bound_port,
+        method=method,
+        request_target=request_target,
+        expected_path=expected_path,
+        max_header_count=max_header_count,
+    )
+    if adapter_status != HTTPStatus.OK:
+        return adapter_status, request
+    if not isinstance(request, MemorySessionBootstrapRequest):
+        return memory_internal_subsystem_error(HTTPStatus.INTERNAL_SERVER_ERROR, "bootstrap_issue_failed")
+
+    issue_status, issued = sessions.rotate_or_issue(request.session_hint)
+    if issue_status != HTTPStatus.OK:
+        if issued.get("error") == "session_capacity_reached":
+            return memory_internal_subsystem_error(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "bootstrap_capacity_reached",
+            )
+        return memory_internal_subsystem_error(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "bootstrap_issue_failed",
+        )
+
+    try:
+        session_id = issued["session_id"]
+        csrf_token = issued["csrf_token"]
+        idle_ttl_seconds = float(issued["idle_ttl_seconds"])
+        if not memory_secret_token_is_valid(session_id) or not memory_secret_token_is_valid(csrf_token):
+            raise ValueError("invalid issued credential")
+        if not math.isfinite(idle_ttl_seconds) or idle_ttl_seconds <= 0:
+            raise ValueError("invalid issued ttl")
+        success = MemorySessionBootstrapSuccess(
+            set_cookie_header=format_memory_session_cookie(session_id),
+            csrf_token=csrf_token,
+            idle_ttl_seconds=idle_ttl_seconds,
+        )
+    except (KeyError, TypeError, ValueError):
+        return memory_internal_subsystem_error(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "bootstrap_issue_failed",
+        )
+    return HTTPStatus.OK, success
 
 
 class LocalRequestGuard:
@@ -3062,7 +3308,7 @@ def run_memory_request_guard_token_self_tests() -> None:
     assert first_session["cookie_policy"] == SessionRegistry.cookie_policy
     assert first_session["cookie_policy"]["http_only"] is True
     assert first_session["cookie_policy"]["same_site"] == "Strict"
-    assert first_session["cookie_policy"]["path"] == "/"
+    assert first_session["cookie_policy"]["path"] == MEMORY_SESSION_COOKIE_PATH
     assert first_session["cookie_policy"]["secure"] is False
 
     guard = LocalRequestGuard(DEFAULT_HOST, DEFAULT_PORT, sessions)
@@ -3577,6 +3823,455 @@ def run_memory_http_metadata_adapter_self_tests() -> None:
         HTTPStatus.NOT_FOUND,
         {"ok": False, "error": "not_found"},
     )
+    assert not (APP_ROOT / "state").exists()
+    assert not (REPO_ROOT / ".jarvis-local").exists()
+    assert not (REPO_ROOT / "memory" / "skills").exists()
+    after_status = run_read_only_git(("status", "--short"))
+    assert before_status == after_status
+
+
+def run_memory_session_bootstrap_primitive_self_tests() -> None:
+    """Exercise the route-free Phase 2C-4d bootstrap contract deterministically."""
+
+    class FakeClock:
+        def __init__(self, value: float = 100.0) -> None:
+            self.value = value
+
+        def __call__(self) -> float:
+            return self.value
+
+        def advance(self, seconds: float) -> None:
+            self.value += seconds
+
+    class DeterministicBytes:
+        def __init__(self, namespace: str) -> None:
+            self.namespace = namespace
+            self.counter = 0
+
+        def __call__(self, size: int) -> bytes:
+            self.counter += 1
+            seed = hashlib.sha256(
+                f"jarvis-bootstrap-{self.namespace}-{self.counter}".encode("ascii")
+            ).digest()
+            return (seed * ((size + len(seed) - 1) // len(seed)))[:size]
+
+    class FailAfter:
+        def __init__(self, namespace: str, allowed_calls: int) -> None:
+            self.generator = DeterministicBytes(namespace)
+            self.allowed_calls = allowed_calls
+            self.calls = 0
+
+        def __call__(self, size: int) -> bytes:
+            self.calls += 1
+            if self.calls > self.allowed_calls:
+                raise RuntimeError("deterministic bootstrap generator failure")
+            return self.generator(size)
+
+    def session_id_from_cookie(cookie_header: str) -> str:
+        prefix = f"{MEMORY_SESSION_COOKIE_NAME}="
+        assert cookie_header.startswith(prefix)
+        session_id = cookie_header[len(prefix):].split(";", 1)[0]
+        assert memory_secret_token_is_valid(session_id)
+        return session_id
+
+    test_path = "/internal/tests-only/memory-session-bootstrap"
+    raw_headers = [
+        ("hOsT", f"{DEFAULT_HOST}:{DEFAULT_PORT}"),
+        ("Origin", f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"),
+        ("Content-Length", "0"),
+        ("User-Agent", "Jarvis-Bootstrap-Self-Test"),
+    ]
+    default_context = {
+        "client_host": DEFAULT_HOST,
+        "bound_host": DEFAULT_HOST,
+        "bound_port": DEFAULT_PORT,
+        "method": "POST",
+        "request_target": test_path,
+        "expected_path": test_path,
+    }
+
+    def adapt(headers: Any, **updates: Any) -> tuple[int, Any]:
+        context = {**default_context, **updates}
+        return adapt_memory_session_bootstrap_metadata(headers, **context)
+
+    def coordinate(headers: Any, sessions: Any, **updates: Any) -> tuple[int, Any]:
+        context = {**default_context, **updates}
+        return coordinate_memory_session_bootstrap(sessions, headers, **context)
+
+    before_status = run_read_only_git(("status", "--short"))
+    valid_status, request = adapt(iter(raw_headers))
+    assert valid_status == HTTPStatus.OK
+    assert isinstance(request, MemorySessionBootstrapRequest)
+    assert request.session_hint is None
+    assert request.header_count == len(raw_headers)
+    assert "session_hint" not in repr(request)
+    try:
+        json.dumps(request)
+        raise AssertionError("bootstrap request must not be JSON serializable")
+    except TypeError:
+        pass
+
+    sessions = SessionRegistry(clock=FakeClock(), token_generator=DeterministicBytes("primary"))
+    bootstrap_status, bootstrap = coordinate(raw_headers, sessions)
+    assert bootstrap_status == HTTPStatus.OK
+    assert isinstance(bootstrap, MemorySessionBootstrapSuccess)
+    assert sessions.active_count() == 1
+    first_session_id = session_id_from_cookie(bootstrap.set_cookie_header)
+    first_csrf = bootstrap.csrf_token
+    public_payload = bootstrap.public_payload()
+    assert public_payload == {
+        "ok": True,
+        "csrf_token": first_csrf,
+        "idle_ttl_seconds": float(MEMORY_SESSION_IDLE_TTL_SECONDS),
+        "note": MEMORY_SESSION_BOOTSTRAP_NOTE,
+    }
+    assert first_session_id not in str(public_payload)
+    assert first_csrf not in bootstrap.set_cookie_header
+    assert first_session_id not in repr(bootstrap)
+    assert first_csrf not in repr(bootstrap)
+    assert f"Path={MEMORY_SESSION_COOKIE_PATH}" in bootstrap.set_cookie_header
+    assert "; HttpOnly" in bootstrap.set_cookie_header
+    assert "; SameSite=Strict" in bootstrap.set_cookie_header
+    for forbidden_cookie_attribute in ("Secure", "Domain=", "Expires=", "Max-Age="):
+        assert forbidden_cookie_attribute not in bootstrap.set_cookie_header
+    try:
+        json.dumps(bootstrap)
+        raise AssertionError("private bootstrap success must not be JSON serializable")
+    except TypeError:
+        pass
+
+    guard = LocalRequestGuard(DEFAULT_HOST, DEFAULT_PORT, sessions)
+    assert guard.validate(
+        {
+            "host": f"{DEFAULT_HOST}:{DEFAULT_PORT}",
+            "origin": f"http://{DEFAULT_HOST}:{DEFAULT_PORT}",
+            "content_type": "application/json",
+            "cookie": f"{MEMORY_SESSION_COOKIE_NAME}={first_session_id}",
+            "csrf": first_csrf,
+        }
+    )[0] == HTTPStatus.OK
+
+    rotation_headers = [
+        *raw_headers,
+        ("Cookie", f"other_cookie=read_only; {MEMORY_SESSION_COOKIE_NAME}={first_session_id}"),
+    ]
+    rotation_status, rotation_request = adapt(rotation_headers)
+    assert rotation_status == HTTPStatus.OK
+    assert isinstance(rotation_request, MemorySessionBootstrapRequest)
+    assert rotation_request.session_hint == first_session_id
+    assert first_session_id not in repr(rotation_request)
+    rotated_status, rotated = coordinate(rotation_headers, sessions)
+    assert rotated_status == HTTPStatus.OK
+    assert isinstance(rotated, MemorySessionBootstrapSuccess)
+    rotated_session_id = session_id_from_cookie(rotated.set_cookie_header)
+    assert rotated_session_id != first_session_id
+    assert rotated.csrf_token != first_csrf
+    assert sessions.active_count() == 1
+    assert sessions.verify(first_session_id, first_csrf)[0] == HTTPStatus.FORBIDDEN
+    assert sessions.verify(rotated_session_id, rotated.csrf_token)[0] == HTTPStatus.OK
+    mismatch_status, mismatch = guard.validate(
+        {
+            "host": f"{DEFAULT_HOST}:{DEFAULT_PORT}",
+            "origin": f"http://{DEFAULT_HOST}:{DEFAULT_PORT}",
+            "content_type": "application/json",
+            "cookie": f"{MEMORY_SESSION_COOKIE_NAME}={rotated_session_id}",
+            "csrf": first_csrf,
+        }
+    )
+    assert mismatch_status == HTTPStatus.FORBIDDEN
+    assert mismatch == {"ok": False, "error": "request_verification_failed"}
+
+    known_secrets = [first_session_id, first_csrf, rotated_session_id, rotated.csrf_token]
+
+    def assert_adapter_error(
+        headers: Any,
+        expected_status: HTTPStatus,
+        expected_error: str,
+        **updates: Any,
+    ) -> None:
+        active_before = sessions.active_count()
+        status, result = adapt(headers, **updates)
+        assert status == expected_status
+        assert result == {"ok": False, "error": expected_error}
+        assert sessions.active_count() == active_before
+        rendered = str(result)
+        for secret in known_secrets:
+            assert secret not in rendered
+
+    for required_header in MEMORY_BOOTSTRAP_REQUIRED_HEADERS:
+        matching = [item for item in raw_headers if item[0].lower() == required_header]
+        assert len(matching) == 1
+        assert_adapter_error(
+            [*raw_headers, matching[0]],
+            HTTPStatus.FORBIDDEN,
+            "bootstrap_rejected",
+        )
+        assert_adapter_error(
+            [item for item in raw_headers if item[0].lower() != required_header],
+            HTTPStatus.FORBIDDEN,
+            "bootstrap_rejected",
+        )
+
+    for updates in (
+        {"client_host": "127.0.0.2"},
+        {"client_host": "::1"},
+        {"bound_host": "localhost"},
+        {"method": "GET"},
+        {"method": "post"},
+        {"request_target": f"{test_path}?token=forbidden"},
+        {"request_target": f"{test_path}/other"},
+    ):
+        assert_adapter_error(raw_headers, HTTPStatus.FORBIDDEN, "bootstrap_rejected", **updates)
+
+    for updates in (
+        {"bound_port": 0},
+        {"bound_port": True},
+        {"expected_path": ""},
+        {"expected_path": "//evil.example/path"},
+        {"expected_path": "/internal//bootstrap"},
+        {"expected_path": f"{test_path}?query=1"},
+        {"max_header_count": 0},
+    ):
+        assert_adapter_error(raw_headers, HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata", **updates)
+
+    assert_adapter_error(dict(raw_headers), HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+    assert_adapter_error("Host: value", HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+    assert_adapter_error(None, HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+    assert_adapter_error([*raw_headers, ("broken",)], HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+    assert_adapter_error([*raw_headers, (123, "value")], HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+    assert_adapter_error([*raw_headers, ("Bad Header", "value")], HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+    assert_adapter_error([*raw_headers, ("X-Test", " leading")], HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+    assert_adapter_error([*raw_headers, ("X-Test", "line\r\nbreak")], HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+    assert_adapter_error([*raw_headers, ("X-Test", "한글")], HTTPStatus.BAD_REQUEST, "invalid_bootstrap_metadata")
+    assert_adapter_error(
+        [*raw_headers, ("X-Test", "x" * (MEMORY_HTTP_METADATA_MAX_HEADER_VALUE_CHARS + 1))],
+        HTTPStatus.BAD_REQUEST,
+        "invalid_bootstrap_metadata",
+    )
+    too_many_headers = [
+        *raw_headers,
+        *[(f"X-Bootstrap-{index}", "value") for index in range(MEMORY_HTTP_METADATA_MAX_HEADER_COUNT)],
+    ]
+    assert_adapter_error(
+        too_many_headers,
+        HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE,
+        "request_headers_too_large",
+    )
+
+    for forbidden_header in ("Transfer-Encoding", "Content-Type", MEMORY_CSRF_HEADER_NAME):
+        assert_adapter_error(
+            [*raw_headers, (forbidden_header, "forbidden")],
+            HTTPStatus.FORBIDDEN,
+            "bootstrap_rejected",
+        )
+
+    def replace_header(header_name: str, value: str) -> list[tuple[str, str]]:
+        return [
+            (name, value if name.lower() == header_name else header_value)
+            for name, header_value in raw_headers
+        ]
+
+    for invalid_host in (
+        f"localhost:{DEFAULT_PORT}",
+        f"{DEFAULT_HOST}:{DEFAULT_PORT + 1}",
+        f"{DEFAULT_HOST}.:{DEFAULT_PORT}",
+        f"[::1]:{DEFAULT_PORT}",
+    ):
+        assert_adapter_error(
+            replace_header("host", invalid_host),
+            HTTPStatus.FORBIDDEN,
+            "bootstrap_rejected",
+        )
+    for invalid_origin in (
+        "null",
+        f"https://{DEFAULT_HOST}:{DEFAULT_PORT}",
+        f"http://localhost:{DEFAULT_PORT}",
+        f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/path",
+        "https://evil.example",
+    ):
+        assert_adapter_error(
+            replace_header("origin", invalid_origin),
+            HTTPStatus.FORBIDDEN,
+            "bootstrap_rejected",
+        )
+    for invalid_length in ("", "00", "1", "-1", "+0", "0,0", "0.0"):
+        assert_adapter_error(
+            replace_header("content-length", invalid_length),
+            HTTPStatus.FORBIDDEN,
+            "bootstrap_rejected",
+        )
+
+    for invalid_cookie in (
+        "broken",
+        "=value",
+        f"{MEMORY_SESSION_COOKIE_NAME}=",
+        f"{MEMORY_SESSION_COOKIE_NAME}=short",
+        (
+            f"{MEMORY_SESSION_COOKIE_NAME}={rotated_session_id}; "
+            f"{MEMORY_SESSION_COOKIE_NAME}={first_session_id}"
+        ),
+    ):
+        assert_adapter_error(
+            [*raw_headers, ("Cookie", invalid_cookie)],
+            HTTPStatus.FORBIDDEN,
+            "bootstrap_rejected",
+        )
+    assert_adapter_error(
+        [*raw_headers, ("Cookie", "other=one"), ("cookie", "other=two")],
+        HTTPStatus.FORBIDDEN,
+        "bootstrap_rejected",
+    )
+    other_cookie_status, other_cookie_request = adapt([*raw_headers, ("Cookie", "other=")])
+    assert other_cookie_status == HTTPStatus.OK
+    assert isinstance(other_cookie_request, MemorySessionBootstrapRequest)
+    assert other_cookie_request.session_hint is None
+
+    invalid_request_status, invalid_request = coordinate(raw_headers, None)
+    assert invalid_request_status == HTTPStatus.BAD_REQUEST
+    assert invalid_request == {"ok": False, "error": "invalid_bootstrap_request"}
+    invalid_hint_status, invalid_hint = coordinate(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}=short")],
+        sessions,
+    )
+    assert invalid_hint_status == HTTPStatus.FORBIDDEN
+    assert invalid_hint == {"ok": False, "error": "bootstrap_rejected"}
+
+    capacity_sessions = SessionRegistry(
+        max_entries=1,
+        clock=FakeClock(),
+        token_generator=DeterministicBytes("capacity"),
+    )
+    capacity_first_status, capacity_first = coordinate(raw_headers, capacity_sessions)
+    assert capacity_first_status == HTTPStatus.OK
+    assert isinstance(capacity_first, MemorySessionBootstrapSuccess)
+    capacity_full_status, capacity_full = coordinate(raw_headers, capacity_sessions)
+    assert capacity_full_status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert capacity_full == {"ok": False, "error": "bootstrap_capacity_reached"}
+    capacity_session_id = session_id_from_cookie(capacity_first.set_cookie_header)
+    capacity_rotation_status, capacity_rotation_request = adapt(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}={capacity_session_id}")]
+    )
+    assert capacity_rotation_status == HTTPStatus.OK
+    capacity_rotated_status, capacity_rotated = coordinate(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}={capacity_session_id}")],
+        capacity_sessions,
+    )
+    assert capacity_rotated_status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert capacity_rotated == {"ok": False, "error": "bootstrap_capacity_reached"}
+    assert capacity_sessions.active_count() == 1
+    assert capacity_sessions.verify(capacity_session_id, capacity_first.csrf_token)[0] == HTTPStatus.OK
+
+    failing_generator = FailAfter("failure", allowed_calls=2)
+    failure_sessions = SessionRegistry(clock=FakeClock(), token_generator=failing_generator)
+    failure_first_status, failure_first = coordinate(raw_headers, failure_sessions)
+    assert failure_first_status == HTTPStatus.OK
+    assert isinstance(failure_first, MemorySessionBootstrapSuccess)
+    failure_session_id = session_id_from_cookie(failure_first.set_cookie_header)
+    failure_rotation_status, failure_rotation_request = adapt(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}={failure_session_id}")]
+    )
+    assert failure_rotation_status == HTTPStatus.OK
+    failed_status, failed = coordinate(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}={failure_session_id}")],
+        failure_sessions,
+    )
+    assert failed_status == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert failed == {"ok": False, "error": "bootstrap_issue_failed"}
+    assert failure_sessions.active_count() == 1
+    assert failure_sessions.verify(failure_session_id, failure_first.csrf_token)[0] == HTTPStatus.OK
+
+    constant_generator = lambda size: b"c" * size
+    collision_sessions = SessionRegistry(clock=FakeClock(), token_generator=constant_generator)
+    collision_first_status, collision_first = coordinate(raw_headers, collision_sessions)
+    assert collision_first_status == HTTPStatus.OK
+    assert isinstance(collision_first, MemorySessionBootstrapSuccess)
+    collision_session_id = session_id_from_cookie(collision_first.set_cookie_header)
+    collision_rotation_status, collision_rotation_request = adapt(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}={collision_session_id}")]
+    )
+    assert collision_rotation_status == HTTPStatus.OK
+    collision_status, collision = coordinate(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}={collision_session_id}")],
+        collision_sessions,
+    )
+    assert collision_status == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert collision == {"ok": False, "error": "bootstrap_issue_failed"}
+    assert collision_sessions.verify(collision_session_id, collision_first.csrf_token)[0] == HTTPStatus.OK
+
+    expiry_clock = FakeClock()
+    expiry_sessions = SessionRegistry(
+        clock=expiry_clock,
+        token_generator=DeterministicBytes("expiry"),
+    )
+    expiry_first_status, expiry_first = coordinate(raw_headers, expiry_sessions)
+    assert expiry_first_status == HTTPStatus.OK
+    assert isinstance(expiry_first, MemorySessionBootstrapSuccess)
+    expiry_session_id = session_id_from_cookie(expiry_first.set_cookie_header)
+    expiry_clock.advance(MEMORY_SESSION_IDLE_TTL_SECONDS)
+    expired_rotation_status, expired_rotation_request = adapt(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}={expiry_session_id}")]
+    )
+    assert expired_rotation_status == HTTPStatus.OK
+    expired_replacement_status, expired_replacement = coordinate(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}={expiry_session_id}")],
+        expiry_sessions,
+    )
+    assert expired_replacement_status == HTTPStatus.OK
+    assert isinstance(expired_replacement, MemorySessionBootstrapSuccess)
+    assert expiry_sessions.active_count() == 1
+    assert expiry_sessions.verify(expiry_session_id, expiry_first.csrf_token)[0] == HTTPStatus.FORBIDDEN
+
+    restarted_sessions = SessionRegistry(
+        clock=FakeClock(),
+        token_generator=DeterministicBytes("restart"),
+    )
+    assert restarted_sessions.verify(expiry_session_id, expiry_first.csrf_token)[0] == HTTPStatus.FORBIDDEN
+    restart_status, restart_result = coordinate(
+        [*raw_headers, ("Cookie", f"{MEMORY_SESSION_COOKIE_NAME}={expiry_session_id}")],
+        restarted_sessions,
+    )
+    assert restart_status == HTTPStatus.OK
+    assert isinstance(restart_result, MemorySessionBootstrapSuccess)
+    assert restarted_sessions.active_count() == 1
+
+    concurrent_sessions = SessionRegistry(
+        max_entries=4,
+        clock=FakeClock(),
+        token_generator=DeterministicBytes("concurrent"),
+    )
+    concurrent_results: list[tuple[int, Any] | None] = [None] * 10
+    barrier = threading.Barrier(len(concurrent_results))
+
+    def bootstrap_worker(index: int) -> None:
+        barrier.wait()
+        concurrent_results[index] = coordinate(raw_headers, concurrent_sessions)
+
+    threads = [threading.Thread(target=bootstrap_worker, args=(index,)) for index in range(len(concurrent_results))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+    completed_results = [result for result in concurrent_results if result is not None]
+    assert len(completed_results) == len(concurrent_results)
+    successful_results = [result for status, result in completed_results if status == HTTPStatus.OK]
+    capacity_results = [result for status, result in completed_results if status == HTTPStatus.SERVICE_UNAVAILABLE]
+    assert len(successful_results) == 4
+    assert len(capacity_results) == 6
+    assert all(isinstance(result, MemorySessionBootstrapSuccess) for result in successful_results)
+    assert all(result == {"ok": False, "error": "bootstrap_capacity_reached"} for result in capacity_results)
+    assert concurrent_sessions.active_count() == 4
+    assert len({session_id_from_cookie(result.set_cookie_header) for result in successful_results}) == 4
+
+    assert "adapt_memory_session_bootstrap_metadata" not in inspect.getsource(handle_post_api)
+    assert "adapt_memory_session_bootstrap_metadata" not in inspect.getsource(JarvisConsoleHandler)
+    assert "coordinate_memory_session_bootstrap" not in inspect.getsource(handle_post_api)
+    assert "coordinate_memory_session_bootstrap" not in inspect.getsource(JarvisConsoleHandler)
+    assert handle_post_api(MEMORY_SAVE_ENDPOINT, {}) == (
+        HTTPStatus.NOT_FOUND,
+        {"ok": False, "error": "not_found"},
+    )
+    assert "bootstrap" not in str(prepare_voice_inbox_task({"transcript": "이 반복 작업을 기억해줘"})).lower()
     assert not (APP_ROOT / "state").exists()
     assert not (REPO_ROOT / ".jarvis-local").exists()
     assert not (REPO_ROOT / "memory" / "skills").exists()
@@ -4219,6 +4914,7 @@ def run_self_test() -> None:
     assert memory["preview_token_subsystem"] == "internal_tests_only"
     assert memory["guarded_save_coordinator"] == "internal_tests_only"
     assert memory["http_metadata_adapter"] == "internal_tests_only"
+    assert memory["session_bootstrap_primitive"] == "internal_tests_only"
     assert memory["persisted_original_text_preview"] is False
     assert memory["preview_token_issuance"] is False
     assert memory["ui_save_action"] is False
@@ -4238,6 +4934,7 @@ def run_self_test() -> None:
         assert_memory_candidate_safety(candidate)
 
     run_memory_http_metadata_adapter_self_tests()
+    run_memory_session_bootstrap_primitive_self_tests()
     run_memory_request_guard_token_self_tests()
     run_memory_guarded_save_coordinator_self_tests()
 

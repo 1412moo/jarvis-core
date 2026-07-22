@@ -360,6 +360,7 @@ def main() -> None:
     assert memory["preview_token_subsystem"] == "internal_tests_only"
     assert memory["guarded_save_coordinator"] == "internal_tests_only"
     assert memory["http_metadata_adapter"] == "internal_tests_only"
+    assert memory["session_bootstrap_primitive"] == "internal_tests_only"
     assert memory["persisted_original_text_preview"] is False
     assert memory["preview_token_issuance"] is False
     assert memory["ui_save_action"] is False
