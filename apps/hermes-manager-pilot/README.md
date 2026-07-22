@@ -661,6 +661,35 @@ and does not stage, commit, push, or create a PR.
 See [Durable Review Local Lifecycle v0.1C](../../docs/hermes-durable-review-lifecycle-v0.1.md)
 for the route, confirmation, recovery, and security contract.
 
+## Durable Review Reopen-to-Handoff v0.1D
+
+Status: implemented and locally verified in commit
+`e1ea7e4c664153276eb55dfde3dbdfea0da05ab4`.
+
+The user can select one exact saved Review, explicitly reconfirm its stored
+target files as the current review scope, and request a new copy-only Jarvis
+Review handoff. The server rereads trusted branch, HEAD, and the complete
+`git status --short` snapshot. Any metadata mismatch, staged change, missing
+untracked `jarvis.bat`, or change outside the stored scope blocks output and
+returns bounded reasons. A blocked attempt clears the generated-output area.
+
+Directory targets use one canonical trailing slash. Prompt Queue evaluation
+matches only files below that slash, rejects sibling-prefix paths, and blocks a
+directory scope that contains a protected path. Git porcelain columns are
+preserved when the handoff is regenerated.
+
+The response explicitly reports `freshness_basis=branch_head_status_only` and
+`content_evidence_verified=false`. It does not claim that already-modified file
+contents are unchanged. Downstream read-only review must collect content
+evidence before any review decision. The regenerated item remains
+`review_passed=false`, `commit_approved=false`, and `push_allowed=false`.
+
+The local guarded route neither writes the Review store nor calls another app.
+Clipboard remains output only: Hermes never reads it and the same artifact can
+be regenerated from the stored Review while its Git metadata still matches.
+There is no prompt execution, auto-call, stage, commit, push, PR, external API,
+background worker, or Memory / Skills save change.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).
