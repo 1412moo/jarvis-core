@@ -24,8 +24,10 @@ from hermes_manager_pilot.change_evidence import (
     MAX_GIT_OUTPUT_BYTES,
     WHOLE_STATUS_COVERAGE,
     collect_local_change_evidence,
+    collect_review_evidence_bundle,
     collect_whole_worktree_status_evidence,
     verify_local_change_evidence,
+    verify_review_evidence_bundle,
     verify_whole_worktree_status_evidence,
 )
 from hermes_manager_pilot.pipeline import run_hermes_manager_pilot
@@ -1445,6 +1447,133 @@ def _test_whole_worktree_status_evidence_rejects_unstable_and_excessive_state() 
     _assert(not overflow_errors, "oversized Git output produced a reader error")
 
 
+def _test_review_evidence_bundle_is_deterministic_complete_and_purely_verifiable() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-bundle-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        outside_content = "outside content remains outside the target digest\n"
+        (repo / "outside.txt").write_text(outside_content, encoding="utf-8")
+
+        first = collect_review_evidence_bundle(repo, project, item)
+        second = collect_review_evidence_bundle(repo, project, item)
+        _assert(first == second, "review evidence bundle should be deterministic")
+        _assert(first.version == "0.1C-0C-2", "review evidence bundle version is wrong")
+        _assert(
+            "?? outside.txt" in first.whole_status_evidence.whole_git_status,
+            "review bundle hid an outside path",
+        )
+        snapshot = first.snapshot()
+        _assert(
+            snapshot["target_evidence"]["digest"]
+            == first.target_evidence.change_evidence_digest,
+            "review bundle did not bind target evidence",
+        )
+        _assert(
+            snapshot["whole_status_evidence"]["digest"]
+            == first.whole_status_evidence.status_evidence_digest,
+            "review bundle did not bind whole status evidence",
+        )
+        _assert(
+            outside_content.encode("utf-8") not in first.canonical_bytes,
+            "review bundle leaked outside content",
+        )
+
+        original_run_git = change_evidence_module._run_git_bytes
+
+        def forbidden_git_read(*args: object, **kwargs: object) -> bytes:
+            raise AssertionError("review bundle verification must not read Git")
+
+        change_evidence_module._run_git_bytes = forbidden_git_read
+        try:
+            _assert(
+                verify_review_evidence_bundle(first, project, item) is None,
+                "valid review evidence bundle should verify",
+            )
+        finally:
+            change_evidence_module._run_git_bytes = original_run_git
+
+        (repo / "src" / "tracked.txt").write_text(
+            "target content changed after the first bundle\n",
+            encoding="utf-8",
+        )
+        target_changed = collect_review_evidence_bundle(repo, project, item)
+        _assert(
+            target_changed.bundle_digest != first.bundle_digest,
+            "target content change did not invalidate review bundle",
+        )
+
+
+def _test_review_evidence_bundle_rejects_tampering_and_collection_races() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-bundle-verify-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        bundle = collect_review_evidence_bundle(repo, project, item)
+
+        _assert_validation_error(
+            lambda: verify_review_evidence_bundle(
+                replace(bundle, version="0.1C-0C-1"),
+                project,
+                item,
+            ),
+            "metadata is unsupported",
+        )
+        _assert_validation_error(
+            lambda: verify_review_evidence_bundle(
+                replace(bundle, canonical_bytes=bundle.canonical_bytes + b" "),
+                project,
+                item,
+            ),
+            "canonical manifest is inconsistent",
+        )
+        _assert_validation_error(
+            lambda: verify_review_evidence_bundle(
+                replace(bundle, bundle_digest="0" * 64),
+                project,
+                item,
+            ),
+            "bundle digest is inconsistent",
+        )
+
+        whole_without_target = replace(
+            bundle.whole_status_evidence,
+            whole_git_status=tuple(
+                line
+                for line in bundle.whole_status_evidence.whole_git_status
+                if not line.endswith("src/tracked.txt")
+            ),
+        )
+        _assert_validation_error(
+            lambda: change_evidence_module._validate_target_and_whole_status_consistency(
+                bundle.target_evidence,
+                whole_without_target,
+            ),
+            "target and whole status disagree",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-review-bundle-race-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        original_collect = change_evidence_module.collect_local_change_evidence
+        call_count = 0
+
+        def mutating_target_collect(*args: object, **kwargs: object) -> object:
+            nonlocal call_count
+            result = original_collect(*args, **kwargs)
+            call_count += 1
+            if call_count == 1:
+                (repo / "src" / "tracked.txt").write_text(
+                    "target changed between bundle samples\n",
+                    encoding="utf-8",
+                )
+            return result
+
+        change_evidence_module.collect_local_change_evidence = mutating_target_collect
+        try:
+            _assert_validation_error(
+                lambda: collect_review_evidence_bundle(repo, project, item),
+                "repository changed during review evidence collection",
+            )
+        finally:
+            change_evidence_module.collect_local_change_evidence = original_collect
+
+
 def _test_local_change_evidence_rejects_scope_root_stage_and_size_violations() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-safety-") as temp_dir:
         repo, project, item = _create_change_evidence_fixture(temp_dir)
@@ -1657,6 +1786,8 @@ def main() -> None:
         _test_whole_worktree_status_evidence_is_complete_deterministic_and_read_only,
         _test_whole_worktree_status_evidence_rejects_tampering_and_unsafe_state,
         _test_whole_worktree_status_evidence_rejects_unstable_and_excessive_state,
+        _test_review_evidence_bundle_is_deterministic_complete_and_purely_verifiable,
+        _test_review_evidence_bundle_rejects_tampering_and_collection_races,
         _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,

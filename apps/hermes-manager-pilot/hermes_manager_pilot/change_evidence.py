@@ -28,6 +28,8 @@ EVIDENCE_TYPE = "hermes_local_change_evidence"
 WHOLE_STATUS_VERSION = "0.1C-0C-1"
 WHOLE_STATUS_EVIDENCE_TYPE = "hermes_whole_worktree_status_evidence"
 WHOLE_STATUS_COVERAGE = "git-visible-whole-worktree"
+REVIEW_BUNDLE_VERSION = "0.1C-0C-2"
+REVIEW_BUNDLE_EVIDENCE_TYPE = "hermes_review_evidence_bundle"
 
 MAX_FILE_BYTES = 4 * 1024 * 1024
 MAX_TOTAL_FILE_BYTES = 16 * 1024 * 1024
@@ -41,6 +43,9 @@ MAX_EVIDENCE_TEXT_LENGTH = 4096
 _DIGEST_PREFIX = b"jarvis-core/hermes/local-change-evidence/v0.1C-0B\x00"
 _WHOLE_STATUS_DIGEST_PREFIX = (
     b"jarvis-core/hermes/whole-worktree-status-evidence/v0.1C-0C-1\x00"
+)
+_REVIEW_BUNDLE_DIGEST_PREFIX = (
+    b"jarvis-core/hermes/review-evidence-bundle/v0.1C-0C-2\x00"
 )
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _TRACKED_STATUS_CODES = frozenset(" MADRCU")
@@ -123,6 +128,33 @@ class WholeWorktreeStatusEvidence:
         value = json.loads(self.canonical_bytes.decode("utf-8"))
         if not isinstance(value, dict):
             raise ValidationError("whole-worktree status snapshot must be an object")
+        return value
+
+
+@dataclass(frozen=True)
+class ReviewEvidenceBundle:
+    """One bounded target/status bundle without queue or approval mutation."""
+
+    project_id: str
+    item_id: str
+    declared_repo_path: str
+    repo_root: str
+    branch: str
+    head: str
+    target_evidence: LocalChangeEvidence
+    whole_status_evidence: WholeWorktreeStatusEvidence
+    bundle_digest: str
+    canonical_bytes: bytes
+    byte_size: int
+    evidence_type: str = REVIEW_BUNDLE_EVIDENCE_TYPE
+    version: str = REVIEW_BUNDLE_VERSION
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a new JSON-decoded copy of the canonical bundle manifest."""
+
+        value = json.loads(self.canonical_bytes.decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ValidationError("review evidence bundle snapshot must be an object")
         return value
 
 
@@ -232,6 +264,52 @@ def collect_whole_worktree_status_evidence(
         coverage=WHOLE_STATUS_COVERAGE,
         whole_git_status=before.status_lines,
         status_evidence_digest=digest,
+        canonical_bytes=canonical_bytes,
+        byte_size=len(canonical_bytes),
+    )
+
+
+def collect_review_evidence_bundle(
+    trusted_repo_root: str | Path,
+    project: ProjectCard,
+    item: QueueItem,
+) -> ReviewEvidenceBundle:
+    """Bind target content and whole status from one repeated collection window."""
+
+    _validate_project_item(project, item)
+    before = collect_whole_worktree_status_evidence(trusted_repo_root, project, item)
+    first_target = collect_local_change_evidence(trusted_repo_root, project, item)
+    middle = collect_whole_worktree_status_evidence(trusted_repo_root, project, item)
+    if middle != before:
+        raise ValidationError("repository changed during review evidence collection")
+    second_target = collect_local_change_evidence(trusted_repo_root, project, item)
+    after = collect_whole_worktree_status_evidence(trusted_repo_root, project, item)
+    if after != before or second_target != first_target:
+        raise ValidationError("repository changed during review evidence collection")
+    _validate_target_and_whole_status_consistency(first_target, before)
+
+    snapshot = _review_bundle_snapshot(
+        project_id=project.project_id,
+        item_id=item.item_id,
+        declared_repo_path=before.declared_repo_path,
+        repo_root=before.repo_root,
+        branch=before.branch,
+        head=before.head,
+        target_evidence=first_target,
+        whole_status_evidence=before,
+    )
+    canonical_bytes = _canonical_json_bytes(snapshot)
+    digest = hashlib.sha256(_REVIEW_BUNDLE_DIGEST_PREFIX + canonical_bytes).hexdigest()
+    return ReviewEvidenceBundle(
+        project_id=project.project_id,
+        item_id=item.item_id,
+        declared_repo_path=before.declared_repo_path,
+        repo_root=before.repo_root,
+        branch=before.branch,
+        head=before.head,
+        target_evidence=first_target,
+        whole_status_evidence=before,
+        bundle_digest=digest,
         canonical_bytes=canonical_bytes,
         byte_size=len(canonical_bytes),
     )
@@ -366,6 +444,65 @@ def verify_whole_worktree_status_evidence(
         raise ValidationError("whole-worktree status digest is inconsistent")
 
 
+def verify_review_evidence_bundle(
+    bundle: ReviewEvidenceBundle,
+    project: ProjectCard,
+    item: QueueItem,
+) -> None:
+    """Verify composite consistency without proving provenance or approval."""
+
+    if not isinstance(bundle, ReviewEvidenceBundle):
+        raise ValidationError("bundle must be ReviewEvidenceBundle")
+    _validate_project_item(project, item)
+    _validate_review_bundle_shape(bundle)
+
+    if (
+        bundle.evidence_type != REVIEW_BUNDLE_EVIDENCE_TYPE
+        or bundle.version != REVIEW_BUNDLE_VERSION
+    ):
+        raise ValidationError("review evidence bundle metadata is unsupported")
+    if bundle.project_id != project.project_id:
+        raise ValidationError("review evidence bundle project does not match project card")
+    if bundle.item_id != item.item_id:
+        raise ValidationError("review evidence bundle item does not match queue item")
+    _validate_local_absolute_root(project.repo_path, "project repo_path")
+    if bundle.declared_repo_path != _portable_declared_path(project.repo_path):
+        raise ValidationError("review evidence declared repo path does not match project")
+    if bundle.branch != project.expected_branch:
+        raise ValidationError("review evidence branch does not match expected branch")
+    if bundle.head != project.expected_head:
+        raise ValidationError("review evidence HEAD does not match expected HEAD")
+
+    verify_local_change_evidence(bundle.target_evidence, project, item)
+    verify_whole_worktree_status_evidence(bundle.whole_status_evidence, project, item)
+    _validate_bundle_metadata_consistency(bundle)
+    _validate_target_and_whole_status_consistency(
+        bundle.target_evidence,
+        bundle.whole_status_evidence,
+    )
+
+    expected_snapshot = _review_bundle_snapshot(
+        project_id=bundle.project_id,
+        item_id=bundle.item_id,
+        declared_repo_path=bundle.declared_repo_path,
+        repo_root=bundle.repo_root,
+        branch=bundle.branch,
+        head=bundle.head,
+        target_evidence=bundle.target_evidence,
+        whole_status_evidence=bundle.whole_status_evidence,
+    )
+    expected_canonical = _canonical_json_bytes(expected_snapshot)
+    if bundle.byte_size != len(expected_canonical):
+        raise ValidationError("review evidence bundle byte size is inconsistent")
+    if not hmac.compare_digest(bundle.canonical_bytes, expected_canonical):
+        raise ValidationError("review evidence bundle canonical manifest is inconsistent")
+    expected_digest = hashlib.sha256(
+        _REVIEW_BUNDLE_DIGEST_PREFIX + expected_canonical
+    ).hexdigest()
+    if not hmac.compare_digest(bundle.bundle_digest, expected_digest):
+        raise ValidationError("review evidence bundle digest is inconsistent")
+
+
 def _validate_project_item(project: ProjectCard, item: QueueItem) -> None:
     if not isinstance(project, ProjectCard):
         raise ValidationError("project must be a normalized ProjectCard")
@@ -485,6 +622,100 @@ def _validate_whole_status_evidence_shape(
         raise ValidationError("whole-worktree Git status must be a tuple")
     if len(evidence.whole_git_status) > MAX_STATUS_ENTRIES:
         raise ValidationError("whole-worktree Git status count exceeds limit")
+
+
+def _validate_review_bundle_shape(bundle: ReviewEvidenceBundle) -> None:
+    text_fields = (
+        (bundle.project_id, "project_id"),
+        (bundle.item_id, "item_id"),
+        (bundle.declared_repo_path, "declared_repo_path"),
+        (bundle.repo_root, "repo_root"),
+        (bundle.branch, "branch"),
+        (bundle.head, "head"),
+        (bundle.bundle_digest, "bundle_digest"),
+        (bundle.evidence_type, "evidence_type"),
+        (bundle.version, "version"),
+    )
+    for value, label in text_fields:
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > MAX_EVIDENCE_TEXT_LENGTH
+            or any(ord(character) < 32 for character in value)
+        ):
+            raise ValidationError(f"review evidence bundle {label} is malformed")
+    if not _DIGEST_PATTERN.fullmatch(bundle.bundle_digest):
+        raise ValidationError("review evidence bundle digest is malformed")
+    _validate_local_absolute_root(
+        bundle.declared_repo_path,
+        "review evidence declared_repo_path",
+    )
+    _validate_local_absolute_root(bundle.repo_root, "review evidence repo_root")
+    if not isinstance(bundle.target_evidence, LocalChangeEvidence):
+        raise ValidationError("review bundle target evidence is malformed")
+    if not isinstance(bundle.whole_status_evidence, WholeWorktreeStatusEvidence):
+        raise ValidationError("review bundle whole-status evidence is malformed")
+    if not isinstance(bundle.canonical_bytes, bytes):
+        raise ValidationError("review evidence bundle canonical manifest must be bytes")
+    if len(bundle.canonical_bytes) > MAX_CANONICAL_BYTES:
+        raise ValidationError("review evidence bundle canonical manifest exceeds limit")
+    if (
+        not isinstance(bundle.byte_size, int)
+        or isinstance(bundle.byte_size, bool)
+        or bundle.byte_size < 1
+        or bundle.byte_size > MAX_CANONICAL_BYTES
+    ):
+        raise ValidationError("review evidence bundle byte size is malformed")
+
+
+def _validate_bundle_metadata_consistency(bundle: ReviewEvidenceBundle) -> None:
+    target = bundle.target_evidence
+    whole = bundle.whole_status_evidence
+    expected = (
+        bundle.project_id,
+        bundle.item_id,
+        bundle.declared_repo_path,
+        bundle.repo_root,
+        bundle.branch,
+        bundle.head,
+    )
+    target_metadata = (
+        target.project_id,
+        target.item_id,
+        target.declared_repo_path,
+        target.repo_root,
+        target.branch,
+        target.head,
+    )
+    whole_metadata = (
+        whole.project_id,
+        whole.item_id,
+        whole.declared_repo_path,
+        whole.repo_root,
+        whole.branch,
+        whole.head,
+    )
+    if target_metadata != expected or whole_metadata != expected:
+        raise ValidationError("review evidence bundle metadata is inconsistent")
+
+
+def _validate_target_and_whole_status_consistency(
+    target: LocalChangeEvidence,
+    whole: WholeWorktreeStatusEvidence,
+) -> None:
+    scoped_entries = _parse_evidence_status_lines(target.scoped_git_status)
+    whole_entries = _parse_evidence_status_lines(whole.whole_git_status)
+    scoped_by_path = {_path_key(path): code for code, path in scoped_entries}
+    whole_by_path = {_path_key(path): code for code, path in whole_entries}
+    for path in target.status_scope_paths:
+        path_key = _path_key(path)
+        if scoped_by_path.get(path_key, "  ") != whole_by_path.get(path_key, "  "):
+            raise ValidationError(f"target and whole status disagree: {path}")
+    for target_entry in target.targets:
+        if target_entry.status != whole_by_path.get(_path_key(target_entry.path), "  "):
+            raise ValidationError(
+                f"target evidence and whole status disagree: {target_entry.path}"
+            )
 
 
 def _parse_evidence_status_lines(lines: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
@@ -1041,6 +1272,40 @@ def _whole_status_snapshot(
         "head": head,
         "coverage": coverage,
         "whole_git_status": list(whole_git_status),
+    }
+
+
+def _review_bundle_snapshot(
+    *,
+    project_id: str,
+    item_id: str,
+    declared_repo_path: str,
+    repo_root: str,
+    branch: str,
+    head: str,
+    target_evidence: LocalChangeEvidence,
+    whole_status_evidence: WholeWorktreeStatusEvidence,
+) -> dict[str, Any]:
+    return {
+        "evidence_type": REVIEW_BUNDLE_EVIDENCE_TYPE,
+        "version": REVIEW_BUNDLE_VERSION,
+        "project_id": project_id,
+        "item_id": item_id,
+        "declared_repo_path": declared_repo_path,
+        "repo_root": repo_root,
+        "branch": branch,
+        "head": head,
+        "target_evidence": {
+            "evidence_type": target_evidence.evidence_type,
+            "version": target_evidence.version,
+            "digest": target_evidence.change_evidence_digest,
+        },
+        "whole_status_evidence": {
+            "evidence_type": whole_status_evidence.evidence_type,
+            "version": whole_status_evidence.version,
+            "coverage": whole_status_evidence.coverage,
+            "digest": whole_status_evidence.status_evidence_digest,
+        },
     }
 
 
