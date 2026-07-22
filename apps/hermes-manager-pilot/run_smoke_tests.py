@@ -53,6 +53,7 @@ from hermes_manager_pilot.prompt_renderer import render_commit_prompt
 from hermes_manager_pilot.review_handoff import (
     HANDOFF_ENDPOINT,
     build_copy_only_review_handoff,
+    build_copy_only_review_handoff_from_record,
     render_copy_only_review_handoff,
 )
 import hermes_manager_pilot.review_lifecycle as review_lifecycle_module
@@ -61,6 +62,7 @@ from hermes_manager_pilot.review_lifecycle import (
     ReviewLifecycleService,
     delete_preview_to_dict,
     recovery_inspection_to_dict,
+    reopen_handoff_to_dict,
     save_preview_to_dict,
 )
 import hermes_manager_pilot.review_record as review_record_module
@@ -3665,6 +3667,190 @@ def _test_review_lifecycle_is_confirmed_recoverable_and_fail_closed() -> None:
         _assert(not state_root.exists(), "expired Save confirmation created local state")
 
 
+def _test_reopen_to_handoff_is_fresh_read_only_and_stale_blocking() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-reopen-handoff-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        snapshot = _review_lifecycle_snapshot()
+        snapshot["status"] = [
+            " M apps/hermes-manager-pilot/README.md",
+            " M apps/hermes-manager-pilot/run_web_app.py",
+            "?? jarvis.bat",
+        ]
+        snapshot_loads = [0]
+
+        def load_snapshot() -> dict[str, object]:
+            snapshot_loads[0] += 1
+            return copy.deepcopy(snapshot)
+
+        service = ReviewLifecycleService(
+            trusted_repo_root=repo,
+            git_snapshot_loader=load_snapshot,
+            store_kwargs={"env": env, "repo_root": repo},
+            record_id_generator=lambda: "review_000000000000000000000023",
+            record_clock=lambda: datetime(2026, 7, 23, 1, 2, 6, tzinfo=timezone.utc),
+            token_generator=lambda: "reopen_handoff_save_0000000023",
+            monotonic_clock=lambda: 20.0,
+        )
+        session_id = "local_session_0000000000000023"
+        directory_session = _review_lifecycle_session(repo)
+        directory_session["files_touched"] = ["apps/hermes-manager-pilot/"]
+        directory_session["target_files"] = ["apps/hermes-manager-pilot/"]
+        preview = service.prepare_save(
+            directory_session,
+            "Fresh handoff regeneration completed.",
+            scope_confirmed=True,
+            privacy_acknowledged=True,
+            retention_acknowledged=True,
+            session_id=session_id,
+        )
+        receipt = service.confirm_save(preview.confirmation_token, session_id=session_id)
+        review_id = receipt["review_id"]
+        stored_before = service.reopen(review_id)
+        digest_before = review_record_digest(stored_before)
+        count_before = service.list_saved()["count"]
+
+        _assert_review_lifecycle_error(
+            lambda: service.prepare_reopen_handoff(
+                review_id,
+                scope_confirmed=False,
+            ),
+            "review_reopen_handoff_scope_not_confirmed",
+        )
+        _assert(snapshot_loads[0] == 2, "missing scope confirmation performed Git IO")
+        first = service.prepare_reopen_handoff(review_id, scope_confirmed=True)
+        second = service.prepare_reopen_handoff(review_id, scope_confirmed=True)
+        _assert(first == second, "unchanged Reopen-to-Handoff output is not deterministic")
+        _assert(snapshot_loads[0] == 4, "each Save/Handoff action must collect Git exactly once")
+        mapping = reopen_handoff_to_dict(first)
+        _assert(
+            set(mapping)
+            == {
+                "version",
+                "review_id",
+                "item_id",
+                "artifact",
+                "git_metadata_matches",
+                "freshness_basis",
+                "content_evidence_verified",
+                "blocking_reasons",
+                "copy_only",
+                "read_only_source",
+                "review_passed",
+                "commit_approved",
+                "push_allowed",
+            },
+            "Reopen-to-Handoff transport fields changed",
+        )
+        _assert(mapping["version"] == "0.1D", "Reopen-to-Handoff version mismatch")
+        _assert(
+            mapping["git_metadata_matches"] is True
+            and mapping["freshness_basis"] == "branch_head_status_only"
+            and mapping["content_evidence_verified"] is False
+            and mapping["blocking_reasons"] == (),
+            "Git metadata freshness decision is inconsistent or overclaims content evidence",
+        )
+        _assert(mapping["copy_only"] is True and mapping["read_only_source"] is True, "handoff is not copy-only/read-only")
+        _assert(
+            mapping["review_passed"] is False
+            and mapping["commit_approved"] is False
+            and mapping["push_allowed"] is False,
+            "Reopen-to-Handoff restored workflow authority",
+        )
+        rendered = json.loads(mapping["artifact"])
+        queue = normalize_prompt_queue(rendered["queue"])
+        item = queue.items[0]
+        project = queue.projects[0]
+        evaluation = evaluate_queue_item(queue, item.item_id)
+        _assert(rendered["item_id"] == mapping["item_id"], "reopened handoff item ID mismatch")
+        _assert(item.result_type == "review" and item.scope_approved, "reopened handoff is not a bounded review request")
+        _assert(
+            not any(
+                "outside target files" in reason
+                or "unexpected untracked path" in reason
+                for reason in evaluation.blocking_reasons
+            ),
+            "canonical directory scope blocked its own changed files",
+        )
+        _assert(
+            item.target_files == ("apps/hermes-manager-pilot/",),
+            "reopened handoff lost the canonical directory scope",
+        )
+        _assert(not item.review_passed and not item.commit_approved, "reopened queue item restored approval")
+        _assert(item.last_result_summary == stored_before.result_summary, "reopened handoff lost the stored result summary")
+        _assert(project.expected_untracked == ("jarvis.bat",), "reopened handoff lost jarvis.bat protection")
+
+        sibling_payload = copy.deepcopy(rendered["queue"])
+        sibling_payload["items"][0]["observed_git_status"][0] = (
+            " M apps/hermes-manager-pilot-sibling/escape.py"
+        )
+        sibling_queue = normalize_prompt_queue(sibling_payload)
+        sibling_evaluation = evaluate_queue_item(sibling_queue, item.item_id)
+        _assert(
+            "tracked change is outside target files: "
+            "apps/hermes-manager-pilot-sibling/escape.py"
+            in sibling_evaluation.blocking_reasons,
+            "directory scope accepted a sibling-prefix path",
+        )
+
+        protected_payload = copy.deepcopy(rendered["queue"])
+        protected_payload["projects"][0]["protected_paths"].append(
+            "apps/hermes-manager-pilot/private.txt"
+        )
+        protected_payload["items"][0]["observed_git_status"][0] = (
+            " M apps/hermes-manager-pilot/private.txt"
+        )
+        protected_queue = normalize_prompt_queue(protected_payload)
+        protected_evaluation = evaluate_queue_item(protected_queue, item.item_id)
+        _assert(
+            "target file is protected: apps/hermes-manager-pilot/"
+            in protected_evaluation.blocking_reasons,
+            "directory scope silently included a protected path",
+        )
+        _assert(service.list_saved()["count"] == count_before, "Reopen-to-Handoff changed the Review listing")
+        _assert(review_record_digest(service.reopen(review_id)) == digest_before, "Reopen-to-Handoff changed the stored Review")
+
+        direct = build_copy_only_review_handoff_from_record(
+            stored_before,
+            copy.deepcopy(snapshot),
+            trusted_repo_root=repo,
+            scope_confirmed=True,
+        )
+        _assert(render_copy_only_review_handoff(direct) == first.artifact, "pure record adapter differs from lifecycle output")
+
+        snapshot["head"] = "b" * 40
+        stale_status, stale_response = hermes_web_app.handle_api_request(
+            "/api/reviews/reopen-handoff",
+            {"review_id": review_id, "scope_confirmed": True},
+            lifecycle=service,
+            local_session_id=session_id,
+        )
+        _assert(stale_status == 409, "stale Reopen-to-Handoff did not return conflict")
+        _assert(stale_response["error"] == "review_reopen_handoff_stale", "stale error code mismatch")
+        _assert("handoff" not in stale_response, "stale Reopen-to-Handoff exposed an artifact")
+        _assert(
+            stale_response["blocking_reasons"]
+            == ["current HEAD differs from the captured Review HEAD"],
+            "stale Reopen-to-Handoff reasons are not exact",
+        )
+        _assert(review_record_digest(service.reopen(review_id)) == digest_before, "stale handoff changed the stored Review")
+
+        invalid_fields_status, invalid_fields = hermes_web_app.handle_api_request(
+            "/api/reviews/reopen-handoff",
+            {"review_id": review_id, "scope_confirmed": True, "unexpected": True},
+            lifecycle=service,
+            local_session_id=session_id,
+        )
+        _assert(
+            invalid_fields_status == 400
+            and invalid_fields["error"] == "review_reopen_handoff_fields_invalid",
+            "Reopen-to-Handoff route accepted unknown fields",
+        )
+        _assert(
+            "/api/reviews/reopen-handoff" in hermes_web_app.REVIEW_LIFECYCLE_ROUTES,
+            "Reopen-to-Handoff route bypasses the local lifecycle guard",
+        )
+
+
 def _test_review_lifecycle_routes_are_exact_and_session_bound() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-review-lifecycle-routes-") as temp_dir:
         repo, _state_root, env = _review_store_fixture(temp_dir)
@@ -3905,6 +4091,7 @@ def _test_copy_only_jarvis_review_handoff_is_deterministic_and_bounded() -> None
     item = queue.items[0]
     project = queue.projects[0]
     _assert(item.item_id == first["item_id"], "handoff item ID mismatch")
+    _assert(item.observed_git_status[0] == f" M {target}", "handoff lost the first porcelain status column")
     _assert(item.result_type == "review", "handoff must target review stage")
     _assert(item.scope_approved, "confirmed scope was not represented")
     expected_scope = build_scope_approval_binding(
@@ -4108,6 +4295,7 @@ def main() -> None:
         _test_review_store_rejects_corruption_id_mismatch_and_capacity_overflow,
         _test_review_store_exact_delete_is_digest_bound_and_single_record_only,
         _test_review_lifecycle_is_confirmed_recoverable_and_fail_closed,
+        _test_reopen_to_handoff_is_fresh_read_only_and_stale_blocking,
         _test_review_lifecycle_routes_are_exact_and_session_bound,
         _test_review_lifecycle_http_guard_is_same_origin_and_clickjacking_safe,
         _test_review_store_remains_route_and_external_free,

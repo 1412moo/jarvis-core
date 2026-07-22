@@ -79,6 +79,7 @@ const elements = {
   confirmDurableSaveButton: document.getElementById("confirmDurableSaveButton"),
   savedReviewSelect: document.getElementById("savedReviewSelect"),
   reviewIdInput: document.getElementById("reviewIdInput"),
+  reopenScopeConfirmed: document.getElementById("reopenScopeConfirmed"),
   deleteConfirmationInput: document.getElementById("deleteConfirmationInput"),
   confirmDeleteReviewButton: document.getElementById("confirmDeleteReviewButton"),
   durableReviewDetails: document.getElementById("durableReviewDetails"),
@@ -534,6 +535,48 @@ async function reopenSavedReview() {
   }
 }
 
+async function copyReopenedHandoff() {
+  const reviewId = requestedReviewId();
+  if (!reviewId) {
+    setStatus("Enter or select one exact Review ID first.");
+    return;
+  }
+  if (!elements.reopenScopeConfirmed.checked) {
+    setStatus("Reconfirm the saved target files as the current review scope first.");
+    return;
+  }
+  try {
+    const data = await lifecyclePost("/api/reviews/reopen-handoff", {
+      review_id: reviewId,
+      scope_confirmed: true,
+    });
+    const { artifact, ...displayHandoff } = data.handoff;
+    setOutput("Fresh Reopened Jarvis Review Handoff", artifact);
+    setDurableDetails({
+      operation: "fresh_reopen_to_handoff",
+      clipboard: "output_only",
+      ...displayHandoff,
+    });
+    const copyError = await copyText(artifact);
+    const message = `Git-metadata-matched handoff ${data.handoff.item_id} regenerated from ${reviewId}. Content evidence and approval were not restored.`;
+    setStatus(copyError ? `${message} Clipboard copy failed: ${copyError}` : `${message} Copied to clipboard.`);
+  } catch (error) {
+    const blockingReasons = error.payload && Array.isArray(error.payload.blocking_reasons)
+      ? error.payload.blocking_reasons
+      : [];
+    setOutput("Fresh Handoff Blocked", "");
+    setDurableDetails({
+      operation: "reopen_to_handoff_blocked",
+      review_id: reviewId,
+      error: error.message,
+      blocking_reasons: blockingReasons,
+      artifact_created: false,
+    });
+    const reasonText = blockingReasons.length ? ` ${blockingReasons.join("; ")}` : "";
+    setStatus(`Fresh handoff blocked: ${error.message}.${reasonText}`);
+  }
+}
+
 async function inspectRecovery() {
   const reviewId = requestedReviewId();
   if (!reviewId) {
@@ -618,16 +661,19 @@ document.getElementById("refreshSavedReviewsButton").addEventListener("click", r
 document.getElementById("previewDurableSaveButton").addEventListener("click", previewDurableSave);
 document.getElementById("confirmDurableSaveButton").addEventListener("click", confirmDurableSave);
 document.getElementById("reopenSavedReviewButton").addEventListener("click", reopenSavedReview);
+document.getElementById("copyReopenedHandoffButton").addEventListener("click", copyReopenedHandoff);
 document.getElementById("inspectRecoveryButton").addEventListener("click", inspectRecovery);
 document.getElementById("previewDeleteReviewButton").addEventListener("click", previewExactDelete);
 document.getElementById("confirmDeleteReviewButton").addEventListener("click", confirmExactDelete);
 elements.savedReviewSelect.addEventListener("change", () => {
   elements.reviewIdInput.value = elements.savedReviewSelect.value;
+  elements.reopenScopeConfirmed.checked = false;
   state.deletePreview = null;
   elements.confirmDeleteReviewButton.disabled = true;
   elements.deleteConfirmationInput.value = "";
 });
 elements.reviewIdInput.addEventListener("input", () => {
+  elements.reopenScopeConfirmed.checked = false;
   state.deletePreview = null;
   elements.confirmDeleteReviewButton.disabled = true;
   elements.deleteConfirmationInput.value = "";

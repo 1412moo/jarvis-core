@@ -25,6 +25,7 @@ from hermes_manager_pilot.review_lifecycle import (
     ReviewLifecycleService,
     delete_preview_to_dict,
     recovery_inspection_to_dict,
+    reopen_handoff_to_dict,
     save_preview_to_dict,
 )
 from hermes_manager_pilot.review_record import review_record_to_dict
@@ -99,6 +100,7 @@ API_ROUTES = {
     "/api/reviews/save-preview",
     "/api/reviews/save-confirm",
     "/api/reviews/reopen",
+    "/api/reviews/reopen-handoff",
     "/api/reviews/recovery",
     "/api/reviews/delete-preview",
     "/api/reviews/delete-confirm",
@@ -425,6 +427,20 @@ def handle_api_request(
             _require_exact_fields(payload, {"review_id"}, "review_reopen")
             record = service.reopen(payload.get("review_id"))
             return HTTPStatus.OK, {"ok": True, "record": review_record_to_dict(record)}
+        if path == "/api/reviews/reopen-handoff":
+            _require_exact_fields(
+                payload,
+                {"review_id", "scope_confirmed"},
+                "review_reopen_handoff",
+            )
+            handoff = service.prepare_reopen_handoff(
+                payload.get("review_id"),
+                scope_confirmed=payload.get("scope_confirmed") is True,
+            )
+            return HTTPStatus.OK, {
+                "ok": True,
+                "handoff": reopen_handoff_to_dict(handoff),
+            }
         if path == "/api/reviews/recovery":
             _require_exact_fields(payload, {"review_id"}, "review_recovery")
             inspection = service.inspect_recovery(payload.get("review_id"))
@@ -458,6 +474,8 @@ def handle_api_request(
         response: dict[str, Any] = {"ok": False, "error": exc.code}
         if exc.review_id is not None:
             response["review_id"] = exc.review_id
+        if exc.blocking_reasons:
+            response["blocking_reasons"] = list(exc.blocking_reasons)
         return status, response
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
 
@@ -478,6 +496,7 @@ def _review_lifecycle_error_status(code: str) -> int:
         "review_record_exists",
         "review_save_outcome_uncertain",
         "review_save_snapshot_stale",
+        "review_reopen_handoff_stale",
         "review_delete_target_changed",
         "review_record_delete_outcome_uncertain",
         "review_store_recovery_required",
@@ -760,6 +779,8 @@ def run_self_test() -> None:
     assert "Save Review Object and Continue" in index_html
     assert "Clipboard is output only." in index_html
     assert "Copy Jarvis Review Handoff" in index_html
+    assert "Copy Fresh Handoff" in index_html
+    assert "It does not verify file-content hashes" in index_html
     assert "Generated Output" in index_html
     assert "does not call Codex" in index_html
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
@@ -770,6 +791,9 @@ def run_self_test() -> None:
     assert HANDOFF_ENDPOINT in app_js
     assert "scopeConfirmed" in app_js
     assert "function copyJarvisReviewHandoff()" in app_js
+    assert "function copyReopenedHandoff()" in app_js
+    assert 'lifecyclePost("/api/reviews/reopen-handoff"' in app_js
+    assert 'setOutput("Fresh Handoff Blocked", "")' in app_js
     assert "function reviewMatchesSession()" in app_js
     assert "state.review = Object.freeze" in app_js
     assert "navigator.clipboard.readText" not in app_js

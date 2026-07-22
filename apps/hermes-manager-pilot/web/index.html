@@ -153,13 +153,16 @@
           </div>
         </div>
         <div class="durable-pane">
-          <h3>Reopen or delete one exact Review</h3>
+          <h3>Reopen, create a fresh handoff, or delete one exact Review</h3>
+          <p class="field-help">Fresh Handoff rereads branch, HEAD, and exact git status --short. Any metadata difference blocks output. It does not verify file-content hashes; downstream read-only review must collect content evidence.</p>
           <label for="savedReviewSelect">Saved Reviews</label>
           <select id="savedReviewSelect"><option value="">No saved Review selected</option></select>
           <label for="reviewIdInput">Exact Review ID</label>
           <input id="reviewIdInput" type="text" placeholder="review_0123456789abcdef01234567" autocomplete="off">
+          <label class="check-row"><input id="reopenScopeConfirmed" type="checkbox"> I reconfirm the saved target files as the current review scope.</label>
           <div class="button-row">
             <button id="reopenSavedReviewButton" type="button" class="secondary-button">Reopen Read-only</button>
+            <button id="copyReopenedHandoffButton" type="button" class="primary-button">Copy Fresh Handoff</button>
             <button id="inspectRecoveryButton" type="button" class="secondary-button">Inspect Recovery</button>
             <button id="previewDeleteReviewButton" type="button" class="danger-button">Preview Exact Delete</button>
           </div>

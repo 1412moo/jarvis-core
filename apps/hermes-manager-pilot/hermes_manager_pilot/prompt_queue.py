@@ -233,10 +233,14 @@ def evaluate_queue_item(queue: PromptQueueState, item_id: str) -> QueueEvaluatio
     for path in sorted(expected_untracked - observed_untracked):
         reasons.append(f"expected untracked path is missing: {path}")
 
-    target_keys = {_path_key(path) for path in item.target_files}
     protected_keys = {_path_key(path) for path in project.protected_paths}
     for path in item.target_files:
-        if _path_key(path) in protected_keys:
+        protected_overlap = tuple(
+            protected
+            for protected in project.protected_paths
+            if _path_is_targeted(protected, (path,))
+        )
+        if protected_overlap:
             reasons.append(f"target file is protected: {path}")
 
     changed_files: list[str] = []
@@ -248,14 +252,14 @@ def evaluate_queue_item(queue: PromptQueueState, item_id: str) -> QueueEvaluatio
             path_key = _path_key(entry.path)
             if path_key in protected_keys:
                 reasons.append(f"protected path is unexpectedly untracked: {entry.path}")
-            elif path_key not in target_keys:
+            elif not _path_is_targeted(entry.path, item.target_files):
                 reasons.append(f"unexpected untracked path: {entry.path}")
             continue
         changed_files.append(entry.path)
         path_key = _path_key(entry.path)
         if path_key in protected_keys:
             reasons.append(f"protected path has tracked changes: {entry.path}")
-        elif path_key not in target_keys:
+        elif not _path_is_targeted(entry.path, item.target_files):
             reasons.append(f"tracked change is outside target files: {entry.path}")
         if entry.is_staged:
             reasons.append(f"staged change exists before an approved commit step: {entry.path}")
@@ -389,7 +393,7 @@ def _normalize_item(data: Mapping[str, Any], index: int) -> QueueItem:
     result_type = _required_text(data, "result_type", path).lower()
     if result_type not in ALLOWED_RESULT_TYPES:
         raise ValidationError(f"{path}.result_type is invalid: {result_type}")
-    target_files = _path_list(data, "target_files", path)
+    target_files = _path_list(data, "target_files", path, allow_directory=True)
     _reject_duplicates(target_files, f"{path}.target_files")
     return QueueItem(
         item_id=_required_text(data, "item_id", path),
@@ -480,21 +484,52 @@ def _text_list(data: Mapping[str, Any], field: str, path: str) -> tuple[str, ...
     return tuple(normalized)
 
 
-def _path_list(data: Mapping[str, Any], field: str, path: str) -> tuple[str, ...]:
+def _path_list(
+    data: Mapping[str, Any],
+    field: str,
+    path: str,
+    *,
+    allow_directory: bool = False,
+) -> tuple[str, ...]:
     values = _text_list(data, field, path)
-    return tuple(_relative_path(value, f"{path}.{field}") for value in values)
+    return tuple(
+        _relative_path(
+            value,
+            f"{path}.{field}",
+            allow_directory=allow_directory,
+        )
+        for value in values
+    )
 
 
-def _relative_path(value: str, field: str) -> str:
+def _relative_path(
+    value: str,
+    field: str,
+    *,
+    allow_directory: bool = False,
+) -> str:
     normalized = value.replace("\\", "/").strip()
+    is_directory = allow_directory and normalized.endswith("/")
+    candidate = normalized[:-1] if is_directory else normalized
     if (
-        not normalized
-        or normalized.startswith("/")
-        or _WINDOWS_DRIVE.match(normalized)
-        or any(part in {"", ".", ".."} for part in normalized.split("/"))
+        not candidate
+        or candidate.startswith("/")
+        or _WINDOWS_DRIVE.match(candidate)
+        or any(part in {"", ".", ".."} for part in candidate.split("/"))
     ):
         raise ValidationError(f"{field} must contain repository-relative paths")
-    return normalized
+    return f"{candidate}/" if is_directory else candidate
+
+
+def _path_is_targeted(path: str, targets: tuple[str, ...]) -> bool:
+    """Match one canonical file path against exact-file or trailing-slash scope."""
+
+    path_key = _path_key(path)
+    return any(
+        path_key == target_key
+        or (target_key.endswith("/") and path_key.startswith(target_key))
+        for target_key in (_path_key(target) for target in targets)
+    )
 
 
 def _parse_status_line(line: str) -> _StatusEntry:

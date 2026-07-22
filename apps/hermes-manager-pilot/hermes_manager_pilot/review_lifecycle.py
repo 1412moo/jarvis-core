@@ -19,6 +19,10 @@ import threading
 import time
 from typing import Any
 
+from .review_handoff import (
+    build_copy_only_review_handoff_from_record,
+    render_copy_only_review_handoff,
+)
 from .review_record import (
     PROJECT_ID,
     ReviewRecord,
@@ -42,6 +46,7 @@ from .schemas import ValidationError, normalize_session_state
 
 
 VERSION = "0.1C"
+REOPEN_HANDOFF_VERSION = "0.1D"
 CONFIRMATION_TTL_SECONDS = 5 * 60
 MAX_PENDING_CONFIRMATIONS = 64
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
@@ -50,9 +55,16 @@ _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 class ReviewLifecycleError(ValueError):
     """A fixed-category lifecycle failure with an optional safe Review ID."""
 
-    def __init__(self, code: str, *, review_id: str | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        review_id: str | None = None,
+        blocking_reasons: tuple[str, ...] = (),
+    ) -> None:
         self.code = code
         self.review_id = review_id
+        self.blocking_reasons = blocking_reasons
         super().__init__(code)
 
 
@@ -97,6 +109,25 @@ class ReviewRecoveryInspection:
     status: str
     blocking_reason: str
     record: ReviewRecord | None
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewReopenHandoff:
+    """One freshly revalidated copy-only handoff from a stored Review."""
+
+    version: str
+    review_id: str
+    item_id: str
+    artifact: str
+    git_metadata_matches: bool
+    freshness_basis: str
+    content_evidence_verified: bool
+    blocking_reasons: tuple[str, ...]
+    copy_only: bool
+    read_only_source: bool
+    review_passed: bool
+    commit_approved: bool
+    push_allowed: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +288,63 @@ class ReviewLifecycleService:
             return read_review_record(review_id, **self._store_kwargs)
         except ReviewStoreError as exc:
             raise ReviewLifecycleError(exc.code) from None
+
+    def prepare_reopen_handoff(
+        self,
+        review_id: str,
+        *,
+        scope_confirmed: bool,
+    ) -> ReviewReopenHandoff:
+        """Regenerate a handoff only when fresh Git exactly matches one record."""
+
+        if scope_confirmed is not True:
+            raise ReviewLifecycleError("review_reopen_handoff_scope_not_confirmed")
+        record = self.reopen(review_id)
+        try:
+            current = normalize_review_git_snapshot(
+                self._git_snapshot_loader(),
+                path="current reopen-to-handoff git snapshot",
+            )
+            freshness = evaluate_review_record_freshness(record, current)
+        except (ReviewRecordError, ValidationError, OSError, RuntimeError, TypeError):
+            raise ReviewLifecycleError(
+                "review_reopen_handoff_snapshot_invalid",
+                review_id=record.review_id,
+            ) from None
+        if not freshness.matches:
+            raise ReviewLifecycleError(
+                "review_reopen_handoff_stale",
+                review_id=record.review_id,
+                blocking_reasons=freshness.blocking_reasons,
+            )
+        try:
+            handoff = build_copy_only_review_handoff_from_record(
+                record,
+                current,
+                trusted_repo_root=self._trusted_repo_root,
+                scope_confirmed=scope_confirmed,
+            )
+            artifact = render_copy_only_review_handoff(handoff)
+        except (ReviewRecordError, ValidationError, TypeError):
+            raise ReviewLifecycleError(
+                "review_reopen_handoff_invalid",
+                review_id=record.review_id,
+            ) from None
+        return ReviewReopenHandoff(
+            version=REOPEN_HANDOFF_VERSION,
+            review_id=record.review_id,
+            item_id=handoff["item_id"],
+            artifact=artifact,
+            git_metadata_matches=True,
+            freshness_basis="branch_head_status_only",
+            content_evidence_verified=False,
+            blocking_reasons=(),
+            copy_only=True,
+            read_only_source=True,
+            review_passed=False,
+            commit_approved=False,
+            push_allowed=False,
+        )
 
     def inspect_recovery(self, review_id: str) -> ReviewRecoveryInspection:
         """Inspect one exact ID without retrying, repairing, or deleting it."""
@@ -436,3 +524,9 @@ def recovery_inspection_to_dict(inspection: ReviewRecoveryInspection) -> dict[st
             None if inspection.record is None else review_record_to_dict(inspection.record)
         ),
     }
+
+
+def reopen_handoff_to_dict(handoff: ReviewReopenHandoff) -> dict[str, Any]:
+    """Return a fresh authority-free transport mapping for one handoff."""
+
+    return asdict(handoff)

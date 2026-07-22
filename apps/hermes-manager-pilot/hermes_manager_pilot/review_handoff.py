@@ -15,6 +15,13 @@ from .prompt_queue import (
     PromptQueueState,
     normalize_prompt_queue,
 )
+from .review_record import (
+    ReviewGitSnapshot,
+    ReviewRecord,
+    evaluate_review_record_freshness,
+    normalize_review_git_snapshot,
+    review_record_to_dict,
+)
 from .schemas import SessionState, ValidationError, normalize_session_state
 
 
@@ -42,7 +49,7 @@ def build_copy_only_review_handoff(
 
     branch = _required_git_text(git_state, "branch")
     head = _required_git_text(git_state, "head")
-    status_lines = _status_lines(_required_git_text(git_state, "working_tree_status"))
+    status_lines = _status_lines(_required_git_status(git_state))
     if f"?? {PROTECTED_UNTRACKED_PATH}" not in status_lines:
         raise ValidationError(f"{PROTECTED_UNTRACKED_PATH} must remain untracked")
 
@@ -119,6 +126,72 @@ def build_copy_only_review_handoff(
     return _envelope(queue, item_id)
 
 
+def build_copy_only_review_handoff_from_record(
+    record: ReviewRecord,
+    current_git_snapshot: ReviewGitSnapshot | Mapping[str, Any],
+    *,
+    trusted_repo_root: str | Path,
+    scope_confirmed: bool,
+) -> dict[str, Any]:
+    """Regenerate one copy-only handoff from an exact, still-fresh Review record.
+
+    This adapter is pure: the caller supplies both the immutable stored record
+    and freshly collected Git metadata. It neither reads Git nor writes state.
+    """
+
+    if scope_confirmed is not True:
+        raise ValidationError(
+            "stored Review target scope must be explicitly reconfirmed"
+        )
+    record_data = review_record_to_dict(record)
+    current = (
+        current_git_snapshot
+        if isinstance(current_git_snapshot, ReviewGitSnapshot)
+        else normalize_review_git_snapshot(
+            current_git_snapshot,
+            path="current reopen-to-handoff git snapshot",
+        )
+    )
+    freshness = evaluate_review_record_freshness(record, current)
+    if not freshness.matches:
+        raise ValidationError(
+            "stored Review is stale: " + "; ".join(freshness.blocking_reasons)
+        )
+
+    working_tree_status = "\n".join(current.status) or "clean"
+    session_data = {
+        "repo": str(Path(trusted_repo_root).resolve()),
+        "branch": current.branch,
+        "head": current.head,
+        "working_tree_status": working_tree_status,
+        "current_goal": record_data["current_goal"],
+        "active_task": record_data["active_task"],
+        "blocked_by": "",
+        "last_codex_prompt": record_data["last_codex_prompt_summary"],
+        "last_codex_result_summary": record_data["result_summary"],
+        "validation_commands": record_data["validation_commands"],
+        "files_touched": record_data["target_files"],
+        "target_files": record_data["target_files"],
+        "protected_paths": [PROTECTED_UNTRACKED_PATH],
+        "commit_allowed": False,
+        "push_allowed": False,
+        "human_approval_required": True,
+        "human_approval_granted": False,
+        "next_action": "REVIEW_REQUEST",
+        "commit_message": "",
+    }
+    return build_copy_only_review_handoff(
+        session_data,
+        {
+            "branch": current.branch,
+            "head": current.head,
+            "working_tree_status": working_tree_status,
+        },
+        trusted_repo_root=trusted_repo_root,
+        scope_confirmed=scope_confirmed,
+    )
+
+
 def render_copy_only_review_handoff(handoff: Mapping[str, Any]) -> str:
     """Render one stable, human-copyable JSON envelope."""
 
@@ -155,6 +228,19 @@ def _required_git_text(git_state: Mapping[str, Any], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValidationError(f"git state {field} must be a non-empty string")
     return value.strip()
+
+
+def _required_git_status(git_state: Mapping[str, Any]) -> str:
+    """Return bounded caller status text without losing porcelain columns."""
+
+    if not isinstance(git_state, Mapping):
+        raise ValidationError("git state must be an object")
+    value = git_state.get("working_tree_status")
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError(
+            "git state working_tree_status must be a non-empty string"
+        )
+    return value.rstrip("\r\n")
 
 
 def _status_lines(status: str) -> tuple[str, ...]:
