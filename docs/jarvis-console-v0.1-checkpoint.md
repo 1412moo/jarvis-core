@@ -17,7 +17,8 @@ It provides:
 - Open Skill Details sync from a suggestion into the Skills tab.
 - Skill Detail usage cards with commands, docs, safety notes, and non-goals.
 - Project Control dashboard with one master-plan-driven Jarvis-Core owner card
-  plus read-only repo, skill, report, checkpoint, docs, and example metadata.
+  plus a read-only Owner Decision, repo, skill, report, checkpoint, docs, and
+  example metadata.
 - Recent item grouping for tasks, reports, checkpoints, docs, examples, configs, and related metadata.
 - Checkpoints / History view with recent commits, checkpoint docs, related reports/examples, and read-only history discovery rules.
 - Voice Inbox v0.1 for turning pasted voice-like transcripts or rough thoughts into task candidates and manual skill handoffs.
@@ -28,8 +29,9 @@ Jarvis Console does not execute skills automatically. It suggests, prepares, and
 
 ## Current HEAD / Status
 
-- Verified implementation HEAD: `58d4767d4f7c3ca53bff4cebd195d9c15665d91a`
-- Commit: `jarvis-console: add owner decision core contract`
+- Verified implementation HEAD: `e6ef70b15a9c3d7f15369b7baf1b5008ea0ab10f`
+- Commits: `jarvis-console: render owner decision read-only` and
+  `jarvis-console: align owner decision recommendation`
 - Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -172,7 +174,7 @@ findings. The next product workstream now requires an explicit owner decision.
 The resulting `none` to `required` state transition also corrected two test-only
 assertions to validate the full designed approval-state enum.
 
-Owner Decision Contract v0.1A now implements the transport-neutral core before
+Owner Decision Contract v0.1A implements the transport-neutral core before
 Console integration. Immutable decision and candidate contracts normalize the
 exact six Jarvis-Core workstreams, bind authority to proposal-only, fail closed
 on malformed state, provide stable JSON serialization, and render deterministic
@@ -181,11 +183,19 @@ writing a file. Deterministic tests cover immutability, canonical ordering,
 selection relationships, duplicate and oversized input, renderer non-mutation,
 and CLI boundaries.
 
-The core is not imported by `run_web_app.py`, exposed through a route or payload,
-or rendered in the browser. It adds no persistence, background worker, external
-call, second repo, or implementation authority. Project Control remains
-`Approval required` because v0.1B read-only Console integration is a separate
-unapproved work package.
+The core remains independent from `run_web_app.py`. Owner Decision v0.1B adds a
+pure adapter that consumes the existing bounded master-plan snapshot, produces
+the normalized v0.1A object, and serializes it into the existing Project Control
+payload. The current browser card consumes that object and shows six candidates,
+their next user outcomes and locked capabilities, one recommendation, and the
+conversation response template. It adds no new route, button, form, persistence,
+background worker, external call, second repo, or implementation authority.
+
+Deterministic self-test/smoke and JavaScript syntax validation passed. Local
+browser QA verified one Owner Decision section, six candidates, one
+recommendation, zero button/form controls, and zero warning/errors. Project
+Control remains `Approval required` because the owner must explicitly choose a
+workstream; that choice authorizes only a separate work-package proposal.
 
 Recent items are normalized with deterministic read-only metadata:
 
@@ -562,7 +572,8 @@ During QA, `jarvis.bat` remained untracked and untouched.
 - Codex Review remains deliberately copy/paste-only and has no durable review
   history; further UX changes should come from repeated local-use feedback.
 - Project Control v0.1D supports one trusted Jarvis-Core card and six internal
-  workstream summaries. v0.1B source design and v0.1C internal normalization
+  workstream summaries, and Owner Decision v0.1B adds a read-only choice view.
+  The separate multi-project v0.1B source design and v0.1C internal normalization
   remain dormant. Do not
   register or connect a second repo, add path input, wire routes/UI, or add
   persistence without a separate future product-direction decision.
@@ -580,16 +591,17 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Owner Decision v0.1B Read-only Console Integration
+### A. Explicit Owner Workstream Selection
 
 Priority: P1
 
-Propose, but do not infer approval for, one bounded v0.1B package that adapts the
-existing master-plan snapshot into the v0.1A contract, exposes that object only
-through the existing Project Control payload, and minimally renders it in the
-current read-only card. Contract remains authoritative; adapter and UI consume
-only. Add no route, persistence, action control, second repository, external
-call, background worker, automatic execution, or Memory save surface.
+Use the completed v0.1B view to select one exact Jarvis-Core workstream and one
+bounded desired outcome. The current recommendation is Hermes Manager to reduce
+manual prompt and review handoff friction. Do not infer selection from a generic
+`continue`. The exact selection authorizes a work-package proposal only; it does
+not authorize implementation, route, persistence, action control, second
+repository, external call, background worker, automatic execution, or a Memory
+save surface.
 
 ### B. Planned Skill UX Polish
 

@@ -1,12 +1,14 @@
 # Project Control Owner Decision Workflow v0.1 Design
 
-Status: v0.1A transport-neutral core implemented; Console integration not implemented
+Status: v0.1A transport-neutral core and v0.1B read-only Console integration implemented; owner selection pending
 
 This document defines how the owner selects the next Jarvis-Core product
 workstream without turning Project Control into an approval, execution, or
 persistence surface. The v0.1A core implements the transport-neutral contract,
 normalization, stable serialization, Markdown rendering, and stdin/stdout CLI.
-It adds no Console integration, route, UI control, runtime state, or authority.
+The v0.1B consumer adapts the bounded master-plan snapshot into that contract
+and renders it through the existing Project Control payload. It adds no new
+route, UI action control, runtime state, persistence, or authority.
 
 ## 1. Owner Problem
 
@@ -105,8 +107,8 @@ forbidden under the current operating rules.
 
 ## 5. Read-only Owner Experience
 
-A future, separately approved complete vertical slice may extend the existing
-single-repo Project Control card with:
+The implemented v0.1B vertical slice extends the existing single-repo Project
+Control card with:
 
 1. why a direction decision is needed;
 2. the six existing workstream names and their current user-visible capability;
@@ -115,21 +117,21 @@ single-repo Project Control card with:
 5. the copy-only `Owner Decision` response template.
 
 The owner makes the decision in the conversation, not through an application
-action. The dashboard would remain read-only and reuse the existing
-`GET /api/overview` flow. There would be no approve/select button, POST route,
+action. The dashboard remains read-only and reuses the existing
+`GET /api/overview` flow. There is no approve/select button, POST route,
 form submission, browser-supplied repository path, runtime persistence,
 background worker, or automatic handoff.
 
-The recommended first slice is the `Jarvis Console` workstream: show the bounded
-decision candidates and copy-only response format in the existing Owner
-Dashboard. This directly reduces document lookup and ambiguity while preserving
-the current human conversation as the authority boundary. This recommendation
-is not the owner's selection.
+That first `Jarvis Console` slice is now complete. The current recommendation is
+`Hermes Manager`, to reduce manual prompt and review handoff friction through a
+separately proposed bounded improvement. This recommendation is not the owner's
+selection or implementation approval.
 
 ## 6. Source And Record Boundary
 
-The v0.1A core is not connected to `docs/master-plan.md`, Project Control, or any
-other data source. The current tracked master plan remains the only live Project
+The v0.1A core remains independent of `docs/master-plan.md`, Project Control,
+and other data sources. The v0.1B adapter consumes an already bounded snapshot
+from the existing tracked master plan, which remains the only live Project
 Control direction source. A human selection or later package approval is
 reflected there only after the corresponding explicit conversation-level
 decision. The document is an auditable project record, not proof of identity or
@@ -142,9 +144,9 @@ registered or displayed.
 
 ## 7. Safety Boundaries And Non-goals
 
-The v0.1A core does not authorize or add:
+The v0.1A core and v0.1B consumer do not authorize or add:
 
-- Console payload integration, route, UI control, persistence, or runtime state;
+- a new route, UI action control, persistence, or runtime state;
 - automatic workstream inference or implementation from an ambiguous message;
 - authenticated identity, signatures, approval tokens, or a general approval
   service;
@@ -169,12 +171,12 @@ The design is complete when:
 3. selecting a workstream authorizes only a bounded proposal;
 4. all six choices remain Jarvis-Core internal workstreams, not repositories;
 5. locked capabilities stay locked regardless of the selected workstream;
-6. the future user-visible slice is read-only, copy-only, single-repo, and uses
+6. the user-visible slice is read-only, copy-only, single-repo, and uses
    no new action route or persistence;
 7. normalization, serialization, Markdown rendering, and CLI behavior are
    deterministic and fail closed;
-8. the current master plan records that Console integration still requires a
-   separate approved work package.
+8. the current master plan records that owner selection remains separate from
+   implementation approval.
 
 ## 9. v0.1A Transport-neutral Core Result
 
@@ -198,14 +200,23 @@ success/failure output, and forbidden filesystem/network/integration imports.
 Implementation commit:
 `58d4767d4f7c3ca53bff4cebd195d9c15665d91a`.
 
-## 10. Recommended Next Work Package
+## 10. v0.1B Result And Next Decision
 
-Propose v0.1B as a separate read-only Console integration package. It should
-adapt the existing bounded master-plan snapshot into one normalized
-`OwnerDecision`, add that serialized object to the existing Project Control
-payload, and render it minimally in the current card. The core contract must
-remain authoritative; the adapter and UI may consume but not redefine it.
+`apps/jarvis-console/owner_decision_data.py` converts the bounded master-plan
+snapshot into one normalized `OwnerDecision`. `run_web_app.py` serializes that
+object into the existing Project Control payload, and `web/app.js` renders the
+six candidates and response template without a control or new fetch. The core
+contract remains authoritative; the adapter and UI consume but do not redefine
+it.
 
-v0.1B must add no new route, persistence, action button, external call,
-background worker, automatic execution, second repository, or Memory save
-surface. This recommendation is not v0.1B implementation approval.
+Deterministic tests and local browser QA verified one decision section, six
+candidates, one recommendation, zero button/form controls, and zero browser
+warning/errors. Implementation commits:
+`e6305a7d4833bdeb3264bab09cfaacc5bcf6f267` and
+`e6ef70b15a9c3d7f15369b7baf1b5008ea0ab10f`.
+
+The next step is not another implementation primitive. The owner must choose
+one exact workstream and bounded desired outcome using the response contract.
+That selection authorizes only a work-package proposal. All route, persistence,
+action, external-call, automatic-execution, second-repository, and Memory-save
+boundaries remain locked.

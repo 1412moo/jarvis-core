@@ -213,7 +213,11 @@ $decisionJson | python -B apps\jarvis-console\render_owner_decision.py --format 
 ```
 
 The core is not connected to `run_web_app.py`, `GET /api/overview`, or the
-browser. It creates no file, route, UI control, persistence, or runtime state.
+browser by itself. Owner Decision v0.1B adds a separate pure adapter that
+normalizes the bounded master-plan snapshot with the core contract, serializes
+it into the existing Project Control payload, and renders it in the current
+single-repo card. It adds no new route, action button, form, persistence, or
+runtime state.
 Product workstream selection remains separate from work-package approval,
 Prompt Queue metadata, task `/approve`, and Memory confirmation. See
 [`../../docs/project-control-owner-decision-workflow-v0.1-design.md`](../../docs/project-control-owner-decision-workflow-v0.1-design.md).
@@ -334,9 +338,9 @@ Protected path shown by default:
 
 Possible later phases:
 
-1. After separate approval, connect the v0.1A Owner Decision core to the existing
-   single-repo Project Control payload and card as a minimal read-only v0.1B
-   consumer. The adapter and UI must not redefine the contract.
+1. Use the completed v0.1B read-only Owner Decision view for one explicit owner
+   workstream selection, then propose a separate bounded work package. Selection
+   does not authorize implementation.
 2. Add richer registry metadata such as icons, examples, and handoff contracts.
 3. Add local report preview forms for existing deterministic renderers.
 4. Refine the read-only review surface only from repeated local-use feedback.
