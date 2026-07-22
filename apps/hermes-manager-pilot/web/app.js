@@ -268,6 +268,29 @@ async function pasteFromClipboard() {
   }
 }
 
+async function pasteResultAndCopyJarvisReviewHandoff() {
+  if (!state.session) {
+    setStatus("Prepare a session first.");
+    return;
+  }
+  if (!state.scopeConfirmed) {
+    setStatus("Confirm the current target-file scope before creating a Jarvis handoff.");
+    return;
+  }
+  try {
+    const result = (await navigator.clipboard.readText()).trim();
+    if (!result) {
+      setStatus("Clipboard does not contain a Codex result.");
+      return;
+    }
+    elements.codexResult.value = result;
+    state.session.last_codex_result_summary = result;
+    await copyJarvisReviewHandoff();
+  } catch (error) {
+    setStatus(`Paste and handoff failed: ${error.message || "clipboard read failed"}`);
+  }
+}
+
 function saveResultAndContinue() {
   if (!state.session) {
     setStatus("Prepare a session first.");
@@ -338,6 +361,7 @@ async function loadGitStatus() {
 document.getElementById("prepareButton").addEventListener("click", prepareSession);
 document.getElementById("continueToTaskPromptButton").addEventListener("click", continueToTaskPrompt);
 document.getElementById("copyTaskPromptButton").addEventListener("click", () => renderPrompt("implementation-prompt", "Task Prompt for Codex"));
+document.getElementById("pasteAndCopyJarvisReviewHandoffButton").addEventListener("click", pasteResultAndCopyJarvisReviewHandoff);
 document.getElementById("pasteResultButton").addEventListener("click", pasteFromClipboard);
 document.getElementById("saveResultButton").addEventListener("click", saveResultAndContinue);
 document.getElementById("copyReviewPromptButton").addEventListener("click", () => renderPrompt("review-prompt", "Review Prompt for Codex"));

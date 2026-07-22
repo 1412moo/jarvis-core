@@ -2726,9 +2726,21 @@ def _test_local_change_evidence_status_parser_is_bounded_and_fail_closed() -> No
 
 def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     index_html = (APP_ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    app_js = (APP_ROOT / "web" / "app.js").read_text(encoding="utf-8")
     _assert("Jarvis Console Memory / Skills candidate prompt" in index_html, "Jarvis Console handoff guidance missing")
     _assert("Manual review only" in index_html, "manual review guidance missing")
     _assert("nothing runs until you choose the next step" in index_html, "no-auto-run guidance missing")
+    _assert("Paste Result &amp; Copy Jarvis Review Handoff" in index_html, "one-click review handoff is missing")
+    _assert("It does not call Jarvis or approve review." in index_html, "one-click safety guidance missing")
+    _assert("function pasteResultAndCopyJarvisReviewHandoff()" in app_js, "one-click handoff function is missing")
+    one_click_source = app_js.split("async function pasteResultAndCopyJarvisReviewHandoff()", 1)[1].split(
+        "function saveResultAndContinue()",
+        1,
+    )[0]
+    _assert("navigator.clipboard.readText()" in one_click_source, "one-click flow does not read the clipboard")
+    _assert("await copyJarvisReviewHandoff()" in one_click_source, "one-click flow bypasses the bounded handoff helper")
+    _assert("fetch(" not in one_click_source, "one-click flow must reuse the existing handoff function")
+    _assert("Clipboard does not contain a Codex result." in one_click_source, "empty clipboard must fail closed")
     _assert("Send to Hermes" not in index_html, "automatic handoff wording must not appear")
 
 

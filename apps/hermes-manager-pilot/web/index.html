@@ -88,9 +88,11 @@
       <section id="resultSection" class="step-section hidden">
         <label for="codexResult">Paste Codex result here</label>
         <textarea id="codexResult" rows="10" placeholder="Use this after Codex answers."></textarea>
+        <p class="safety-note">Recommended local path: one explicit click reads the current clipboard, prepares the existing copy-only Jarvis review handoff, and copies that JSON back to the clipboard. It does not call Jarvis or approve review.</p>
         <div class="button-row">
+          <button id="pasteAndCopyJarvisReviewHandoffButton" type="button" class="primary-button">Paste Result &amp; Copy Jarvis Review Handoff</button>
           <button id="pasteResultButton" type="button" class="secondary-button">Paste From Clipboard</button>
-          <button id="saveResultButton" type="button" class="primary-button">Save Result and Continue</button>
+          <button id="saveResultButton" type="button" class="secondary-button">Save Result and Choose Review Path</button>
         </div>
       </section>
 
