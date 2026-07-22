@@ -28,6 +28,11 @@ from owner_decision import (
     render_owner_decision_markdown,
     serialize_owner_decision,
 )
+from owner_decision_data import (
+    OWNER_DECISION_LOCKS,
+    OwnerDecisionDataError,
+    build_owner_decision_from_snapshot,
+)
 from project_control_registry import (
     MAX_PROJECTS,
     REGISTRY_TYPE,
@@ -265,6 +270,8 @@ def _test_project_control_snapshot() -> None:
 - Recent completed: Project Control v0.1D design
 - Approval state: none
 - Approval note: No approval is needed for the bounded read-only slice
+- Owner decision status: selection_required
+- Owner decision recommendation: jarvis-console
 
 ## 3. Later
 
@@ -297,6 +304,8 @@ def _test_project_control_snapshot() -> None:
             "recent_completed": "Project Control v0.1D design",
             "approval_state": "none",
             "approval_note": "No approval is needed for the bounded read-only slice",
+            "owner_decision_status": "selection_required",
+            "owner_decision_recommended_workstream_id": "jarvis-console",
             "workstreams": [
                 {
                     "workstream_id": "hermes-manager",
@@ -349,6 +358,71 @@ def _test_project_control_snapshot() -> None:
             ],
             "source": "docs/master-plan.md",
         }
+
+        owner_decision = build_owner_decision_from_snapshot(first)
+        assert owner_decision.contract_type == CONTRACT_TYPE
+        assert owner_decision.version == OWNER_DECISION_VERSION
+        assert owner_decision.status == "selection_required"
+        assert owner_decision.recommended_workstream_id == "jarvis-console"
+        assert owner_decision.selected_workstream_id is None
+        assert len(owner_decision.candidates) == 6
+        assert owner_decision.candidates[1].locked_capabilities == tuple(
+            sorted(
+                OWNER_DECISION_LOCKS["memory-skills"],
+                key=lambda item: (item.casefold(), item),
+            )
+        )
+        assert "owner project card" in owner_decision.candidates[2].current_capability
+        first_serialized = serialize_owner_decision(owner_decision)
+        assert first_serialized == serialize_owner_decision(
+            build_owner_decision_from_snapshot(first)
+        )
+
+        def assert_decision_data_rejected(payload: object, message: str) -> None:
+            try:
+                build_owner_decision_from_snapshot(payload)  # type: ignore[arg-type]
+            except OwnerDecisionDataError as exc:
+                assert message in str(exc), str(exc)
+            else:
+                raise AssertionError(f"owner decision data should fail closed: {message}")
+
+        assert_decision_data_rejected([], "must be an object")
+        missing_workstreams = dict(first)
+        missing_workstreams.pop("workstreams")
+        assert_decision_data_rejected(missing_workstreams, "workstreams must be a list")
+        incomplete_workstreams = dict(first)
+        incomplete_workstreams["workstreams"] = first["workstreams"][:-1]
+        assert_decision_data_rejected(incomplete_workstreams, "exact allowed workstreams")
+        duplicate_workstreams = json.loads(json.dumps(first))
+        duplicate_workstreams["workstreams"][1]["workstream_id"] = "hermes-manager"
+        assert_decision_data_rejected(duplicate_workstreams, "duplicate workstream IDs")
+        mismatched_display = json.loads(json.dumps(first))
+        mismatched_display["workstreams"][0]["display_name"] = "Hermes"
+        assert_decision_data_rejected(mismatched_display, "display name does not match")
+        selected_without_selection_data = dict(first)
+        selected_without_selection_data["owner_decision_status"] = "selected_for_proposal"
+        assert_decision_data_rejected(selected_without_selection_data, "selected status requires")
+        unknown_recommendation = dict(first)
+        unknown_recommendation["owner_decision_recommended_workstream_id"] = "unknown"
+        assert_decision_data_rejected(unknown_recommendation, "reference a candidate")
+
+        adapter_source = Path(__file__).with_name("owner_decision_data.py").read_text(
+            encoding="utf-8"
+        )
+        forbidden_adapter_patterns = (
+            "pathlib",
+            "subprocess",
+            "requests",
+            "urlopen",
+            "http.server",
+            "open(",
+            ".read_text(",
+            ".read_bytes(",
+            ".write_text(",
+            ".write_bytes(",
+            "run_web_app",
+        )
+        assert all(pattern not in adapter_source for pattern in forbidden_adapter_patterns)
 
         duplicate = baseline.replace(
             "- Last verified: 2026-07-22",
@@ -944,6 +1018,21 @@ def main() -> None:
         "task-discord-dashboard",
     ]
     assert all(item["read_only"] is True for item in project_card["workstreams"])
+    owner_decision_payload = project_card["owner_decision"]
+    assert owner_decision_payload["contract_type"] == CONTRACT_TYPE
+    assert owner_decision_payload["version"] == OWNER_DECISION_VERSION
+    assert owner_decision_payload["project_id"] == PROJECT_ID
+    assert owner_decision_payload["status"] == "selection_required"
+    assert owner_decision_payload["authority_boundary"] == AUTHORITY_BOUNDARY
+    assert owner_decision_payload["recommended_workstream_id"] == "jarvis-console"
+    assert owner_decision_payload["selected_workstream_id"] is None
+    assert owner_decision_payload["desired_outcome"] is None
+    assert owner_decision_payload["response_template"] == RESPONSE_TEMPLATE
+    assert owner_decision_payload["read_only"] is True
+    assert len(owner_decision_payload["candidates"]) == 6
+    assert normalize_owner_decision(owner_decision_payload) == build_owner_decision_from_snapshot(
+        run_web_app.read_master_plan_snapshot()
+    )
     assert project_card["locked_capabilities"] == project_card["forbidden_actions"]
     assert any("commit" in item.lower() for item in project_card["forbidden_actions"])
     assert overview["repo"]["head_short"]
@@ -1865,6 +1954,7 @@ def main() -> None:
 
     app_js = Path(__file__).resolve().parent.joinpath("web", "app.js").read_text(encoding="utf-8")
     html = Path(__file__).resolve().parent.joinpath("web", "index.html").read_text(encoding="utf-8")
+    web_app_source = Path(__file__).with_name("run_web_app.py").read_text(encoding="utf-8")
     assert "Voice Inbox" in html
     assert "Transcript / rough thought" in html
     assert "Prepare Task Candidate" in html
@@ -1897,6 +1987,19 @@ def main() -> None:
     assert "copyNextActionForHandoff" in app_js
     assert "/api/overview" in app_js
     assert "renderProjectControl" in app_js
+    assert "renderOwnerDecision" in app_js
+    assert 'ownerDecision.contract_type !== "jarvis_owner_decision"' in app_js
+    assert "다음 workstream 결정" in app_js
+    assert "Conversation response template" in app_js
+    assert "이 화면은 Decision 객체를 읽기만 합니다." in app_js
+    owner_decision_renderer = app_js.split("function renderOwnerDecision", 1)[1].split(
+        "function renderRepoStatus",
+        1,
+    )[0]
+    assert "<button" not in owner_decision_renderer
+    assert "fetch(" not in owner_decision_renderer
+    assert "/api/owner-decision" not in app_js
+    assert "/api/owner-decision" not in web_app_source
     assert "현재 만드는 이유" in app_js
     assert "이 단계가 끝나면 사용자가 얻는 것" in app_js
     assert "Jarvis-Core 내부 workstream" in app_js

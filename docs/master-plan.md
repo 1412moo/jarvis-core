@@ -124,6 +124,8 @@ flowchart LR
 - Recent completed: Owner Decision Contract v0.1A core, Markdown renderer, and stdout-only CLI
 - Approval state: required
 - Approval note: v0.1B Console integration은 별도 work package이며 아직 구현 승인되지 않았다
+- Owner decision status: selection_required
+- Owner decision recommendation: jarvis-console
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase

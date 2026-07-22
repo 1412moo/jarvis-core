@@ -1066,6 +1066,7 @@ function renderProjectControl(projectControl) {
           .map(
             (card) => {
               const ownerSummary = card.owner_summary || {};
+              const ownerDecision = card.owner_decision || null;
               const workstreams = Array.isArray(card.workstreams) ? card.workstreams : [];
               const lockedCapabilities = card.locked_capabilities || card.forbidden_actions || [];
               const approvalState = ownerSummary.approval_state || "blocked";
@@ -1108,6 +1109,8 @@ function renderProjectControl(projectControl) {
                     </dl>
                     <p class="approval-note"><strong>승인 필요 여부:</strong> ${escapeHtml(ownerSummary.approval_note || "Not supplied")}</p>
                   </section>
+
+                  ${renderOwnerDecision(ownerDecision)}
 
                   <section class="workstream-status-section">
                     <div class="overview-section-heading">
@@ -1164,6 +1167,73 @@ function renderProjectControl(projectControl) {
           .join("")}
       </div>
       ${listMarkup(projectControl.notes, "No Project Control notes registered.")}
+    </section>
+  `;
+}
+
+function renderOwnerDecision(ownerDecision) {
+  if (
+    !ownerDecision ||
+    ownerDecision.contract_type !== "jarvis_owner_decision" ||
+    ownerDecision.version !== "0.1A" ||
+    ownerDecision.read_only !== true
+  ) {
+    return `
+      <section class="workstream-status-section safety-card">
+        <div class="overview-section-heading">
+          <h4>Owner Decision</h4>
+          <span class="overview-badge approval-needed">Unavailable</span>
+        </div>
+        <p class="safety-note">The bounded Owner Decision contract is unavailable. No selection, approval, or action was created.</p>
+      </section>
+    `;
+  }
+
+  const candidates = Array.isArray(ownerDecision.candidates) ? ownerDecision.candidates : [];
+  const selectedWorkstream = ownerDecision.selected_workstream_id || "Not selected";
+  const desiredOutcome = ownerDecision.desired_outcome || "Not provided";
+  return `
+    <section class="workstream-status-section">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Shared read-only contract</p>
+          <h4>다음 workstream 결정</h4>
+        </div>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Read-only</span>
+          <span class="overview-badge">${escapeHtml(ownerDecision.version)}</span>
+          <span class="overview-badge approval-needed">${escapeHtml(ownerDecision.status || "blocked")}</span>
+        </div>
+      </div>
+      <p>${escapeHtml(ownerDecision.reason || "No decision reason supplied.")}</p>
+      <dl class="overview-facts compact-facts">
+        <div><dt>권한 경계</dt><dd><code>${escapeHtml(ownerDecision.authority_boundary || "blocked")}</code></dd></div>
+        <div><dt>추천 workstream</dt><dd><code>${escapeHtml(ownerDecision.recommended_workstream_id || "none")}</code></dd></div>
+        <div><dt>현재 선택</dt><dd>${escapeHtml(selectedWorkstream)}</dd></div>
+        <div><dt>원하는 결과</dt><dd>${escapeHtml(desiredOutcome)}</dd></div>
+      </dl>
+      <div class="workstream-status-grid">
+        ${candidates
+          .map(
+            (candidate) => `
+              <article class="workstream-status-card">
+                <div class="overview-section-heading">
+                  <h5>${escapeHtml(candidate.display_name || candidate.workstream_id || "Unknown workstream")}</h5>
+                  ${candidate.workstream_id === ownerDecision.recommended_workstream_id ? '<span class="overview-badge read-only">Recommended</span>' : '<span class="overview-badge read-only">Candidate</span>'}
+                </div>
+                <p><strong>현재 사용자 기능</strong>${escapeHtml(candidate.current_capability || "Not supplied")}</p>
+                <p><strong>선택 후 사용자 결과</strong>${escapeHtml(candidate.next_user_outcome || "Not supplied")}</p>
+                <div><strong>계속 잠기는 기능</strong>${listMarkup(candidate.locked_capabilities, "None declared.")}</div>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+      <div>
+        <p class="eyebrow">Conversation response template</p>
+        <code>${escapeHtml(ownerDecision.response_template || "No response template supplied.")}</code>
+      </div>
+      <p class="approval-note">이 화면은 Decision 객체를 읽기만 합니다. 선택, 구현 승인, 저장, 실행, push 또는 PR 권한을 만들지 않습니다.</p>
     </section>
   `;
 }

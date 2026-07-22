@@ -29,6 +29,8 @@ from urllib.parse import parse_qs, urlparse
 import webbrowser
 
 from codex_review import CODEX_REVIEW_PREVIEW_ENDPOINT, build_codex_review_preview
+from owner_decision import owner_decision_to_dict
+from owner_decision_data import OwnerDecisionDataError, build_owner_decision_from_snapshot
 
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -55,6 +57,8 @@ MASTER_PLAN_FIELDS = {
     "Recent completed": "recent_completed",
     "Approval state": "approval_state",
     "Approval note": "approval_note",
+    "Owner decision status": "owner_decision_status",
+    "Owner decision recommendation": "owner_decision_recommended_workstream_id",
 }
 MASTER_PLAN_APPROVAL_STATES = frozenset({"none", "required", "blocked"})
 MASTER_PLAN_WORKSTREAM_COLUMNS = (
@@ -950,6 +954,10 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
     """Build one write-free owner project card from master-plan and Git metadata."""
 
     snapshot = read_master_plan_snapshot()
+    try:
+        owner_decision = build_owner_decision_from_snapshot(snapshot)
+    except OwnerDecisionDataError as exc:
+        raise RegistryError(f"owner decision is unavailable: {exc}") from exc
     expected_branch = snapshot["branch"]
     live_branch = str(repo.get("branch") or "unknown")
     attention_reasons = []
@@ -991,6 +999,7 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
                     "approval_note": snapshot["approval_note"],
                 },
                 "workstreams": snapshot["workstreams"],
+                "owner_decision": owner_decision_to_dict(owner_decision),
                 "locked_capabilities": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
                 "validation_commands": list(PROJECT_CONTROL_VALIDATION_COMMANDS),
                 "forbidden_actions": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
@@ -5606,6 +5615,15 @@ def run_self_test() -> None:
         "task-discord-dashboard",
     ]
     assert all(item["read_only"] is True for item in owner_card["workstreams"])
+    owner_decision_payload = owner_card["owner_decision"]
+    assert owner_decision_payload["contract_type"] == "jarvis_owner_decision"
+    assert owner_decision_payload["version"] == "0.1A"
+    assert owner_decision_payload["status"] == "selection_required"
+    assert owner_decision_payload["authority_boundary"] == "work_package_proposal_only"
+    assert owner_decision_payload["recommended_workstream_id"] == "jarvis-console"
+    assert owner_decision_payload["selected_workstream_id"] is None
+    assert owner_decision_payload["read_only"] is True
+    assert len(owner_decision_payload["candidates"]) == 6
     assert owner_card["locked_capabilities"] == owner_card["forbidden_actions"]
     assert overview["repo"]["head_short"]
     assert "jarvis.bat" in overview["repo"]["protected_path_note"]
