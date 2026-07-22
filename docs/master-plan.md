@@ -19,8 +19,9 @@ v0.1B는 그 객체를 기존 Project Control payload와 read-only renderer에 �
 소유자는 이 객체에서 `Hermes Manager`를 선택했다. 첫 bounded package의 실사용
 검토에서 clipboard를 workflow state처럼 읽는 설계 오류를 발견했고, 이를 frozen
 in-memory Review 객체가 task와 scope를 소유하고 Copy가 언제든 같은 handoff를 다시
-생성하는 구조로 수정했다. 이어서 Durable Review Record v0.1A transport-neutral core가
-저장 당시 Git snapshot, task, scope와 bounded result summary를 불변 객체로 고정한다.
+생성하는 구조로 수정했다. Durable Review Record v0.1A는 저장 당시 Git snapshot,
+task, scope와 bounded result summary를 불변 객체로 고정하고, v0.1B-1 internal store는
+그 객체를 repository 밖 app-local state에 append-only로 보존·조회할 기반을 제공한다.
 화면은 review·commit 또는 잠긴 기능의 권한을 만들지 않는다.
 
 Project Control v0.1D는 현재 목표와 live Git 상태에 더해 `현재 만드는 이유`,
@@ -38,7 +39,8 @@ save도 readiness review의 `keep locked` 판정을 유지한다.
 - Hermes는 clipboard를 programmatic input이나 session continuity 근거로 읽지 않는다.
 - Review 객체는 현재 page/session의 in-memory state이며 persistence로 오해하지 않는다.
 - 미래 저장·재열기 기능이 사용할 immutable Review Record 규격과 stale-state 차단 기준이 있다.
-- v0.1A는 아직 route, UI 또는 실제 durable persistence에 연결되지 않는다.
+- route/UI 연결 없이 canonical Review를 atomic no-overwrite 방식으로 저장·조회할 내부 기반이 있다.
+- 실제 앱은 아직 store를 호출하지 않으며 Save/Reopen/Delete 사용자 기능은 활성화되지 않았다.
 - 자동 실행, push/PR, 외부 호출, Memory save는 계속 잠긴다.
 
 ### 전체 성숙도
@@ -67,12 +69,12 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Durable Review Record v0.1A transport-neutral core**
-- 현재 다음 작업: **v0.1B local store의 보존·삭제·경로·복구 정책 design/review**
+- 최근 완료: **Durable Review Store v0.1B-1 internal primitives**
+- 현재 다음 작업: **exact-ID deletion/recovery contract design과 complete vertical-slice 재개 조건 검토**
 - 다음 사용자 체감 milestone: **저장된 Review에서 언제든 동일 handoff를 다시 복사해 fresh review 시작**
-- 최근 내부 검증 결과: immutable candidate/record, stable JSON, exact Git freshness,
-  privacy assertion과 review/commit/push false 경계를 전체 Hermes/Jarvis suite에서 확인
-- 현재 결정 필요: **있음** — v0.1B persistence 정책 설계는 별도 scope 승인 대상
+- 최근 내부 검증 결과: external state path, private atomic no-overwrite write,
+  exact canonical read, bounded metadata list와 corruption/capacity/recovery 차단을 확인
+- 현재 결정 필요: **있음** — 삭제·복구 계약과 이후 complete Save/Reopen/Delete vertical slice는 별도 승인 대상
 
 ### 언제부터 실제로 편해지는가
 
@@ -116,18 +118,18 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `71d52dbb3c099cb10b1f35ab9b4dfaaa338f81e8`
+- Verified implementation HEAD: `dbe7ffa8d558f145f32d6d24c40262e87ff13f51`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Hermes Manager — guided review handoff
-- Current milestone: Durable Review Record v0.1A transport-neutral core complete
-- Recommended next step: Design and review v0.1B local store path, retention, deletion, and recovery policy before implementing persistence
+- Current milestone: Durable Review Store v0.1B-1 internal primitives complete
+- Recommended next step: Design exact-ID deletion and recovery boundaries, then review one complete Save/Reopen/Delete vertical slice instead of adding more disconnected primitives
 - Next user-visible milestone: 저장된 Review에서 언제든 동일 handoff를 다시 복사해 fresh review 시작
-- Current reason: durable continuity를 열기 전에 UI와 저장소가 함께 소비할 불변 Review 계약과 stale-state 차단 기준이 필요하다
-- Owner outcome: 미래 저장·재열기 기능이 과거 결과를 변경된 코드에 잘못 연결하지 않는 공통 Review 객체를 사용한다
-- Recent completed: immutable Review candidate/record, canonical JSON, exact Git freshness, privacy and no-authority invariants
+- Current reason: durable continuity에는 불변 계약뿐 아니라 repository 밖 atomic local store와 명확한 deletion/recovery 경계가 필요하다
+- Owner outcome: 미래 Save/Reopen 흐름이 덮어쓰기·자동 축출 없이 canonical Review를 정확한 ID로 다시 읽는다
+- Recent completed: external path policy, append-only atomic publish, exact canonical read, bounded metadata list, and corruption/recovery blocking
 - Approval state: required
-- Approval note: v0.1A core는 완료됐고 v0.1B 실제 저장 primitive 전 별도 설계 승인이 필요하다
+- Approval note: v0.1B-1은 route-free로 완료됐고 삭제·복구 및 사용자 UI 연결은 별도 승인이 필요하다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
 
@@ -200,7 +202,28 @@ flowchart LR
 - 기존 `/api/overview` 안의 single-repo `project_control.v0.1D` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Durable Review Record v0.1A transport-neutral core
+### 최근 완료: Durable Review Store v0.1B-1 internal primitives
+
+v0.1A canonical Review만 취급하는 route-free `review_store.py`를 추가했다. 기본
+state root는 Windows `%LOCALAPPDATA%\Jarvis-Core`, 그 외 `~/.jarvis-core`이며,
+Review는 `hermes-manager/reviews/v1` namespace에 위치한다. absolute
+`JARVIS_LOCAL_STATE_DIR` override를 지원하지만 repository 내부, relative path,
+symlink/reparse chain은 차단한다.
+
+writer는 private exclusive temp file을 flush/fsync한 뒤 hard-link로 atomic
+no-overwrite publish하며 기존 ID를 수정하지 않는다. exact reader는 safe ID,
+regular/non-reparse file, size, strict UTF-8, stable file metadata, canonical bytes와
+filename/internal ID 일치를 재검증한다. index-free list는 최대 256개 Review의
+ID·timestamp·task·branch·HEAD·target count만 newest-first로 반환한다.
+
+capacity overflow, foreign entry, orphan temp, corrupt/noncanonical record는 fail
+closed다. corrupt store에서는 새 append도 차단하고 exact known-ID read는 unrelated
+orphan temp가 있어도 가능하다. retention은 `manual_delete_only`이며 auto-expiry,
+eviction, cleanup, delete, migration은 없다. 구현 commit은
+`dbe7ffa8d558f145f32d6d24c40262e87ff13f51`이다. 실제 app-local Review store는
+생성되지 않았고 전체 Hermes/Jarvis regression이 통과했다.
+
+### 이전 완료: Durable Review Record v0.1A transport-neutral core
 
 Hermes UI나 저장소가 Review 구조를 정의하지 않도록 frozen/slotted
 `ReviewGitSnapshot`, `ReviewRecordCandidate`, `ReviewRecord` 계약을 독립 모듈로
@@ -321,12 +344,12 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 다음 설계 지점: Durable Review Record v0.1B local store policy
+### 다음 설계 지점: exact-ID deletion/recovery와 complete vertical slice
 
-다음은 바로 route나 Save/Reopen UI를 붙이는 단계가 아니다. 먼저 Jarvis 공통 local
-state root 안의 Hermes 전용 경로, append-only/atomic write, bounded read/list,
-retention disclosure, explicit deletion, corruption/restart recovery와 privacy 경계를
-설계하고 검토해야 한다. 이 정책 승인 전 실제 persistence를 구현하지 않는다.
+내부 기반을 더 세분화하기 전에 exact-ID 단건 삭제 확인, orphan/corrupt state의
+read-only recovery 안내, retention/privacy disclosure와 ambiguous-save lookup을
+설계한다. 그 검토가 끝나면 Save/Reopen/Delete를 함께 갖춘 한 개의 complete local
+vertical slice를 승인할지 결정한다. route나 UI는 그 승인 전 연결하지 않는다.
 
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
@@ -337,7 +360,7 @@ save도 계속 잠겨 있다.
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
-| Hermes Manager | clipboard output-only 흐름과 Durable Review Record v0.1A core 완료 | prompt drafting, in-memory Review save, 반복 가능한 Jarvis handoff Copy | v0.1B local store 정책 design/review |
+| Hermes Manager | clipboard output-only 흐름, Review Record v0.1A와 route-free Store v0.1B-1 완료 | prompt drafting, in-memory Review save, 반복 가능한 Jarvis handoff Copy | exact-ID deletion/recovery 설계 후 complete vertical slice 검토 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
 | Jarvis Console | Project Control v0.1D와 Owner Decision v0.1A/v0.1B 완료, Hermes 선택 1회 사용 | owner project card, 내부 workstream 상태, fresh read-only work review, 동일 Decision 객체의 CLI/Console 표시 | 다음 product selection 전 현재 handoff 실사용 피드백 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
