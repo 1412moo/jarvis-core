@@ -5620,7 +5620,7 @@ def run_self_test() -> None:
     assert owner_decision_payload["version"] == "0.1A"
     assert owner_decision_payload["status"] == "selection_required"
     assert owner_decision_payload["authority_boundary"] == "work_package_proposal_only"
-    assert owner_decision_payload["recommended_workstream_id"] == "jarvis-console"
+    assert owner_decision_payload["recommended_workstream_id"] == "hermes-manager"
     assert owner_decision_payload["selected_workstream_id"] is None
     assert owner_decision_payload["read_only"] is True
     assert len(owner_decision_payload["candidates"]) == 6

@@ -26,7 +26,7 @@ from owner_decision import (
 OWNER_DECISION_OUTCOMES = {
     "hermes-manager": "Reduce manual prompt and review handoff friction through one bounded real-use improvement.",
     "memory-skills": "Review one complete guarded-memory vertical slice while all live save surfaces stay locked.",
-    "jarvis-console": "Read the same Owner Decision object in the CLI and existing single-repo Owner Dashboard.",
+    "jarvis-console": "Improve one bounded Owner Dashboard workflow from concrete real-use feedback.",
     "research-council": "Improve one local idea and risk report from concrete real-use feedback.",
     "daily-ai-radar": "Improve one local scouting workflow without enabling external source collection.",
     "task-discord-dashboard": "Improve one bounded owner task workflow without unattended or remote execution.",

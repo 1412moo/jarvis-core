@@ -271,7 +271,7 @@ def _test_project_control_snapshot() -> None:
 - Approval state: none
 - Approval note: No approval is needed for the bounded read-only slice
 - Owner decision status: selection_required
-- Owner decision recommendation: jarvis-console
+- Owner decision recommendation: hermes-manager
 
 ## 3. Later
 
@@ -305,7 +305,7 @@ def _test_project_control_snapshot() -> None:
             "approval_state": "none",
             "approval_note": "No approval is needed for the bounded read-only slice",
             "owner_decision_status": "selection_required",
-            "owner_decision_recommended_workstream_id": "jarvis-console",
+            "owner_decision_recommended_workstream_id": "hermes-manager",
             "workstreams": [
                 {
                     "workstream_id": "hermes-manager",
@@ -363,7 +363,7 @@ def _test_project_control_snapshot() -> None:
         assert owner_decision.contract_type == CONTRACT_TYPE
         assert owner_decision.version == OWNER_DECISION_VERSION
         assert owner_decision.status == "selection_required"
-        assert owner_decision.recommended_workstream_id == "jarvis-console"
+        assert owner_decision.recommended_workstream_id == "hermes-manager"
         assert owner_decision.selected_workstream_id is None
         assert len(owner_decision.candidates) == 6
         assert owner_decision.candidates[1].locked_capabilities == tuple(
@@ -1024,7 +1024,7 @@ def main() -> None:
     assert owner_decision_payload["project_id"] == PROJECT_ID
     assert owner_decision_payload["status"] == "selection_required"
     assert owner_decision_payload["authority_boundary"] == AUTHORITY_BOUNDARY
-    assert owner_decision_payload["recommended_workstream_id"] == "jarvis-console"
+    assert owner_decision_payload["recommended_workstream_id"] == "hermes-manager"
     assert owner_decision_payload["selected_workstream_id"] is None
     assert owner_decision_payload["desired_outcome"] is None
     assert owner_decision_payload["response_template"] == RESPONSE_TEMPLATE
