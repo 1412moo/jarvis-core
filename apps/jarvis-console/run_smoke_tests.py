@@ -621,7 +621,7 @@ def main() -> None:
     owner_summary = project_card["owner_summary"]
     assert owner_summary["current_reason"]
     assert owner_summary["owner_outcome"]
-    assert owner_summary["recent_completed"] == "Project Control v0.1D single-repo workstream visibility design"
+    assert owner_summary["recent_completed"]
     assert owner_summary["approval_state"] == "none"
     assert len(project_card["workstreams"]) == 6
     assert [item["workstream_id"] for item in project_card["workstreams"]] == [

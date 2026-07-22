@@ -118,6 +118,9 @@ The Project Control tab shows:
 - One trusted Jarvis-Core project card
 - Current goal, workstream, milestone, next user-visible result, and recommended
   next step from bounded `docs/master-plan.md` fields
+- Plain-language current reason and owner outcome ahead of technical details
+- Recent completion, approval need, locked capabilities, and six ordered
+  Jarvis-Core internal workstream status cards
 - Live branch, HEAD, and working-tree status from fixed read-only Git commands
 - Known protected/untracked paths, validation commands, forbidden Jarvis Console
   actions, and attention reasons
@@ -155,10 +158,10 @@ projects. The next direction is to make their status, recent completion,
 current milestone, next step, locked features, and approval needs easier for a
 non-developer owner to understand.
 
-Project Control v0.1D has completed the design-only source, payload, UI, and
-validation contract for that single-repo view. No application behavior changed
-in the design step. The complete read-only vertical slice remains the next
-implementation candidate.
+Project Control v0.1D implements and locally verifies the complete source,
+payload, UI, and validation contract for that single-repo view. It reuses
+`GET /api/overview`, exposes one Jarvis-Core card, and adds no action route,
+persistence, second repository, or dormant-registry connection.
 
 Recent items are normalized with deterministic read-only metadata:
 
@@ -470,7 +473,7 @@ Server and API checks passed:
 
 - `/` returned 200 OK.
 - `/api/status` returned OK.
-- `/api/overview` returned `project_control.v0.1A` plus grouped read-only
+- `/api/overview` returned `project_control.v0.1D` plus grouped read-only
   overview metadata.
 - `/api/history` returned grouped read-only history metadata.
 - `/api/suggest-skill` returned the expected routing matrix.
@@ -488,8 +491,11 @@ Manual browser checks passed:
 - Skill Detail usage cards showed all required sections.
 - Project Control rendered one Jarvis-Core owner card from master-plan and live
   Git metadata, followed by the existing read-only recent item cards.
-- The card showed goal, workstream, milestone, next user-visible result,
-  `jarvis.bat`, validation commands, and forbidden Jarvis Console actions.
+- The card showed current reason and owner outcome before technical details,
+  then recent completion, milestone, next step, approval state, six ordered
+  internal workstreams, locked capabilities, `jarvis.bat`, and validation
+  commands.
+- The Project Control card contained no action button.
 - Project Control completed with zero browser console errors.
 - Checkpoints / History rendered Recent Commits, Checkpoint Docs, Related Reports / Examples, Safety Notes, and Read-only History Discovery.
 - No open, edit, delete, commit, or push buttons were present in read-only dashboards.
@@ -531,8 +537,9 @@ During QA, `jarvis.bat` remained untracked and untouched.
   default omission of `original_text_preview`.
 - Codex Review remains deliberately copy/paste-only and has no durable review
   history; further UX changes should come from repeated local-use feedback.
-- Project Control v0.1A supports one trusted Jarvis-Core card only. v0.1B source
-  design and v0.1C internal normalization are complete but dormant. Do not
+- Project Control v0.1D supports one trusted Jarvis-Core card and six internal
+  workstream summaries. v0.1B source design and v0.1C internal normalization
+  remain dormant. Do not
   register or connect a second repo, add path input, wire routes/UI, or add
   persistence without a separate future product-direction decision.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
@@ -549,16 +556,14 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Single-repo Internal Workstream Visibility Slice
+### A. Single-repo Owner Dashboard Real-use Validation
 
 Priority: P1
 
-Implement and verify the complete v0.1D read-only vertical slice that shows
-Jarvis-Core's internal workstream status, recent completion, current milestone,
-next step, locked features, and approval need. Put plain-language `why this is
-being built` and `what the owner gets when this stage is complete` ahead of
-technical stage codes. Keep the dashboard single-repo and do not connect the
-dormant registry primitive to HTTP, UI, filesystem paths, or persistence.
+Use the implemented v0.1D dashboard for one real milestone report. Confirm that
+the owner can choose the next action without opening the underlying documents,
+then record only concrete wording or information-priority issues. Do not add a
+repository, action, route, persistence, or new authority during this validation.
 
 ### B. Planned Skill UX Polish
 

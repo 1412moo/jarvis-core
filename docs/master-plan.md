@@ -20,11 +20,13 @@ Memory / Skills, Research Council, Daily AI Radar의 상태와 문서를 각각 
 내부 workstream을 한 화면에 요약해, 무엇을 왜 만들고 있고 다음 결정이 무엇인지
 빠르게 알게 하기 위해 만든다.
 
-Project Control v0.1A는 현재 목표와 live Git 상태를 한 개의 read-only Jarvis-Core
-카드로 보여준다. v0.1B design과 v0.1C internal/tests-only registry primitive는
-연결하지 않은 기반으로 보존하지만, 현재 방향은 multi-project 연결이 아니다.
-두 번째 repo 등록·경로 입력·route·UI·persistence는 추가하지 않는다. Memory /
-Skills live save도 readiness review의 `keep locked` 판정을 유지한다.
+Project Control v0.1D는 현재 목표와 live Git 상태에 더해 `현재 만드는 이유`,
+`이 단계가 끝나면 사용자가 얻는 것`, 최근 완료, 다음 단계, 내부 workstream,
+잠긴 기능, 승인 필요 여부를 한 개의 read-only Jarvis-Core 카드로 보여준다.
+v0.1B design과 v0.1C internal/tests-only registry primitive는 연결하지 않은
+기반으로 보존하며 현재 방향은 multi-project 연결이 아니다. 두 번째 repo
+등록·경로 입력·route·persistence는 추가하지 않는다. Memory / Skills live
+save도 readiness review의 `keep locked` 판정을 유지한다.
 
 ### 이 단계가 끝나면 사용자가 얻는 것
 
@@ -64,12 +66,12 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Project Control v0.1D single-repo workstream visibility design**
-- 현재 다음 작업: **설계된 single-repo Owner Dashboard vertical slice 구현·검증**
+- 최근 완료: **Project Control v0.1D single-repo Owner Dashboard vertical slice**
+- 현재 다음 작업: **실제 milestone 보고 1회로 Owner Dashboard 실사용 검증**
 - 다음 사용자 체감 milestone: **내부 workstream별 상태·최근 완료·현재 milestone·
   다음 단계·잠긴 기능·승인 필요 여부를 보여주는 single-repo Owner Dashboard**
-- vertical slice 완료 기준: Jarvis-Core 한 저장소만 표시하고, 문서 방향과 live Git
-  관찰을 구분하며 어떤 action·approval·persistence도 만들지 않음
+- vertical slice 완료 결과: Jarvis-Core 한 저장소만 표시하고, 문서 방향과 live Git
+  관찰을 구분하며 어떤 action·approval·persistence도 만들지 않는 화면 검증 완료
 - 현재 결정 필요: **없음** — single-repo 방향은 소유자가 승인함
 
 ### 언제부터 실제로 편해지는가
@@ -114,18 +116,18 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `a33f28103310cfd2210780d2ef0fe6b4df9cfc2b`
+- Verified implementation HEAD: `e69dbea27a1f77d0b9fe40fc4f5ca76eb13e37fb`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Project Control — Jarvis-Core single-repo owner dashboard
-- Current milestone: Project Control v0.1D single-repo workstream visibility design complete
-- Recommended next step: Implement and verify the complete read-only single-repo vertical slice
-- Next user-visible milestone: 내부 workstream별 상태와 다음 결정을 보여주는 Owner Dashboard
+- Current milestone: Project Control v0.1D single-repo Owner Dashboard implemented and browser-verified
+- Recommended next step: Use the dashboard for one real milestone report and record usability feedback
+- Next user-visible milestone: Owner Dashboard를 실제 방향 결정에 사용하는 첫 운영 검증
 - Current reason: 흩어진 Jarvis-Core 내부 workstream 상태를 소유자가 문서별로 찾아보는 부담을 줄이기 위해 만든다
 - Owner outcome: 현재 이유·최근 완료·milestone·다음 단계·잠금·승인 필요 여부를 한 화면에서 이해한다
-- Recent completed: Project Control v0.1D single-repo workstream visibility design
+- Recent completed: Project Control v0.1D single-repo Owner Dashboard vertical slice
 - Approval state: none
-- Approval note: 승인된 read-only single-repo 범위 안에서 다음 구현 work package를 진행할 수 있다
+- Approval note: 현재는 새 권한 승인 없이 read-only dashboard 실사용 검증을 진행할 수 있다
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
@@ -149,7 +151,7 @@ Voice Inbox auto-save, saved candidates dashboard도 없다.
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
 | 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff, read-only 검토 화면 | **사용자 기능 — 실제 작업 1건 검증** | 반복 사용 피드백 또는 다음 축 선택 |
 | 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 2C-4f readiness review 완료, `keep locked` | 소유자가 complete vertical slice 우선순위 결정 |
-| 4. 통합 Jarvis Console | Jarvis-Core 내부 workstream의 진행·잠금·승인 필요 상태를 한 화면에서 확인함 | read-only부터 확장하는 single-repo local control panel | 사용자 기능 — 단일 owner card | 내부 workstream 가시성 vertical slice |
+| 4. 통합 Jarvis Console | Jarvis-Core 내부 workstream의 진행·잠금·승인 필요 상태를 한 화면에서 확인함 | read-only부터 확장하는 single-repo local control panel | **사용자 기능 — v0.1D Owner Dashboard 검증** | 실제 milestone 보고 1회 실사용 검증 |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
 
 단계 번호는 방향을 설명한다. 모든 작업 축이 완전히 직렬로 진행된다는 뜻은 아니며, 안전 경계를 넘지 않는 작은 기반 작업은 병행할 수 있다.
@@ -167,13 +169,14 @@ flowchart LR
     G --> H["multi-project contract<br/>v0.1B 보존"]
     H --> I["route-free normalizer<br/>v0.1C 보존"]
     I --> J["single-repo workstream visibility<br/>v0.1D design 완료"]
-    J --> K["내부 workstream Owner Dashboard<br/>현재 구현 단계"]
+    J --> K["내부 workstream Owner Dashboard<br/>v0.1D 구현 완료"]
+    K --> L["실제 milestone 보고 1회<br/>현재 실사용 검증"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J done;
-    class K current;
+    class A,B,C,D,E,F,G,H,I,J,K done;
+    class L current;
 ```
 
 ### 구현된 기반
@@ -184,17 +187,18 @@ flowchart LR
 - master-plan Owner Dashboard와 milestone 갱신 규칙
 - bounded master-plan snapshot parser: trusted-root regular file, UTF-8, 128KB,
   required field, duplicate field validation
-- 기존 `/api/overview` 안의 list-shaped `project_control.v0.1A` payload
+- 기존 `/api/overview` 안의 single-repo `project_control.v0.1D` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Project Control v0.1D single-repo workstream visibility design
+### 최근 완료: Project Control v0.1D single-repo Owner Dashboard vertical slice
 
-`project-control-single-repo-workstreams-v0.1-design.md`에서 기존 master plan과
-`GET /api/overview`를 재사용하는 complete vertical slice를 확정했다. Owner
+구현 commit `e69dbea27a1f77d0b9fe40fc4f5ca76eb13e37fb`에서 기존 master plan과
+`GET /api/overview`를 재사용하는 complete vertical slice를 구현했다. Owner
 Dashboard는 `현재 만드는 이유`와 `이 단계가 끝나면 사용자가 얻는 것`을 기술
 단계보다 먼저 보여주고, 내부 workstream 상태·최근 완료·현재 milestone·다음
-단계·잠긴 기능·승인 필요 여부를 한 개의 Jarvis-Core 카드 안에 표시한다. 이
-단계는 design-only이며 앱 코드나 UI 동작은 아직 바뀌지 않았다.
+단계·잠긴 기능·승인 필요 여부를 한 개의 Jarvis-Core 카드 안에 표시한다.
+결정론적 smoke test와 local browser QA에서 6개 workstream, zero action button,
+zero browser error를 확인했다.
 
 기반으로 보존된 v0.1C는 v0.1B contract를 `project_control_registry.py`의
 route-free internal/tests-only primitive로 구현했다. 1~16개 프로젝트의 in-memory
@@ -207,18 +211,16 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 다음 안전 단계: complete read-only Owner Dashboard vertical slice
+### 다음 안전 단계: 실제 milestone 보고 1회 실사용 검증
 
 Project Control의 현재 제품 방향은 Jarvis-Core 한 저장소만 보여주는 소유자
-대시보드다. 다음 work package에서는 v0.1D 설계에 따라 아래 항목을 기존
-`GET /api/overview`와 Project Control tab에 구현하고 한 번에 검증한다.
+대시보드다. 다음 단계에서는 새 primitive나 권한을 추가하지 않고 실제 milestone
+보고 1회를 이 화면에서 읽어 다음 작업을 결정할 수 있는지 확인한다.
 
-- Jarvis Console, Hermes Manager, Memory / Skills, Research Council, Daily AI
-  Radar 등 내부 workstream의 제한된 목록
-- workstream별 현재 상태, 최근 완료, 현재 milestone, 다음 단계
-- 잠긴 기능과 승인 필요 여부
-- 비개발자가 이해할 수 있는 `현재 만드는 이유`와 `이 단계가 끝나면 사용자가
-  얻는 것`
+- 소유자가 별도 문서를 열지 않고 현재 이유와 결과를 이해하는지
+- 최근 완료, milestone, 다음 단계, 잠금, 승인 상태가 실제 결정에 충분한지
+- 기술 코드보다 사용자 관점 설명이 먼저 읽히는지
+- 반복 사용에서 발견된 문구 또는 정보 우선순위 문제만 기록하는지
 
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
@@ -231,7 +233,7 @@ save도 계속 잠겨 있다.
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1D single-repo workstream visibility design 완료 | owner project card와 fresh read-only work review | complete read-only Owner Dashboard vertical slice 구현·검증 |
+| Jarvis Console | Project Control v0.1D single-repo Owner Dashboard 구현·browser 검증 완료 | owner project card, 내부 workstream 상태, fresh read-only work review | 실제 milestone 보고 1회 실사용 검증 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
@@ -282,8 +284,8 @@ save도 계속 잠겨 있다.
 9. Project Control v0.1A는 단일 owner card를 검증하고 v0.1B는 source contract,
    v0.1C는 route-free internal normalizer를 완료했다. v0.1B/v0.1C는 연결하지
    않은 기반으로 보존하며, 현재 제품 방향은 Jarvis-Core 한 저장소의 내부
-   workstream 가시성이다. v0.1D는 owner summary와 workstream 표의 source,
-   payload, UI, validation 계약을 design-only로 확정했다.
+   workstream 가시성이다. v0.1D는 owner summary와 workstream 표의 bounded
+   source, payload, UI, deterministic test, local browser validation을 완료했다.
 
 ## 9. Milestone 보고 형식
 

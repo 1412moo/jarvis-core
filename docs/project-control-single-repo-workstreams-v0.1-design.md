@@ -2,8 +2,12 @@
 
 Last updated: 2026-07-22
 
-Status: design-only. No application code, route, UI behavior, persistence, or
-repository connection is added by this document.
+Status: implemented and locally verified on 2026-07-22.
+
+Implementation commit: `e69dbea27a1f77d0b9fe40fc4f5ca76eb13e37fb`.
+
+The implementation adds no new route, persistence, repository connection, or
+action authority.
 
 ## 1. Owner Outcome
 
@@ -138,7 +142,7 @@ picker, path field, or second-project card.
 
 ## 6. Complete Vertical Slice Boundary
 
-The next implementation is one complete user-visible work package, not another
+The implementation was completed as one user-visible work package, not another
 standalone primitive chain.
 
 In scope:
@@ -161,7 +165,7 @@ Out of scope:
 
 ## 7. Deterministic Validation
 
-The implementation work package must verify:
+The implementation work package verified:
 
 1. the current master plan produces exactly one Jarvis-Core card and the six
    ordered internal workstreams;
@@ -193,6 +197,20 @@ The implementation work package must verify:
 ## 9. Implementation Approval Boundary
 
 This design does not authorize multi-project integration or any write/action
-surface. A subsequent work package may implement only the complete read-only
+surface. The implemented package stayed within the complete read-only
 single-repo slice described above. Any scope beyond it requires a new owner
 decision.
+
+## 10. Verification Result
+
+- The master-plan parser returns the five owner-summary fields and exactly six
+  ordered internal workstreams, and rejects malformed bounded fixtures.
+- `GET /api/overview` returns one `project_control.v0.1D` Jarvis-Core card with
+  no dormant-registry or second-repository connection.
+- Jarvis Console smoke tests and JavaScript syntax checks passed.
+- Local browser QA showed current reason and owner outcome before technical
+  details, all six workstream cards, locked capabilities, and approval state.
+- The Project Control card contained zero action buttons and browser console
+  errors.
+- The QA server was stopped without creating runtime state. Memory save, UI
+  Save/Confirm, Voice Inbox save, and saved candidates remain unavailable.

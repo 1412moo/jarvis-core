@@ -76,7 +76,7 @@ Included:
   repository root.
 - A `Project Control` tab that combines bounded master-plan fields with fixed
   read-only Git metadata for one trusted Jarvis-Core owner card.
-- A list-shaped `project_control.v0.1A` payload inside the existing
+- A single-repo `project_control.v0.1D` payload inside the existing
   `GET /api/overview` response; no new action route or persistence.
 - Read-only skill registry validation.
 - Local-only safety banner.
@@ -190,14 +190,15 @@ trusted root/command IDs, field and list bounds, duplicate values, portable
 relative paths, branch names, Unicode controls, and Windows path hazards. It
 does not read a registry file, open a repo, run Git, or connect to overview/UI.
 
-Project Control v0.1D now defines, but does not yet implement, a single-repo
-owner dashboard that makes Jarvis-Core's internal workstreams visible. Jarvis
-Console, Hermes Manager, Memory / Skills, Research Council, and Daily AI Radar
-are workstreams, apps, or capabilities inside Jarvis-Core, not separate
-projects. The planned read-only view puts why the current work exists and what
-the owner gains when it is complete ahead of technical codes, then summarizes
-recent completion, current milestone, next step, locked features, and whether
-approval is needed. See
+Project Control v0.1D implements a single-repo owner dashboard that makes
+Jarvis-Core's internal workstreams visible. Jarvis Console, Hermes Manager,
+Memory / Skills, Research Council, and Daily AI Radar are workstreams, apps, or
+capabilities inside Jarvis-Core, not separate projects. The read-only view puts
+why the current work exists and what the owner gains when it is complete ahead
+of technical codes, then summarizes recent completion, current milestone, next
+step, locked features, and whether approval is needed. Its bounded parser
+accepts the fixed six-row workstream table and fails closed on missing, extra,
+duplicate, unknown, controlled, empty, or oversized values. See
 [`../../docs/project-control-single-repo-workstreams-v0.1-design.md`](../../docs/project-control-single-repo-workstreams-v0.1-design.md).
 
 ### Research Council
