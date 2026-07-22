@@ -16,10 +16,10 @@ Jarvis-Core 한 저장소 안의 AI 작업자와 내부 workstream을 한곳에�
 
 Owner Decision v0.1A는 UI보다 먼저 transport-neutral core contract를 완성했고,
 v0.1B는 그 객체를 기존 Project Control payload와 read-only renderer에 연결했다.
-소유자는 이 객체에서 `Hermes Manager`를 선택했고, 첫 bounded package로 Codex 결과를
-clipboard에서 받아 기존 Jarvis review handoff JSON까지 한 번에 복사하는 UI를
-완료했다. 현재 과제는 실제 결과 1건으로 이 흐름을 사용해 조작 감소와 실패 안내를
-확인하는 것이다. 화면은 review·commit 또는 잠긴 기능의 권한을 만들지 않는다.
+소유자는 이 객체에서 `Hermes Manager`를 선택했다. 첫 bounded package의 실사용
+검토에서 clipboard를 workflow state처럼 읽는 설계 오류를 발견했고, 이를 frozen
+in-memory Review 객체가 task와 scope를 소유하고 Copy가 언제든 같은 handoff를 다시
+생성하는 구조로 수정했다. 화면은 review·commit 또는 잠긴 기능의 권한을 만들지 않는다.
 
 Project Control v0.1D는 현재 목표와 live Git 상태에 더해 `현재 만드는 이유`,
 `이 단계가 끝나면 사용자가 얻는 것`, 최근 완료, 다음 단계, 내부 workstream,
@@ -31,13 +31,11 @@ save도 readiness review의 `keep locked` 판정을 유지한다.
 
 ### 이 단계가 끝나면 사용자가 얻는 것
 
-- CLI와 Console이 같은 immutable Decision 객체를 읽고 Markdown과 browser에서
-  일관된 선택 경계를 보여준다.
-- CLI는 bounded JSON을 stable JSON 또는 Markdown으로 stdout에만 렌더링한다.
-- UI가 workstream, 상태, 권한 또는 응답 형식을 자체적으로 정의하지 않는다.
-- 선택이 허용하는 것은 bounded work package 제안뿐이며 별도 구현 승인과 섞이지
-  않는다.
-- 자동 실행, push/PR, 외부 호출, Memory save는 renderer와 무관하게 계속 잠긴다.
+- 명시적으로 저장한 Review 객체가 현재 task와 confirmed target-file scope에 묶인다.
+- clipboard가 바뀌거나 output을 지워도 Review 객체에서 같은 handoff를 다시 만든다.
+- Hermes는 clipboard를 programmatic input이나 session continuity 근거로 읽지 않는다.
+- Review 객체는 현재 page/session의 in-memory state이며 persistence로 오해하지 않는다.
+- 자동 실행, push/PR, 외부 호출, Memory save는 계속 잠긴다.
 
 ### 전체 성숙도
 
@@ -65,11 +63,11 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Hermes Manager one-click Jarvis review handoff**
-- 현재 다음 작업: **실제 Codex 결과 1건으로 one-click copy-only 흐름 사용 검증**
-- 다음 사용자 체감 milestone: **결과 복사 뒤 Hermes 한 번 클릭과 Jarvis 한 번 붙여넣기로 fresh review 시작**
-- 최근 사용자 기능 검증 결과: 기존 handoff route를 재사용해 review-only JSON을
-  만들고 clipboard에 복사하며 review/commit 승인을 만들지 않음을 browser에서 확인
+- 최근 완료: **Hermes Review object authority / clipboard output-only correction**
+- 현재 다음 작업: **실제 사용에서 Review 저장·재복사·reset 경계를 반복 확인**
+- 다음 사용자 체감 milestone: **저장된 Review에서 언제든 동일 handoff를 다시 복사해 fresh review 시작**
+- 최근 사용자 기능 검증 결과: output을 지운 뒤 다시 Copy해도 같은 JSON이 생성되고,
+  clipboard input button 0개와 review/commit 승인 false를 browser에서 확인
 - 현재 결정 필요: **없음** — 다음은 새 구현이 아니라 실제 사용 피드백 수집
 
 ### 언제부터 실제로 편해지는가
@@ -114,16 +112,16 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `4772eda8878842af47f87bc6e57d626d75c8e609`
+- Verified implementation HEAD: `76fc6a4ebb0fcf7f953d33a576686769fc500c20`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Hermes Manager — guided review handoff
-- Current milestone: one-click copy-only Jarvis review handoff complete
-- Recommended next step: Validate the one-click flow with one real copied Codex result before proposing more automation
-- Next user-visible milestone: 결과 복사 뒤 Hermes 한 번 클릭과 Jarvis 한 번 붙여넣기로 fresh review 시작
-- Current reason: 기존 안전한 copy-only handoff를 유지하면서 반복되는 paste/save/copy 조작을 줄여야 한다
-- Owner outcome: 한 번의 명시적 클릭으로 Codex 결과를 받아 Jarvis review JSON까지 복사하되 앱 간 자동 호출은 하지 않는다
-- Recent completed: Hermes one-click clipboard intake, existing-handoff reuse, deterministic tests, and local browser QA
+- Current milestone: Review object authority and clipboard output-only correction complete
+- Recommended next step: Validate repeated Review save, handoff regeneration, and reset behavior in normal local use before adding persistence
+- Next user-visible milestone: 저장된 Review에서 언제든 동일 handoff를 다시 복사해 fresh review 시작
+- Current reason: clipboard는 신뢰할 수 없는 출력 장치이므로 Review state와 session continuity를 소유하면 안 된다
+- Owner outcome: 명시적으로 저장한 Review 객체가 authoritative state가 되고 Copy는 언제든 같은 결과를 재생성한다
+- Recent completed: clipboard-read removal, frozen Review object, scope binding, deterministic regeneration, and browser QA
 - Approval state: none
 - Approval note: 구현은 완료됐으며 다음은 실제 사용 피드백 수집이다
 - Owner decision status: selection_required
@@ -176,14 +174,15 @@ flowchart LR
     N --> O["v0.1B read-only Console<br/>integration 완료"]
     O --> P["같은 Decision 객체<br/>CLI + Console 표시"]
     P --> Q["명시적 owner selection<br/>Hermes 선택"]
-    Q --> R["one-click review handoff<br/>구현 완료"]
-    R --> S["실제 Codex 결과 1건<br/>사용 검증"]
+    Q --> R["clipboard-state bug<br/>실사용 발견"]
+    R --> S["Review object authoritative<br/>clipboard output-only 수정"]
+    S --> T["반복 save/copy/reset<br/>실사용 검증"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R done;
-    class S current;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S done;
+    class T current;
 ```
 
 ### 구현된 기반
@@ -197,23 +196,26 @@ flowchart LR
 - 기존 `/api/overview` 안의 single-repo `project_control.v0.1D` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Hermes Manager one-click Jarvis review handoff
+### 최근 완료: Hermes Review object authority / clipboard output-only correction
 
-Codex 결과를 clipboard에 복사한 뒤 `Paste Result & Copy Jarvis Review Handoff`를
-한 번 누르면 결과를 session에 반영하고 기존 `/api/review-handoff`를 호출한 다음
-copy-only JSON을 clipboard에 다시 넣는 complete local UI slice를 구현했다. 기존
-scope confirmation, fixed Jarvis-Core authority, `jarvis.bat` 보호와 review-only
-envelope를 그대로 재사용한다.
+실사용 검토에서 `Paste Result & Copy Jarvis Review Handoff`가 현재 clipboard를
+workflow state처럼 읽고 session continuity를 그 값에 의존하는 설계 오류를 확인했다.
+잘못된 one-click input은 제거하고, 사용자가 visible field의 결과를 명시적으로
+저장하면 frozen Review 객체가 active task와 confirmed target-file scope를 함께
+보관하도록 수정했다.
 
-Hermes self-test, 전체 smoke, JavaScript syntax와 local browser QA가 통과했다.
-browser QA에서 정확한 one-click button 1개, `item_id + queue` envelope,
-`result_type=review`, `review_passed=false`, `commit_approved=false`, 빈 commit message,
-zero browser warning/error를 확인했다. 구현 commit은
-`4772eda8878842af47f87bc6e57d626d75c8e609`다.
+`Copy Jarvis Review Handoff`는 현재 textarea나 clipboard를 읽지 않고 저장된 Review
+객체가 session과 일치할 때만 기존 `/api/review-handoff`를 호출한다. output을 지운 뒤
+두 번 재생성한 handoff가 byte-for-byte 동일했고, `result_type=review`,
+`review_passed=false`, `commit_approved=false`, empty commit message와 zero browser
+warning/error를 확인했다. 앱에는 `navigator.clipboard.readText`와 clipboard input
+button이 없다.
 
-새 route, persistence, Jarvis 자동 호출, review/commit 승인, external API, push/PR는
-추가하지 않았다. 다음은 실제 Codex 결과 1건으로 조작 감소와 오류 안내를 검증하는
-실사용 단계다.
+초기 one-click commit `4772eda8878842af47f87bc6e57d626d75c8e609`의 clipboard
+state 설계는 correction commit `76fc6a4ebb0fcf7f953d33a576686769fc500c20`에서
+대체됐다. Review 객체는 아직 page/session 한정 in-memory state이며 reset, 새 session,
+reload에서 사라진다. persistence와 cross-device continuity는 별도 계약 전까지
+추가하지 않는다.
 
 ### 이전 완료: Owner Decision v0.1B read-only Console integration
 
@@ -295,12 +297,12 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 현재 검증 지점: Hermes one-click handoff 실제 사용 1회
+### 현재 검증 지점: Review save/copy/reset 반복 사용
 
-소유자의 `Hermes Manager` 선택과 exact work package 승인에 따라 first slice가
-완료됐다. 다음은 새 primitive나 자동 연결이 아니라 실제 Codex 결과를 clipboard에
-복사하고 one-click handoff를 거쳐 Jarvis Console에 직접 붙여넣는 사용 검증이다.
-이 검증 결과가 없으면 추가 UX나 automation package를 추정하지 않는다.
+다음은 새 primitive나 자동 연결이 아니라 visible result 저장, 같은 Review의 반복
+Copy, output clear 후 재생성, reset/new-session invalidation을 실제 로컬 사용에서
+확인하는 단계다. 이 피드백 없이 persistence, mobile continuity 또는 automation을
+추정하지 않는다.
 
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
@@ -311,7 +313,7 @@ save도 계속 잠겨 있다.
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
-| Hermes Manager | copy-only handoff와 one-click result intake 구현·browser 검증 완료 | prompt drafting, 수동 review handoff, one-click Jarvis handoff 복사 | 실제 Codex 결과 1건 사용 피드백 |
+| Hermes Manager | clipboard input 제거, frozen Review 객체와 deterministic handoff 재생성 완료 | prompt drafting, explicit Review save, 반복 가능한 Jarvis handoff Copy | save/copy/reset 반복 실사용 피드백 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
 | Jarvis Console | Project Control v0.1D와 Owner Decision v0.1A/v0.1B 완료, Hermes 선택 1회 사용 | owner project card, 내부 workstream 상태, fresh read-only work review, 동일 Decision 객체의 CLI/Console 표시 | 다음 product selection 전 현재 handoff 실사용 피드백 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |

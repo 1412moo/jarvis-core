@@ -262,16 +262,18 @@ Browser guided workflow:
 4. Click `Continue To Task Prompt`.
 5. Click `Copy Task Prompt for Codex`.
 6. Paste the generated prompt into Codex.
-7. Copy Codex's result to the clipboard.
-8. Recommended: click `Paste Result & Copy Jarvis Review Handoff`, then paste
-   the copied JSON once into Jarvis Console Codex Review. The button reuses the
-   existing bounded handoff and does not call Jarvis.
-9. Alternative: paste or save the result, then click `Copy Review Prompt for
-   Codex` for the existing direct review path.
-10. Approve commit prompt generation only after review passes.
-11. Click `Copy Commit Prompt for Codex`.
-12. Paste the commit result back and create a checkpoint summary.
-13. Reset approval before starting the next task.
+7. Paste or type Codex's result into the visible result field.
+8. Click `Save Review Object and Continue`. The in-memory Review object becomes
+   authoritative for the current task and confirmed target-file scope.
+9. Click `Copy Jarvis Review Handoff` whenever the handoff is needed. Hermes
+   regenerates it from the saved Review object and fresh local Git metadata.
+10. Paste the copied JSON once into Jarvis Console Codex Review.
+11. Alternative: click `Copy Review Prompt for Codex` for the existing direct
+   review path.
+12. Approve commit prompt generation only after review passes.
+13. Click `Copy Commit Prompt for Codex`.
+14. Paste the commit result back and create a checkpoint summary.
+15. Reset approval before starting the next task.
 
 The browser UI does not call Codex, call ChatGPT, run Hermes, use external
 network services, modify repository files, run `git add`, commit, or push.
@@ -540,13 +542,18 @@ commit approval, commit message, push permission, or execution authority.
 Neither app persists the envelope or session. Jarvis recollects fresh bounded
 evidence and may still block the handoff.
 
-The guided UI also offers `Paste Result & Copy Jarvis Review Handoff` as a
-single explicit local action. It reads the current clipboard, places the result
-in the visible session field, calls only the existing copy-only handoff route,
-and copies the resulting JSON back to the clipboard. Missing session, missing
-scope confirmation, an empty or unreadable clipboard, route rejection, and
-clipboard-copy failure remain visible failures. It adds no route, persistence,
-app-to-app call, review approval, commit approval, or execution authority.
+The guided UI stores an explicitly submitted result as a frozen in-memory
+Review object bound to the current task and confirmed target-file scope. Every
+`Copy Jarvis Review Handoff` regenerates the artifact from that object and fresh
+local Git metadata, so clearing output or changing the clipboard does not lose
+or replace review state. Hermes never reads the clipboard programmatically;
+clipboard access is write-only output from explicit Copy actions.
+
+The Review object is deliberately process-local for this slice and is cleared
+by reset, a new prepared session, or page reload. Durable Review persistence and
+cross-device continuity require a separate contract and approval. This change
+adds no route, persistence, app-to-app call, review approval, commit approval,
+or execution authority.
 
 Deterministic tests cover stable serialization, exact fields, stale/absent scope
 confirmation, trusted repository authority, missing `jarvis.bat`, and forbidden
