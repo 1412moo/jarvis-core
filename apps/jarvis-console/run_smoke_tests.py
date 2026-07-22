@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
+from io import StringIO
 import json
 from http import HTTPStatus
 from pathlib import Path
@@ -12,6 +13,21 @@ from typing import Any
 
 import run_web_app
 import codex_review
+import render_owner_decision
+from owner_decision import (
+    AUTHORITY_BOUNDARY,
+    CONTRACT_TYPE,
+    MAX_JSON_BYTES,
+    PROJECT_ID,
+    RESPONSE_TEMPLATE,
+    VERSION as OWNER_DECISION_VERSION,
+    OwnerDecisionError,
+    normalize_owner_decision,
+    owner_decision_to_dict,
+    parse_owner_decision_json,
+    render_owner_decision_markdown,
+    serialize_owner_decision,
+)
 from project_control_registry import (
     MAX_PROJECTS,
     REGISTRY_TYPE,
@@ -443,6 +459,300 @@ def _project_registry_fixture() -> dict[str, Any]:
     }
 
 
+def _owner_decision_fixture() -> dict[str, Any]:
+    return {
+        "contract_type": CONTRACT_TYPE,
+        "version": OWNER_DECISION_VERSION,
+        "project_id": PROJECT_ID,
+        "decision_kind": "workstream_selection",
+        "status": "selection_required",
+        "reason": (
+            "Choose the next Jarvis-Core workstream without treating the choice "
+            "as implementation authority."
+        ),
+        "authority_boundary": AUTHORITY_BOUNDARY,
+        "recommended_workstream_id": "jarvis-console",
+        "candidates": [
+            {
+                "workstream_id": "hermes-manager",
+                "display_name": "Hermes Manager",
+                "current_capability": "Copy-only prompt and review handoff",
+                "next_user_outcome": "Reduce manual coordination friction",
+                "locked_capabilities": [
+                    "Automatic Codex or ChatGPT invocation",
+                    "Push or pull request",
+                ],
+            },
+            {
+                "workstream_id": "memory-skills",
+                "display_name": "Memory / Skills",
+                "current_capability": "Write-free candidate preview",
+                "next_user_outcome": "Review one bounded memory safety slice",
+                "locked_capabilities": [
+                    "Live candidate save",
+                    "UI Save or Confirm",
+                    "Voice Inbox auto-save",
+                ],
+            },
+            {
+                "workstream_id": "jarvis-console",
+                "display_name": "Jarvis Console",
+                "current_capability": "Single-repo read-only Owner Dashboard",
+                "next_user_outcome": "Read one shared decision contract across renderers",
+                "locked_capabilities": [
+                    "Approval or execution action",
+                    "Second repository connection",
+                ],
+            },
+            {
+                "workstream_id": "research-council",
+                "display_name": "Research Council",
+                "current_capability": "Deterministic local idea and risk report",
+                "next_user_outcome": "Improve one real-use report workflow",
+                "locked_capabilities": ["External research calls"],
+            },
+            {
+                "workstream_id": "daily-ai-radar",
+                "display_name": "Daily AI Radar",
+                "current_capability": "Manually curated local radar report",
+                "next_user_outcome": "Improve one local scouting workflow",
+                "locked_capabilities": ["External source collection"],
+            },
+            {
+                "workstream_id": "task-discord-dashboard",
+                "display_name": "Task / Discord / Dashboard",
+                "current_capability": "Task workflow and read-only dashboard",
+                "next_user_outcome": "Improve one bounded owner task workflow",
+                "locked_capabilities": [
+                    "Remote execution",
+                    "Unattended execution",
+                ],
+            },
+        ],
+        "selected_workstream_id": None,
+        "desired_outcome": None,
+        "response_template": RESPONSE_TEMPLATE,
+        "read_only": True,
+    }
+
+
+def _test_owner_decision_contract() -> None:
+    fixture = _owner_decision_fixture()
+    first = normalize_owner_decision(fixture)
+    second = normalize_owner_decision(fixture)
+    assert first == second
+    assert isinstance(first.candidates, tuple)
+    assert all(isinstance(candidate.locked_capabilities, tuple) for candidate in first.candidates)
+    assert [candidate.workstream_id for candidate in first.candidates] == [
+        "hermes-manager",
+        "memory-skills",
+        "jarvis-console",
+        "research-council",
+        "daily-ai-radar",
+        "task-discord-dashboard",
+    ]
+    try:
+        first.status = "selected_for_proposal"  # type: ignore[misc]
+    except FrozenInstanceError:
+        pass
+    else:
+        raise AssertionError("OwnerDecision must be immutable")
+    try:
+        first.candidates[0].display_name = "Changed"  # type: ignore[misc]
+    except FrozenInstanceError:
+        pass
+    else:
+        raise AssertionError("OwnerDecisionCandidate must be immutable")
+
+    canonical = serialize_owner_decision(first)
+    assert canonical == serialize_owner_decision(second)
+    assert parse_owner_decision_json(canonical) == first
+    assert owner_decision_to_dict(first) == json.loads(canonical)
+    assert " " not in canonical[: canonical.index('"authority_boundary"')]
+
+    reordered = json.loads(json.dumps(fixture))
+    reordered["candidates"].reverse()
+    for candidate in reordered["candidates"]:
+        candidate["locked_capabilities"].reverse()
+    assert serialize_owner_decision(normalize_owner_decision(reordered)) == canonical
+
+    before_render = serialize_owner_decision(first)
+    markdown = render_owner_decision_markdown(first)
+    assert markdown.startswith("# Owner Decision\n")
+    assert "## Workstream Candidates" in markdown
+    assert "### 3. Jarvis Console" in markdown
+    assert RESPONSE_TEMPLATE in markdown
+    assert "bounded work-package proposal only" in markdown
+    assert "`work_package_proposal_only`" in markdown
+    assert markdown.endswith("\n")
+    assert serialize_owner_decision(first) == before_render
+
+    escaped_fixture = json.loads(json.dumps(fixture))
+    escaped_fixture["candidates"][0]["current_capability"] = (
+        "Draft *prompts* without <script> execution"
+    )
+    escaped = render_owner_decision_markdown(
+        normalize_owner_decision(escaped_fixture)
+    )
+    assert r"\*prompts\*" in escaped
+    assert r"\<script\>" in escaped
+
+    selected_fixture = json.loads(json.dumps(fixture))
+    selected_fixture.update(
+        {
+            "status": "selected_for_proposal",
+            "selected_workstream_id": "jarvis-console",
+            "desired_outcome": "Show one transport-neutral read-only decision",
+        }
+    )
+    selected = normalize_owner_decision(selected_fixture)
+    assert selected.selected_workstream_id == "jarvis-console"
+    assert "Show one transport-neutral" in render_owner_decision_markdown(selected)
+
+    superseded_fixture = json.loads(json.dumps(selected_fixture))
+    superseded_fixture["status"] = "superseded"
+    assert normalize_owner_decision(superseded_fixture).status == "superseded"
+    rejected_fixture = json.loads(json.dumps(fixture))
+    rejected_fixture["status"] = "selection_rejected"
+    assert normalize_owner_decision(rejected_fixture).status == "selection_rejected"
+
+    def assert_rejected(payload: object, message: str) -> None:
+        try:
+            normalize_owner_decision(payload)  # type: ignore[arg-type]
+        except OwnerDecisionError as exc:
+            assert message in str(exc), str(exc)
+        else:
+            raise AssertionError(f"Owner Decision input should fail closed: {message}")
+
+    assert_rejected([], "must be an object")
+    assert_rejected({**fixture, "unknown": True}, "unknown fields")
+    assert_rejected({**fixture, "contract_type": "other"}, "contract_type must be")
+    assert_rejected({**fixture, "version": "0.1B"}, "version must be")
+    assert_rejected({**fixture, "project_id": "other"}, "project_id must be")
+    assert_rejected({**fixture, "decision_kind": "implementation"}, "decision_kind must be")
+    assert_rejected({**fixture, "status": "approved"}, "status is not supported")
+    assert_rejected({**fixture, "reason": "Unsafe\nreason"}, "control character")
+    assert_rejected({**fixture, "reason": "x" * 501}, "too long")
+    assert_rejected({**fixture, "authority_boundary": "execute"}, "authority_boundary must be")
+    assert_rejected({**fixture, "recommended_workstream_id": "unknown"}, "reference a candidate")
+    assert_rejected({**fixture, "read_only": False}, "read_only must be true")
+    assert_rejected({**fixture, "response_template": "Approve"}, "not the v0.1A template")
+    assert_rejected({**fixture, "candidates": fixture["candidates"][:-1]}, "all six")
+
+    duplicate_candidate = json.loads(json.dumps(fixture))
+    duplicate_candidate["candidates"][1] = json.loads(
+        json.dumps(duplicate_candidate["candidates"][0])
+    )
+    assert_rejected(duplicate_candidate, "duplicate workstream IDs")
+    unknown_candidate = json.loads(json.dumps(fixture))
+    unknown_candidate["candidates"][0]["workstream_id"] = "unknown"
+    assert_rejected(unknown_candidate, "is not allowed")
+    mismatched_name = json.loads(json.dumps(fixture))
+    mismatched_name["candidates"][0]["display_name"] = "Memory / Skills"
+    assert_rejected(mismatched_name, "does not match")
+    unknown_candidate_field = json.loads(json.dumps(fixture))
+    unknown_candidate_field["candidates"][0]["route"] = "/api/decision"
+    assert_rejected(unknown_candidate_field, "unknown fields")
+    duplicate_locks = json.loads(json.dumps(fixture))
+    duplicate_locks["candidates"][0]["locked_capabilities"] = ["Push", "push"]
+    assert_rejected(duplicate_locks, "duplicate values")
+
+    unselected_with_choice = json.loads(json.dumps(fixture))
+    unselected_with_choice["selected_workstream_id"] = "jarvis-console"
+    unselected_with_choice["desired_outcome"] = "Unexpected implied selection"
+    assert_rejected(unselected_with_choice, "unselected status")
+    selected_without_choice = json.loads(json.dumps(fixture))
+    selected_without_choice["status"] = "selected_for_proposal"
+    assert_rejected(selected_without_choice, "selected status requires")
+    selected_unknown = json.loads(json.dumps(selected_fixture))
+    selected_unknown["selected_workstream_id"] = "unknown"
+    assert_rejected(selected_unknown, "selected status requires")
+
+    noncanonical = replace(first, candidates=tuple(reversed(first.candidates)))
+    try:
+        serialize_owner_decision(noncanonical)
+    except OwnerDecisionError as exc:
+        assert "not canonically normalized" in str(exc)
+    else:
+        raise AssertionError("noncanonical contract instance must fail closed")
+
+    duplicate_json = canonical.replace(
+        '"version":"0.1A"',
+        '"version":"0.1A","version":"0.1A"',
+        1,
+    )
+    try:
+        parse_owner_decision_json(duplicate_json)
+    except OwnerDecisionError as exc:
+        assert "duplicate key" in str(exc)
+    else:
+        raise AssertionError("duplicate JSON keys must fail closed")
+    try:
+        parse_owner_decision_json(canonical.replace('"read_only":true', '"read_only":NaN'))
+    except OwnerDecisionError as exc:
+        assert "non-finite" in str(exc)
+    else:
+        raise AssertionError("non-finite JSON values must fail closed")
+    try:
+        parse_owner_decision_json("x" * (MAX_JSON_BYTES + 1))
+    except OwnerDecisionError as exc:
+        assert "exceeds the input limit" in str(exc)
+    else:
+        raise AssertionError("oversized JSON must fail closed")
+
+    markdown_stdout = StringIO()
+    markdown_stderr = StringIO()
+    assert render_owner_decision.run_cli(
+        ["--format", "markdown"],
+        stdin=StringIO(canonical),
+        stdout=markdown_stdout,
+        stderr=markdown_stderr,
+    ) == 0
+    assert markdown_stdout.getvalue() == markdown
+    assert markdown_stderr.getvalue() == ""
+
+    json_stdout = StringIO()
+    json_stderr = StringIO()
+    assert render_owner_decision.run_cli(
+        ["--format", "json"],
+        stdin=StringIO(canonical),
+        stdout=json_stdout,
+        stderr=json_stderr,
+    ) == 0
+    assert json_stdout.getvalue() == canonical + "\n"
+    assert json_stderr.getvalue() == ""
+
+    invalid_stdout = StringIO()
+    invalid_stderr = StringIO()
+    assert render_owner_decision.run_cli(
+        [],
+        stdin=StringIO("{}"),
+        stdout=invalid_stdout,
+        stderr=invalid_stderr,
+    ) == 2
+    assert invalid_stdout.getvalue() == ""
+    assert invalid_stderr.getvalue().startswith("Owner Decision error:")
+
+    module_source = Path(__file__).with_name("owner_decision.py").read_text(encoding="utf-8")
+    cli_source = Path(__file__).with_name("render_owner_decision.py").read_text(encoding="utf-8")
+    forbidden_core_patterns = (
+        "pathlib",
+        "subprocess",
+        "requests",
+        "urlopen",
+        "http.server",
+        "open(",
+        ".read_text(",
+        ".read_bytes(",
+        ".write_text(",
+        ".write_bytes(",
+        "socket",
+    )
+    forbidden_cli_patterns = forbidden_core_patterns + ("run_web_app",)
+    assert all(pattern not in module_source for pattern in forbidden_core_patterns)
+    assert all(pattern not in cli_source for pattern in forbidden_cli_patterns)
+
+
 def _test_project_control_registry_primitives() -> None:
     roots = {"jarvis_core", "care_note"}
     commands = {"git_status_short", "git_diff_check"}
@@ -562,6 +872,7 @@ def _test_project_control_registry_primitives() -> None:
 
 def main() -> None:
     _test_project_control_snapshot()
+    _test_owner_decision_contract()
     _test_project_control_registry_primitives()
     run_web_app.run_self_test()
     _test_codex_review_vertical_slice()
