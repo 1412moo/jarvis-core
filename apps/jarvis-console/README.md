@@ -229,10 +229,15 @@ token issue behind one route-free internal/tests-only coordinator. Duplicate
 JSON keys and body-length mismatches fail closed, and its redacted private
 result exposes only bounded token/display metadata when explicitly converted.
 
-Next decision: Phase 2C-4f is a design/review-only live-integration readiness
-checkpoint under separate approval. It does not authorize a bootstrap/token/save
-route, handler integration, live session/token issue, UI Save/Confirm, or Voice
-Inbox persistence.
+Phase 2C-4f completes the design/review-only live-integration readiness
+checkpoint with a `keep locked` verdict. The generic live handler, registry
+lifecycle, confirmation/recovery UX, and real HTTP/browser test gaps remain
+activation blockers. See
+[`../../docs/memory-skills-live-integration-readiness-v0.1.md`](../../docs/memory-skills-live-integration-readiness-v0.1.md).
+
+Next decision: the owner may defer live save and return to the Jarvis/Hermes
+Prompt Queue / Project Control Panel workstream, or separately approve one
+complete guarded local-save vertical slice. Neither is automatically authorized.
 
 ## Safety Boundary
 

@@ -265,6 +265,7 @@ The primitive is absent from `JarvisConsoleHandler`, dispatch, UI, Voice Inbox,
 and runtime persistence. The live save and bootstrap routes remain disabled.
 
 The wider Memory / Skills Phase 2C-4e route-free guarded save-preparation
-coordinator is also complete. The next candidate is a separately approved
-Phase 2C-4f design/review-only live-integration readiness checkpoint. No live
-HTTP integration is authorized by 2C-4d or 2C-4e.
+coordinator is also complete. Phase 2C-4f reviewed live-integration readiness
+and returned `keep locked`; see
+[`memory-skills-live-integration-readiness-v0.1.md`](memory-skills-live-integration-readiness-v0.1.md).
+No live HTTP integration is authorized by 2C-4d, 2C-4e, or 2C-4f.
