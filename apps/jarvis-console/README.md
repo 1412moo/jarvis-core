@@ -204,15 +204,18 @@ with a `keep locked` verdict. Phase 2C-4a records the safer privacy default and
 adds a route-free internal/tests-only guarded save coordinator: preview-token
 issuance requires explicit privacy review, the final payload is token-only with
 an exact confirmation literal, and persisted test candidates omit
-`original_text_preview`. The save endpoint remains disabled/non-success; no
-live token issuance, UI Save/Confirm, Voice Inbox save, or saved candidates
+`original_text_preview`. Phase 2C-4b adds a route-free internal/tests-only raw
+HTTP metadata adapter. It requires duplicate-preserving header pairs, exactly
+one Host, Origin, Content-Type, Cookie, CSRF, and Content-Length value, rejects
+Transfer-Encoding and malformed or oversized lengths, and emits bounded input
+for the existing request guard. The save endpoint remains disabled/non-success;
+no live token issuance, UI Save/Confirm, Voice Inbox save, or saved candidates
 dashboard is enabled.
 
-Next: Phase 2C-4b is the smallest safe candidate: a route-free
-internal/tests-only raw HTTP metadata adapter for duplicate/missing security
-headers and body-length boundaries. Phase 2C-4a does not authorize connecting the request guard/token
-subsystem, enabling the save endpoint, adding UI Save/Confirm, or adding Voice
-Inbox persistence.
+Next decision: Phase 2C-4c may define the session-bootstrap contract as a
+design-only package. It requires explicit approval and does not authorize a
+bootstrap route, handler integration, save endpoint, UI Save/Confirm, or Voice
+Inbox persistence. Phase 2C-4a/4b remain disconnected from live HTTP dispatch.
 
 ## Safety Boundary
 

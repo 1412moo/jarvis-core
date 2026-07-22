@@ -26,8 +26,8 @@ Jarvis Console does not execute skills automatically. It suggests, prepares, and
 
 ## Current HEAD / Status
 
-- Verified implementation HEAD: `4c333a9de9732b289ddeeb067b764ad9c4436679`
-- Commit: `jarvis-console: add guarded memory save coordinator`
+- Verified implementation HEAD: `d95233d8c7376192a986f00aed16ee6f1b2370fb`
+- Commit: `jarvis-console: add memory request metadata adapter`
 - Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -220,6 +220,10 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
   accepts only a one-time token plus an exact confirmation literal, writer
   failures consume the token without retry, and stored test candidates omit
   `original_text_preview`.
+- Phase 2C-4b implements a route-free internal/tests-only raw HTTP metadata
+  adapter. Duplicate-preserving header pairs are required; mappings, duplicate
+  or missing security headers, Transfer-Encoding, and malformed or oversized
+  Content-Length values fail closed before request-guard use.
 - `POST /api/memory-skills/candidates` remains disabled/non-success.
 - The live preview endpoint remains write-free and token-free.
 - No UI Save/Confirm, Voice Inbox token/save, or saved candidates dashboard is
@@ -461,9 +465,9 @@ During QA, `jarvis.bat` remained untracked and untouched.
 ## Current Known Backlog
 
 - Memory / Skills remains a proposal surface; any live save route or UI action
-  requires the remaining Phase 2C-3c checklist, local validation, and a separate
-  explicit approval. The privacy-field decision is resolved as default
-  omission of `original_text_preview`.
+  requires the remaining mandatory reopen checklist, local validation, and a
+  separate explicit approval. The privacy-field decision is resolved as
+  default omission of `original_text_preview`.
 - Codex Review remains deliberately copy/paste-only and has no durable review
   history; further UX changes should come from repeated local-use feedback.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
@@ -479,14 +483,14 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Raw HTTP Metadata Adapter — Phase 2C-4b
+### A. Session Bootstrap Contract Review — Phase 2C-4c
 
 Priority: P1
 
-Design and implement the smallest route-free internal/tests-only adapter that
-preserves or rejects duplicate Host, Origin, Content-Type, Cookie, CSRF, and
-Content-Length metadata before request-guard use. Add no handler registration,
-session bootstrap, token route, UI, or runtime persistence.
+Design only: define the bootstrap trust boundary, exact loopback Host/Origin
+checks, bounded process-local lifecycle, cookie/CSRF delivery, response bounds,
+restart invalidation, and tests that would be required before implementation.
+Do not register a route or modify handler, UI, Voice Inbox, or persistence.
 
 ### B. Planned Skill UX Polish
 
@@ -516,9 +520,10 @@ Improve source-area and item-type inference as real task, report, and checkpoint
 
 Priority: P2
 
-Phase 2C-4a guarded save coordination and the privacy-default decision are
-complete for internal/tests-only coverage. The next candidate is the route-free
-Phase 2C-4b raw HTTP metadata adapter described above. Keep the request guard, token, and
+Phase 2C-4a guarded save coordination, the privacy-default decision, and Phase
+2C-4b raw HTTP metadata adaptation are complete for internal/tests-only
+coverage. The next candidate is the design-only Phase 2C-4c session-bootstrap
+contract review described above. Keep the adapter, request guard, token, and
 coordinator disconnected from HTTP dispatch, UI, and Voice Inbox.
 
 ### G. Skill Detail Visual Polish

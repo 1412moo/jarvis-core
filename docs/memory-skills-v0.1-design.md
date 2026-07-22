@@ -47,7 +47,9 @@ preview-only capture and the Phase 2C-0/1/2/3a/3b internal helpers exist. Phase
 Phase 2C-4a adds privacy-required token issue and a route-free guarded save
 coordinator for internal/tests-only coverage. The candidate writer, request
 guard, session registry, preview token registry, and coordinator are not
-connected to live HTTP routes, UI, or Voice Inbox.
+connected to live HTTP routes, UI, or Voice Inbox. Phase 2C-4b adds a bounded
+raw HTTP metadata adapter for internal/tests-only coverage; it is also absent
+from the HTTP handler and dispatcher.
 
 ## 3. v0.1 Scope
 
@@ -108,8 +110,9 @@ Phase 2 is not automatic memory. A saved candidate, if a later user-facing
 phase adds one, is still not a skill, not an approved skill, not a Skill
 Registry entry, and not an execution target.
 
-After Phase 2C-4a, hardened candidate-write and guarded-request/token primitives
-plus a route-free coordinator exist, but user-facing local save is not enabled. `POST
+After Phase 2C-4b, hardened candidate-write and guarded-request/token
+primitives, a route-free coordinator, and a route-free raw HTTP metadata
+adapter exist, but user-facing local save is not enabled. `POST
 /api/memory-skills/candidates` remains disabled/non-success, and there is no UI
 `Save` / `Confirm Local Save` flow, Voice Inbox token/save path, or saved
 candidates dashboard.
@@ -212,6 +215,10 @@ Recommended path:
   internal/tests-only coordinator composes guard validation, one-time claim,
   canonical revalidation, dry-run validation, and hardened writing. Tests use
   temporary state only.
+- Phase 2C-4b: a route-free internal/tests-only raw HTTP metadata adapter
+  preserves duplicate visibility, enforces exact single security headers, and
+  bounds Content-Length before request-guard use. It is not connected to HTTP
+  dispatch and reads no body.
 - A later explicitly approved phase may connect to these helpers instead of
   duplicating validation, storage, or request-guard logic.
 - Avoid tracked repo paths such as `memory/tasks/`, `memory/skills/`, or
@@ -304,7 +311,7 @@ are listed here as future candidates, not as Phase 1 scope.
 | `GET /api/memory-skills` | Return Memory / Skills status, notes, and sample overview. | Read | No | Phase 1 | Low | Include if implementing the panel. |
 | `GET /api/memory-skills/candidates` | Return sample or saved read-only candidate metadata. | Read | No | Phase 2D or later | Low | Not implemented; keep saved-candidate listing deferred. |
 | `POST /api/memory-skills/candidates/preview` | Normalize input and return the payload that would be saved, plus privacy warnings. | Read-like, no write | No | Phase 2B | Low-medium | Implemented; write-free. |
-| `POST /api/memory-skills/candidates` | Save a candidate locally. | Write | Yes | Later explicit phase | Medium | Disabled/non-success after Phase 2C-4a; guarded composition remains route-free/internal-tests-only. |
+| `POST /api/memory-skills/candidates` | Save a candidate locally. | Write | Yes | Later explicit phase | Medium | Disabled/non-success after Phase 2C-4b; guarded composition and metadata adaptation remain route-free/internal-tests-only. |
 | `POST /api/memory-skills/candidates/{id}/approve` | Mark a candidate approved. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/reject` | Mark a candidate rejected. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/archive` | Archive a candidate. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
@@ -328,7 +335,8 @@ Phase 2 API direction:
   2C-1/2/3a added validation and hardened write composition for internal tests,
   Phase 2C-3b added route-free request-guard and preview-token primitives, and
   Phase 2C-4a added route-free guarded coordination with persisted
-  source-preview omission.
+  source-preview omission. Phase 2C-4b added route-free raw HTTP metadata
+  adaptation without handler integration.
 - Defer any live `POST /api/memory-skills/candidates` route until separate
   explicit approval. It must reject requests without explicit confirmation and
   must not trust a client-supplied digest as standalone authorization.
@@ -349,7 +357,7 @@ a task candidate with manual copy or detail handoff actions.
 
 In Phase 2B, Voice Inbox can link manually to a preview-only Memory / Skills
 flow. That preview must not write files or issue preview tokens. After Phase
-2C-4a, Voice Inbox still does not auto-save, request tokens, or call a save
+2C-4b, Voice Inbox still does not auto-save, request tokens, or call a save
 endpoint. Any future local save requires separate explicit approval and can
 happen only after the user reviews the preview and confirms the local save.
 
@@ -418,7 +426,7 @@ Memory / Skills must preserve these boundaries:
 - no background agents;
 - human-approved only;
 - local-first only;
-- user-facing save is still not enabled after Phase 2C-4a.
+- user-facing save is still not enabled after Phase 2C-4b.
 
 ## 11. Phase 2 Write Safety
 
@@ -439,7 +447,7 @@ persistence, the write design should follow these rules:
 - do not run git commands as part of save;
 - do not let app runtime write to arbitrary paths.
 
-Current helper status and design decision through Phase 2C-4a:
+Current helper status and design decision through Phase 2C-4b:
 
 - Phase 2C-0 implemented a storage path helper. It calculates and validates
   paths only. It rejects repo-internal paths, relative overrides, and
@@ -469,7 +477,7 @@ Current helper status and design decision through Phase 2C-4a:
   under a lock. These primitives perform no filesystem write and remain
   route-free/internal-tests-only.
 - Phase 2C-3c reviewed how those primitives could be composed safely and kept
-  live save locked. No HTTP metadata adapter, live session/bootstrap lifecycle,
+  live save locked. No raw metadata adapter, live session/bootstrap lifecycle,
   token-issuance route, save coordinator, confirmation UI, or recovery flow is
   connected to live behavior.
 - Phase 2C-4a implemented `coordinate_guarded_memory_skills_save` for
@@ -479,9 +487,15 @@ Current helper status and design decision through Phase 2C-4a:
   revalidates the server-held canonical snapshot/digest, claims before writing,
   and never retries automatically. The persisted schema omits
   `original_text_preview`. Tests write only under `TemporaryDirectory`.
+- Phase 2C-4b implemented `adapt_memory_guarded_http_metadata` for
+  route-free internal/tests-only coverage. It accepts duplicate-preserving raw
+  header pairs, enforces exact single required security headers, rejects
+  Transfer-Encoding, and bounds canonical Content-Length values before guard
+  use. It is not referenced by the HTTP handler or dispatcher.
 - Saved JSON uses `status: saved`, but a saved candidate is still only a local
   candidate, not an approved skill and not executable.
-- The write helper is not connected to API, UI, or Voice Inbox. There is still
+- The write helper, adapter, guard, token, and coordinator are not connected to
+  API, UI, or Voice Inbox. There is still
   no save endpoint, no UI `Save` / `Confirm Local Save`, no Voice Inbox
   auto-save, and no saved candidates dashboard.
 
@@ -535,11 +549,12 @@ Current helper status and design decision through Phase 2C-4a:
   no unexpected git status files.
 - Do not: store raw transcripts long term, write user memory into tracked repo
   paths, save without preview, or save without explicit confirmation.
-- Current status through Phase 2C-4a: storage path, dry-run validation, hardened
+- Current status through Phase 2C-4b: storage path, dry-run validation, hardened
   candidate writer, request guard, session registry, canonical snapshot/digest,
-  preview token helpers, and guarded save coordinator exist. They remain
-  internal/tests-only. The 2C-3c/4a work kept user-facing save disabled and
-  connected none of them to live HTTP routes, UI, or Voice Inbox.
+  preview token helpers, guarded save coordinator, and raw HTTP metadata adapter
+  exist. They remain internal/tests-only. The 2C-3c/4a/4b work kept user-facing
+  save disabled and connected none of them to live HTTP routes, UI, or Voice
+  Inbox.
 
 ### Phase 2C-3: Approval-gated Local Save Safety Decision
 
@@ -644,7 +659,9 @@ validated, self-reviewed, and approved before a live save route can be exposed:
 2. **Raw HTTP metadata adapter:** preserve or reject duplicate security headers
    rather than silently merging them; validate exact Host, Origin,
    `Content-Type`, cookie, and CSRF values before JSON use; reject missing,
-   negative, conflicting, or oversized lengths before reading the body.
+   negative, conflicting, or oversized lengths before reading the body. The
+   route-free structural adapter portion is implemented in Phase 2C-4b; live
+   handler integration remains incomplete and locked.
 3. **Route allowlist:** bootstrap, save preparation, and final save must each be
    explicit allowlist entries. Unknown methods and paths fail closed. The
    preview route remains unchanged and token-free.
@@ -698,13 +715,14 @@ validated, self-reviewed, and approved before a live save route can be exposed:
 
 ##### Decision and next safe unit
 
-Phase 2C-4a now satisfies the internal coordinator and privacy-default portions
-of this design. It grants no HTTP or UI authority. Phase 2C-4b is the next
-smallest candidate: a separately approved raw HTTP metadata adapter that preserves or rejects
-duplicate/missing Host, Origin, Content-Type, Cookie, CSRF, and Content-Length
-values before request-guard use. It must remain route-free and
-internal/tests-only. Live HTTP integration stays locked until the remaining
-checklist items are complete.
+Phase 2C-4a satisfies the internal coordinator and privacy-default portions of
+this design. Phase 2C-4b satisfies the route-free structural raw-metadata
+adapter portion. Neither grants HTTP or UI authority. The next candidate is a
+separately approved Phase 2C-4c design-only session-bootstrap contract review.
+It should settle bootstrap-specific Host/Origin checks, cookie/CSRF delivery,
+bounded lifecycle, restart invalidation, response bounds, and test obligations
+without registering a route. Live HTTP integration stays locked until the
+remaining checklist items are complete.
 
 #### Phase 2C-4a: Guarded Save Coordinator and Privacy Default
 
@@ -724,6 +742,24 @@ checklist items are complete.
   `TemporaryDirectory`; no runtime state or repo artifact remains.
 - Boundary: no handler registration, session/bootstrap route, token route,
   live save route, UI Save/Confirm, Voice Inbox path, or saved dashboard.
+
+#### Phase 2C-4b: Raw HTTP Metadata Adapter
+
+- Status: implemented for route-free internal/tests-only coverage.
+- Input result: accepts only a duplicate-preserving iterable of raw header
+  pairs; mappings and malformed, non-ASCII, control-bearing, or oversized
+  metadata fail closed.
+- Security-header result: requires exactly one Host, Origin, Content-Type,
+  Cookie, `X-Jarvis-CSRF`, and Content-Length value and rejects
+  Transfer-Encoding.
+- Body-bound result: Content-Length must be one canonical non-negative decimal
+  within the configured JSON body limit before any future body read.
+- Error result: fixed error categories do not echo session, CSRF, header, body,
+  or private-path values.
+- Test result: deterministic valid, duplicate, missing, malformed, oversized,
+  and request-guard handoff cases leave no runtime state or repo artifact.
+- Boundary: no handler/dispatcher reference, bootstrap route, token route, live
+  save route, UI Save/Confirm, Voice Inbox path, or saved dashboard.
 
 ### Phase 2D: Saved Candidates Read-only List
 
@@ -782,12 +818,12 @@ The safest first implementation for the original v0.1 plan was Phase 1:
 This gives users a clear place to understand the future Memory / Skills flow
 without introducing state mutation or automation risk.
 
-At the current Phase 2C-4a status, Phase 2B preview-only capture, the Phase
+At the current Phase 2C-4b status, Phase 2B preview-only capture, the Phase
 2C-0/1/2/3a/3b internal helpers, the Phase 2C-3c trust model/checklist, and the
-route-free guarded save coordinator are implemented. The privacy default omits
-`original_text_preview` from persisted JSON. The verdict remains to keep live
-save locked; no route, UI action, Voice Inbox path, or runtime persistence
-behavior is authorized.
+route-free guarded save coordinator and raw HTTP metadata adapter are
+implemented. The privacy default omits `original_text_preview` from persisted
+JSON. The verdict remains to keep live save locked; no route, UI action, Voice
+Inbox path, or runtime persistence behavior is authorized.
 
 User-facing persistence should still wait for a separate explicit decision.
 It should prefer repo-external user-local app state, should not store raw
@@ -885,6 +921,21 @@ Phase 2C-4a validation should additionally verify:
 - `POST /api/memory-skills/candidates` remains disabled/non-success and preview
   remains write-free/token-free.
 
+Phase 2C-4b validation should additionally verify:
+
+- raw duplicate-preserving header pairs succeed only when every required
+  security header occurs exactly once;
+- mappings, duplicate/missing headers, Transfer-Encoding, invalid syntax,
+  control characters, non-ASCII values, and configured header-count/value
+  bounds fail closed;
+- Content-Length accepts only canonical non-negative decimal form within the
+  configured JSON body limit;
+- successful metadata passes the existing request guard, while errors contain
+  no session ID, CSRF token, header value, body, or path;
+- the adapter remains absent from HTTP handler/dispatch, save remains 404, and
+  preview remains write-free/token-free;
+- tests leave no runtime state, candidate, listener, cache, or log artifact.
+
 Future live-save validation, if user-facing save is explicitly approved, should
 additionally verify:
 
@@ -932,10 +983,10 @@ Current Phase 2 recommendation:
   verdict; do not connect routes, UI, Voice Inbox, or persistence from that
   documentation.
 - Keep the implemented Phase 2B preview-only capture flow write-free.
-- Keep the implemented Phase 2C-0/1/2/3a/3b/4a helpers internal/tests-only, not
+- Keep the implemented Phase 2C-0/1/2/3a/3b/4a/4b helpers internal/tests-only, not
   user-facing save.
-- If separately approved, make the next implementation unit a route-free,
-  internal/tests-only Phase 2C-4b raw HTTP metadata adapter.
+- If separately approved, make the next unit a design-only Phase 2C-4c
+  session-bootstrap contract review; do not register a route from that design.
 - Avoid tracked repo user-memory storage.
 - Use repo-external user-local app state for any future saved candidates.
 - Do not add persistence without privacy/redaction policy.
