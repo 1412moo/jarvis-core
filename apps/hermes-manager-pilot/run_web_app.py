@@ -14,6 +14,11 @@ from typing import Any
 import webbrowser
 
 from hermes_manager_pilot.prompt_renderer import render_mode
+from hermes_manager_pilot.review_handoff import (
+    HANDOFF_ENDPOINT,
+    build_copy_only_review_handoff,
+    render_copy_only_review_handoff,
+)
 from hermes_manager_pilot.schemas import ValidationError, normalize_session_state
 
 
@@ -77,6 +82,7 @@ API_ROUTES = {
     "/api/prepare",
     "/api/render",
     "/api/git-status",
+    HANDOFF_ENDPOINT,
     "/api/validate-session",
 }
 
@@ -223,6 +229,24 @@ def load_git_status(repo_path: str | Path) -> dict[str, str]:
     }
 
 
+def prepare_copy_only_review_handoff(
+    session_data: dict[str, Any],
+    *,
+    scope_confirmed: bool,
+    trusted_repo_root: str | Path = REPO_ROOT,
+) -> tuple[dict[str, Any], str]:
+    """Build a human-copyable review envelope from fresh read-only Git state."""
+
+    git_state = load_git_status(trusted_repo_root)
+    handoff = build_copy_only_review_handoff(
+        session_data,
+        git_state,
+        trusted_repo_root=trusted_repo_root,
+        scope_confirmed=scope_confirmed,
+    )
+    return handoff, render_copy_only_review_handoff(handoff)
+
+
 def _run_read_only_git(repo: Path, args: tuple[str, ...]) -> str:
     if args not in ALLOWED_READ_ONLY_GIT_ARGS:
         raise ValidationError(f"git command is not allowed: git {' '.join(args)}")
@@ -278,6 +302,29 @@ def handle_api_request(path: str, payload: dict[str, Any]) -> tuple[int, dict[st
         if path == "/api/git-status":
             git_state = load_git_status(str(payload.get("repo") or REPO_ROOT))
             return HTTPStatus.OK, {"ok": True, "git_status": git_state}
+        if path == HANDOFF_ENDPOINT:
+            if set(payload) != {"session", "scope_confirmed"}:
+                raise ValidationError(
+                    "review handoff fields must be exactly session and scope_confirmed"
+                )
+            session = payload.get("session")
+            if not isinstance(session, dict):
+                raise ValidationError("session must be an object")
+            handoff, artifact = prepare_copy_only_review_handoff(
+                session,
+                scope_confirmed=payload.get("scope_confirmed") is True,
+                trusted_repo_root=REPO_ROOT,
+            )
+            return HTTPStatus.OK, {
+                "ok": True,
+                "artifact": artifact,
+                "item_id": handoff["item_id"],
+                "copy_only": True,
+                "no_persistence": True,
+                "message": (
+                    "Jarvis review handoff prepared. Paste it once into Codex Review."
+                ),
+            }
         if path == "/api/validate-session":
             session = payload.get("session")
             if not isinstance(session, dict):
@@ -478,7 +525,8 @@ def run_self_test() -> None:
     assert "nothing runs until you choose the next step" in index_html
     assert "Describe Task" in index_html
     assert "Confirm Scope" in index_html
-    assert "Continue To Task Prompt" in index_html
+    assert "Confirm Scope and Continue" in index_html
+    assert "Copy Jarvis Review Handoff" in index_html
     assert "Generated Output" in index_html
     assert "does not call Codex" in index_html
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
@@ -486,6 +534,9 @@ def run_self_test() -> None:
     assert "function continueToTaskPrompt()" in app_js
     assert "updateStep(data.next_step || 2)" in app_js
     assert "Target files need confirmation before Step 3." in app_js
+    assert HANDOFF_ENDPOINT in app_js
+    assert "scopeConfirmed" in app_js
+    assert "function copyJarvisReviewHandoff()" in app_js
     print("Hermes Manager Pilot browser UI self-test passed")
 
 

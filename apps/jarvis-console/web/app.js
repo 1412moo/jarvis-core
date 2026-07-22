@@ -172,12 +172,26 @@ async function loadCodexReview() {
   if (!codexReviewQueueInput || !codexReviewItemId || !codexReviewResult) {
     return;
   }
-  const itemId = codexReviewItemId.value.trim();
+  let itemId = codexReviewItemId.value.trim();
   let queue;
   try {
-    queue = JSON.parse(codexReviewQueueInput.value);
+    const parsed = JSON.parse(codexReviewQueueInput.value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && ("queue" in parsed || "item_id" in parsed)) {
+      const keys = Object.keys(parsed).sort();
+      if (keys.length !== 2 || keys[0] !== "item_id" || keys[1] !== "queue" || !parsed.queue || typeof parsed.item_id !== "string") {
+        throw new Error("Hermes handoff fields must be exactly queue and item_id.");
+      }
+      queue = parsed.queue;
+      itemId = parsed.item_id.trim();
+      codexReviewItemId.value = itemId;
+    } else {
+      queue = parsed;
+    }
+    if (!itemId) {
+      throw new Error("Review item ID is required.");
+    }
   } catch (error) {
-    renderCodexReviewFailure({ detail: "Queue snapshot must be valid JSON." });
+    renderCodexReviewFailure({ detail: error.message || "Review handoff must be valid JSON." });
     return;
   }
   codexReviewResult.innerHTML = "<p class=\"muted\">Rechecking bounded local evidence. Nothing is being saved...</p>";

@@ -1187,7 +1187,9 @@ def main() -> None:
     assert "Codex Review" in html
     assert "Fresh local work review" in html
     assert "Load Read-Only Review" in html
-    assert "already scope-approved Hermes queue snapshot" in html
+    assert "already scope-approved raw queue" in html
+    assert "copy-only Hermes review handoff" in html
+    assert "queue + item_id envelope" in html
     assert "no queue/session persistence" in html
     assert "Read-only operations dashboard" in html
     assert "does not create tasks" in html
@@ -1208,6 +1210,9 @@ def main() -> None:
     assert "renderCodexReview" in app_js
     assert "renderCodexReviewFailure" in app_js
     assert "loadCodexReview" in app_js
+    assert '"queue" in parsed || "item_id" in parsed' in app_js
+    assert "Hermes handoff fields must be exactly queue and item_id." in app_js
+    assert "codexReviewItemId.value = itemId" in app_js
     assert "Fresh Codex work package loaded for read-only review." in app_js
     assert "No approval or action was created." in app_js
     assert "renderOverview" in app_js

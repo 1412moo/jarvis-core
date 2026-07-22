@@ -67,7 +67,7 @@
           </div>
         </div>
         <p id="confirmationWarning" class="warning hidden">Confirm target files before creating a Codex prompt.</p>
-        <button id="continueToTaskPromptButton" type="button" class="primary-button">Continue To Task Prompt</button>
+        <button id="continueToTaskPromptButton" type="button" class="primary-button">Confirm Scope and Continue</button>
       </section>
 
       <section id="taskPromptSection" class="step-section hidden">
@@ -95,8 +95,12 @@
       </section>
 
       <section id="reviewSection" class="step-section hidden">
-        <p>Now ask Codex to review the result.</p>
-        <button id="copyReviewPromptButton" type="button" class="primary-button">Copy Review Prompt for Codex</button>
+        <p>Ask Codex to review, or copy a bounded handoff into Jarvis Console for fresh read-only review.</p>
+        <p class="safety-note">The Jarvis handoff binds the scope you explicitly confirmed, reads current local Git metadata, and copies JSON only. It does not call Jarvis, approve review/commit, or execute anything.</p>
+        <div class="button-row">
+          <button id="copyReviewPromptButton" type="button" class="primary-button">Copy Review Prompt for Codex</button>
+          <button id="copyJarvisReviewHandoffButton" type="button" class="secondary-button">Copy Jarvis Review Handoff</button>
+        </div>
       </section>
 
       <section id="approvalSection" class="step-section hidden">

@@ -4,6 +4,7 @@ const state = {
   repo: "C:\\work\\jarvis-core",
   artifactTitle: "No artifact yet",
   output: "",
+  scopeConfirmed: false,
 };
 
 const stepMeta = {
@@ -184,6 +185,7 @@ async function prepareSession() {
       repo: state.repo,
     });
     state.session = data.session;
+    state.scopeConfirmed = false;
     updateSummary();
     updateStep(data.next_step || 2);
     setStatus(data.needs_confirmation ? "Confirm target files before continuing to the task prompt." : "Prepared session. Confirm scope, then continue to the task prompt.");
@@ -203,9 +205,38 @@ function continueToTaskPrompt() {
     setStatus("Target files need confirmation before Step 3.");
     return;
   }
+  state.scopeConfirmed = true;
   updateTaskPromptSummary();
   updateStep(3);
   setStatus("Scope confirmed. Next: copy the task prompt for Codex.");
+}
+
+async function copyJarvisReviewHandoff() {
+  if (!state.session) {
+    setStatus("Prepare a session first.");
+    return;
+  }
+  if (!state.scopeConfirmed) {
+    setStatus("Confirm the current target-file scope before creating a Jarvis handoff.");
+    return;
+  }
+  updateSessionFromForm();
+  if (!state.session.last_codex_result_summary) {
+    setStatus("Paste the Codex result before creating a Jarvis handoff.");
+    return;
+  }
+  try {
+    const data = await apiPost("/api/review-handoff", {
+      session: state.session,
+      scope_confirmed: true,
+    });
+    setOutput("Jarvis Review Handoff", data.artifact);
+    const copyError = await copyText(data.artifact);
+    const next = ` Item ID: ${data.item_id}. Paste the JSON once into Jarvis Console Codex Review.`;
+    setStatus(copyError ? `${data.message}${next} Clipboard copy failed: ${copyError}` : `${data.message}${next} Copied to clipboard.`);
+  } catch (error) {
+    setStatus(`Review handoff failed: ${error.message}`);
+  }
 }
 
 async function renderPrompt(mode, title) {
@@ -277,6 +308,7 @@ function resetApproval() {
   }
   elements.reviewedCheckbox.checked = false;
   elements.approveCheckbox.checked = false;
+  state.scopeConfirmed = false;
   updateStep(1);
   setStatus("Approval reset. Start the next task when ready.");
 }
@@ -309,6 +341,7 @@ document.getElementById("copyTaskPromptButton").addEventListener("click", () => 
 document.getElementById("pasteResultButton").addEventListener("click", pasteFromClipboard);
 document.getElementById("saveResultButton").addEventListener("click", saveResultAndContinue);
 document.getElementById("copyReviewPromptButton").addEventListener("click", () => renderPrompt("review-prompt", "Review Prompt for Codex"));
+document.getElementById("copyJarvisReviewHandoffButton").addEventListener("click", copyJarvisReviewHandoff);
 document.getElementById("approveCommitButton").addEventListener("click", approveCommit);
 document.getElementById("copyCommitPromptButton").addEventListener("click", () => renderPrompt("commit-prompt", "Commit Prompt for Codex"));
 document.getElementById("checkpointButton").addEventListener("click", () => renderPrompt("checkpoint-summary", "Checkpoint Summary"));
@@ -316,7 +349,10 @@ document.getElementById("resetApprovalButton").addEventListener("click", resetAp
 document.getElementById("copyOutputButton").addEventListener("click", copyOutput);
 document.getElementById("clearOutputButton").addEventListener("click", clearOutput);
 document.getElementById("loadGitStatus").addEventListener("click", loadGitStatus);
-elements.targetFilesInput.addEventListener("input", updateConfirmationWarning);
+elements.targetFilesInput.addEventListener("input", () => {
+  state.scopeConfirmed = false;
+  updateConfirmationWarning();
+});
 elements.targetFilesInput.addEventListener("input", updateTaskPromptSummary);
 elements.commitMessage.addEventListener("input", updateTaskPromptSummary);
 

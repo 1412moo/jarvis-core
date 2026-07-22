@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 
 import hermes_manager_pilot.change_evidence as change_evidence_module
+import run_web_app as hermes_web_app
 from hermes_manager_pilot.approval_binding import (
     build_commit_approval_binding,
     build_review_approval_binding,
@@ -46,6 +47,11 @@ from hermes_manager_pilot.prompt_queue import (
     normalize_prompt_queue,
 )
 from hermes_manager_pilot.prompt_renderer import render_commit_prompt
+from hermes_manager_pilot.review_handoff import (
+    HANDOFF_ENDPOINT,
+    build_copy_only_review_handoff,
+    render_copy_only_review_handoff,
+)
 from hermes_manager_pilot.schemas import ValidationError, normalize_session_state
 
 
@@ -2726,6 +2732,172 @@ def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     _assert("Send to Hermes" not in index_html, "automatic handoff wording must not appear")
 
 
+def _test_copy_only_jarvis_review_handoff_is_deterministic_and_bounded() -> None:
+    session = _sample_payload()
+    target = "apps/hermes-manager-pilot/README.md"
+    session.update(
+        {
+            "repo": str(REPO_ROOT),
+            "branch": "stale-client-value",
+            "head": "stale-client-value",
+            "working_tree_status": "stale-client-value",
+            "active_task": "Review the copy-only Jarvis handoff implementation.",
+            "last_codex_result_summary": "Implementation completed with local tests.",
+            "files_touched": [target],
+            "target_files": [target],
+            "commit_allowed": False,
+            "human_approval_granted": False,
+            "push_allowed": False,
+        }
+    )
+    git_state = {
+        "branch": "main",
+        "head": "a" * 40,
+        "working_tree_status": f" M {target}\n?? jarvis.bat",
+    }
+
+    first = build_copy_only_review_handoff(
+        session,
+        git_state,
+        trusted_repo_root=REPO_ROOT,
+        scope_confirmed=True,
+    )
+    second = build_copy_only_review_handoff(
+        session,
+        git_state,
+        trusted_repo_root=REPO_ROOT,
+        scope_confirmed=True,
+    )
+    _assert(first == second, "copy-only review handoff must be deterministic")
+    _assert(set(first) == {"queue", "item_id"}, "handoff envelope fields changed")
+    queue = normalize_prompt_queue(first["queue"])
+    item = queue.items[0]
+    project = queue.projects[0]
+    _assert(item.item_id == first["item_id"], "handoff item ID mismatch")
+    _assert(item.result_type == "review", "handoff must target review stage")
+    _assert(item.scope_approved, "confirmed scope was not represented")
+    expected_scope = build_scope_approval_binding(
+        project,
+        replace(item, result_type="implementation"),
+    )
+    _assert(
+        digest_matches(expected_scope, item.scope_approval_digest),
+        "scope confirmation binding is stale",
+    )
+    _assert(item.change_evidence_digest == "", "handoff must not carry evidence approval")
+    _assert(not item.review_passed, "handoff must not approve review")
+    _assert(not item.commit_approved, "handoff must not approve commit")
+    _assert(item.review_approval_digest == "", "review digest must be absent")
+    _assert(item.commit_approval_digest == "", "commit digest must be absent")
+    _assert(item.commit_message == "", "commit message must be absent")
+    _assert(project.expected_untracked == ("jarvis.bat",), "jarvis.bat boundary changed")
+    _assert(
+        set(project.forbidden_actions) == set(REQUIRED_FORBIDDEN_ACTIONS),
+        "required forbidden actions changed",
+    )
+    rendered = render_copy_only_review_handoff(first)
+    _assert(rendered == render_copy_only_review_handoff(second), "rendered handoff changed")
+    _assert(json.loads(rendered)["item_id"] == first["item_id"], "rendered item ID missing")
+
+    _assert_validation_error(
+        lambda: build_copy_only_review_handoff(
+            session,
+            git_state,
+            trusted_repo_root=REPO_ROOT,
+            scope_confirmed=False,
+        ),
+        "scope must be explicitly confirmed",
+    )
+    missing_result = {**session, "last_codex_result_summary": ""}
+    _assert_validation_error(
+        lambda: build_copy_only_review_handoff(
+            missing_result,
+            git_state,
+            trusted_repo_root=REPO_ROOT,
+            scope_confirmed=True,
+        ),
+        "Codex result is required",
+    )
+    approved_commit = {
+        **session,
+        "commit_allowed": True,
+        "human_approval_granted": True,
+    }
+    _assert_validation_error(
+        lambda: build_copy_only_review_handoff(
+            approved_commit,
+            git_state,
+            trusted_repo_root=REPO_ROOT,
+            scope_confirmed=True,
+        ),
+        "must not contain commit approval",
+    )
+    missing_jarvis = {**git_state, "working_tree_status": f" M {target}"}
+    _assert_validation_error(
+        lambda: build_copy_only_review_handoff(
+            session,
+            missing_jarvis,
+            trusted_repo_root=REPO_ROOT,
+            scope_confirmed=True,
+        ),
+        "jarvis.bat must remain untracked",
+    )
+
+
+def _test_copy_only_review_handoff_route_fixes_repository_authority() -> None:
+    session = _sample_payload()
+    target = "apps/hermes-manager-pilot/README.md"
+    session.update(
+        {
+            "repo": str(REPO_ROOT),
+            "last_codex_result_summary": "Local implementation completed.",
+            "files_touched": [target],
+            "target_files": [target],
+            "commit_allowed": False,
+            "human_approval_granted": False,
+            "push_allowed": False,
+        }
+    )
+    captured_roots: list[Path] = []
+    original_loader = hermes_web_app.load_git_status
+
+    def fake_loader(root: str | Path) -> dict[str, str]:
+        captured_roots.append(Path(root))
+        return {
+            "branch": "main",
+            "head": "b" * 40,
+            "working_tree_status": f" M {target}\n?? jarvis.bat",
+        }
+
+    hermes_web_app.load_git_status = fake_loader
+    try:
+        status, payload = hermes_web_app.handle_api_request(
+            HANDOFF_ENDPOINT,
+            {"session": session, "scope_confirmed": True},
+        )
+    finally:
+        hermes_web_app.load_git_status = original_loader
+    _assert(status == 200, "copy-only handoff route failed")
+    _assert(payload["ok"] is True, "copy-only handoff route did not succeed")
+    _assert(payload["copy_only"] is True, "handoff route is not copy-only")
+    _assert(payload["no_persistence"] is True, "handoff route persistence boundary changed")
+    _assert(captured_roots == [REPO_ROOT], "handoff route accepted caller repository authority")
+    rendered = json.loads(payload["artifact"])
+    _assert(rendered["item_id"] == payload["item_id"], "route item ID mismatch")
+
+    source = Path(build_copy_only_review_handoff.__code__.co_filename).read_text(encoding="utf-8")
+    for forbidden in (
+        ".write_text(",
+        ".write_bytes(",
+        "subprocess",
+        "requests",
+        "urlopen",
+        "render_mode",
+        "execute",
+    ):
+        _assert(forbidden not in source, f"handoff helper contains forbidden operation: {forbidden}")
+
+
 def _repo_file_set() -> set[str]:
     return {
         str(path.relative_to(REPO_ROOT))
@@ -2796,6 +2968,8 @@ def main() -> None:
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,
         _test_browser_ui_mentions_manual_jarvis_handoff,
+        _test_copy_only_jarvis_review_handoff_is_deterministic_and_bounded,
+        _test_copy_only_review_handoff_route_fixes_repository_authority,
     )
     for test in tests:
         test()

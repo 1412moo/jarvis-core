@@ -107,13 +107,13 @@
         <div class="panel-heading">
           <p class="eyebrow">Codex Review</p>
           <h2>Fresh local work review</h2>
-          <p>Paste one already scope-approved Hermes queue snapshot. Jarvis will recheck the selected work against the current local repository before showing it.</p>
+          <p>Paste one copy-only Hermes review handoff or an already scope-approved raw queue. Jarvis will recheck the selected work against the current local repository before showing it.</p>
         </div>
         <div class="codex-review-layout">
           <label for="codexReviewItemId">Review item ID</label>
           <input id="codexReviewItemId" type="text" autocomplete="off" spellcheck="false" placeholder="Example: review-001">
-          <label for="codexReviewQueueInput">Approved Hermes queue snapshot (JSON)</label>
-          <textarea id="codexReviewQueueInput" class="codex-review-json" rows="12" spellcheck="false" placeholder="Paste the complete Hermes queue JSON here. Jarvis does not save it."></textarea>
+          <label for="codexReviewQueueInput">Hermes review handoff (JSON)</label>
+          <textarea id="codexReviewQueueInput" class="codex-review-json" rows="12" spellcheck="false" placeholder="Paste the Hermes queue + item_id envelope or a raw queue. Jarvis does not save it."></textarea>
           <button id="loadCodexReviewButton" class="primary-button" type="button">Load Read-Only Review</button>
           <div id="codexReviewResult" class="overview-panel" aria-live="polite">
             <p class="muted">No Codex work package has been loaded.</p>
