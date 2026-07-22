@@ -2,16 +2,225 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from http import HTTPStatus
 from pathlib import Path
+import subprocess
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import run_web_app
+import codex_review
+from hermes_manager_pilot.approval_binding import build_scope_approval_binding
+from hermes_manager_pilot.prompt_queue import (
+    REQUIRED_FORBIDDEN_ACTIONS,
+    normalize_prompt_queue,
+)
+from hermes_manager_pilot.schemas import ValidationError
+
+
+def _run_fixture_git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ("git", *args),
+        cwd=repo,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            f"fixture git command failed: git {' '.join(args)}: {completed.stderr}"
+        )
+    return completed.stdout.strip()
+
+
+def _create_codex_review_fixture(temp_dir: str) -> tuple[Path, dict[str, Any], str]:
+    repo = Path(temp_dir).resolve()
+    _run_fixture_git(repo, "init", "-b", "main")
+    _run_fixture_git(repo, "config", "user.email", "jarvis-console@example.invalid")
+    _run_fixture_git(repo, "config", "user.name", "Jarvis Console Smoke")
+    _run_fixture_git(repo, "config", "core.autocrlf", "false")
+    source_dir = repo / "src"
+    source_dir.mkdir()
+    target = source_dir / "review.txt"
+    target.write_text("baseline\n", encoding="utf-8")
+    _run_fixture_git(repo, "add", "src/review.txt")
+    _run_fixture_git(repo, "commit", "-m", "baseline")
+    head = _run_fixture_git(repo, "rev-parse", "HEAD")
+    target.write_text("changed Codex work\n", encoding="utf-8")
+    (repo / "jarvis.bat").write_text("protected boundary\n", encoding="utf-8")
+
+    queue_data: dict[str, Any] = {
+        "queue_type": "hermes_prompt_queue",
+        "version": "0.1B-2",
+        "projects": [
+            {
+                "project_id": "jarvis-review-fixture",
+                "display_name": "Jarvis Review Fixture",
+                "repo_path": str(repo),
+                "expected_branch": "main",
+                "expected_head": head,
+                "protected_paths": ["jarvis.bat"],
+                "expected_untracked": ["jarvis.bat"],
+                "forbidden_actions": sorted(REQUIRED_FORBIDDEN_ACTIONS),
+                "validation_commands": ["git diff --check"],
+            }
+        ],
+        "items": [
+            {
+                "item_id": "review-001",
+                "project_id": "jarvis-review-fixture",
+                "current_goal": "Show one safe Codex work package.",
+                "current_task": "Review the bounded local change without action.",
+                "result_type": "review",
+                "target_files": ["src/review.txt"],
+                "observed_branch": "main",
+                "observed_head": head,
+                "observed_git_status": [],
+                "scope_approved": False,
+                "review_passed": False,
+                "commit_approved": False,
+                "scope_approval_digest": "",
+                "change_evidence_digest": "",
+                "review_approval_digest": "",
+                "commit_approval_digest": "",
+                "commit_message": "",
+                "last_prompt_summary": "Implement the approved read-only slice.",
+                "last_result_summary": "Local implementation is ready for review.",
+            }
+        ],
+    }
+    normalized = normalize_prompt_queue(queue_data)
+    scope_binding = build_scope_approval_binding(
+        normalized.projects[0],
+        replace(normalized.items[0], result_type="implementation"),
+    )
+    queue_data["items"][0]["scope_approved"] = True
+    queue_data["items"][0]["scope_approval_digest"] = scope_binding.digest
+    return repo, {"queue": queue_data, "item_id": "review-001"}, head
+
+
+def _test_codex_review_vertical_slice() -> None:
+    with TemporaryDirectory(prefix="jarvis-codex-review-") as temp_dir:
+        repo, payload, head = _create_codex_review_fixture(temp_dir)
+        first_status, first = codex_review.build_codex_review_preview(payload, repo)
+        second_status, second = codex_review.build_codex_review_preview(payload, repo)
+        assert first_status == HTTPStatus.OK
+        assert second_status == HTTPStatus.OK
+        assert first == second
+        assert first["ok"] is True
+        assert first["mode"] == "read-only"
+        assert first["write_free"] is True
+        assert first["no_persistence"] is True
+        assert first["project"] == {
+            "project_id": "jarvis-review-fixture",
+            "display_name": "Jarvis Review Fixture",
+            "repo_name": repo.name,
+            "branch": "main",
+            "head": head,
+        }
+        assert first["review"]["item_id"] == "review-001"
+        assert first["review"]["files_touched"] == ["src/review.txt"]
+        assert first["review"]["target_files"] == ["src/review.txt"]
+        assert first["review"]["validation_commands"] == ["git diff --check"]
+        assert first["review"]["next_action"] == "REVIEW_REQUEST"
+        assert first["safety"] == {
+            "fresh_local_evidence": True,
+            "read_only": True,
+            "human_approval_required": True,
+            "human_approval_granted": False,
+            "commit_allowed": False,
+            "push_allowed": False,
+            "prompt_rendered": False,
+            "command_executed": False,
+            "external_call": False,
+        }
+        serialized = json.dumps(first, ensure_ascii=False, sort_keys=True)
+        assert "changed Codex work" not in serialized
+        assert str(repo) not in serialized
+        assert "scope_approval_digest" not in serialized
+        assert "change_evidence_digest" not in serialized
+        assert "commit_message" not in serialized
+
+        original_collect = codex_review.collect_review_evidence_bundle
+
+        def forbidden_collect(*args: object, **kwargs: object) -> object:
+            raise AssertionError("invalid handoff must fail before repository reads")
+
+        codex_review.collect_review_evidence_bundle = forbidden_collect
+        try:
+            invalid_status, invalid = codex_review.build_codex_review_preview({}, repo)
+            assert invalid_status == HTTPStatus.BAD_REQUEST
+            assert invalid["error"] == "invalid_codex_review_handoff"
+            assert invalid["review"] is None
+
+            stale_payload = json.loads(json.dumps(payload))
+            stale_payload["queue"]["items"][0]["current_task"] = "tampered task"
+            stale_status, stale = codex_review.build_codex_review_preview(
+                stale_payload,
+                repo,
+            )
+            assert stale_status == HTTPStatus.BAD_REQUEST
+            assert stale["detail"] == "selected review item scope approval is stale"
+            assert stale["review"] is None
+        finally:
+            codex_review.collect_review_evidence_bundle = original_collect
+
+        (repo / "outside.txt").write_text("outside approved scope\n", encoding="utf-8")
+        blocked_status, blocked = codex_review.build_codex_review_preview(payload, repo)
+        assert blocked_status == HTTPStatus.CONFLICT
+        assert blocked["error"] == "codex_review_blocked"
+        assert blocked["review"] is None
+        assert any("outside.txt" in reason for reason in blocked["blocking_reasons"])
+        (repo / "outside.txt").unlink()
+
+        _run_fixture_git(repo, "add", "src/review.txt")
+        staged_status, staged = codex_review.build_codex_review_preview(payload, repo)
+        assert staged_status == HTTPStatus.CONFLICT
+        assert staged["review"] is None
+        assert any("staged" in reason for reason in staged["blocking_reasons"])
+
+    captured_roots: list[Path] = []
+    original_builder = run_web_app.build_codex_review_preview
+
+    def recording_builder(
+        payload: object,
+        trusted_repo_root: str | Path,
+    ) -> tuple[int, dict[str, object]]:
+        captured_roots.append(Path(trusted_repo_root))
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "fixture"}
+
+    run_web_app.build_codex_review_preview = recording_builder
+    try:
+        route_status, route_payload = run_web_app.handle_post_api(
+            run_web_app.CODEX_REVIEW_PREVIEW_ENDPOINT,
+            {},
+        )
+    finally:
+        run_web_app.build_codex_review_preview = original_builder
+    assert route_status == HTTPStatus.BAD_REQUEST
+    assert route_payload == {"ok": False, "error": "fixture"}
+    assert captured_roots == [run_web_app.REPO_ROOT]
+
+    adapter_source = Path(codex_review.__file__).read_text(encoding="utf-8")
+    forbidden_adapter_patterns = (
+        ".write_text(",
+        ".write_bytes(",
+        ".mkdir(",
+        ".unlink(",
+        "subprocess",
+        "requests",
+        "urlopen",
+        "render_prompt",
+        "execute_command",
+    )
+    assert all(pattern not in adapter_source for pattern in forbidden_adapter_patterns)
 
 
 def main() -> None:
     run_web_app.run_self_test()
+    _test_codex_review_vertical_slice()
 
     status_code, status = run_web_app.handle_get_api("/api/status")
     assert status_code == HTTPStatus.OK
@@ -975,6 +1184,11 @@ def main() -> None:
     assert "Refresh History" in html
     assert "Refresh Memory / Skills" in html
     assert "Checkpoints / History" in html
+    assert "Codex Review" in html
+    assert "Fresh local work review" in html
+    assert "Load Read-Only Review" in html
+    assert "already scope-approved Hermes queue snapshot" in html
+    assert "no queue/session persistence" in html
     assert "Read-only operations dashboard" in html
     assert "does not create tasks" in html
     assert "does not create commits" in html
@@ -989,7 +1203,13 @@ def main() -> None:
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js
     assert "/api/memory-skills/candidates/preview" in app_js
+    assert "/api/codex-review/preview" in app_js
     assert "/api/voice-inbox/prepare" in app_js
+    assert "renderCodexReview" in app_js
+    assert "renderCodexReviewFailure" in app_js
+    assert "loadCodexReview" in app_js
+    assert "Fresh Codex work package loaded for read-only review." in app_js
+    assert "No approval or action was created." in app_js
     assert "renderOverview" in app_js
     assert "renderHistory" in app_js
     assert "renderMemorySkills" in app_js
@@ -1096,6 +1316,8 @@ def main() -> None:
     assert "Save Candidate" not in app_js
     assert "Confirm Local Save" not in app_js
     assert "Review Save Candidate" not in app_js
+    assert "Approve Codex Review" not in app_js
+    assert "Execute Codex Review" not in app_js
     assert "Prepare Local Candidate" not in app_js
     assert "Create Skill" not in app_js
     assert "No matching skill yet." in app_js
@@ -1111,6 +1333,9 @@ def main() -> None:
     assert "manual-copy-fallback" in styles
     assert "memory-candidate-card" in styles
     assert "memory-preview-card" in styles
+    assert "codex-review-layout" in styles
+    assert "codex-review-card" in styles
+    assert "codex-review-safety-grid" in styles
 
     print("Jarvis Console smoke tests passed")
 

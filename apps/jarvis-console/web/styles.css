@@ -850,6 +850,88 @@ code {
   display: none;
 }
 
+.codex-review-layout,
+.codex-review-card,
+.codex-review-summary {
+  display: grid;
+  gap: 12px;
+}
+
+.codex-review-layout input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+  color: var(--text);
+}
+
+.codex-review-json,
+.codex-review-status {
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.codex-review-json {
+  min-height: 260px;
+}
+
+.codex-review-card {
+  border-color: #b7d7c0;
+  background: #f7fcf8;
+}
+
+.codex-review-card.blocked {
+  border-color: #f1d08a;
+  background: #fffaf0;
+}
+
+.codex-review-summary {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.codex-review-summary h4,
+.codex-review-summary p,
+.codex-review-card section h4 {
+  margin: 0;
+}
+
+.codex-review-summary p,
+.codex-review-status {
+  overflow-wrap: anywhere;
+}
+
+.codex-review-columns,
+.codex-review-safety-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.codex-review-columns section,
+.codex-review-safety-grid div {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.codex-review-safety-grid {
+  margin: 0;
+}
+
+.codex-review-safety-grid dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.codex-review-safety-grid dd {
+  margin: 5px 0 0;
+}
+
 .settings-list {
   display: grid;
   gap: 12px;

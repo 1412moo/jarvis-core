@@ -28,6 +28,7 @@
       <button class="tab-button" type="button" data-tab="voice">Voice Inbox</button>
       <button class="tab-button" type="button" data-tab="skills">Skills</button>
       <button class="tab-button" type="button" data-tab="hermes">Hermes Manager</button>
+      <button class="tab-button" type="button" data-tab="codex-review">Codex Review</button>
       <button class="tab-button" type="button" data-tab="research">Research Council</button>
       <button class="tab-button" type="button" data-tab="radar">Daily AI Radar</button>
       <button class="tab-button" type="button" data-tab="tasks">Tasks / Reports</button>
@@ -100,6 +101,25 @@
         </div>
         <div id="hermesDetails"></div>
         <p class="safety-note">Jarvis Console does not start the Hermes Manager server, embed it, or call Codex automatically.</p>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-codex-review">
+        <div class="panel-heading">
+          <p class="eyebrow">Codex Review</p>
+          <h2>Fresh local work review</h2>
+          <p>Paste one already scope-approved Hermes queue snapshot. Jarvis will recheck the selected work against the current local repository before showing it.</p>
+        </div>
+        <div class="codex-review-layout">
+          <label for="codexReviewItemId">Review item ID</label>
+          <input id="codexReviewItemId" type="text" autocomplete="off" spellcheck="false" placeholder="Example: review-001">
+          <label for="codexReviewQueueInput">Approved Hermes queue snapshot (JSON)</label>
+          <textarea id="codexReviewQueueInput" class="codex-review-json" rows="12" spellcheck="false" placeholder="Paste the complete Hermes queue JSON here. Jarvis does not save it."></textarea>
+          <button id="loadCodexReviewButton" class="primary-button" type="button">Load Read-Only Review</button>
+          <div id="codexReviewResult" class="overview-panel" aria-live="polite">
+            <p class="muted">No Codex work package has been loaded.</p>
+          </div>
+        </div>
+        <p class="safety-note">Write-free local preview: no queue/session persistence, approval creation, prompt rendering, command execution, commit, push, or external call.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-research">

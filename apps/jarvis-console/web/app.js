@@ -18,6 +18,10 @@ const prepareVoiceButton = document.getElementById("prepareVoiceButton");
 const pasteVoiceButton = document.getElementById("pasteVoiceButton");
 const clearVoiceButton = document.getElementById("clearVoiceButton");
 const voiceResultBox = document.getElementById("voiceResultBox");
+const codexReviewItemId = document.getElementById("codexReviewItemId");
+const codexReviewQueueInput = document.getElementById("codexReviewQueueInput");
+const loadCodexReviewButton = document.getElementById("loadCodexReviewButton");
+const codexReviewResult = document.getElementById("codexReviewResult");
 
 let registrySkills = [];
 let selectedSkillId = "";
@@ -72,6 +76,126 @@ function listMarkup(items, emptyText) {
     return `<p class="muted">${escapeHtml(emptyText)}</p>`;
   }
   return `<ul class="metadata-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function renderCodexReview(data) {
+  if (!codexReviewResult) {
+    return;
+  }
+  const project = data.project || {};
+  const review = data.review || {};
+  const safety = data.safety || {};
+  codexReviewResult.innerHTML = `
+    <article class="overview-card codex-review-card">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Fresh local evidence</p>
+          <h3>${escapeHtml(project.display_name || project.project_id || "Codex work package")}</h3>
+        </div>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Read-only</span>
+          <span class="overview-badge">${escapeHtml(review.next_action || "REVIEW_REQUEST")}</span>
+        </div>
+      </div>
+      <dl class="overview-facts">
+        <div><dt>Repository</dt><dd>${escapeHtml(project.repo_name || "local repo")}</dd></div>
+        <div><dt>Branch</dt><dd>${escapeHtml(project.branch || "unknown")}</dd></div>
+        <div><dt>HEAD</dt><dd><code>${escapeHtml(project.head || "unknown")}</code></dd></div>
+        <div><dt>Item</dt><dd>${escapeHtml(review.item_id || "unknown")}</dd></div>
+      </dl>
+      <section class="codex-review-summary">
+        <h4>Work summary</h4>
+        <p><strong>Goal:</strong> ${escapeHtml(review.current_goal || "Not supplied")}</p>
+        <p><strong>Task:</strong> ${escapeHtml(review.current_task || "Not supplied")}</p>
+        <p><strong>Last prompt summary:</strong> ${escapeHtml(review.last_prompt_summary || "Not supplied")}</p>
+        <p><strong>Last result summary:</strong> ${escapeHtml(review.last_result_summary || "Not supplied")}</p>
+        <p><strong>Working tree:</strong> <code class="codex-review-status">${escapeHtml(review.working_tree_status || "clean")}</code></p>
+      </section>
+      <div class="codex-review-columns">
+        <section>
+          <h4>Changed files</h4>
+          ${listMarkup(review.files_touched, "No changed files reported.")}
+        </section>
+        <section>
+          <h4>Approved targets</h4>
+          ${listMarkup(review.target_files, "No target files reported.")}
+        </section>
+        <section>
+          <h4>Validation commands</h4>
+          ${listMarkup(review.validation_commands, "No validation commands reported.")}
+        </section>
+      </div>
+      <section>
+        <h4>Safety boundary</h4>
+        <dl class="codex-review-safety-grid">
+          <div><dt>Fresh evidence</dt><dd>${safety.fresh_local_evidence ? "Verified" : "Not verified"}</dd></div>
+          <div><dt>Review approval</dt><dd>${safety.human_approval_granted ? "Granted" : "Not granted"}</dd></div>
+          <div><dt>Commit</dt><dd>${safety.commit_allowed ? "Allowed" : "Disabled"}</dd></div>
+          <div><dt>Push</dt><dd>${safety.push_allowed ? "Allowed" : "Disabled"}</dd></div>
+          <div><dt>Prompt rendered</dt><dd>${safety.prompt_rendered ? "Yes" : "No"}</dd></div>
+          <div><dt>Command executed</dt><dd>${safety.command_executed ? "Yes" : "No"}</dd></div>
+        </dl>
+      </section>
+      <section>
+        <h4>Review notes</h4>
+        ${listMarkup(data.notes, "No review notes reported.")}
+      </section>
+    </article>
+  `;
+  statusText.textContent = "Fresh Codex work package loaded for read-only review.";
+  nextActionText.textContent = "Inspect the work summary and validation evidence. No approval or action was created.";
+}
+
+function renderCodexReviewFailure(data) {
+  if (!codexReviewResult) {
+    return;
+  }
+  const reasons = data.blocking_reasons || (data.detail ? [data.detail] : []);
+  codexReviewResult.innerHTML = `
+    <article class="overview-card codex-review-card blocked">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Review unavailable</p>
+          <h3>Fresh safety checks did not produce a review session</h3>
+        </div>
+        <span class="overview-badge">Blocked</span>
+      </div>
+      ${listMarkup(reasons, "The review handoff was rejected.")}
+      <p class="safety-note">Nothing was saved, approved, rendered, or executed.</p>
+    </article>
+  `;
+  statusText.textContent = "Codex review remained blocked.";
+  nextActionText.textContent = "Correct the Hermes handoff or working-tree mismatch, then request a new read-only review.";
+}
+
+async function loadCodexReview() {
+  if (!codexReviewQueueInput || !codexReviewItemId || !codexReviewResult) {
+    return;
+  }
+  const itemId = codexReviewItemId.value.trim();
+  let queue;
+  try {
+    queue = JSON.parse(codexReviewQueueInput.value);
+  } catch (error) {
+    renderCodexReviewFailure({ detail: "Queue snapshot must be valid JSON." });
+    return;
+  }
+  codexReviewResult.innerHTML = "<p class=\"muted\">Rechecking bounded local evidence. Nothing is being saved...</p>";
+  try {
+    const response = await fetch("/api/codex-review/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ queue, item_id: itemId }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      renderCodexReviewFailure(data);
+      return;
+    }
+    renderCodexReview(data);
+  } catch (error) {
+    renderCodexReviewFailure({ detail: error.message });
+  }
 }
 
 function copyCommandLabel(label) {
@@ -1304,6 +1428,10 @@ if (pasteVoiceButton) {
 
 if (clearVoiceButton) {
   clearVoiceButton.addEventListener("click", clearVoiceTranscript);
+}
+
+if (loadCodexReviewButton) {
+  loadCodexReviewButton.addEventListener("click", loadCodexReview);
 }
 
 if (refreshOverviewButton) {

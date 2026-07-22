@@ -26,6 +26,8 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 import webbrowser
 
+from codex_review import CODEX_REVIEW_PREVIEW_ENDPOINT, build_codex_review_preview
+
 
 APP_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = APP_ROOT.parents[1]
@@ -2650,6 +2652,8 @@ def handle_post_api(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
             return HTTPStatus.OK, {"ok": True, **suggestion}
         if path == "/api/voice-inbox/prepare":
             return prepare_voice_inbox_task(payload)
+        if path == CODEX_REVIEW_PREVIEW_ENDPOINT:
+            return build_codex_review_preview(payload, REPO_ROOT)
         if path == MEMORY_PREVIEW_ENDPOINT:
             return prepare_memory_candidate_preview(payload)
     except RegistryError as exc:
@@ -2699,7 +2703,12 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in {"/api/suggest-skill", "/api/voice-inbox/prepare", MEMORY_PREVIEW_ENDPOINT}:
+        if path not in {
+            "/api/suggest-skill",
+            "/api/voice-inbox/prepare",
+            CODEX_REVIEW_PREVIEW_ENDPOINT,
+            MEMORY_PREVIEW_ENDPOINT,
+        }:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
 
@@ -4196,6 +4205,8 @@ def run_self_test() -> None:
     assert "Voice Inbox" in html
     assert "Skills" in html
     assert "Hermes Manager" in html
+    assert "Codex Review" in html
+    assert "Load Read-Only Review" in html
     assert "Research Council" in html
     assert "Daily AI Radar" in html
     assert "Tasks / Reports" in html
@@ -4235,7 +4246,10 @@ def run_self_test() -> None:
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js
     assert "/api/memory-skills/candidates/preview" in app_js
+    assert "/api/codex-review/preview" in app_js
     assert "/api/voice-inbox/prepare" in app_js
+    assert "renderCodexReview" in app_js
+    assert "loadCodexReview" in app_js
     assert "renderOverview" in app_js
     assert "renderHistory" in app_js
     assert "renderMemorySkills" in app_js
@@ -4359,12 +4373,15 @@ def run_self_test() -> None:
     assert "normalized-overview-item" in styles
     assert "memory-candidate-card" in styles
     assert "memory-preview-card" in styles
+    assert "codex-review-card" in styles
+    assert "codex-review-safety-grid" in styles
     assert "secondary-action" in styles
     assert "http://" not in styles
     assert "https://" not in styles
 
     assert handle_get_api("/api/missing")[0] == HTTPStatus.NOT_FOUND
     assert handle_post_api("/api/missing", {})[0] == HTTPStatus.NOT_FOUND
+    assert handle_post_api(CODEX_REVIEW_PREVIEW_ENDPOINT, {})[0] == HTTPStatus.BAD_REQUEST
     assert parse_json_body(b"{not json")[0] == HTTPStatus.BAD_REQUEST
 
     source = Path(__file__).read_text(encoding="utf-8")
