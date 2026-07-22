@@ -12,6 +12,14 @@ from typing import Any
 
 import run_web_app
 import codex_review
+from project_control_registry import (
+    MAX_PROJECTS,
+    REGISTRY_TYPE,
+    REGISTRY_VERSION,
+    ProjectRegistryError,
+    evaluate_project_registry,
+    normalize_project_registry,
+)
 from hermes_manager_pilot.approval_binding import build_scope_approval_binding
 from hermes_manager_pilot.prompt_queue import (
     REQUIRED_FORBIDDEN_ACTIONS,
@@ -284,8 +292,155 @@ def _test_project_control_snapshot() -> None:
             raise AssertionError("oversized master plans must be rejected")
 
 
+def _project_registry_fixture() -> dict[str, Any]:
+    return {
+        "registry_type": REGISTRY_TYPE,
+        "version": REGISTRY_VERSION,
+        "projects": [
+            {
+                "project_id": "jarvis-core",
+                "display_name": "Jarvis-Core",
+                "trusted_root_key": "jarvis_core",
+                "master_plan_path": "docs/master-plan.md",
+                "expected_branch": "main",
+                "protected_paths": ["jarvis.bat"],
+                "expected_untracked": ["jarvis.bat"],
+                "validation_command_ids": ["git_status_short", "git_diff_check"],
+            },
+            {
+                "project_id": "care-note",
+                "display_name": "CareNote",
+                "trusted_root_key": "care_note",
+                "master_plan_path": "docs/project-plan.md",
+                "expected_branch": "feature/project-control-v1",
+                "protected_paths": [],
+                "expected_untracked": [],
+                "validation_command_ids": ["git_status_short"],
+            },
+        ],
+    }
+
+
+def _test_project_control_registry_primitives() -> None:
+    roots = {"jarvis_core", "care_note"}
+    commands = {"git_status_short", "git_diff_check"}
+    fixture = _project_registry_fixture()
+    first = normalize_project_registry(
+        fixture,
+        trusted_root_keys=roots,
+        validation_command_ids=commands,
+    )
+    second = normalize_project_registry(
+        fixture,
+        trusted_root_keys=roots,
+        validation_command_ids=commands,
+    )
+    assert first == second
+    assert [project.project_id for project in first.projects] == ["jarvis-core", "care-note"]
+    assert first.projects[0].protected_paths == ("jarvis.bat",)
+    assert first.projects[1].expected_branch == "feature/project-control-v1"
+    assert "repo_path" not in json.dumps(fixture, ensure_ascii=False, sort_keys=True)
+    accepted = evaluate_project_registry(
+        fixture,
+        trusted_root_keys=roots,
+        validation_command_ids=commands,
+    )
+    assert accepted.is_blocked is False
+    assert accepted.registry == first
+    assert accepted.blocking_reasons == ()
+
+    def assert_rejected(payload: object, message: str) -> None:
+        decision = evaluate_project_registry(
+            payload,  # type: ignore[arg-type]
+            trusted_root_keys=roots,
+            validation_command_ids=commands,
+        )
+        assert decision.is_blocked is True
+        assert decision.registry is None
+        assert len(decision.blocking_reasons) == 1
+        assert message in decision.blocking_reasons[0]
+
+    assert_rejected([], "must be an object")
+    unknown_envelope = json.loads(json.dumps(fixture))
+    unknown_envelope["repo_path"] = "C:/work/other"
+    assert_rejected(unknown_envelope, "unknown fields")
+    wrong_version = json.loads(json.dumps(fixture))
+    wrong_version["version"] = "0.1C"
+    assert_rejected(wrong_version, "version must be")
+    assert_rejected({**fixture, "projects": []}, "between 1 and")
+    assert_rejected(
+        {**fixture, "projects": [fixture["projects"][0]] * (MAX_PROJECTS + 1)},
+        "between 1 and",
+    )
+
+    invalid_cases = (
+        ("project_id", "Jarvis-Core", "normalized lowercase ID"),
+        ("trusted_root_key", "unknown_root", "not server-trusted"),
+        ("master_plan_path", "../master-plan.md", "unsafe path component"),
+        ("master_plan_path", "C:/work/master-plan.md", "repo-relative"),
+        ("master_plan_path", "docs\\master-plan.md", "normalized POSIX"),
+        ("master_plan_path", "docs/plan:stream.md", "non-portable path component"),
+        ("master_plan_path", "docs/plan?.md", "non-portable path component"),
+        ("master_plan_path", "docs/NUL.md", "non-portable path component"),
+        ("master_plan_path", "docs/plan./master.md", "non-portable path component"),
+        ("master_plan_path", ".private/master-plan.md", "non-hidden Markdown"),
+        ("master_plan_path", "docs/master-plan.txt", "non-hidden Markdown"),
+        ("expected_branch", "feature//unsafe", "bounded branch name"),
+        ("display_name", "Unsafe\nName", "control character"),
+    )
+    for field, value, message in invalid_cases:
+        payload = json.loads(json.dumps(fixture))
+        payload["projects"][0][field] = value
+        assert_rejected(payload, message)
+
+    duplicate_projects = json.loads(json.dumps(fixture))
+    duplicate_projects["projects"][1]["project_id"] = "jarvis-core"
+    assert_rejected(duplicate_projects, "project_id contains duplicate")
+    duplicate_paths = json.loads(json.dumps(fixture))
+    duplicate_paths["projects"][0]["protected_paths"] = ["Jarvis.bat", "jarvis.bat"]
+    assert_rejected(duplicate_paths, "contains duplicate values")
+    duplicate_commands = json.loads(json.dumps(fixture))
+    duplicate_commands["projects"][0]["validation_command_ids"] = [
+        "git_status_short",
+        "git_status_short",
+    ]
+    assert_rejected(duplicate_commands, "contains duplicate values")
+    unknown_command = json.loads(json.dumps(fixture))
+    unknown_command["projects"][0]["validation_command_ids"] = ["git_commit"]
+    assert_rejected(unknown_command, "unknown command ID")
+    empty_commands = json.loads(json.dumps(fixture))
+    empty_commands["projects"][0]["validation_command_ids"] = []
+    assert_rejected(empty_commands, "must not be empty")
+
+    try:
+        normalize_project_registry(
+            fixture,
+            trusted_root_keys=[],
+            validation_command_ids=commands,
+        )
+    except ProjectRegistryError as exc:
+        assert "trusted_root_keys must not be empty" in str(exc)
+    else:
+        raise AssertionError("empty server root authority must be rejected")
+
+    source = Path(__file__).with_name("project_control_registry.py").read_text(encoding="utf-8")
+    forbidden_source_patterns = (
+        "subprocess",
+        "requests",
+        "urlopen",
+        ".read_text(",
+        ".read_bytes(",
+        ".write_text(",
+        ".write_bytes(",
+        "open(",
+        "http.server",
+    )
+    assert all(pattern not in source for pattern in forbidden_source_patterns)
+
+
 def main() -> None:
     _test_project_control_snapshot()
+    _test_project_control_registry_primitives()
     run_web_app.run_self_test()
     _test_codex_review_vertical_slice()
 

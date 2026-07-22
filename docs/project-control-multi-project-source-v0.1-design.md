@@ -61,7 +61,9 @@ Limits and normalization:
   most 64 characters, unique after normalization;
 - display name: 1 to 120 Unicode characters, no control characters;
 - master-plan and protected/untracked paths: normalized repo-relative POSIX
-  paths only, no drive prefix, absolute path, `..`, empty component, or NUL;
+  paths only, no drive prefix, absolute path, `..`, empty component, NUL,
+  Windows alternate-stream/wildcard characters, trailing dot/space, or reserved
+  device name;
 - list fields: bounded, duplicate-free, and order-preserving;
 - unknown fields, unknown root keys, and unknown validation command IDs: reject;
 - JSON duplicate object keys: reject before normalization.
