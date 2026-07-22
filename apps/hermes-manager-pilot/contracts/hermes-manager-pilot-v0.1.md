@@ -510,7 +510,8 @@ composite bundle/verifier are implemented as internal/tests-only primitives.
 The v0.1C-0C-3 pure handoff decision and v0.1C-0C-4 review-observation adapter
 are also implemented internal/tests-only. C0C-5 adds the internal/tests-only
 pure queue observation evaluator described in Section 18.12. C0C-6 fresh review
-revalidation and session-handoff conditions remain design-only in Section 18.13.
+revalidation is implemented internal/tests-only as C0C-6a; C0C-6b
+session-handoff integration remains design-only in Section 18.13.
 
 ### 18.1 Problem
 
@@ -638,8 +639,9 @@ v0.1C-0C does not design or authorize:
 Implementation remains split into separately reviewable internal/tests-only
 units: bounded whole-status collection, composite-bundle verification, pure
 handoff decision, review-observation adaptation, and pure queue observation
-evaluation. All five units are implemented. They do not authorize durable queue
-state, route, UI, persistence, execution, or other user-facing behavior.
+evaluation, followed by fresh review revalidation. All six units are
+implemented. They do not authorize durable queue state, route, UI, persistence,
+execution, or other user-facing behavior.
 
 ### 18.8 v0.1C-0C-1 Implementation Boundary
 
@@ -857,9 +859,10 @@ before evaluation when queue identity or evidence validation fails.
 Connecting its output to `build_hermes_session()`, the renderer pipeline, a
 route, UI, persistence, or any execution/approval flow is a separate scope gate.
 
-### 18.13 v0.1C-0C-6 Fresh Review Handoff Design
+### 18.13 v0.1C-0C-6 Fresh Review Handoff
 
-Status: design-only. No C0C-6 application code, session adapter, renderer
+Status: the C0C-6a fresh blocked-or-preview decision is implemented as
+internal/tests-only. C0C-6b remains design-only. No session adapter, renderer
 connection, route, UI, or persistence is implemented.
 
 #### 18.13.1 Problem
@@ -875,19 +878,19 @@ fresh review observation and authority to render, execute, approve, or commit.
 
 C0C-6 is divided into two separately reviewable units:
 
-1. C0C-6a fresh review decision: validate the complete C0C-5 wrapper, recollect
-   current evidence, and return either blocking reasons or an immutable handoff
+1. C0C-6a fresh review decision: validates the complete C0C-5 wrapper, recollects
+   current evidence, and returns either blocking reasons or an immutable handoff
    preview. It does not call `build_hermes_session()` or any renderer.
 2. C0C-6b session adapter: if separately approved later, accept only a valid
    C0C-6a preview and map its exact queue/item through `build_hermes_session()`.
    It still would not render, execute, persist, or communicate externally.
 
-Only C0C-6a is the recommended first implementation unit. This split keeps the
-new Git/filesystem read boundary separate from session and renderer integration.
+This split keeps the implemented Git/filesystem revalidation boundary separate
+from future session and renderer integration.
 
-#### 18.13.3 Proposed C0C-6a Interface
+#### 18.13.3 Implemented C0C-6a Interface
 
-The first implementation unit should add immutable values equivalent to:
+The implementation adds these immutable values:
 
 ```python
 @dataclass(frozen=True)
@@ -906,7 +909,7 @@ class FreshReviewHandoffDecision:
     preview: FreshReviewHandoffPreview | None
 ```
 
-and one bounded local entry point equivalent to:
+and this bounded local entry point:
 
 ```python
 def build_fresh_review_handoff_decision(
@@ -915,9 +918,6 @@ def build_fresh_review_handoff_decision(
 ) -> FreshReviewHandoffDecision:
     ...
 ```
-
-Names may be refined during implementation review, but the data and authority
-boundary must not expand.
 
 #### 18.13.4 C0C-6a Validation Before I/O
 
@@ -1006,9 +1006,9 @@ The bundle digest remains unkeyed. Matching it proves deterministic equality of
 the bounded manifests, not collector provenance, human identity, authenticity,
 or permission to act.
 
-#### 18.13.8 Required C0C-6a Tests
+#### 18.13.8 Implemented C0C-6a Tests
 
-The first implementation unit must deterministically cover:
+Deterministic tests cover:
 
 - A valid C0C-5 review wrapper and unchanged repository producing one preview.
 - Exact queue/item/evaluation preservation and fresh digest propagation.
@@ -1027,13 +1027,18 @@ The first implementation unit must deterministically cover:
 
 #### 18.13.9 Non-Goals And Approval Boundary
 
-C0C-6 design does not authorize C0C-6b implementation, prompt rendering,
+C0C-6a does not authorize C0C-6b implementation, prompt rendering,
 durable queue or evidence storage, background monitoring, filesystem watching,
 route/API/UI/mobile integration, automated Codex/ChatGPT/Hermes invocation,
 review or commit approval creation, staging, commit, push, pull request,
 destructive operations, credentials, external communication, Memory/Skills
 save, UI Save/Confirm, or Voice Inbox auto-save.
 
-C0C-6a implementation must remain internal/tests-only and limited to the fresh
-blocked-or-preview decision plus deterministic tests. Implementing C0C-6b or
-any renderer/session consumer requires a new explicit scope approval.
+C0C-6a remains internal/tests-only and limited to the fresh blocked-or-preview
+decision plus deterministic tests. `build_fresh_review_handoff_decision()`
+validates the C0C-5 wrapper before I/O, preserves evaluator blocks without
+collection, recollects and verifies one fresh C0C-2 bundle for actionable review,
+and returns a preview only for exact digest/branch/HEAD/status agreement.
+
+Implementing C0C-6b or any renderer/session consumer requires a new explicit
+scope approval.
