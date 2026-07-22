@@ -14,27 +14,22 @@
 
 ### 현재 만드는 것
 
-Memory / Skills의 privacy-review token, exact confirmation, one-claim write
-시퀀스를 route-free internal/tests-only coordinator로 묶고, 중복을 보존하는
-raw HTTP header 입력을 bounded request-guard metadata로 바꾸는 adapter까지
-구현했다. 이어서 최초 session/cookie가 없는 bootstrap의 trust boundary와
-lifecycle을 확정하고 route-free internal/tests-only primitive로 검증했다. guarded
-save preparation도 raw header/body 검증, privacy review, canonicalization,
-session-bound token issue를 묶는 route-free coordinator로 완료했다. 저장 JSON은
-`original_text_preview`를 기본 제외한다. 실제 HTTP route, UI, Voice Inbox,
-runtime persistence에는 아무 권한도 추가하지 않았다. live-integration readiness
-review는 handler, recovery, UI, real HTTP/browser gap을 확인하고 `keep locked`를
-유지했다.
+Memory / Skills live save는 readiness review의 `keep locked` 판정을 유지한다.
+소유자는 다음 사용자 체감 작업으로 Jarvis/Hermes Prompt Queue / Project Control
+Panel을 선택했다. Project Control v0.1A는 기존 read-only overview 안에서
+`docs/master-plan.md`의 bounded 필드와 fixed read-only Git 결과를 결합해
+Jarvis-Core 한 개의 소유자 프로젝트 카드로 보여준다. 목표, 현재 작업 축,
+milestone, 다음 체감 결과, live HEAD, working tree, 보호 파일, 금지 동작을 한곳에
+표시하지만 task·approval·prompt·commit·cross-app call은 만들지 않는다.
 
 ### 이 작업 축이 끝나면 가능한 것
 
-- preview, privacy review, token preparation, final confirmation, file write를
-  서로 다른 권한 단계로 유지한다.
-- client가 다시 보낸 candidate나 경로가 아니라 server-held canonical snapshot만
-  저장 권한으로 사용할 수 있다.
-- 실패, 재시도, restart, 중복 header, cross-session token을 fail closed로 다룬다.
-- 저장 후보가 skill 승인이나 실행으로 자동 승격되는 일을 막는다.
-- 조건이 모두 충족되기 전에는 현재 write-free preview만 계속 제공한다.
+- 소유자가 개발 단계 코드보다 먼저 현재 목표와 사용자 체감 결과를 확인한다.
+- 마스터플랜 방향과 실제 branch·HEAD·working tree를 같은 카드에서 비교한다.
+- 여러 신뢰된 로컬 프로젝트를 같은 형태의 read-only 카드로 확장할 수 있다.
+- 개별 작업 검토는 기존 Codex Review에 남기고 Project Control은 방향·상태
+  요약에 집중한다.
+- 자동 실행, push/PR, 외부 호출, Memory save는 계속 별도 승인 경계로 둔다.
 
 ### 전체 성숙도
 
@@ -46,7 +41,7 @@ review는 handler, recovery, UI, real HTTP/browser gap을 확인하고 `keep loc
 역할별 앱       ████░  사용자 기능
 안전 작업 운영  ████░  사용자 기능 — 실제 작업 1건 검증
 Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
-통합 Console    █░░░░  설계·기반
+통합 Console    ████░  사용자 기능 — 단일 프로젝트 카드
 홈서버 / 모바일 █░░░░  장기 설계
 ```
 
@@ -62,14 +57,13 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Memory / Skills Phase 2C-4f live-integration readiness review**
-- 현재 다음 작업: **소유자 product direction 결정 — live save 보류 또는 complete vertical slice 승인**
-- 다음 사용자 체감 milestone: **모든 재오픈 조건을 통과한 명시적 local-save
-  확인 흐름** — 아직 승인되지 않음
-- vertical slice 완료 기준: 정확한 snapshot을 사람이 확인한 뒤 한 번만 저장하고,
-  실패·restart·재시도에서도 자동 저장이나 실행 권한이 생기지 않음
-- 현재 결정 필요: **있음** — Prompt Queue / Project Control Panel로 돌아갈지,
-  guarded local-save vertical slice를 우선할지 선택 필요
+- 최근 완료: **Project Control v0.1A read-only owner project card**
+- 현재 다음 작업: **v0.1B trusted multi-project card source 설계**
+- 다음 사용자 체감 milestone: **여러 allowlisted local project의 목표·현재 작업·
+  안전 경계를 나란히 보는 read-only 카드 화면**
+- vertical slice 완료 기준: 신뢰된 프로젝트만 표시하고, 각 카드의 문서 방향과
+  live Git 관찰을 구분하며 어떤 action·approval·persistence도 만들지 않음
+- 현재 결정 필요: **없음** — v0.1B design-only까지 현재 승인 범위 안에 있음
 
 ### 언제부터 실제로 편해지는가
 
@@ -83,8 +77,10 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 잠긴 고위험 기능
 
-외부 API/LLM, 자동 실행, 자동 stage/commit/push/PR, Memory 저장, Voice
-auto-save, background worker, 모바일 원격 실행은 현재 모두 잠겨 있다.
+외부 API/LLM, Jarvis/Hermes UI가 촉발하는 자동 실행·stage·commit·push/PR,
+Memory 저장, Voice auto-save, background worker, 모바일 원격 실행은 현재 모두
+잠겨 있다. 승인된 Codex work package 안의 검증된 local commit 운영 규칙과 앱의
+실행 권한은 서로 다른 경계다.
 세부 목록과 재검토 조건은 아래 `잠긴 기능` 절을 따른다.
 
 ## 1. 한 문장 목표
@@ -111,13 +107,13 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `f1e6b62ec2aa11437d602b7ec23f03f132468245`
+- Verified implementation HEAD: `7689484379d5bc13054584b06e11d2796e97e429`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
-- Current workstream: Memory / Skills approval-gated local-save safety
-- Current milestone: Phase 2C-4f live-integration readiness review 완료, `keep locked`
-- Recommended next step: Jarvis/Hermes Prompt Queue / Project Control Panel user-visible workstream
-- Next user-visible milestone: 모든 조건을 통과한 명시적 local-save 확인 흐름
+- Current workstream: Jarvis/Hermes Prompt Queue / Project Control Panel
+- Current milestone: Project Control v0.1A read-only owner project card 완료
+- Recommended next step: Project Control v0.1B trusted multi-project card source design-only
+- Next user-visible milestone: 여러 allowlisted local project의 owner cards
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
@@ -141,84 +137,77 @@ Voice Inbox auto-save, saved candidates dashboard도 없다.
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
 | 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff, read-only 검토 화면 | **사용자 기능 — 실제 작업 1건 검증** | 반복 사용 피드백 또는 다음 축 선택 |
 | 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 2C-4f readiness review 완료, `keep locked` | 소유자가 complete vertical slice 우선순위 결정 |
-| 4. 통합 Jarvis Console | 여러 프로젝트의 검토·승인·보고를 한 화면에서 관리함 | read-only부터 확장하는 local control panel | 설계·기반 | 2·3단계 안전 계약 안정화 |
+| 4. 통합 Jarvis Console | 여러 프로젝트의 검토·승인·보고를 한 화면에서 관리함 | read-only부터 확장하는 local control panel | 사용자 기능 — 단일 owner card | trusted multi-project source design |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
 
 단계 번호는 방향을 설명한다. 모든 작업 축이 완전히 직렬로 진행된다는 뜻은 아니며, 안전 경계를 넘지 않는 작은 기반 작업은 병행할 수 있다.
 
-## 4. 현재 위치: Memory / Skills 저장 재오픈 안전 결정
+## 4. 현재 위치: Prompt Queue / Project Control Panel
 
 ```mermaid
 flowchart LR
-    A["write-free preview<br/>Phase 2B"] --> B["path·dry-run·writer<br/>2C-0/1/2"]
-    B --> C["storage hardening<br/>2C-3a"]
-    C --> D["request guard·token<br/>2C-3b"]
-    D --> E["재오픈 조건 검토<br/>2C-3c"]
-    E --> F["개인정보 기본 미저장<br/>정책 확정"]
-    F --> G["route-free save coordinator<br/>2C-4a"]
-    G --> H["raw HTTP metadata adapter<br/>2C-4b"]
-    H --> I["session bootstrap contract<br/>2C-4c design-only"]
-    I --> J["route-free bootstrap primitive<br/>2C-4d"]
-    J --> K["guarded save preparation<br/>2C-4e"]
-    K --> L["live readiness review<br/>2C-4f keep locked"]
-    L --> M{"소유자 product direction"}
-    M --> N["Prompt Queue / Control Panel<br/>권장"]
-    M --> O["complete save vertical slice<br/>별도 승인"]
+    A["Prompt Queue safety primitives"] --> B["copy-only Hermes handoff"]
+    B --> C["fresh Codex Review"]
+    C --> D["실제 로컬 작업 1건 검증"]
+    D --> E["Memory save<br/>keep locked"]
+    E --> F["owner direction<br/>Project Control 선택"]
+    F --> G["단일 owner project card<br/>v0.1A 완료"]
+    G --> H["trusted multi-project source<br/>v0.1B design-only"]
+    H --> I["allowlisted project cards<br/>후속 사용자 기능"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K,L done;
-    class M current;
-    class N,O future;
+    class A,B,C,D,E,F,G done;
+    class H current;
+    class I future;
 ```
 
 ### 구현된 기반
 
-- write-free/token-free candidate preview
-- repo-external local-state path validation과 save dry-run validation
-- internal/tests-only hardened no-overwrite candidate writer
-- bounded process-local `SessionRegistry`와 strict loopback `LocalRequestGuard`
-- server-held canonical snapshot/digest와 one-time `PreviewTokenRegistry`
-- live-save trust model, proposed approval sequence, mandatory reopen checklist
-- explicit privacy review token issue와 exact confirmation literal
-- one-claim fail-closed coordinator와 persisted source-preview 기본 제외
-- duplicate-preserving bounded raw HTTP metadata adapter
-- route-free session bootstrap validation과 atomic rotate-or-issue
-- strict raw body validation과 route-free guarded save preparation
+- Prompt Queue in-memory project/item schema와 approval/evidence safety primitives
+- Hermes copy-only `queue + item_id` handoff
+- Jarvis Console fresh write-free Codex Review
+- master-plan Owner Dashboard와 milestone 갱신 규칙
+- bounded master-plan snapshot parser: trusted-root regular file, UTF-8, 128KB,
+  required field, duplicate field validation
+- 기존 `/api/overview` 안의 list-shaped `project_control.v0.1A` payload
+- Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Phase 2C-4f live-integration readiness review
+### 최근 완료: Project Control v0.1A read-only owner project card
 
-내부 primitive는 충분하지만 generic live POST handler는 고위험 authority route에
-재사용할 수 없다. negative/duplicate Content-Length, Transfer-Encoding, exact
-query target, duplicate raw headers, pre-body guard가 live 경계에 연결되지 않았다.
+기존 Tasks / Reports overview를 Project Control 화면으로 승격했다. 새 route나
+runtime state를 추가하지 않고, 마스터플랜의 현재 기준점과 fixed read-only Git
+명령 결과를 하나의 Jarvis-Core 카드로 결합했다. 카드 목록 contract는 향후 여러
+프로젝트를 담을 수 있지만 v0.1A는 현재 신뢰된 저장소 한 곳만 표시한다.
 
-server-owned registry lifecycle, exact confirmation UI, ambiguous timeout recovery,
-retention disclosure, ephemeral HTTP와 positive browser test도 없다. 따라서
-[`memory-skills-live-integration-readiness-v0.1.md`](memory-skills-live-integration-readiness-v0.1.md)는
-`keep locked`로 판정했다.
+결정론적 self-test/smoke test, JavaScript syntax, diff check와 실제 로컬 브라우저
+검증을 통과했다. 브라우저에서 목표, current workstream, milestone, next
+user-visible result, working tree, `jarvis.bat`, validation commands, forbidden
+actions가 표시됐고 console error는 없었다.
 
-### 다음 승인 지점: 소유자 product direction 결정
+### 다음 안전 단계: Project Control v0.1B design-only
 
-내부 기반 package를 더 자동 진행하지 않는다. 권장은 live Memory save를 보류하고
-현재 소유자의 작업 지시·검증·승인 부담을 줄이는 Jarvis/Hermes Prompt Queue /
-Project Control Panel user-visible workstream으로 돌아가는 것이다.
+여러 repo를 곧바로 스캔하거나 임의 경로 입력을 받지 않는다. 먼저 trusted
+multi-project card source contract만 설계한다. 설계는 다음을 명시해야 한다.
 
-```text
-권장 선택: Prompt Queue / Project Control Panel user-visible milestone
-대안 선택: complete guarded local-save vertical slice를 별도 명시적 승인
-```
+- 프로젝트 경로 allowlist와 trusted-root ownership
+- 문서 목표와 live observation의 분리
+- repo별 known untracked/protected paths와 validation commands
+- missing repo, branch mismatch, stale metadata의 fail-closed 표시
+- no persistence, no automatic cross-app call, no action/approval creation
 
-어느 쪽도 소유자 결정 전 자동 진행하지 않는다. save endpoint, UI Save/Confirm,
-Voice Inbox, live credentials, runtime persistence는 계속 잠겨 있다.
+이 design-only 단계는 현재 승인 범위 안이다. 실제 두 번째 repo 연결, 임의 경로
+입력, persistence, action button은 별도 구현 검토 전까지 추가하지 않는다.
+Memory save endpoint, UI Save/Confirm, Voice Inbox save는 계속 잠겨 있다.
 
 ## 5. 작업 축별 상태
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
-| Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 소유자 product direction 결정 |
-| Jarvis Console | Codex Review 실제 작업 성공 화면 검증 완료 | fresh read-only work review | 반복 실사용 피드백 대기 |
+| Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
+| Jarvis Console | Project Control v0.1A local browser 검증, Codex Review 실제 작업 1건 검증 완료 | owner project card와 fresh read-only work review | trusted multi-project source design |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
@@ -233,7 +222,7 @@ Voice Inbox, live credentials, runtime persistence는 계속 잠겨 있다.
 - Saved candidates dashboard
 - Hermes의 자동 Codex/ChatGPT 호출
 - 자동 prompt rendering 또는 실행
-- 자동 stage, commit, push, PR
+- Jarvis/Hermes 앱이 촉발하는 자동 stage, commit, push, PR
 - 외부 API, LLM, credential 생성·저장
 - background worker, scheduler, unattended execution
 - 모바일 승인 또는 홈서버 상시 실행
@@ -264,9 +253,11 @@ Voice Inbox, live credentials, runtime persistence는 계속 잠겨 있다.
 6. vertical slice는 실제 로컬 작업 하나로 end-to-end 검증해야 완료로 기록한다.
 7. read-only vertical slice는 자동 연결이 아닌 copy-only handoff로 실제 작업
    1건을 end-to-end 검증해 완료했다.
-8. Memory / Skills는 소유자 승인으로 2C-4c design review, 2C-4d/4e 내부
-   package, 2C-4f readiness review를 완료했다. 판정은 `keep locked`이며 다음은
-   Prompt Queue 복귀 또는 complete save vertical slice 중 소유자 결정이다.
+8. Memory / Skills는 2C-4f readiness review의 `keep locked` 판정을 유지하며,
+   소유자는 다음 체감 milestone로 Prompt Queue / Project Control을 선택했다.
+9. Project Control v0.1A는 master-plan 기반 단일 owner card를 사용자 화면에
+   연결하고 실제 로컬 브라우저로 검증했다. 다음은 multi-project source의
+   design-only contract이며 임의 repo 입력이나 자동 연결은 아직 허용하지 않는다.
 
 ## 9. Milestone 보고 형식
 

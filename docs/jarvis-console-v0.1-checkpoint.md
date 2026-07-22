@@ -6,7 +6,8 @@ Last updated: 2026-07-22
 
 Jarvis Console v0.1 is the current local browser shell, skill hub, read-only
 operations dashboard, read-only checkpoint/history view, text-only Voice Inbox,
-and fresh Codex work review surface for Jarvis.
+fresh Codex work review surface, and owner-facing Project Control view for
+Jarvis.
 
 It provides:
 
@@ -15,7 +16,8 @@ It provides:
 - Suggested Skill Action Panel with copy-only commands and handoff guidance.
 - Open Skill Details sync from a suggestion into the Skills tab.
 - Skill Detail usage cards with commands, docs, safety notes, and non-goals.
-- Tasks / Reports dashboard with read-only repo, skill, report, checkpoint, docs, and example metadata.
+- Project Control dashboard with one master-plan-driven Jarvis-Core owner card
+  plus read-only repo, skill, report, checkpoint, docs, and example metadata.
 - Recent item grouping for tasks, reports, checkpoints, docs, examples, configs, and related metadata.
 - Checkpoints / History view with recent commits, checkpoint docs, related reports/examples, and read-only history discovery rules.
 - Voice Inbox v0.1 for turning pasted voice-like transcripts or rough thoughts into task candidates and manual skill handoffs.
@@ -26,8 +28,8 @@ Jarvis Console does not execute skills automatically. It suggests, prepares, and
 
 ## Current HEAD / Status
 
-- Verified implementation HEAD: `f1e6b62ec2aa11437d602b7ec23f03f132468245`
-- Commit: `jarvis-console: add memory save preparation coordinator`
+- Verified implementation HEAD: `7689484379d5bc13054584b06e11d2796e97e429`
+- Commit: `jarvis-console: add read-only project control card`
 - Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -108,10 +110,17 @@ Skill details are rendered from the read-only registry and include:
 - Non-goals
 - Selected skill state
 
-### Tasks / Reports Read-only Dashboard
+### Project Control Read-only Dashboard
 
-The Tasks / Reports tab shows:
+The Project Control tab shows:
 
+- Owner Dashboard / Project Control heading
+- One trusted Jarvis-Core project card
+- Current goal, workstream, milestone, next user-visible result, and recommended
+  next step from bounded `docs/master-plan.md` fields
+- Live branch, HEAD, and working-tree status from fixed read-only Git commands
+- Known protected/untracked paths, validation commands, forbidden Jarvis Console
+  actions, and attention reasons
 - Current Repo Status
 - Skill Status
 - Recent Tasks
@@ -120,7 +129,12 @@ The Tasks / Reports tab shows:
 - Recent Docs / Examples
 - Safety Notes
 - Read-only Discovery Rules
-- Refresh Overview
+- Refresh Project Control
+
+The `project_control.v0.1A` payload is list-shaped for later trusted
+multi-project support, but this milestone exposes only Jarvis-Core. It rejects
+master-plan sources outside the trusted root and missing, duplicate, invalid
+UTF-8, or oversized metadata. It does not accept arbitrary repo paths.
 
 Recent items are normalized with deterministic read-only metadata:
 
@@ -318,9 +332,11 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
 - The action panel states that radar recommendations are candidates, not implementation approval.
 - Daily AI Radar has no Open Local URL button.
 
-### Tasks / Reports Overview
+### Project Control Overview
 
-- Refresh Overview calls `/api/overview`.
+- Refresh Project Control calls `/api/overview`.
+- The first card combines bounded master-plan direction with live read-only Git
+  metadata for Jarvis-Core.
 - Recent items are grouped into tasks, reports, checkpoints, and docs/examples.
 - Cards show type badge, source area badge, repo-relative path, summary, size/time metadata, and read-only badge.
 - No file open, edit, or delete buttons are present.
@@ -430,7 +446,8 @@ Server and API checks passed:
 
 - `/` returned 200 OK.
 - `/api/status` returned OK.
-- `/api/overview` returned grouped read-only overview metadata.
+- `/api/overview` returned `project_control.v0.1A` plus grouped read-only
+  overview metadata.
 - `/api/history` returned grouped read-only history metadata.
 - `/api/suggest-skill` returned the expected routing matrix.
 - `/api/skill?skill_id=hermes_manager` returned the Hermes Manager detail payload.
@@ -445,7 +462,11 @@ Manual browser checks passed:
 - Unknown suggestion rendered without action buttons.
 - Open Skill Details sync worked for the selected skill.
 - Skill Detail usage cards showed all required sections.
-- Tasks / Reports grouped dashboard rendered read-only recent item cards.
+- Project Control rendered one Jarvis-Core owner card from master-plan and live
+  Git metadata, followed by the existing read-only recent item cards.
+- The card showed goal, workstream, milestone, next user-visible result,
+  `jarvis.bat`, validation commands, and forbidden Jarvis Console actions.
+- Project Control completed with zero browser console errors.
 - Checkpoints / History rendered Recent Commits, Checkpoint Docs, Related Reports / Examples, Safety Notes, and Read-only History Discovery.
 - No open, edit, delete, commit, or push buttons were present in read-only dashboards.
 - Unsafe-looking HTML-like text is rendered through escaped/text-safe paths, not as executable HTML.
@@ -486,8 +507,12 @@ During QA, `jarvis.bat` remained untracked and untouched.
   default omission of `original_text_preview`.
 - Codex Review remains deliberately copy/paste-only and has no durable review
   history; further UX changes should come from repeated local-use feedback.
+- Project Control v0.1A supports one trusted Jarvis-Core card only. A second repo
+  must not be connected until a trusted multi-project source contract defines
+  allowlists, missing-repo behavior, stale metadata, and per-repo boundaries.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
-- Tasks / Reports grouping refinement: grouping can become more precise as real task/report/checkpoint indexes appear.
+- Project Control artifact grouping refinement: grouping can become more precise
+  as real task/report/checkpoint indexes appear.
 - History/checkpoint index refinement: a structured checkpoint index would make history grouping more intentional than filename markers alone.
 - Saved candidates dashboard remains deferred until a live save lifecycle is
   separately approved.
@@ -499,14 +524,15 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Owner Product Direction Decision
+### A. Trusted Multi-project Card Source Design
 
 Priority: P1
 
-Choose whether to defer live Memory / Skills save and return to the
-Jarvis/Hermes Prompt Queue / Project Control Panel user-visible workstream, or
-separately approve one complete guarded local-save vertical-slice milestone.
-Do not auto-start another internal primitive or partially activate routes.
+Design Project Control v0.1B without implementing another repo connection.
+Define trusted-root/allowlist ownership, master-plan vs live observation fields,
+per-repo protected and expected-untracked paths, validation commands, and
+fail-closed missing/branch/stale states. Keep arbitrary path input, persistence,
+cross-app calls, action buttons, and approval creation out of scope.
 
 ### B. Planned Skill UX Polish
 
@@ -526,7 +552,7 @@ Priority: P2
 
 Introduce a read-only checkpoint index once checkpoint metadata becomes stable. Keep discovery read-only and approval-gated.
 
-### E. Tasks / Reports Grouping Refinement
+### E. Project Control Artifact Grouping Refinement
 
 Priority: P2
 
@@ -541,10 +567,10 @@ Phase 2C-4a guarded save coordination, the privacy-default decision, and Phase
 coverage. Phase 2C-4c session-bootstrap design review and the Phase 2C-4d
 route-free bootstrap primitive are also complete. Phase 2C-4e route-free
 guarded save preparation is complete. Phase 2C-4f reviewed the live boundary
-and kept it locked. The next action is the owner product direction decision
-described above. Keep bootstrap, adapter, request guard, token, and coordinators
-disconnected from HTTP dispatch, UI, and Voice Inbox unless one complete
-vertical slice is separately approved.
+and kept it locked. The owner chose the Project Control workstream; this does
+not authorize Memory activation. Keep bootstrap, adapter, request guard, token,
+and coordinators disconnected from HTTP dispatch, UI, and Voice Inbox unless
+one complete vertical slice is separately approved.
 
 ### G. Skill Detail Visual Polish
 

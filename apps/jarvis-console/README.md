@@ -6,8 +6,8 @@ than a collection of separate files, CLI commands, and JSON fixtures.
 
 v0.1 is intentionally small. It shows the future console shape, skill tabs,
 deterministic skill suggestions, usage-card skill details, a fresh read-only
-Codex work review, and safety boundaries. It does not run the other Jarvis apps
-automatically.
+Codex work review, a master-plan-driven read-only Project Control card, and
+safety boundaries. It does not run the other Jarvis apps automatically.
 
 Skill cards, usage guides, and command suggestions are loaded from the read-only
 `skills.json` registry. The registry is display and routing metadata only; it
@@ -74,6 +74,10 @@ Included:
   scope-approved raw queue and displays a freshly revalidated review session.
 - A write-free `POST /api/codex-review/preview` route fixed to the Jarvis-Core
   repository root.
+- A `Project Control` tab that combines bounded master-plan fields with fixed
+  read-only Git metadata for one trusted Jarvis-Core owner card.
+- A list-shaped `project_control.v0.1A` payload inside the existing
+  `GET /api/overview` response; no new action route or persistence.
 - Read-only skill registry validation.
 - Local-only safety banner.
 - Status, skill detail, and suggestion API endpoints.
@@ -152,6 +156,27 @@ no review session.
 The tab does not persist the pasted queue, evidence, session, or result. It does
 not create approval, render or execute a prompt, invoke Codex/ChatGPT/Hermes,
 stage, commit, push, or call an external service.
+
+### Project Control
+
+Purpose: let the owner see why the current work exists, where it sits in the
+master plan, what the live repository reports, and what user-visible result is
+next before reading detailed task/report metadata.
+
+Project Control v0.1A reads required fields only from the tracked
+`docs/master-plan.md` current-baseline section. The source must remain a regular
+UTF-8 file inside the trusted repository root, is limited to 128KB, and fails
+closed on missing, duplicated, empty, or oversized fields. Fixed read-only Git
+commands provide the live branch, HEAD, and working-tree status.
+
+The browser shows one Jarvis-Core card with the current goal, workstream,
+milestone, next user-visible result, known protected/untracked path, validation
+commands, and forbidden Jarvis Console actions. The payload is list-shaped for
+a later trusted multi-project design, but v0.1A neither accepts arbitrary repo
+paths nor discovers other repositories.
+
+This view reuses `GET /api/overview`. It creates no task, approval, prompt,
+runtime state, commit, cross-app call, or external request.
 
 ### Research Council
 
@@ -235,9 +260,10 @@ lifecycle, confirmation/recovery UX, and real HTTP/browser test gaps remain
 activation blockers. See
 [`../../docs/memory-skills-live-integration-readiness-v0.1.md`](../../docs/memory-skills-live-integration-readiness-v0.1.md).
 
-Next decision: the owner may defer live save and return to the Jarvis/Hermes
-Prompt Queue / Project Control Panel workstream, or separately approve one
-complete guarded local-save vertical slice. Neither is automatically authorized.
+The owner chose to defer live save and return to the Jarvis/Hermes Prompt Queue /
+Project Control Panel workstream. The save endpoint and all user-facing save
+surfaces remain locked; a guarded local-save vertical slice still requires a
+separate explicit approval.
 
 ## Safety Boundary
 
@@ -257,8 +283,8 @@ Jarvis Console v0.1 is a shell, not an autonomous executor.
 - It treats Hermes Manager as workflow coordination, not a Codex replacement.
 - It treats a fresh Codex review session as inspection data, not review approval
   or execution authority.
-- Human approval is required before implementation, commit, push, or any
-  external action.
+- Jarvis Console itself has no implementation, commit, push, or external-action
+  authority.
 
 Protected path shown by default:
 
@@ -268,11 +294,13 @@ Protected path shown by default:
 
 Possible later phases:
 
-1. Add richer registry metadata such as icons, examples, and handoff contracts.
-2. Add local report preview forms for existing deterministic renderers.
-3. Refine the read-only review surface only from repeated local-use feedback.
-4. Consider an approval queue only after a separate human-approval design.
-5. Consider deeper worker handoff integration only after separate design and
+1. Design a trusted multi-project card source without accepting arbitrary repo
+   paths or adding persistence.
+2. Add richer registry metadata such as icons, examples, and handoff contracts.
+3. Add local report preview forms for existing deterministic renderers.
+4. Refine the read-only review surface only from repeated local-use feedback.
+5. Consider an approval queue only after a separate human-approval design.
+6. Consider deeper worker handoff integration only after separate design and
    review.
 
 See also [../../docs/jarvis-console.md](../../docs/jarvis-console.md).
