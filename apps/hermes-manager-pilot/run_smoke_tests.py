@@ -21,6 +21,7 @@ from hermes_manager_pilot.approval_binding import (
 from hermes_manager_pilot.change_evidence import (
     MAX_FILE_BYTES,
     collect_local_change_evidence,
+    verify_local_change_evidence,
 )
 from hermes_manager_pilot.pipeline import run_hermes_manager_pilot
 from hermes_manager_pilot.prompt_queue import (
@@ -1093,6 +1094,10 @@ def _test_local_change_evidence_is_deterministic_bounded_and_read_only() -> None
 
         second = collect_local_change_evidence(repo, project, item)
         _assert(first == second, "local change evidence should be deterministic")
+        _assert(first.project_id == project.project_id, "evidence project identity missing")
+        _assert(first.item_id == item.item_id, "evidence item identity missing")
+        _assert(first.version == "0.1C-0B", "evidence version is wrong")
+        _assert(first.declared_repo_path, "declared repository path missing")
         _assert(len(first.change_evidence_digest) == 64, "change evidence digest length is wrong")
         _assert(first.branch == "main", "trusted branch was not collected")
         _assert(first.head == project.expected_head, "trusted HEAD was not collected")
@@ -1119,6 +1124,152 @@ def _test_local_change_evidence_is_deterministic_bounded_and_read_only() -> None
         _assert(
             changed.change_evidence_digest != first.change_evidence_digest,
             "content change did not change evidence digest",
+        )
+
+
+def _test_local_change_evidence_verifier_rejects_tampering_and_scope_drift() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-verify-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        evidence = collect_local_change_evidence(repo, project, item)
+        original_run_git = change_evidence_module._run_git_bytes
+
+        def forbidden_git_read(*args: object, **kwargs: object) -> bytes:
+            raise AssertionError("evidence verification must not read Git")
+
+        change_evidence_module._run_git_bytes = forbidden_git_read
+        try:
+            _assert(
+                verify_local_change_evidence(evidence, project, item) is None,
+                "valid local change evidence should verify",
+            )
+        finally:
+            change_evidence_module._run_git_bytes = original_run_git
+
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, project_id="different-project"),
+                project,
+                item,
+            ),
+            "project does not match",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, item_id="different-item"),
+                project,
+                item,
+            ),
+            "item does not match",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, version="0.1C-0A"),
+                project,
+                item,
+            ),
+            "type or version is unsupported",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                evidence,
+                replace(project, repo_path=str(repo.parent)),
+                item,
+            ),
+            "declared repo path does not match",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, declared_repo_path=str(repo.parent).replace("\\", "/")),
+                project,
+                item,
+            ),
+            "declared repo path does not match",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, repo_root="."),
+                project,
+                item,
+            ),
+            "change evidence repo_root must be a local absolute path",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, repo_root=r"\\example.invalid\share\repo"),
+                project,
+                item,
+            ),
+            "change evidence repo_root must be a local absolute path",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                evidence,
+                project,
+                replace(item, target_files=("src/tracked.txt",)),
+            ),
+            "status scope does not match",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                evidence,
+                replace(project, protected_paths=("known.local", "src/tracked.txt")),
+                item,
+            ),
+            "target path is protected",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, status_scope_paths=tuple(reversed(evidence.status_scope_paths))),
+                project,
+                item,
+            ),
+            "status scope does not match",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, scoped_git_status=tuple(reversed(evidence.scoped_git_status))),
+                project,
+                item,
+            ),
+            "Git status is not canonical",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(
+                    evidence,
+                    targets=(
+                        replace(evidence.targets[0], content_sha256="0" * 64),
+                        *evidence.targets[1:],
+                    ),
+                ),
+                project,
+                item,
+            ),
+            "canonical manifest is inconsistent",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, canonical_bytes=evidence.canonical_bytes + b" "),
+                project,
+                item,
+            ),
+            "canonical manifest is inconsistent",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, change_evidence_digest="0" * 64),
+                project,
+                item,
+            ),
+            "digest is inconsistent",
+        )
+        _assert_validation_error(
+            lambda: verify_local_change_evidence(
+                replace(evidence, byte_size=evidence.byte_size + 1),
+                project,
+                item,
+            ),
+            "byte size is inconsistent",
         )
 
 
@@ -1330,6 +1481,7 @@ def main() -> None:
         _test_binding_enforcement_requires_matching_commit_digest_and_blocks_renderer,
         _test_binding_enforcement_rejects_orphan_metadata,
         _test_local_change_evidence_is_deterministic_bounded_and_read_only,
+        _test_local_change_evidence_verifier_rejects_tampering_and_scope_drift,
         _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,

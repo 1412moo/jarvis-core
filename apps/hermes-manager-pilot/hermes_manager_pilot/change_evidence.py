@@ -1,4 +1,4 @@
-"""Bounded local change-evidence collection for Prompt Queue v0.1C-0A.
+"""Bounded local change-evidence collection and verification for v0.1C-0B.
 
 The collector reads one explicitly trusted local Git root and exact target
 files. It does not persist evidence, execute a prompt, or grant approval.
@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 from typing import Any
@@ -19,7 +21,7 @@ from .prompt_queue import ProjectCard, QueueItem
 from .schemas import ValidationError
 
 
-VERSION = "0.1C-0A"
+VERSION = "0.1C-0B"
 EVIDENCE_TYPE = "hermes_local_change_evidence"
 
 MAX_FILE_BYTES = 4 * 1024 * 1024
@@ -27,8 +29,12 @@ MAX_TOTAL_FILE_BYTES = 16 * 1024 * 1024
 MAX_GIT_OUTPUT_BYTES = 64 * 1024
 MAX_CANONICAL_BYTES = 64 * 1024
 GIT_TIMEOUT_SECONDS = 10
+MAX_TARGET_FILES = 64
+MAX_STATUS_ENTRIES = 128
+MAX_EVIDENCE_TEXT_LENGTH = 4096
 
-_DIGEST_PREFIX = b"jarvis-core/hermes/local-change-evidence/v0.1C-0A\x00"
+_DIGEST_PREFIX = b"jarvis-core/hermes/local-change-evidence/v0.1C-0B\x00"
+_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _TRACKED_STATUS_CODES = frozenset(" MADRCU")
 _GIT_BASE_ARGS = (
     "git",
@@ -59,6 +65,9 @@ class TargetChangeEvidence:
 class LocalChangeEvidence:
     """A bounded local evidence manifest and domain-separated digest."""
 
+    project_id: str
+    item_id: str
+    declared_repo_path: str
     repo_root: str
     branch: str
     head: str
@@ -122,30 +131,23 @@ def collect_local_change_evidence(
     if after != before or second_targets != first_targets:
         raise ValidationError("repository changed during evidence collection")
 
-    snapshot = {
-        "evidence_type": EVIDENCE_TYPE,
-        "version": VERSION,
-        "project_id": project.project_id,
-        "item_id": item.item_id,
-        "repo_root": _portable_path(root),
-        "branch": before.branch,
-        "head": before.head,
-        "status_scope_paths": list(status_paths),
-        "scoped_git_status": list(before.status_lines),
-        "targets": [
-            {
-                "path": target.path,
-                "status": target.status,
-                "kind": target.kind,
-                "byte_size": target.byte_size,
-                "content_sha256": target.content_sha256,
-            }
-            for target in first_targets
-        ],
-    }
+    snapshot = _evidence_snapshot(
+        project_id=project.project_id,
+        item_id=item.item_id,
+        declared_repo_path=_portable_declared_path(project.repo_path),
+        repo_root=_portable_path(root),
+        branch=before.branch,
+        head=before.head,
+        status_scope_paths=status_paths,
+        scoped_git_status=before.status_lines,
+        targets=first_targets,
+    )
     canonical_bytes = _canonical_json_bytes(snapshot)
     digest = hashlib.sha256(_DIGEST_PREFIX + canonical_bytes).hexdigest()
     return LocalChangeEvidence(
+        project_id=project.project_id,
+        item_id=item.item_id,
+        declared_repo_path=_portable_declared_path(project.repo_path),
         repo_root=_portable_path(root),
         branch=before.branch,
         head=before.head,
@@ -156,6 +158,73 @@ def collect_local_change_evidence(
         canonical_bytes=canonical_bytes,
         byte_size=len(canonical_bytes),
     )
+
+
+def verify_local_change_evidence(
+    evidence: LocalChangeEvidence,
+    project: ProjectCard,
+    item: QueueItem,
+) -> None:
+    """Verify structural integrity without proving provenance or authority."""
+
+    if not isinstance(evidence, LocalChangeEvidence):
+        raise ValidationError("evidence must be LocalChangeEvidence")
+    _validate_project_item(project, item)
+    _validate_evidence_shape(evidence)
+
+    if evidence.evidence_type != EVIDENCE_TYPE or evidence.version != VERSION:
+        raise ValidationError("change evidence type or version is unsupported")
+    if evidence.project_id != project.project_id:
+        raise ValidationError("change evidence project does not match project card")
+    if evidence.item_id != item.item_id:
+        raise ValidationError("change evidence item does not match queue item")
+    _validate_local_absolute_root(project.repo_path, "project repo_path")
+    expected_declared_path = _portable_declared_path(project.repo_path)
+    if evidence.declared_repo_path != expected_declared_path:
+        raise ValidationError("change evidence declared repo path does not match project")
+    if evidence.branch != project.expected_branch:
+        raise ValidationError("change evidence branch does not match expected branch")
+    if evidence.head != project.expected_head:
+        raise ValidationError("change evidence HEAD does not match expected HEAD")
+
+    _validate_declared_scope(project, item)
+    expected_scope = _status_scope_paths(item.target_files, project.expected_untracked)
+    if evidence.status_scope_paths != expected_scope:
+        raise ValidationError("change evidence status scope does not match queue item")
+    expected_targets = tuple(sorted(item.target_files, key=_path_key))
+    evidence_target_paths = tuple(target.path for target in evidence.targets)
+    if evidence_target_paths != expected_targets:
+        raise ValidationError("change evidence targets do not match queue item")
+
+    status_entries = _parse_evidence_status_lines(evidence.scoped_git_status)
+    state = _RepositoryState(
+        branch=evidence.branch,
+        head=evidence.head,
+        status_entries=status_entries,
+    )
+    _validate_expected_project_state(project, state)
+    _validate_status_entries(project, item, status_entries)
+    _validate_target_evidence(evidence.targets, status_entries)
+
+    expected_snapshot = _evidence_snapshot(
+        project_id=evidence.project_id,
+        item_id=evidence.item_id,
+        declared_repo_path=evidence.declared_repo_path,
+        repo_root=evidence.repo_root,
+        branch=evidence.branch,
+        head=evidence.head,
+        status_scope_paths=evidence.status_scope_paths,
+        scoped_git_status=evidence.scoped_git_status,
+        targets=evidence.targets,
+    )
+    expected_canonical = _canonical_json_bytes(expected_snapshot)
+    if evidence.byte_size != len(expected_canonical):
+        raise ValidationError("change evidence byte size is inconsistent")
+    if not hmac.compare_digest(evidence.canonical_bytes, expected_canonical):
+        raise ValidationError("change evidence canonical manifest is inconsistent")
+    expected_digest = hashlib.sha256(_DIGEST_PREFIX + expected_canonical).hexdigest()
+    if not hmac.compare_digest(evidence.change_evidence_digest, expected_digest):
+        raise ValidationError("change evidence digest is inconsistent")
 
 
 def _validate_project_item(project: ProjectCard, item: QueueItem) -> None:
@@ -169,6 +238,126 @@ def _validate_project_item(project: ProjectCard, item: QueueItem) -> None:
         raise ValidationError("local change evidence requires result_type=review or commit")
     if not item.target_files:
         raise ValidationError("local change evidence requires target files")
+
+
+def _validate_evidence_shape(evidence: LocalChangeEvidence) -> None:
+    text_fields = (
+        (evidence.project_id, "project_id"),
+        (evidence.item_id, "item_id"),
+        (evidence.declared_repo_path, "declared_repo_path"),
+        (evidence.repo_root, "repo_root"),
+        (evidence.branch, "branch"),
+        (evidence.head, "head"),
+        (evidence.change_evidence_digest, "change_evidence_digest"),
+        (evidence.evidence_type, "evidence_type"),
+        (evidence.version, "version"),
+    )
+    for value, label in text_fields:
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > MAX_EVIDENCE_TEXT_LENGTH
+            or any(ord(character) < 32 for character in value)
+        ):
+            raise ValidationError(f"change evidence {label} is malformed")
+    if not _DIGEST_PATTERN.fullmatch(evidence.change_evidence_digest):
+        raise ValidationError("change evidence digest is malformed")
+    _validate_local_absolute_root(
+        evidence.declared_repo_path,
+        "change evidence declared_repo_path",
+    )
+    _validate_local_absolute_root(evidence.repo_root, "change evidence repo_root")
+    if not isinstance(evidence.canonical_bytes, bytes):
+        raise ValidationError("change evidence canonical manifest must be bytes")
+    if len(evidence.canonical_bytes) > MAX_CANONICAL_BYTES:
+        raise ValidationError("change evidence canonical manifest exceeds limit")
+    if (
+        not isinstance(evidence.byte_size, int)
+        or isinstance(evidence.byte_size, bool)
+        or evidence.byte_size < 1
+        or evidence.byte_size > MAX_CANONICAL_BYTES
+    ):
+        raise ValidationError("change evidence byte size is malformed")
+    if not isinstance(evidence.status_scope_paths, tuple) or not isinstance(
+        evidence.scoped_git_status, tuple
+    ):
+        raise ValidationError("change evidence status fields must be tuples")
+    if not isinstance(evidence.targets, tuple):
+        raise ValidationError("change evidence targets must be a tuple")
+    if not evidence.targets or len(evidence.targets) > MAX_TARGET_FILES:
+        raise ValidationError("change evidence target count is invalid")
+    if any(not isinstance(target, TargetChangeEvidence) for target in evidence.targets):
+        raise ValidationError("change evidence target is malformed")
+    if (
+        len(evidence.status_scope_paths) > MAX_STATUS_ENTRIES
+        or len(evidence.scoped_git_status) > MAX_STATUS_ENTRIES
+    ):
+        raise ValidationError("change evidence status count exceeds limit")
+    for path in evidence.status_scope_paths:
+        _validate_relative_path(path)
+    if len({_path_key(path) for path in evidence.status_scope_paths}) != len(
+        evidence.status_scope_paths
+    ):
+        raise ValidationError("change evidence status scope contains duplicate paths")
+
+
+def _parse_evidence_status_lines(lines: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    encoded: list[bytes] = []
+    for line in lines:
+        if not isinstance(line, str) or len(line) > MAX_EVIDENCE_TEXT_LENGTH:
+            raise ValidationError("change evidence Git status line is malformed")
+        try:
+            encoded.append(line.encode("utf-8", errors="strict") + b"\x00")
+        except UnicodeEncodeError as exc:
+            raise ValidationError("change evidence Git status line is malformed") from exc
+    entries = _parse_porcelain_status(b"".join(encoded))
+    canonical_lines = tuple(f"{code} {path}" for code, path in entries)
+    if lines != canonical_lines:
+        raise ValidationError("change evidence Git status is not canonical")
+    return entries
+
+
+def _validate_target_evidence(
+    targets: tuple[TargetChangeEvidence, ...],
+    status_entries: tuple[tuple[str, str], ...],
+) -> None:
+    status_by_path = {_path_key(path): code for code, path in status_entries}
+    total_bytes = 0
+    seen_paths: set[str] = set()
+    for target in targets:
+        if not isinstance(target, TargetChangeEvidence):
+            raise ValidationError("change evidence target is malformed")
+        _validate_relative_path(target.path)
+        path_key = _path_key(target.path)
+        if path_key in seen_paths:
+            raise ValidationError("change evidence contains duplicate targets")
+        seen_paths.add(path_key)
+        if target.status != status_by_path.get(path_key, "  "):
+            raise ValidationError(f"change evidence target status is inconsistent: {target.path}")
+        if (
+            not isinstance(target.byte_size, int)
+            or isinstance(target.byte_size, bool)
+            or target.byte_size < 0
+            or target.byte_size > MAX_FILE_BYTES
+        ):
+            raise ValidationError(f"change evidence target size is invalid: {target.path}")
+        if not isinstance(target.content_sha256, str):
+            raise ValidationError(f"change evidence target digest is invalid: {target.path}")
+        if target.kind == "file":
+            if not _DIGEST_PATTERN.fullmatch(target.content_sha256) or "D" in target.status:
+                raise ValidationError(
+                    f"change evidence file target is inconsistent: {target.path}"
+                )
+        elif target.kind == "deleted":
+            if target.byte_size != 0 or target.content_sha256 or "D" not in target.status:
+                raise ValidationError(
+                    f"change evidence deletion target is inconsistent: {target.path}"
+                )
+        else:
+            raise ValidationError(f"change evidence target kind is unsupported: {target.path}")
+        total_bytes += target.byte_size
+        if total_bytes > MAX_TOTAL_FILE_BYTES:
+            raise ValidationError("total target file size exceeds evidence limit")
 
 
 def _validated_trusted_root(
@@ -197,6 +386,17 @@ def _validated_trusted_root(
     return root
 
 
+def _validate_local_absolute_root(value: str, label: str) -> None:
+    if not isinstance(value, str):
+        raise ValidationError(f"{label} must be a local absolute path")
+    try:
+        path = Path(value)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{label} must be a local absolute path") from exc
+    if _is_network_or_device_path(value) or not path.is_absolute():
+        raise ValidationError(f"{label} must be a local absolute path")
+
+
 def _resolve_directory(value: str | Path, label: str) -> Path:
     path = Path(value)
     try:
@@ -211,18 +411,24 @@ def _resolve_directory(value: str | Path, label: str) -> Path:
 
 
 def _validate_target_scope(root: Path, project: ProjectCard, item: QueueItem) -> None:
+    _validate_declared_scope(project, item)
     for relative_path in item.target_files:
-        _validate_relative_path(relative_path)
-        if _path_is_protected(relative_path, project.protected_paths):
-            raise ValidationError(f"target path is protected: {relative_path}")
         target_path = _validated_target_path(root, relative_path, allow_missing=True)
         if target_path.exists() and target_path.is_dir():
             raise ValidationError(f"target path must be a file: {relative_path}")
     for relative_path in project.expected_untracked:
-        _validate_relative_path(relative_path)
         expected_path = _validated_target_path(root, relative_path, allow_missing=True)
         if expected_path.exists() and expected_path.is_dir():
             raise ValidationError(f"expected untracked path must be a file: {relative_path}")
+
+
+def _validate_declared_scope(project: ProjectCard, item: QueueItem) -> None:
+    for relative_path in item.target_files:
+        _validate_relative_path(relative_path)
+        if _path_is_protected(relative_path, project.protected_paths):
+            raise ValidationError(f"target path is protected: {relative_path}")
+    for relative_path in project.expected_untracked:
+        _validate_relative_path(relative_path)
 
 
 def _validated_target_path(root: Path, relative_path: str, allow_missing: bool) -> Path:
@@ -473,6 +679,42 @@ def _status_scope_paths(
     return tuple(unique[key] for key in sorted(unique))
 
 
+def _evidence_snapshot(
+    *,
+    project_id: str,
+    item_id: str,
+    declared_repo_path: str,
+    repo_root: str,
+    branch: str,
+    head: str,
+    status_scope_paths: tuple[str, ...],
+    scoped_git_status: tuple[str, ...],
+    targets: tuple[TargetChangeEvidence, ...],
+) -> dict[str, Any]:
+    return {
+        "evidence_type": EVIDENCE_TYPE,
+        "version": VERSION,
+        "project_id": project_id,
+        "item_id": item_id,
+        "declared_repo_path": declared_repo_path,
+        "repo_root": repo_root,
+        "branch": branch,
+        "head": head,
+        "status_scope_paths": list(status_scope_paths),
+        "scoped_git_status": list(scoped_git_status),
+        "targets": [
+            {
+                "path": target.path,
+                "status": target.status,
+                "kind": target.kind,
+                "byte_size": target.byte_size,
+                "content_sha256": target.content_sha256,
+            }
+            for target in targets
+        ],
+    }
+
+
 def _canonical_json_bytes(snapshot: dict[str, Any]) -> bytes:
     try:
         canonical = json.dumps(
@@ -578,3 +820,7 @@ def _is_network_or_device_path(value: str) -> bool:
 
 def _portable_path(path: Path) -> str:
     return str(path).replace("\\", "/")
+
+
+def _portable_declared_path(value: str) -> str:
+    return _portable_path(Path(value))
