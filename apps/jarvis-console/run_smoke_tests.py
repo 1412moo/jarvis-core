@@ -244,8 +244,24 @@ def _test_project_control_snapshot() -> None:
 - Current milestone: Read-only owner project card
 - Recommended next step: Verify the local vertical slice
 - Next user-visible milestone: One trusted project card in Jarvis Console
+- Current reason: Make internal progress understandable without reading every document
+- Owner outcome: See current status and the next decision in one place
+- Recent completed: Project Control v0.1D design
+- Approval state: none
+- Approval note: No approval is needed for the bounded read-only slice
 
 ## 3. Later
+
+## 5. 작업 축별 상태
+
+| 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
+| --- | --- | --- | --- |
+| Hermes Manager | copy-only handoff verified | prompt drafting | repeated local use |
+| Memory / Skills | keep locked | write-free preview | remain locked |
+| Jarvis Console | v0.1D design complete | owner project card | implement read-only slice |
+| Research Council | local report app | idea and risk review | usage feedback |
+| Daily AI Radar | curated local scout | local radar report | keep manual sources |
+| Task / Discord / Dashboard | workflow foundation | task dashboard | bounded maintenance |
 """
         plan.write_text(baseline, encoding="utf-8")
         first = run_web_app.read_master_plan_snapshot(plan, root)
@@ -260,6 +276,61 @@ def _test_project_control_snapshot() -> None:
             "current_milestone": "Read-only owner project card",
             "recommended_next_step": "Verify the local vertical slice",
             "next_user_visible_milestone": "One trusted project card in Jarvis Console",
+            "current_reason": "Make internal progress understandable without reading every document",
+            "owner_outcome": "See current status and the next decision in one place",
+            "recent_completed": "Project Control v0.1D design",
+            "approval_state": "none",
+            "approval_note": "No approval is needed for the bounded read-only slice",
+            "workstreams": [
+                {
+                    "workstream_id": "hermes-manager",
+                    "display_name": "Hermes Manager",
+                    "status_summary": "copy-only handoff verified",
+                    "user_visible_capability": "prompt drafting",
+                    "next_safe_step": "repeated local use",
+                    "read_only": True,
+                },
+                {
+                    "workstream_id": "memory-skills",
+                    "display_name": "Memory / Skills",
+                    "status_summary": "keep locked",
+                    "user_visible_capability": "write-free preview",
+                    "next_safe_step": "remain locked",
+                    "read_only": True,
+                },
+                {
+                    "workstream_id": "jarvis-console",
+                    "display_name": "Jarvis Console",
+                    "status_summary": "v0.1D design complete",
+                    "user_visible_capability": "owner project card",
+                    "next_safe_step": "implement read-only slice",
+                    "read_only": True,
+                },
+                {
+                    "workstream_id": "research-council",
+                    "display_name": "Research Council",
+                    "status_summary": "local report app",
+                    "user_visible_capability": "idea and risk review",
+                    "next_safe_step": "usage feedback",
+                    "read_only": True,
+                },
+                {
+                    "workstream_id": "daily-ai-radar",
+                    "display_name": "Daily AI Radar",
+                    "status_summary": "curated local scout",
+                    "user_visible_capability": "local radar report",
+                    "next_safe_step": "keep manual sources",
+                    "read_only": True,
+                },
+                {
+                    "workstream_id": "task-discord-dashboard",
+                    "display_name": "Task / Discord / Dashboard",
+                    "status_summary": "workflow foundation",
+                    "user_visible_capability": "task dashboard",
+                    "next_safe_step": "bounded maintenance",
+                    "read_only": True,
+                },
+            ],
             "source": "docs/master-plan.md",
         }
 
@@ -282,6 +353,57 @@ def _test_project_control_snapshot() -> None:
             assert "missing" in str(exc)
         else:
             raise AssertionError("missing master-plan fields must be rejected")
+
+        invalid_cases = (
+            (
+                baseline.replace("- Approval state: none", "- Approval state: maybe"),
+                "approval state",
+            ),
+            (
+                baseline.split("## 5. 작업 축별 상태", 1)[0],
+                "workstream section",
+            ),
+            (
+                baseline.replace("| Hermes Manager |", "| Unknown Workstream |", 1),
+                "order or name",
+            ),
+            (
+                baseline.replace("| Daily AI Radar |", "| Research Council |", 1),
+                "duplicated",
+            ),
+            (
+                baseline.replace("| Memory / Skills | keep locked |", "| Memory / Skills |  |", 1),
+                "empty or too long",
+            ),
+            (
+                baseline.replace("copy-only handoff verified", "x" * 501, 1),
+                "empty or too long",
+            ),
+            (
+                baseline.replace("copy-only handoff verified", "copy-only\x01handoff", 1),
+                "control character",
+            ),
+            (
+                baseline.replace(
+                    "| Task / Discord / Dashboard | workflow foundation | task dashboard | bounded maintenance |\n",
+                    "",
+                    1,
+                ),
+                "missing or extra rows",
+            ),
+            (
+                baseline.replace("| 작업 축 | 현재 상태 |", "| Project | 현재 상태 |", 1),
+                "header",
+            ),
+        )
+        for invalid_source, expected_error in invalid_cases:
+            plan.write_text(invalid_source, encoding="utf-8")
+            try:
+                run_web_app.read_master_plan_snapshot(plan, root)
+            except run_web_app.RegistryError as exc:
+                assert expected_error in str(exc)
+            else:
+                raise AssertionError(f"invalid master plan must be rejected: {expected_error}")
 
         plan.write_bytes(b"x" * (run_web_app.MASTER_PLAN_MAX_BYTES + 1))
         try:
@@ -484,7 +606,7 @@ def main() -> None:
     assert overview["ok"] is True
     assert overview["mode"] == "read-only"
     project_control = overview["project_control"]
-    assert project_control["version"] == "project_control.v0.1A"
+    assert project_control["version"] == "project_control.v0.1D"
     assert project_control["mode"] == "read-only"
     assert project_control["source"] == "docs/master-plan.md"
     assert len(project_control["project_cards"]) == 1
@@ -496,6 +618,22 @@ def main() -> None:
     assert project_card["validation_commands"] == ["git status --short", "git diff --check"]
     assert project_card["status"] == "observed"
     assert project_card["attention_reasons"] == []
+    owner_summary = project_card["owner_summary"]
+    assert owner_summary["current_reason"]
+    assert owner_summary["owner_outcome"]
+    assert owner_summary["recent_completed"] == "Project Control v0.1D single-repo workstream visibility design"
+    assert owner_summary["approval_state"] == "none"
+    assert len(project_card["workstreams"]) == 6
+    assert [item["workstream_id"] for item in project_card["workstreams"]] == [
+        "hermes-manager",
+        "memory-skills",
+        "jarvis-console",
+        "research-council",
+        "daily-ai-radar",
+        "task-discord-dashboard",
+    ]
+    assert all(item["read_only"] is True for item in project_card["workstreams"])
+    assert project_card["locked_capabilities"] == project_card["forbidden_actions"]
     assert any("commit" in item.lower() for item in project_card["forbidden_actions"])
     assert overview["repo"]["head_short"]
     assert "jarvis.bat" in overview["repo"]["protected_path_note"]
@@ -1448,7 +1586,11 @@ def main() -> None:
     assert "copyNextActionForHandoff" in app_js
     assert "/api/overview" in app_js
     assert "renderProjectControl" in app_js
-    assert "Next user-visible result" in app_js
+    assert "현재 만드는 이유" in app_js
+    assert "이 단계가 끝나면 사용자가 얻는 것" in app_js
+    assert "Jarvis-Core 내부 workstream" in app_js
+    assert "승인 필요 여부" in app_js
+    assert "잠긴 기능" in app_js
     assert "Read-only Project Control overview refreshed." in app_js
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js

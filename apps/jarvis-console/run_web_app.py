@@ -50,7 +50,27 @@ MASTER_PLAN_FIELDS = {
     "Current milestone": "current_milestone",
     "Recommended next step": "recommended_next_step",
     "Next user-visible milestone": "next_user_visible_milestone",
+    "Current reason": "current_reason",
+    "Owner outcome": "owner_outcome",
+    "Recent completed": "recent_completed",
+    "Approval state": "approval_state",
+    "Approval note": "approval_note",
 }
+MASTER_PLAN_APPROVAL_STATES = frozenset({"none", "required", "blocked"})
+MASTER_PLAN_WORKSTREAM_COLUMNS = (
+    "작업 축",
+    "현재 상태",
+    "사용자에게 보이는 기능",
+    "다음 안전 단계",
+)
+MASTER_PLAN_WORKSTREAMS = (
+    ("hermes-manager", "Hermes Manager"),
+    ("memory-skills", "Memory / Skills"),
+    ("jarvis-console", "Jarvis Console"),
+    ("research-council", "Research Council"),
+    ("daily-ai-radar", "Daily AI Radar"),
+    ("task-discord-dashboard", "Task / Discord / Dashboard"),
+)
 PROJECT_CONTROL_FORBIDDEN_ACTIONS = (
     "Jarvis Console does not invoke Codex, ChatGPT, or Hermes",
     "Jarvis Console does not stage, commit, push, or create PRs",
@@ -790,10 +810,89 @@ def repo_status_payload() -> dict[str, Any]:
     }
 
 
+def _parse_master_plan_table_row(line: str) -> list[str]:
+    """Normalize one bounded four-cell master-plan table row."""
+
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        raise RegistryError("master plan workstream table row is malformed")
+    raw_cells = stripped[1:-1].split("|")
+    if len(raw_cells) != len(MASTER_PLAN_WORKSTREAM_COLUMNS):
+        raise RegistryError("master plan workstream table must have four columns")
+
+    cells = []
+    for raw_cell in raw_cells:
+        if any(ord(character) < 32 or ord(character) == 127 for character in raw_cell):
+            raise RegistryError("master plan workstream table contains a control character")
+        normalized = raw_cell.strip().replace("`", "").replace("**", "")
+        if not normalized or len(normalized) > MASTER_PLAN_VALUE_MAX_CHARS:
+            raise RegistryError("master plan workstream table cell is empty or too long")
+        cells.append(normalized)
+    return cells
+
+
+def _parse_master_plan_workstreams(text: str) -> list[dict[str, Any]]:
+    """Read the fixed Jarvis-Core workstream table without inferring authority."""
+
+    section_match = re.search(
+        r"(?ms)^## 5\. 작업 축별 상태\s*$\n(?P<body>.*?)(?=^##\s|\Z)",
+        text,
+    )
+    if section_match is None:
+        raise RegistryError("master plan workstream section is missing")
+
+    table_lines = [
+        line.strip()
+        for line in section_match.group("body").splitlines()
+        if line.strip().startswith("|")
+    ]
+    expected_line_count = 2 + len(MASTER_PLAN_WORKSTREAMS)
+    if len(table_lines) != expected_line_count:
+        raise RegistryError("master plan workstream table has missing or extra rows")
+
+    if tuple(_parse_master_plan_table_row(table_lines[0])) != MASTER_PLAN_WORKSTREAM_COLUMNS:
+        raise RegistryError("master plan workstream table header is invalid")
+    separator_cells = table_lines[1][1:-1].split("|")
+    if len(separator_cells) != len(MASTER_PLAN_WORKSTREAM_COLUMNS) or any(
+        re.fullmatch(r"\s*:?-{3,}:?\s*", cell) is None for cell in separator_cells
+    ):
+        raise RegistryError("master plan workstream table separator is invalid")
+
+    workstreams = []
+    seen_names = set()
+    for (workstream_id, expected_name), line in zip(
+        MASTER_PLAN_WORKSTREAMS,
+        table_lines[2:],
+        strict=True,
+    ):
+        display_name, status_summary, user_visible_capability, next_safe_step = (
+            _parse_master_plan_table_row(line)
+        )
+        if display_name in seen_names:
+            raise RegistryError(f"master plan workstream is duplicated: {display_name}")
+        seen_names.add(display_name)
+        if display_name != expected_name:
+            raise RegistryError(
+                "master plan workstream order or name is invalid: "
+                f"expected {expected_name!r}"
+            )
+        workstreams.append(
+            {
+                "workstream_id": workstream_id,
+                "display_name": display_name,
+                "status_summary": status_summary,
+                "user_visible_capability": user_visible_capability,
+                "next_safe_step": next_safe_step,
+                "read_only": True,
+            }
+        )
+    return workstreams
+
+
 def read_master_plan_snapshot(
     path: str | Path = MASTER_PLAN_PATH,
     allowed_root: str | Path = REPO_ROOT,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Read bounded owner-facing fields from the trusted master plan."""
 
     source = Path(path)
@@ -840,6 +939,9 @@ def read_master_plan_snapshot(
     missing = sorted(set(MASTER_PLAN_FIELDS.values()) - set(values))
     if missing:
         raise RegistryError("master plan fields are missing: " + ", ".join(missing))
+    if values["approval_state"] not in MASTER_PLAN_APPROVAL_STATES:
+        raise RegistryError("master plan approval state is invalid")
+    values["workstreams"] = _parse_master_plan_workstreams(text)
     values["source"] = resolved.relative_to(root).as_posix()
     return values
 
@@ -856,7 +958,7 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
             f"Live branch {live_branch!r} does not match master-plan branch {expected_branch!r}."
         )
     return {
-        "version": "project_control.v0.1A",
+        "version": "project_control.v0.1D",
         "mode": "read-only",
         "source": snapshot["source"],
         "project_cards": [
@@ -878,6 +980,18 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
                 "current_milestone": snapshot["current_milestone"],
                 "recommended_next_step": snapshot["recommended_next_step"],
                 "next_user_visible_milestone": snapshot["next_user_visible_milestone"],
+                "owner_summary": {
+                    "current_reason": snapshot["current_reason"],
+                    "owner_outcome": snapshot["owner_outcome"],
+                    "recent_completed": snapshot["recent_completed"],
+                    "current_milestone": snapshot["current_milestone"],
+                    "recommended_next_step": snapshot["recommended_next_step"],
+                    "next_user_visible_milestone": snapshot["next_user_visible_milestone"],
+                    "approval_state": snapshot["approval_state"],
+                    "approval_note": snapshot["approval_note"],
+                },
+                "workstreams": snapshot["workstreams"],
+                "locked_capabilities": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
                 "validation_commands": list(PROJECT_CONTROL_VALIDATION_COMMANDS),
                 "forbidden_actions": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
                 "attention_reasons": attention_reasons,
@@ -886,7 +1000,8 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
         "notes": [
             "The project card is reconstructed from tracked master-plan fields and fixed read-only Git commands.",
             "It does not create tasks, approvals, prompts, commits, runtime state, or cross-app calls.",
-            "The list-shaped contract can add separately approved trusted projects later; v0.1A exposes Jarvis-Core only.",
+            "Project Control exposes one Jarvis-Core card and treats apps and capabilities as internal workstreams.",
+            "The dormant multi-project registry primitive is not connected to this payload, HTTP, UI, or filesystem access.",
         ],
     }
 
@@ -5467,7 +5582,7 @@ def run_self_test() -> None:
     assert overview_code == HTTPStatus.OK
     assert overview["ok"] is True
     assert overview["mode"] == "read-only"
-    assert overview["project_control"]["version"] == "project_control.v0.1A"
+    assert overview["project_control"]["version"] == "project_control.v0.1D"
     assert overview["project_control"]["mode"] == "read-only"
     assert overview["project_control"]["source"] == "docs/master-plan.md"
     assert len(overview["project_control"]["project_cards"]) == 1
@@ -5479,6 +5594,19 @@ def run_self_test() -> None:
     assert owner_card["validation_commands"] == ["git status --short", "git diff --check"]
     assert owner_card["status"] == "observed"
     assert owner_card["attention_reasons"] == []
+    assert owner_card["owner_summary"]["current_reason"]
+    assert owner_card["owner_summary"]["owner_outcome"]
+    assert owner_card["owner_summary"]["approval_state"] == "none"
+    assert [item["workstream_id"] for item in owner_card["workstreams"]] == [
+        "hermes-manager",
+        "memory-skills",
+        "jarvis-console",
+        "research-council",
+        "daily-ai-radar",
+        "task-discord-dashboard",
+    ]
+    assert all(item["read_only"] is True for item in owner_card["workstreams"])
+    assert owner_card["locked_capabilities"] == owner_card["forbidden_actions"]
     assert overview["repo"]["head_short"]
     assert "jarvis.bat" in overview["repo"]["protected_path_note"]
     assert overview["repo"]["working_tree_status"]
@@ -6321,7 +6449,11 @@ def run_self_test() -> None:
     assert "/api/skill" in app_js
     assert "/api/overview" in app_js
     assert "renderProjectControl" in app_js
-    assert "Next user-visible result" in app_js
+    assert "현재 만드는 이유" in app_js
+    assert "이 단계가 끝나면 사용자가 얻는 것" in app_js
+    assert "Jarvis-Core 내부 workstream" in app_js
+    assert "승인 필요 여부" in app_js
+    assert "잠긴 기능" in app_js
     assert "Read-only Project Control overview refreshed." in app_js
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js

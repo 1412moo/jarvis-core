@@ -1057,42 +1057,109 @@ function renderProjectControl(projectControl) {
         </div>
         <div class="overview-badges">
           <span class="overview-badge read-only">Read-only</span>
-          <span class="overview-badge">${escapeHtml(projectControl.version || "project_control.v0.1A")}</span>
+          <span class="overview-badge">${escapeHtml(projectControl.version || "project_control.v0.1D")}</span>
         </div>
       </div>
       <p class="muted">Current direction comes from ${escapeHtml(projectControl.source || "the tracked master plan")}; live repository facts are refreshed locally.</p>
       <div class="overview-skill-grid">
         ${cards
           .map(
-            (card) => `
-          <article class="overview-skill-card project-control-card">
-            <div class="overview-section-heading">
-              <h4>${escapeHtml(card.display_name || card.project_id || "Local project")}</h4>
-              <span class="overview-badge ${card.status === "observed" ? "read-only" : ""}">${card.status === "observed" ? "Observed" : "Attention"}</span>
-            </div>
-            <dl class="overview-facts compact-facts">
-              <div><dt>Branch</dt><dd>${escapeHtml(card.branch || "unknown")}</dd></div>
-              <div><dt>Live HEAD</dt><dd><code>${escapeHtml(card.live_head || "unknown")}</code></dd></div>
-              <div><dt>Verified implementation</dt><dd><code>${escapeHtml(card.verified_implementation_head || "unknown")}</code></dd></div>
-              <div><dt>Last verified</dt><dd>${escapeHtml(card.last_verified || "unknown")}</dd></div>
-            </dl>
-            <section class="codex-review-summary">
-              <h4>Why this work exists</h4>
-              <p><strong>Goal:</strong> ${escapeHtml(card.current_goal || "Not supplied")}</p>
-              <p><strong>Current workstream:</strong> ${escapeHtml(card.current_workstream || "Not supplied")}</p>
-              <p><strong>Current milestone:</strong> ${escapeHtml(card.current_milestone || "Not supplied")}</p>
-              <p><strong>Next user-visible result:</strong> ${escapeHtml(card.next_user_visible_milestone || "Not supplied")}</p>
-              <p><strong>Recommended next step:</strong> ${escapeHtml(card.recommended_next_step || "Not supplied")}</p>
-              <p><strong>Working tree:</strong> <code class="codex-review-status">${escapeHtml(card.working_tree_status || "clean")}</code></p>
-            </section>
-            <div class="overview-rule-grid">
-              <div><strong>Known protected / untracked</strong>${listMarkup(card.known_protected_untracked, "None declared.")}</div>
-              <div><strong>Validation commands</strong>${listMarkup(card.validation_commands, "None declared.")}</div>
-              <div><strong>Forbidden actions</strong>${listMarkup(card.forbidden_actions, "None declared.")}</div>
-              <div><strong>Attention</strong>${listMarkup(card.attention_reasons, "No master-plan branch mismatch detected.")}</div>
-            </div>
-          </article>
-        `,
+            (card) => {
+              const ownerSummary = card.owner_summary || {};
+              const workstreams = Array.isArray(card.workstreams) ? card.workstreams : [];
+              const lockedCapabilities = card.locked_capabilities || card.forbidden_actions || [];
+              const approvalState = ownerSummary.approval_state || "blocked";
+              const approvalLabel =
+                approvalState === "none"
+                  ? "No approval needed"
+                  : approvalState === "required"
+                    ? "Approval required"
+                    : "Blocked";
+              return `
+                <article class="overview-skill-card project-control-card">
+                  <div class="overview-section-heading">
+                    <h4>${escapeHtml(card.display_name || card.project_id || "Local project")}</h4>
+                    <span class="overview-badge ${card.status === "observed" ? "read-only" : ""}">${card.status === "observed" ? "Observed" : "Attention"}</span>
+                  </div>
+
+                  <div class="owner-priority-grid">
+                    <section class="owner-priority-card reason-card">
+                      <p class="eyebrow">Owner context</p>
+                      <h4>현재 만드는 이유</h4>
+                      <p>${escapeHtml(ownerSummary.current_reason || "Not supplied")}</p>
+                    </section>
+                    <section class="owner-priority-card outcome-card">
+                      <p class="eyebrow">Owner outcome</p>
+                      <h4>이 단계가 끝나면 사용자가 얻는 것</h4>
+                      <p>${escapeHtml(ownerSummary.owner_outcome || "Not supplied")}</p>
+                    </section>
+                  </div>
+
+                  <section class="owner-milestone-card">
+                    <div class="overview-section-heading">
+                      <h4>현재 위치와 다음 결정</h4>
+                      <span class="overview-badge ${approvalState === "none" ? "read-only" : "approval-needed"}">${escapeHtml(approvalLabel)}</span>
+                    </div>
+                    <dl class="overview-facts owner-milestone-facts">
+                      <div><dt>최근 완료</dt><dd>${escapeHtml(ownerSummary.recent_completed || "Not supplied")}</dd></div>
+                      <div><dt>현재 milestone</dt><dd>${escapeHtml(ownerSummary.current_milestone || card.current_milestone || "Not supplied")}</dd></div>
+                      <div><dt>다음 사용자 체감 결과</dt><dd>${escapeHtml(ownerSummary.next_user_visible_milestone || card.next_user_visible_milestone || "Not supplied")}</dd></div>
+                      <div><dt>다음 단계</dt><dd>${escapeHtml(ownerSummary.recommended_next_step || card.recommended_next_step || "Not supplied")}</dd></div>
+                    </dl>
+                    <p class="approval-note"><strong>승인 필요 여부:</strong> ${escapeHtml(ownerSummary.approval_note || "Not supplied")}</p>
+                  </section>
+
+                  <section class="workstream-status-section">
+                    <div class="overview-section-heading">
+                      <div>
+                        <p class="eyebrow">Single-repo visibility</p>
+                        <h4>Jarvis-Core 내부 workstream</h4>
+                      </div>
+                      <span class="overview-badge read-only">${escapeHtml(String(workstreams.length))} read-only</span>
+                    </div>
+                    <div class="workstream-status-grid">
+                      ${workstreams
+                        .map(
+                          (workstream) => `
+                            <article class="workstream-status-card">
+                              <div class="overview-section-heading">
+                                <h5>${escapeHtml(workstream.display_name || workstream.workstream_id || "Internal workstream")}</h5>
+                                <span class="overview-badge read-only">Read-only</span>
+                              </div>
+                              <p><strong>현재 상태</strong>${escapeHtml(workstream.status_summary || "Not supplied")}</p>
+                              <p><strong>사용자에게 보이는 기능</strong>${escapeHtml(workstream.user_visible_capability || "Not supplied")}</p>
+                              <p><strong>다음 안전 단계</strong>${escapeHtml(workstream.next_safe_step || "Not supplied")}</p>
+                            </article>
+                          `,
+                        )
+                        .join("")}
+                    </div>
+                  </section>
+
+                  <div class="overview-rule-grid owner-boundary-grid">
+                    <div><strong>잠긴 기능</strong>${listMarkup(lockedCapabilities, "None declared.")}</div>
+                    <div><strong>Known protected / untracked</strong>${listMarkup(card.known_protected_untracked, "None declared.")}</div>
+                    <div><strong>Validation commands</strong>${listMarkup(card.validation_commands, "None declared.")}</div>
+                    <div><strong>Attention</strong>${listMarkup(card.attention_reasons, "No master-plan branch mismatch detected.")}</div>
+                  </div>
+
+                  <section class="project-control-technical">
+                    <div class="overview-section-heading">
+                      <h4>Repository facts</h4>
+                      <span class="overview-badge">Technical</span>
+                    </div>
+                    <dl class="overview-facts compact-facts">
+                      <div><dt>Branch</dt><dd>${escapeHtml(card.branch || "unknown")}</dd></div>
+                      <div><dt>Live HEAD</dt><dd><code>${escapeHtml(card.live_head || "unknown")}</code></dd></div>
+                      <div><dt>Verified implementation</dt><dd><code>${escapeHtml(card.verified_implementation_head || "unknown")}</code></dd></div>
+                      <div><dt>Last verified</dt><dd>${escapeHtml(card.last_verified || "unknown")}</dd></div>
+                      <div><dt>Current workstream</dt><dd>${escapeHtml(card.current_workstream || "Not supplied")}</dd></div>
+                      <div><dt>Working tree</dt><dd><code class="codex-review-status">${escapeHtml(card.working_tree_status || "clean")}</code></dd></div>
+                    </dl>
+                  </section>
+                </article>
+              `;
+            },
           )
           .join("")}
       </div>

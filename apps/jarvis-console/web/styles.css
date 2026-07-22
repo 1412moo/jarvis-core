@@ -666,6 +666,92 @@ code {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.project-control-card {
+  display: grid;
+  gap: 16px;
+}
+
+.owner-priority-grid,
+.workstream-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.owner-priority-card,
+.owner-milestone-card,
+.workstream-status-section,
+.project-control-technical {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.owner-priority-card {
+  border-color: #c7d7f2;
+  background: #f7fbff;
+}
+
+.owner-priority-card.outcome-card {
+  border-color: #b7d7c0;
+  background: #f4faf6;
+}
+
+.owner-priority-card h4,
+.owner-priority-card p,
+.owner-milestone-card h4,
+.owner-milestone-card p,
+.workstream-status-section h4,
+.workstream-status-card h5,
+.workstream-status-card p,
+.project-control-technical h4 {
+  margin: 0;
+}
+
+.owner-priority-card .eyebrow,
+.workstream-status-section .eyebrow {
+  margin-bottom: 5px;
+}
+
+.owner-priority-card h4 {
+  margin-bottom: 8px;
+}
+
+.owner-milestone-facts {
+  margin-bottom: 10px;
+}
+
+.approval-note {
+  padding: 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.workstream-status-card {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.workstream-status-card p {
+  color: var(--muted);
+}
+
+.workstream-status-card p strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.owner-boundary-grid > div {
+  min-width: 0;
+}
+
 .overview-skill-card p {
   color: var(--muted);
 }
@@ -711,6 +797,12 @@ code {
   border-color: #b7d7c0;
   background: #eef8f1;
   color: #256a3b;
+}
+
+.overview-badge.approval-needed {
+  border-color: #edc774;
+  background: #fff7e3;
+  color: #78550a;
 }
 
 .overview-badge.source-area {
