@@ -28,8 +28,8 @@ Jarvis Console does not execute skills automatically. It suggests, prepares, and
 
 ## Current HEAD / Status
 
-- Verified implementation HEAD: `7689484379d5bc13054584b06e11d2796e97e429`
-- Commit: `jarvis-console: add read-only project control card`
+- Verified implementation HEAD: `a33f28103310cfd2210780d2ef0fe6b4df9cfc2b`
+- Commit: `jarvis-console: add project control registry primitives`
 - Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -140,6 +140,12 @@ Project Control v0.1B is design-only. It separates portable tracked registry
 metadata from a server-owned trusted-root map, defines declared vs observed
 fields and `observed`/`attention`/`unavailable` states, and prohibits browser
 paths, automatic discovery, persistence, and a live second-repo connection.
+
+Project Control v0.1C implements the contract's internal/tests-only registry
+normalizer and blocking decision. It validates one/two-project fixtures,
+server-supplied root/command IDs, strict fields/lists, branch names, traversal,
+Unicode controls, duplicates, and portable Windows/POSIX path boundaries. It
+has no filesystem, Git, HTTP, UI, persistence, or second-repo connection.
 
 Recent items are normalized with deterministic read-only metadata:
 
@@ -512,10 +518,10 @@ During QA, `jarvis.bat` remained untracked and untouched.
   default omission of `original_text_preview`.
 - Codex Review remains deliberately copy/paste-only and has no durable review
   history; further UX changes should come from repeated local-use feedback.
-- Project Control v0.1A supports one trusted Jarvis-Core card only. The v0.1B
-  source contract now defines trusted-root ownership and failure states, but a
-  second repo remains unselected and unconnected. Implement and review the
-  internal normalizer before any live multi-repo integration.
+- Project Control v0.1A supports one trusted Jarvis-Core card only. v0.1B source
+  design and v0.1C internal normalization are complete, but a second repo
+  remains unselected and unconnected. The owner must specify its root and
+  read-only boundary before any live multi-repo integration.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
 - Project Control artifact grouping refinement: grouping can become more precise
   as real task/report/checkpoint indexes appear.
@@ -530,15 +536,15 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Internal Project Registry Normalizer
+### A. Owner Selection of a Second Project
 
 Priority: P1
 
-Implement Project Control v0.1C as internal/tests-only normalization and
-decision primitives. Accept only an in-memory mapping plus server-supplied
-trusted-root-key and validation-command-ID sets. Cover one/two-project fixtures
-and strict field/path/list failures. Do not read a second repo or connect HTTP,
-UI, persistence, cross-app calls, actions, or approvals.
+Select one real local project for the next read-only integration design. Record
+its repo path, display name, expected branch, master-plan relative path,
+protected paths, and expected untracked paths. Until the owner supplies and
+approves that boundary, do not scan `C:\work`, guess a project, read another
+repo, or connect HTTP/UI/persistence/actions.
 
 ### B. Planned Skill UX Polish
 

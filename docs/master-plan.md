@@ -23,7 +23,8 @@ milestone, 다음 체감 결과, live HEAD, working tree, 보호 파일, 금지 
 표시하지만 task·approval·prompt·commit·cross-app call은 만들지 않는다.
 v0.1B design은 여러 프로젝트로 확장할 때도 browser path나 자동 discovery를
 받지 않고, tracked registry와 server-owned trusted-root map을 분리하도록
-확정했다. 실제 두 번째 repo 연결은 아직 없다.
+확정했다. v0.1C는 이 contract의 in-memory normalizer와 blocking decision을
+internal/tests-only로 구현했다. 실제 두 번째 repo 연결은 아직 없다.
 
 ### 이 작업 축이 끝나면 가능한 것
 
@@ -60,13 +61,13 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Project Control v0.1B trusted multi-project source design**
-- 현재 다음 작업: **v0.1C internal/tests-only registry normalizer**
+- 최근 완료: **Project Control v0.1C internal registry normalizer**
+- 현재 다음 작업: **소유자의 실제 두 번째 프로젝트 선택과 read-only 연결 범위 승인**
 - 다음 사용자 체감 milestone: **여러 allowlisted local project의 목표·현재 작업·
   안전 경계를 나란히 보는 read-only 카드 화면**
 - vertical slice 완료 기준: 신뢰된 프로젝트만 표시하고, 각 카드의 문서 방향과
   live Git 관찰을 구분하며 어떤 action·approval·persistence도 만들지 않음
-- 현재 결정 필요: **없음** — v0.1C internal/tests-only까지 현재 승인 범위 안에 있음
+- 현재 결정 필요: **있음** — 자동 discovery 없이 실제로 표시할 두 번째 repo 지정 필요
 
 ### 언제부터 실제로 편해지는가
 
@@ -110,12 +111,12 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `7689484379d5bc13054584b06e11d2796e97e429`
+- Verified implementation HEAD: `a33f28103310cfd2210780d2ef0fe6b4df9cfc2b`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Jarvis/Hermes Prompt Queue / Project Control Panel
-- Current milestone: Project Control v0.1B trusted multi-project source design 완료
-- Recommended next step: Project Control v0.1C internal/tests-only registry normalizer
+- Current milestone: Project Control v0.1C internal registry normalizer 완료
+- Recommended next step: Owner selects one real second project before read-only integration design
 - Next user-visible milestone: 여러 allowlisted local project의 owner cards
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
@@ -156,15 +157,16 @@ flowchart LR
     E --> F["owner direction<br/>Project Control 선택"]
     F --> G["단일 owner project card<br/>v0.1A 완료"]
     G --> H["trusted multi-project source<br/>v0.1B design 완료"]
-    H --> I["registry normalizer<br/>v0.1C internal/tests-only"]
-    I --> J["allowlisted project cards<br/>후속 사용자 기능"]
+    H --> I["registry normalizer<br/>v0.1C 완료"]
+    I --> J{"owner selects<br/>real second project"}
+    J --> K["allowlisted project cards<br/>후속 사용자 기능"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H done;
-    class I current;
-    class J future;
+    class A,B,C,D,E,F,G,H,I done;
+    class J current;
+    class K future;
 ```
 
 ### 구현된 기반
@@ -178,30 +180,33 @@ flowchart LR
 - 기존 `/api/overview` 안의 list-shaped `project_control.v0.1A` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Project Control v0.1B trusted multi-project source design
+### 최근 완료: Project Control v0.1C internal registry normalizer
 
-v0.1A owner card 위에 여러 repo를 안전하게 확장할 source contract를 설계했다.
-tracked portable registry는 `trusted_root_key`만 선언하고, 실제 filesystem 권한은
-server-owned trusted-root map만 제공한다. browser path, parent-directory scan,
-automatic repo discovery는 금지했다.
+v0.1B contract를 `project_control_registry.py`의 route-free internal/tests-only
+primitive로 구현했다. 1~16개 프로젝트의 in-memory mapping을 immutable record로
+정규화하고 server-supplied trusted-root-key/validation-command-ID set에 없는 값은
+차단한다.
 
-declared direction과 live observation을 분리하고 `observed`, `attention`,
-`unavailable`만 허용한다. missing repo, branch mismatch, protected/untracked,
-stale HEAD, symlink/traversal 경계와 결정론적 test obligation을 문서화했다. 실제
-두 번째 repo, route, UI action, persistence는 추가하지 않았다.
+unknown field, duplicate ID/path/command, traversal, drive/backslash, control
+character, hidden/non-Markdown master plan, Windows alternate stream/wildcard,
+trailing dot/space, reserved device name을 fail closed로 검증한다. one/two-project
+fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
+HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 다음 안전 단계: Project Control v0.1C internal/tests-only
+### 다음 승인 지점: 실제 두 번째 프로젝트 선택
 
-설계 contract에 따라 in-memory registry normalizer와 card-source decision
-model만 구현한다. 이 단위는 다음으로 제한한다.
+자동 repo discovery와 browser path 입력은 금지되어 있으므로, 다음 read-only
+integration의 project root를 Codex가 추측할 수 없다. 소유자는 다음을 지정해야
+한다.
 
-- mapping normalization과 strict field/path/list validation
-- server가 제공한 trusted-root-key set과 command-ID set 검증
-- one/two-project deterministic fixtures와 blocking reason
-- filesystem, Git, HTTP, UI, persistence, action 실행 없음
+- 실제 두 번째 프로젝트의 repo 경로와 표시 이름
+- expected branch
+- protected paths와 expected untracked paths
+- 사용할 master-plan 문서의 repo-relative 경로
+- read-only 카드 연결을 다음 work package로 승인하는지 여부
 
-실제 두 번째 repo 연결, 임의 경로 입력, persistence, action button은 별도 구현
-검토 전까지 추가하지 않는다.
+이 정보가 오기 전에는 두 번째 repo를 열거나 후보 디렉터리를 탐색하지 않는다.
+임의 browser path, persistence, action button도 계속 추가하지 않는다.
 Memory save endpoint, UI Save/Confirm, Voice Inbox save는 계속 잠겨 있다.
 
 ## 5. 작업 축별 상태
@@ -210,7 +215,7 @@ Memory save endpoint, UI Save/Confirm, Voice Inbox save는 계속 잠겨 있다.
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1A local browser 검증, v0.1B multi-project source design 완료 | owner project card와 fresh read-only work review | internal registry normalizer |
+| Jarvis Console | Project Control v0.1A local browser 검증, v0.1B design·v0.1C internal normalizer 완료 | owner project card와 fresh read-only work review | 소유자가 실제 두 번째 project 선택 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
@@ -258,9 +263,9 @@ Memory save endpoint, UI Save/Confirm, Voice Inbox save는 계속 잠겨 있다.
    1건을 end-to-end 검증해 완료했다.
 8. Memory / Skills는 2C-4f readiness review의 `keep locked` 판정을 유지하며,
    소유자는 다음 체감 milestone로 Prompt Queue / Project Control을 선택했다.
-9. Project Control v0.1A는 master-plan 기반 단일 owner card를 실제 로컬
-   브라우저로 검증했고, v0.1B는 multi-project source contract를 확정했다. 다음은
-   route-free internal normalizer이며 임의 repo 입력이나 자동 연결은 허용하지 않는다.
+9. Project Control v0.1A는 단일 owner card를 검증하고 v0.1B는 source contract,
+   v0.1C는 route-free internal normalizer를 완료했다. 실제 multi-repo 연결 전에는
+   소유자가 두 번째 project와 read-only 범위를 지정해야 한다.
 
 ## 9. Milestone 보고 형식
 

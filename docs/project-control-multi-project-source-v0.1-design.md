@@ -5,6 +5,11 @@ Last updated: 2026-07-22
 Status: design-only. No second repository, route, persistence, action, or
 cross-app connection is implemented by this document.
 
+Implementation note: Project Control v0.1C now implements and locally verifies
+the in-memory registry normalizer and bounded blocking decision described in
+section 10. It remains route-free and filesystem-free; the design's live
+multi-repository boundary is still unimplemented.
+
 ## 1. Goal
 
 Define how Jarvis Console may eventually show multiple local project cards
@@ -192,19 +197,19 @@ The future internal implementation must cover:
 - source checks proving no write, persistence, subprocess shell, external call,
   prompt rendering, approval creation, or action route was added.
 
-## 10. First Implementation Unit
+## 10. First Implementation Unit — Completed
 
-Project Control v0.1C should add only an internal/tests-only registry normalizer
-and deterministic card-source decision model.
+Project Control v0.1C adds only an internal/tests-only registry normalizer and
+deterministic card-source decision model.
 
-It may:
+It does:
 
 - normalize an in-memory mapping;
 - accept a server-supplied trusted-root-key set as data, without opening repos;
 - return declared project records and blocking reasons;
 - test one- and two-project fixtures.
 
-It must not:
+It still must not:
 
 - read a second live repository;
 - connect the normalizer to HTTP or UI;

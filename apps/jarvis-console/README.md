@@ -185,6 +185,12 @@ parent-directory scans, automatic repo discovery, and a real second-repo
 connection remain absent. See
 [`../../docs/project-control-multi-project-source-v0.1-design.md`](../../docs/project-control-multi-project-source-v0.1-design.md).
 
+Project Control v0.1C implements only the route-free internal registry
+normalizer and bounded blocking decision. It validates one/two-project fixtures,
+trusted root/command IDs, field and list bounds, duplicate values, portable
+relative paths, branch names, Unicode controls, and Windows path hazards. It
+does not read a registry file, open a repo, run Git, or connect to overview/UI.
+
 ### Research Council
 
 Purpose: evaluate ideas, MVP assumptions, risks, evidence gaps, and experiment
@@ -301,8 +307,8 @@ Protected path shown by default:
 
 Possible later phases:
 
-1. Implement the v0.1B contract as an internal/tests-only registry normalizer;
-   do not read or connect a second live repository.
+1. Have the owner identify one real second project and its read-only boundary
+   before designing live multi-repo integration.
 2. Add richer registry metadata such as icons, examples, and handoff contracts.
 3. Add local report preview forms for existing deterministic renderers.
 4. Refine the read-only review surface only from repeated local-use feedback.
