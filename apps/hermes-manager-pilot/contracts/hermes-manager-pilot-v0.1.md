@@ -745,3 +745,111 @@ scope/review/commit approval binding; grant human approval; or expose route, UI,
 command execution, staging, commit, push, pull request, network, API, or LLM
 behavior. Queue-flow and approval-flow integration remain unimplemented and
 separately gated.
+
+### 18.12 v0.1C-0C-5 Queue Observation Evaluation Design
+
+Status: design-only. No C0C-5 application code, route, UI, or persistence is
+implemented.
+
+#### 18.12.1 Problem
+
+C0C-4 can return a safe replacement review item but deliberately has no queue
+context and does not call the existing evaluator. A caller could otherwise
+replace the wrong item, alter another queue entry, lose ordering, or treat a
+safe evidence preview as though it had already passed scope and approval
+checks. The next bridge must make that transition deterministic without
+turning an in-memory classification into execution authority.
+
+#### 18.12.2 Proposed Interface
+
+The first implementation unit should add an immutable result type equivalent
+to:
+
+```python
+@dataclass(frozen=True)
+class QueueObservationEvaluation:
+    queue: PromptQueueState
+    item: QueueItem
+    evaluation: QueueEvaluation
+```
+
+and one pure entry point equivalent to:
+
+```python
+def evaluate_review_evidence_in_queue(
+    queue: PromptQueueState,
+    item_id: str,
+    bundle: ReviewEvidenceBundle,
+) -> QueueObservationEvaluation:
+    ...
+```
+
+Names may change during implementation review, but the data and authority
+boundary must not.
+
+#### 18.12.3 Required Algorithm
+
+1. Require a normalized `PromptQueueState`, a bounded non-empty item ID, and a
+   `ReviewEvidenceBundle`.
+2. Resolve exactly one item and its project from the supplied queue. Missing or
+   inconsistent identity fails with `ValidationError`.
+3. Call `apply_review_evidence_observation()` with that project and item. All
+   C0C-4 wrong-stage, existing-metadata, bundle-integrity, protected-path, and
+   out-of-scope checks remain authoritative.
+4. Replace only the selected item in a new items tuple. Preserve project tuples,
+   queue type/version, item order, every other item, and the original queue.
+5. Create a new immutable `PromptQueueState` and call
+   `evaluate_queue_item(new_queue, item_id)` exactly once.
+6. Return the new queue, its selected replacement item, and the complete
+   `QueueEvaluation` without rendering, persistence, or further transition.
+
+An evidence or identity failure raises `ValidationError` and returns no partial
+result. A valid evidence snapshot with missing, malformed, or stale scope
+approval remains a successful bridge result whose evaluation is
+`BLOCKED_NEEDS_USER`. The bridge must not convert evaluator blocking reasons
+into success and must not create or repair approval metadata.
+
+#### 18.12.4 Snapshot And Staleness Boundary
+
+C0C-5 would be pure after evidence collection. It would perform no Git or
+filesystem read and therefore could only classify the captured C0C-2 snapshot.
+It must not claim that branch, HEAD, content, or whole-worktree status is still
+current after collection. The existing repeated collector reduces in-window
+races but cannot eliminate a mutation after its final sample.
+
+Any future prompt execution, review approval, commit transition, persistence,
+or unattended workflow must define and implement its own current-state
+recollection or stale-evidence rejection before gaining authority. C0C-5 does
+not satisfy that later boundary.
+
+#### 18.12.5 Required Tests
+
+The first implementation unit must deterministically cover:
+
+- Safe replacement of exactly one selected item with project and item order
+  preserved.
+- Original queue and all non-selected items remaining unchanged.
+- Exact propagation of the C0C-4 four observation fields and preservation of
+  all approval metadata.
+- An evaluator-accepted review item when a valid existing scope binding is
+  supplied.
+- A visible `BLOCKED_NEEDS_USER` evaluation when scope approval is missing or
+  stale, without discarding the new pure snapshot.
+- Missing item/project, bundle identity mismatch, unsafe status, tampered
+  evidence, wrong result stage, and existing later-stage metadata failing
+  closed.
+- No Git/filesystem read, renderer/pipeline call, queue persistence, approval
+  creation, route, UI, network, API, or LLM behavior.
+
+#### 18.12.6 Non-Goals And Approval Boundary
+
+C0C-5 does not include JSON queue normalization, a durable queue store, queue
+editing UI, background monitoring, prompt/session rendering, Codex or ChatGPT
+invocation, command execution, review/commit approval creation, staging,
+commit, push, pull request, Memory/Skills save, UI Save/Confirm, Voice Inbox
+auto-save, credential use, or external communication.
+
+Implementation must remain internal/tests-only and limited to the pure bridge
+and deterministic tests. Connecting its output to `build_hermes_session()`, the
+renderer pipeline, a route, UI, persistence, or any execution/approval flow is
+a separate scope gate.

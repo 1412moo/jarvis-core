@@ -478,6 +478,24 @@ does not normalize or mutate queue state, call the evaluator, create an approval
 binding, or expose route/UI/persistence/execution behavior. Actual queue-flow
 integration remains unimplemented and separately gated.
 
+### C0C-5 Queue Observation Evaluation Design
+
+Status: design-only; no C0C-5 application code is implemented.
+
+The next bounded bridge would accept an already normalized in-memory
+`PromptQueueState`, one item ID, and a C0C-2 bundle. It would use C0C-4 to create
+a replacement review item, place only that item into a new immutable queue
+snapshot, run the existing `evaluate_queue_item()` against the new snapshot,
+and return both the snapshot and evaluation. An evaluator-blocked result would
+remain blocked and visible rather than becoming an exception or authorization.
+
+This bridge would not read Git, recollect evidence, normalize untrusted JSON,
+mutate or persist queue state, create approval metadata, render or execute a
+prompt, or expose route/UI/network behavior. It would evaluate the captured
+evidence snapshot, not prove that the working tree is still current. Collection
+or stale-state revalidation at a later execution boundary remains separately
+gated.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).
