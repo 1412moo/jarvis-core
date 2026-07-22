@@ -5,12 +5,14 @@ from __future__ import annotations
 import copy
 from dataclasses import replace
 from datetime import datetime, timezone
+import http.client
 import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 import hermes_manager_pilot.change_evidence as change_evidence_module
@@ -53,6 +55,14 @@ from hermes_manager_pilot.review_handoff import (
     build_copy_only_review_handoff,
     render_copy_only_review_handoff,
 )
+import hermes_manager_pilot.review_lifecycle as review_lifecycle_module
+from hermes_manager_pilot.review_lifecycle import (
+    ReviewLifecycleError,
+    ReviewLifecycleService,
+    delete_preview_to_dict,
+    recovery_inspection_to_dict,
+    save_preview_to_dict,
+)
 import hermes_manager_pilot.review_record as review_record_module
 from hermes_manager_pilot.review_record import (
     AUTHORITY_BOUNDARY as REVIEW_RECORD_AUTHORITY_BOUNDARY,
@@ -66,6 +76,7 @@ from hermes_manager_pilot.review_record import (
     normalize_review_record,
     normalize_review_record_candidate,
     parse_review_record_json,
+    review_record_digest,
     review_record_to_dict,
     serialize_review_record,
 )
@@ -74,6 +85,7 @@ from hermes_manager_pilot.review_store import (
     JARVIS_LOCAL_STATE_DIR_ENV as REVIEW_STORE_STATE_DIR_ENV,
     RETENTION_POLICY as REVIEW_STORE_RETENTION_POLICY,
     ReviewStoreError,
+    delete_review_record,
     list_review_records,
     read_review_record,
     resolve_review_store_paths,
@@ -127,6 +139,17 @@ def _assert_review_store_error(fn: object, expected_code: str) -> None:
         _assert(str(exc) == expected_code, "Review store error disclosed extra detail")
     else:
         raise AssertionError(f"expected ReviewStoreError: {expected_code}")
+
+
+def _assert_review_lifecycle_error(fn: object, expected_code: str) -> None:
+    assert callable(fn)
+    try:
+        fn()
+    except ReviewLifecycleError as exc:
+        _assert(exc.code == expected_code, f"unexpected ReviewLifecycleError: {exc.code}")
+        _assert(str(exc) == expected_code, "Review lifecycle error disclosed extra detail")
+    else:
+        raise AssertionError(f"expected ReviewLifecycleError: {expected_code}")
 
 
 def _sample_payload() -> dict[str, object]:
@@ -2851,6 +2874,11 @@ def _test_review_record_contract_is_immutable_canonical_and_authority_free() -> 
     first = serialize_review_record(record)
     second = serialize_review_record(record)
     _assert(first == second, "Review record serialization is not stable")
+    _assert(
+        review_record_digest(record) == review_record_digest(parse_review_record_json(first)),
+        "Review record digest is not stable across canonical round-trip",
+    )
+    _assert(len(review_record_digest(record)) == 64, "Review record digest is not SHA-256")
     _assert(parse_review_record_json(first) == record, "Review record JSON did not round-trip")
     transport = review_record_to_dict(record)
     transport["target_files"].append("docs/added-after-copy.md")
@@ -2867,6 +2895,14 @@ def _test_review_record_contract_is_immutable_canonical_and_authority_free() -> 
 
 def _test_review_record_contract_fails_closed_on_unsafe_input() -> None:
     payload = _review_record_candidate_payload()
+
+    directory_scope = copy.deepcopy(payload)
+    directory_scope["target_files"] = ["apps/hermes-manager-pilot/", "docs/master-plan.md"]
+    directory_candidate = normalize_review_record_candidate(directory_scope)
+    _assert(
+        "apps/hermes-manager-pilot/" in directory_candidate.target_files,
+        "Review target normalization rejected a bounded directory scope",
+    )
 
     unknown = copy.deepcopy(payload)
     unknown["raw_codex_result"] = "must not be stored"
@@ -3227,6 +3263,34 @@ def _test_review_store_write_failure_and_recovery_states_fail_closed() -> None:
         )
         _assert(not list(paths.review_dir.iterdir()), "invalid token write left an artifact")
 
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-uncertain-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        record = _review_store_record(14)
+        original_reader = review_store_module._read_record_file
+
+        def fail_post_publish(path: Path, *, expected_review_id: str) -> ReviewRecord:
+            if path.name == f"{record.review_id}.json":
+                raise ReviewStoreError("review_record_read_failed")
+            return original_reader(path, expected_review_id=expected_review_id)
+
+        review_store_module._read_record_file = fail_post_publish
+        try:
+            _assert_review_store_error(
+                lambda: write_review_record(record, env=env, repo_root=repo),
+                "review_record_write_outcome_uncertain",
+            )
+        finally:
+            review_store_module._read_record_file = original_reader
+        paths = resolve_review_store_paths(env=env, repo_root=repo)
+        _assert(
+            (paths.review_dir / f"{record.review_id}.json").exists(),
+            "uncertain post-publish Save did not preserve exact-ID recovery evidence",
+        )
+        _assert(
+            read_review_record(record.review_id, env=env, repo_root=repo) == record,
+            "exact-ID recovery could not resolve uncertain post-publish Save",
+        )
+
     with tempfile.TemporaryDirectory(prefix="hermes-review-store-recovery-") as temp_dir:
         repo, _state_root, env = _review_store_fixture(temp_dir)
         first = _review_store_record(4)
@@ -3338,7 +3402,407 @@ def _test_review_store_rejects_corruption_id_mismatch_and_capacity_overflow() ->
             review_store_module.MAX_DIRECTORY_ENTRIES = original_entry_limit
 
 
-def _test_review_store_remains_route_ui_delete_and_external_free() -> None:
+def _test_review_store_exact_delete_is_digest_bound_and_single_record_only() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-store-delete-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        first = _review_store_record(20)
+        second = _review_store_record(21)
+        write_review_record(first, env=env, repo_root=repo)
+        write_review_record(second, env=env, repo_root=repo)
+
+        _assert_review_store_error(
+            lambda: delete_review_record(
+                first.review_id,
+                "0" * 64,
+                env=env,
+                repo_root=repo,
+            ),
+            "review_delete_target_changed",
+        )
+        _assert(read_review_record(first.review_id, env=env, repo_root=repo) == first, "digest mismatch deleted a Review")
+        receipt = delete_review_record(
+            first.review_id,
+            review_record_digest(first),
+            env=env,
+            repo_root=repo,
+        )
+        _assert(receipt.deleted is True, "exact Review deletion did not report success")
+        _assert(receipt.review_id == first.review_id, "delete receipt Review ID mismatch")
+        _assert(not hasattr(receipt, "path"), "delete receipt exposed a local path")
+        _assert_review_store_error(
+            lambda: read_review_record(first.review_id, env=env, repo_root=repo),
+            "review_record_not_found",
+        )
+        _assert(read_review_record(second.review_id, env=env, repo_root=repo) == second, "exact deletion changed another Review")
+
+        paths = resolve_review_store_paths(env=env, repo_root=repo)
+        second_file = paths.review_dir / f"{second.review_id}.json"
+        second_file.write_bytes(b"{corrupt}\n")
+        _assert_review_store_error(
+            lambda: delete_review_record(
+                second.review_id,
+                review_record_digest(second),
+                env=env,
+                repo_root=repo,
+            ),
+            "review_record_corrupt",
+        )
+        _assert(second_file.exists(), "normal exact delete removed a corrupt Review")
+
+
+def _review_lifecycle_session(repo: Path) -> dict[str, object]:
+    payload = _sample_payload()
+    payload.update(
+        {
+            "repo": str(repo),
+            "branch": "main",
+            "head": "a" * 40,
+            "working_tree_status": " M docs/master-plan.md\n M apps/hermes-manager-pilot/README.md\n?? jarvis.bat",
+            "current_goal": "Make local Review history safely reusable.",
+            "active_task": "Complete one local Save/Reopen/Delete Review lifecycle.",
+            "last_codex_prompt": "Implement the approved bounded lifecycle.",
+            "last_codex_result_summary": "Implemented the bounded lifecycle.",
+            "validation_commands": [
+                "python -B apps/hermes-manager-pilot/run_smoke_tests.py",
+                "git diff --check",
+            ],
+            "files_touched": [
+                "apps/hermes-manager-pilot/README.md",
+                "docs/master-plan.md",
+            ],
+            "target_files": [
+                "apps/hermes-manager-pilot/README.md",
+                "docs/master-plan.md",
+            ],
+            "protected_paths": ["jarvis.bat"],
+            "commit_allowed": False,
+            "push_allowed": False,
+            "human_approval_required": True,
+            "human_approval_granted": False,
+            "next_action": "REVIEW_REQUEST",
+        }
+    )
+    return payload
+
+
+def _review_lifecycle_snapshot() -> dict[str, object]:
+    return {
+        "branch": "main",
+        "head": "a" * 40,
+        "status": [
+            " M docs/master-plan.md",
+            " M apps/hermes-manager-pilot/README.md",
+            "?? jarvis.bat",
+        ],
+    }
+
+
+def _test_review_lifecycle_is_confirmed_recoverable_and_fail_closed() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-lifecycle-") as temp_dir:
+        repo, state_root, env = _review_store_fixture(temp_dir)
+        session = _review_lifecycle_session(repo)
+        snapshot = _review_lifecycle_snapshot()
+        now = [100.0]
+        tokens = iter(
+            (
+                "save_confirmation_000000000001",
+                "delete_confirmation_00000001",
+                "delete_confirmation_00000002",
+                "delete_confirmation_00000003",
+            )
+        )
+        service = ReviewLifecycleService(
+            trusted_repo_root=repo,
+            git_snapshot_loader=lambda: copy.deepcopy(snapshot),
+            store_kwargs={"env": env, "repo_root": repo},
+            record_id_generator=lambda: "review_000000000000000000000020",
+            record_clock=lambda: datetime(2026, 7, 23, 1, 2, 3, tzinfo=timezone.utc),
+            token_generator=lambda: next(tokens),
+            monotonic_clock=lambda: now[0],
+        )
+        _assert_review_lifecycle_error(
+            lambda: service.prepare_save(
+                session,
+                "Implemented and validated the lifecycle.",
+                scope_confirmed=True,
+                privacy_acknowledged=False,
+                retention_acknowledged=True,
+                session_id="local_session_0000000000000001",
+            ),
+            "review_privacy_not_acknowledged",
+        )
+        preview = service.prepare_save(
+            session,
+            "Implemented and validated the lifecycle.",
+            scope_confirmed=True,
+            privacy_acknowledged=True,
+            retention_acknowledged=True,
+            session_id="local_session_0000000000000001",
+        )
+        _assert(not state_root.exists(), "write-free Save preview created local state")
+        preview_mapping = save_preview_to_dict(preview)
+        _assert(preview_mapping["local_only"] is True, "Save preview omitted local-only disclosure")
+        _assert(preview_mapping["encrypted"] is False, "Save preview falsely claimed encryption")
+        _assert(preview_mapping["cloud_synced"] is False, "Save preview falsely claimed cloud sync")
+        _assert(preview.record.review_passed is False, "Save preview granted Review approval")
+        receipt = service.confirm_save(
+            preview.confirmation_token,
+            session_id="local_session_0000000000000001",
+        )
+        _assert(receipt["stored"] is True, "confirmed Save did not persist the exact Review")
+        _assert_review_lifecycle_error(
+            lambda: service.confirm_save(
+                preview.confirmation_token,
+                session_id="local_session_0000000000000001",
+            ),
+            "review_confirmation_expired_or_unknown",
+        )
+        listing = service.list_saved()
+        _assert(listing["count"] == 1, "saved Review listing count mismatch")
+        _assert("result_summary" not in listing["records"][0], "Review listing exposed result text")
+        reopened = service.reopen(receipt["review_id"])
+        _assert(reopened.result_summary == "Implemented and validated the lifecycle.", "read-only reopen lost Review content")
+        _assert(reopened.commit_approved is False and reopened.push_allowed is False, "reopen restored authority")
+        recovery = service.inspect_recovery(receipt["review_id"])
+        _assert(recovery.status == "present_valid", "known saved Review recovery status mismatch")
+        _assert(recovery_inspection_to_dict(recovery)["record"]["read_only"] is True, "recovery mapping lost read-only boundary")
+
+        delete_preview = service.prepare_delete(
+            receipt["review_id"],
+            session_id="local_session_0000000000000001",
+        )
+        delete_mapping = delete_preview_to_dict(delete_preview)
+        _assert("result_summary" not in delete_mapping, "Delete preview exposed result text")
+        _assert(delete_preview.confirmation_text == f"DELETE {receipt['review_id']}", "Delete confirmation text mismatch")
+        _assert_review_lifecycle_error(
+            lambda: service.confirm_save(
+                delete_preview.confirmation_token,
+                session_id="local_session_0000000000000001",
+            ),
+            "review_confirmation_scope_mismatch",
+        )
+        _assert(service.reopen(receipt["review_id"]) == reopened, "wrong-domain token deleted a Review")
+
+        mistyped_preview = service.prepare_delete(
+            receipt["review_id"],
+            session_id="local_session_0000000000000001",
+        )
+        _assert_review_lifecycle_error(
+            lambda: service.confirm_delete(
+                mistyped_preview.confirmation_token,
+                "DELETE review_wrong",
+                session_id="local_session_0000000000000001",
+            ),
+            "review_delete_confirmation_mismatch",
+        )
+        _assert(service.reopen(receipt["review_id"]) == reopened, "mistyped confirmation deleted a Review")
+        final_preview = service.prepare_delete(
+            receipt["review_id"],
+            session_id="local_session_0000000000000001",
+        )
+        delete_receipt = service.confirm_delete(
+            final_preview.confirmation_token,
+            final_preview.confirmation_text,
+            session_id="local_session_0000000000000001",
+        )
+        _assert(delete_receipt["operation"] == "exact_delete", "delete receipt operation mismatch")
+        _assert(delete_receipt["deleted"] is True, "exact delete did not succeed")
+        absent = service.inspect_recovery(receipt["review_id"])
+        _assert(absent.status == "absent" and absent.record is None, "deleted Review recovery status mismatch")
+        _assert_review_lifecycle_error(
+            lambda: service.inspect_recovery("../not-an-id"),
+            "review_id_invalid",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-review-lifecycle-stale-") as temp_dir:
+        repo, state_root, env = _review_store_fixture(temp_dir)
+        snapshot = _review_lifecycle_snapshot()
+        clock = [0.0]
+        service = ReviewLifecycleService(
+            trusted_repo_root=repo,
+            git_snapshot_loader=lambda: copy.deepcopy(snapshot),
+            store_kwargs={"env": env, "repo_root": repo},
+            record_id_generator=lambda: "review_000000000000000000000021",
+            record_clock=lambda: datetime(2026, 7, 23, 1, 2, 4, tzinfo=timezone.utc),
+            token_generator=lambda: "save_confirmation_000000000021",
+            monotonic_clock=lambda: clock[0],
+        )
+        preview = service.prepare_save(
+            _review_lifecycle_session(repo),
+            "Stale save must remain blocked.",
+            scope_confirmed=True,
+            privacy_acknowledged=True,
+            retention_acknowledged=True,
+            session_id="local_session_0000000000000021",
+        )
+        snapshot["head"] = "b" * 40
+        _assert_review_lifecycle_error(
+            lambda: service.confirm_save(
+                preview.confirmation_token,
+                session_id="local_session_0000000000000021",
+            ),
+            "review_save_snapshot_stale",
+        )
+        _assert(not state_root.exists(), "stale Save confirmation created local state")
+
+        snapshot["head"] = "a" * 40
+        preview = service.prepare_save(
+            _review_lifecycle_session(repo),
+            "Expired save must remain blocked.",
+            scope_confirmed=True,
+            privacy_acknowledged=True,
+            retention_acknowledged=True,
+            session_id="local_session_0000000000000021",
+        )
+        clock[0] = review_lifecycle_module.CONFIRMATION_TTL_SECONDS + 1
+        _assert_review_lifecycle_error(
+            lambda: service.confirm_save(
+                preview.confirmation_token,
+                session_id="local_session_0000000000000021",
+            ),
+            "review_confirmation_expired_or_unknown",
+        )
+        _assert(not state_root.exists(), "expired Save confirmation created local state")
+
+
+def _test_review_lifecycle_routes_are_exact_and_session_bound() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-lifecycle-routes-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        service = ReviewLifecycleService(
+            trusted_repo_root=repo,
+            git_snapshot_loader=_review_lifecycle_snapshot,
+            store_kwargs={"env": env, "repo_root": repo},
+            record_id_generator=lambda: "review_000000000000000000000022",
+            record_clock=lambda: datetime(2026, 7, 23, 1, 2, 5, tzinfo=timezone.utc),
+            token_generator=lambda: "route_confirmation_000000000022",
+            monotonic_clock=lambda: 10.0,
+        )
+        session_id = "local_session_0000000000000022"
+        preview_payload = {
+            "session": _review_lifecycle_session(repo),
+            "result_summary": "Route lifecycle completed.",
+            "scope_confirmed": True,
+            "privacy_acknowledged": True,
+            "retention_acknowledged": True,
+        }
+        invalid_status, invalid = hermes_web_app.handle_api_request(
+            "/api/reviews/save-preview",
+            {**preview_payload, "unexpected": True},
+            lifecycle=service,
+            local_session_id=session_id,
+        )
+        _assert(invalid_status == 400 and invalid["error"] == "review_save_preview_fields_invalid", "Review route accepted unknown fields")
+        preview_status, preview_response = hermes_web_app.handle_api_request(
+            "/api/reviews/save-preview",
+            preview_payload,
+            lifecycle=service,
+            local_session_id=session_id,
+        )
+        _assert(preview_status == 200 and preview_response["ok"] is True, "Review Save preview route failed")
+        token = preview_response["preview"]["confirmation_token"]
+        save_status, save_response = hermes_web_app.handle_api_request(
+            "/api/reviews/save-confirm",
+            {"confirmation_token": token},
+            lifecycle=service,
+            local_session_id=session_id,
+        )
+        review_id = save_response["receipt"]["review_id"]
+        _assert(save_status == 200, "Review Save confirmation route failed")
+        reopen_status, reopen_response = hermes_web_app.handle_api_request(
+            "/api/reviews/reopen",
+            {"review_id": review_id},
+            lifecycle=service,
+            local_session_id=session_id,
+        )
+        _assert(reopen_status == 200 and reopen_response["record"]["read_only"] is True, "read-only reopen route failed")
+        recovery_status, recovery_response = hermes_web_app.handle_api_request(
+            "/api/reviews/recovery",
+            {"review_id": review_id},
+            lifecycle=service,
+            local_session_id=session_id,
+        )
+        _assert(recovery_status == 200 and recovery_response["inspection"]["status"] == "present_valid", "recovery route failed")
+
+
+def _test_review_lifecycle_http_guard_is_same_origin_and_clickjacking_safe() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-review-http-guard-") as temp_dir:
+        repo, _state_root, env = _review_store_fixture(temp_dir)
+        lifecycle = ReviewLifecycleService(
+            trusted_repo_root=repo,
+            git_snapshot_loader=_review_lifecycle_snapshot,
+            store_kwargs={"env": env, "repo_root": repo},
+        )
+        original_lifecycle = hermes_web_app.REVIEW_LIFECYCLE
+        original_session = hermes_web_app.LOCAL_SESSION_ID
+        server = hermes_web_app.ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            hermes_web_app.HermesWebHandler,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        hermes_web_app.REVIEW_LIFECYCLE = lifecycle
+        hermes_web_app.LOCAL_SESSION_ID = "http_session_0000000000000001"
+        thread.start()
+        port = server.server_port
+        try:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            connection.request("GET", hermes_web_app.LOCAL_SESSION_ENDPOINT)
+            response = connection.getresponse()
+            session_payload = json.loads(response.read().decode("utf-8"))
+            _assert(response.status == 200, "local session bootstrap failed")
+            _assert(session_payload["local_session_id"] == hermes_web_app.LOCAL_SESSION_ID, "local session ID mismatch")
+            _assert(response.getheader("X-Frame-Options") == "DENY", "frame denial header missing")
+            _assert("frame-ancestors 'none'" in (response.getheader("Content-Security-Policy") or ""), "frame CSP missing")
+            connection.close()
+
+            origin = f"http://127.0.0.1:{port}"
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            connection.request(
+                "POST",
+                "/api/reviews/list",
+                body="{}",
+                headers={
+                    "Content-Type": "application/json",
+                    hermes_web_app.LOCAL_SESSION_HEADER: hermes_web_app.LOCAL_SESSION_ID,
+                    "Origin": origin,
+                },
+            )
+            response = connection.getresponse()
+            list_payload = json.loads(response.read().decode("utf-8"))
+            _assert(response.status == 200 and list_payload["listing"]["count"] == 0, "same-origin Review list failed")
+            connection.close()
+
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            connection.request(
+                "POST",
+                "/api/reviews/list",
+                body="{}",
+                headers={
+                    "Content-Type": "application/json",
+                    hermes_web_app.LOCAL_SESSION_HEADER: hermes_web_app.LOCAL_SESSION_ID,
+                },
+            )
+            response = connection.getresponse()
+            blocked_payload = json.loads(response.read().decode("utf-8"))
+            _assert(response.status == 403 and blocked_payload["error"] == "same_origin_required", "missing Origin was not blocked")
+            connection.close()
+
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            connection.putrequest("GET", "/", skip_host=True)
+            connection.putheader("Host", f"attacker.example:{port}")
+            connection.endheaders()
+            response = connection.getresponse()
+            host_payload = json.loads(response.read().decode("utf-8"))
+            _assert(response.status == 403 and host_payload["error"] == "local_host_required", "non-loopback Host was not blocked")
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+            hermes_web_app.REVIEW_LIFECYCLE = original_lifecycle
+            hermes_web_app.LOCAL_SESSION_ID = original_session
+
+
+def _test_review_store_remains_route_and_external_free() -> None:
     source = Path(review_store_module.__file__).read_text(encoding="utf-8")
     for forbidden in (
         "BaseHTTPRequestHandler",
@@ -3347,21 +3811,21 @@ def _test_review_store_remains_route_ui_delete_and_external_free() -> None:
         "requests",
         "urlopen",
         "subprocess",
-        "delete_review_record",
         "archive_review_record",
         "shutil.rmtree",
     ):
         _assert(forbidden not in source, f"Review store contains forbidden integration: {forbidden}")
-    web_source = (APP_ROOT / "run_web_app.py").read_text(encoding="utf-8")
-    app_js = (APP_ROOT / "web" / "app.js").read_text(encoding="utf-8")
-    _assert("review_store" not in web_source, "Review store was connected to Hermes routes")
-    _assert("/api/review-store" not in app_js, "Review store was connected to browser UI")
-    _assert("Reopen Saved Review" not in app_js, "durable Review reopen UI was added")
+    _assert("def delete_review_record(" in source, "exact Review delete primitive is missing")
+    _assert("glob(" not in source, "Review store deletion must not use glob targeting")
+    lifecycle_source = Path(review_lifecycle_module.__file__).read_text(encoding="utf-8")
+    for forbidden in ("requests", "urlopen", "subprocess", "rmtree", "threading.thread", "threading.timer"):
+        _assert(forbidden not in lifecycle_source.lower(), f"Review lifecycle contains forbidden capability: {forbidden}")
 
 
 def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     index_html = (APP_ROOT / "web" / "index.html").read_text(encoding="utf-8")
     app_js = (APP_ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    web_source = (APP_ROOT / "run_web_app.py").read_text(encoding="utf-8")
     _assert("Jarvis Console Memory / Skills candidate prompt" in index_html, "Jarvis Console handoff guidance missing")
     _assert("Manual review only" in index_html, "manual review guidance missing")
     _assert("nothing runs until you choose the next step" in index_html, "no-auto-run guidance missing")
@@ -3383,6 +3847,20 @@ def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     _assert("elements.codexResult.value" not in copy_handoff_source, "handoff must not use the current textarea as state")
     _assert("navigator.clipboard.readText" not in app_js, "clipboard must never be read as workflow state")
     _assert("Send to Hermes" not in index_html, "automatic handoff wording must not appear")
+    _assert("Local Durable Reviews" in index_html, "durable Review lifecycle UI is missing")
+    _assert("retained locally until exact deletion" in index_html, "Review retention disclosure is missing")
+    _assert("not encrypted, cloud-synced" in index_html, "Review privacy disclosure is missing")
+    _assert("Memory / Skills save remains separate and disabled" in index_html, "Memory save boundary is missing")
+    _assert("X-Hermes-Local-Session" in app_js, "Review lifecycle session header is missing")
+    _assert("/api/reviews/save-preview" in app_js, "Review Save preview UI is missing")
+    _assert("/api/reviews/reopen" in app_js, "Review read-only reopen UI is missing")
+    _assert("/api/reviews/delete-preview" in app_js, "Review exact delete preview UI is missing")
+    _assert("/api/memory-skills/candidates" not in app_js, "Hermes UI activated Memory candidate save")
+    _assert("setInterval(" not in app_js, "Review lifecycle added background polling")
+    _assert("local_host_header_is_valid" in web_source, "local Host validation is missing")
+    _assert("same_origin_required" in web_source, "Review lifecycle same-origin guard is missing")
+    _assert("frame-ancestors 'none'" in web_source, "clickjacking protection is missing")
+    _assert("X-Frame-Options" in web_source, "frame protection header is missing")
 
 
 def _test_copy_only_jarvis_review_handoff_is_deterministic_and_bounded() -> None:
@@ -3628,7 +4106,11 @@ def main() -> None:
         _test_review_store_append_read_and_bounded_list,
         _test_review_store_write_failure_and_recovery_states_fail_closed,
         _test_review_store_rejects_corruption_id_mismatch_and_capacity_overflow,
-        _test_review_store_remains_route_ui_delete_and_external_free,
+        _test_review_store_exact_delete_is_digest_bound_and_single_record_only,
+        _test_review_lifecycle_is_confirmed_recoverable_and_fail_closed,
+        _test_review_lifecycle_routes_are_exact_and_session_bound,
+        _test_review_lifecycle_http_guard_is_same_origin_and_clickjacking_safe,
+        _test_review_store_remains_route_and_external_free,
         _test_browser_ui_mentions_manual_jarvis_handoff,
         _test_copy_only_jarvis_review_handoff_is_deterministic_and_bounded,
         _test_copy_only_review_handoff_route_fixes_repository_authority,

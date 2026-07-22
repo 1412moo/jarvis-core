@@ -10,7 +10,7 @@
   <header class="app-header">
     <div>
       <h1>Hermes Manager Pilot</h1>
-      <p>Local-only. This UI does not call Codex, ChatGPT, Hermes, commit, push, or network.</p>
+      <p>Local-only. This UI does not call Codex, ChatGPT, external services, commit, or push.</p>
     </div>
     <button id="loadGitStatus" type="button" class="secondary-button">Load Git Status</button>
   </header>
@@ -132,6 +132,44 @@
         <button id="clearOutputButton" type="button" class="secondary-button">Clear Output</button>
       </div>
     </aside>
+
+    <section class="durable-card" aria-labelledby="durableReviewTitle">
+      <div class="durable-header">
+        <div>
+          <h2 id="durableReviewTitle">Local Durable Reviews</h2>
+          <p>Explicit Save, read-only Reopen, and exact-ID Delete for Hermes Review records.</p>
+        </div>
+        <button id="refreshSavedReviewsButton" type="button" class="secondary-button">Refresh Saved Reviews</button>
+      </div>
+      <p class="safety-note">Records stay on this computer until you delete the exact ID. They are not encrypted, cloud-synced, automatically cleaned up, or treated as review/commit/push approval. Memory / Skills save remains separate and disabled.</p>
+      <div class="durable-grid">
+        <div class="durable-pane">
+          <h3>Save the current Review</h3>
+          <label class="check-row"><input id="privacyAcknowledged" type="checkbox"> I reviewed this Review content for privacy.</label>
+          <label class="check-row"><input id="retentionAcknowledged" type="checkbox"> I understand it is retained locally until exact deletion.</label>
+          <div class="button-row">
+            <button id="previewDurableSaveButton" type="button" class="primary-button">Preview Durable Save</button>
+            <button id="confirmDurableSaveButton" type="button" class="primary-button" disabled>Confirm Durable Save</button>
+          </div>
+        </div>
+        <div class="durable-pane">
+          <h3>Reopen or delete one exact Review</h3>
+          <label for="savedReviewSelect">Saved Reviews</label>
+          <select id="savedReviewSelect"><option value="">No saved Review selected</option></select>
+          <label for="reviewIdInput">Exact Review ID</label>
+          <input id="reviewIdInput" type="text" placeholder="review_0123456789abcdef01234567" autocomplete="off">
+          <div class="button-row">
+            <button id="reopenSavedReviewButton" type="button" class="secondary-button">Reopen Read-only</button>
+            <button id="inspectRecoveryButton" type="button" class="secondary-button">Inspect Recovery</button>
+            <button id="previewDeleteReviewButton" type="button" class="danger-button">Preview Exact Delete</button>
+          </div>
+          <label for="deleteConfirmationInput">Exact delete confirmation</label>
+          <input id="deleteConfirmationInput" type="text" placeholder="Preview deletion first" autocomplete="off">
+          <button id="confirmDeleteReviewButton" type="button" class="danger-button" disabled>Confirm Exact Delete</button>
+        </div>
+      </div>
+      <pre id="durableReviewDetails" class="durable-details">Local Review lifecycle is initializing.</pre>
+    </section>
   </main>
 
   <footer class="status-bar" id="statusBar">Ready. Enter one task to begin.</footer>

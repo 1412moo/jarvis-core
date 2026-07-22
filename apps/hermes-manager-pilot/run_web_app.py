@@ -1,4 +1,4 @@
-"""Local browser UI for Hermes Manager Pilot v0.4."""
+"""Local browser UI for Hermes Manager Pilot v0.5."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from dataclasses import asdict
 import inspect
 import json
 from pathlib import Path
+import secrets
 import subprocess
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +20,14 @@ from hermes_manager_pilot.review_handoff import (
     build_copy_only_review_handoff,
     render_copy_only_review_handoff,
 )
+from hermes_manager_pilot.review_lifecycle import (
+    ReviewLifecycleError,
+    ReviewLifecycleService,
+    delete_preview_to_dict,
+    recovery_inspection_to_dict,
+    save_preview_to_dict,
+)
+from hermes_manager_pilot.review_record import review_record_to_dict
 from hermes_manager_pilot.schemas import ValidationError, normalize_session_state
 
 
@@ -29,6 +38,8 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
 SESSION_TYPE = "hermes_manager_session_state"
 SESSION_VERSION = "0.2"
+LOCAL_SESSION_ENDPOINT = "/api/local-session"
+LOCAL_SESSION_HEADER = "X-Hermes-Local-Session"
 NEEDS_USER_CONFIRMATION = "NEEDS_USER_CONFIRMATION: confirm target files before rendering a task prompt"
 WIZARD_STEPS = (
     "Describe Task",
@@ -84,7 +95,19 @@ API_ROUTES = {
     "/api/git-status",
     HANDOFF_ENDPOINT,
     "/api/validate-session",
+    "/api/reviews/list",
+    "/api/reviews/save-preview",
+    "/api/reviews/save-confirm",
+    "/api/reviews/reopen",
+    "/api/reviews/recovery",
+    "/api/reviews/delete-preview",
+    "/api/reviews/delete-confirm",
 }
+
+REVIEW_LIFECYCLE_ROUTES = frozenset(
+    route for route in API_ROUTES if route.startswith("/api/reviews/")
+)
+LOCAL_SESSION_ID = secrets.token_urlsafe(32)
 
 
 def default_session_state(repo: str | None = None) -> dict[str, Any]:
@@ -229,6 +252,24 @@ def load_git_status(repo_path: str | Path) -> dict[str, str]:
     }
 
 
+def load_current_review_git_snapshot() -> dict[str, Any]:
+    """Return fresh trusted Git metadata in the Review Record contract shape."""
+
+    git_state = load_git_status(REPO_ROOT)
+    status_text = git_state["working_tree_status"]
+    return {
+        "branch": git_state["branch"],
+        "head": git_state["head"],
+        "status": [] if status_text == "clean" else status_text.splitlines(),
+    }
+
+
+REVIEW_LIFECYCLE = ReviewLifecycleService(
+    trusted_repo_root=REPO_ROOT,
+    git_snapshot_loader=load_current_review_git_snapshot,
+)
+
+
 def prepare_copy_only_review_handoff(
     session_data: dict[str, Any],
     *,
@@ -259,7 +300,15 @@ def _run_read_only_git(repo: Path, args: tuple[str, ...]) -> str:
     )
     if completed.returncode != 0:
         raise ValidationError(f"git {' '.join(args)} failed: {completed.stderr.strip()}")
-    return completed.stdout.strip()
+    return _normalize_read_only_git_output(args, completed.stdout)
+
+
+def _normalize_read_only_git_output(args: tuple[str, ...], output: str) -> str:
+    """Preserve porcelain status columns while trimming command line endings."""
+
+    if args == ("status", "--short"):
+        return output.rstrip("\r\n")
+    return output.strip()
 
 
 def parse_json_body(raw_body: bytes) -> tuple[int, dict[str, Any]]:
@@ -274,7 +323,13 @@ def parse_json_body(raw_body: bytes) -> tuple[int, dict[str, Any]]:
     return HTTPStatus.OK, value
 
 
-def handle_api_request(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+def handle_api_request(
+    path: str,
+    payload: dict[str, Any],
+    *,
+    lifecycle: ReviewLifecycleService | None = None,
+    local_session_id: str = "",
+) -> tuple[int, dict[str, Any]]:
     """Handle API routes without touching external services."""
 
     try:
@@ -331,9 +386,116 @@ def handle_api_request(path: str, payload: dict[str, Any]) -> tuple[int, dict[st
                 raise ValidationError("session must be an object")
             normalized = normalize_session_state({**session, "push_allowed": False})
             return HTTPStatus.OK, {"ok": True, "session": asdict(normalized)}
+        service = REVIEW_LIFECYCLE if lifecycle is None else lifecycle
+        if path == "/api/reviews/list":
+            _require_exact_fields(payload, set(), "review_list")
+            return HTTPStatus.OK, {"ok": True, "listing": service.list_saved()}
+        if path == "/api/reviews/save-preview":
+            _require_exact_fields(
+                payload,
+                {
+                    "session",
+                    "result_summary",
+                    "scope_confirmed",
+                    "privacy_acknowledged",
+                    "retention_acknowledged",
+                },
+                "review_save_preview",
+            )
+            session = payload.get("session")
+            if not isinstance(session, dict):
+                raise ReviewLifecycleError("review_session_invalid")
+            preview = service.prepare_save(
+                session,
+                payload.get("result_summary"),
+                scope_confirmed=payload.get("scope_confirmed") is True,
+                privacy_acknowledged=payload.get("privacy_acknowledged") is True,
+                retention_acknowledged=payload.get("retention_acknowledged") is True,
+                session_id=local_session_id,
+            )
+            return HTTPStatus.OK, {"ok": True, "preview": save_preview_to_dict(preview)}
+        if path == "/api/reviews/save-confirm":
+            _require_exact_fields(payload, {"confirmation_token"}, "review_save_confirm")
+            receipt = service.confirm_save(
+                payload.get("confirmation_token"),
+                session_id=local_session_id,
+            )
+            return HTTPStatus.OK, {"ok": True, "receipt": receipt}
+        if path == "/api/reviews/reopen":
+            _require_exact_fields(payload, {"review_id"}, "review_reopen")
+            record = service.reopen(payload.get("review_id"))
+            return HTTPStatus.OK, {"ok": True, "record": review_record_to_dict(record)}
+        if path == "/api/reviews/recovery":
+            _require_exact_fields(payload, {"review_id"}, "review_recovery")
+            inspection = service.inspect_recovery(payload.get("review_id"))
+            return HTTPStatus.OK, {
+                "ok": True,
+                "inspection": recovery_inspection_to_dict(inspection),
+            }
+        if path == "/api/reviews/delete-preview":
+            _require_exact_fields(payload, {"review_id"}, "review_delete_preview")
+            preview = service.prepare_delete(
+                payload.get("review_id"),
+                session_id=local_session_id,
+            )
+            return HTTPStatus.OK, {"ok": True, "preview": delete_preview_to_dict(preview)}
+        if path == "/api/reviews/delete-confirm":
+            _require_exact_fields(
+                payload,
+                {"confirmation_token", "confirmation_text"},
+                "review_delete_confirm",
+            )
+            receipt = service.confirm_delete(
+                payload.get("confirmation_token"),
+                payload.get("confirmation_text"),
+                session_id=local_session_id,
+            )
+            return HTTPStatus.OK, {"ok": True, "receipt": receipt}
     except ValidationError as exc:
         return HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)}
+    except ReviewLifecycleError as exc:
+        status = _review_lifecycle_error_status(exc.code)
+        response: dict[str, Any] = {"ok": False, "error": exc.code}
+        if exc.review_id is not None:
+            response["review_id"] = exc.review_id
+        return status, response
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
+
+
+def _require_exact_fields(
+    payload: dict[str, Any],
+    expected: set[str],
+    operation: str,
+) -> None:
+    if set(payload) != expected:
+        raise ReviewLifecycleError(f"{operation}_fields_invalid")
+
+
+def _review_lifecycle_error_status(code: str) -> int:
+    if code == "review_record_not_found":
+        return HTTPStatus.NOT_FOUND
+    if code in {
+        "review_record_exists",
+        "review_save_outcome_uncertain",
+        "review_save_snapshot_stale",
+        "review_delete_target_changed",
+        "review_record_delete_outcome_uncertain",
+        "review_store_recovery_required",
+        "review_record_corrupt",
+    }:
+        return HTTPStatus.CONFLICT
+    if code.startswith("review_store_") or code.endswith("_failed"):
+        return HTTPStatus.SERVICE_UNAVAILABLE
+    return HTTPStatus.BAD_REQUEST
+
+
+def local_host_header_is_valid(value: str, port: int) -> bool:
+    """Accept only the loopback names served by this exact local port."""
+
+    if not isinstance(value, str) or not isinstance(port, int):
+        return False
+    normalized = value.strip().lower()
+    return normalized in {f"127.0.0.1:{port}", f"localhost:{port}"}
 
 
 def next_step_for_mode(mode: str, session: dict[str, Any]) -> int:
@@ -375,11 +537,24 @@ def next_message_for_mode(mode: str, session: dict[str, Any]) -> str:
 class HermesWebHandler(BaseHTTPRequestHandler):
     """Small local-only request handler for the browser UI."""
 
-    server_version = "HermesManagerPilotWeb/0.4"
+    server_version = "HermesManagerPilotWeb/0.5"
 
     def do_GET(self) -> None:
         if not self._client_is_local():
             self._send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "local_clients_only"})
+            return
+        if not self._host_is_local():
+            self._send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "local_host_required"})
+            return
+        if self.path == LOCAL_SESSION_ENDPOINT:
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "local_session_id": LOCAL_SESSION_ID,
+                    "expires": "server_restart",
+                },
+            )
             return
         if self.path not in STATIC_ROUTES:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
@@ -395,6 +570,7 @@ class HermesWebHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(content)))
         self.send_header("Cache-Control", "no-store")
+        self._send_security_headers()
         self.end_headers()
         self.wfile.write(content)
 
@@ -402,9 +578,33 @@ class HermesWebHandler(BaseHTTPRequestHandler):
         if not self._client_is_local():
             self._send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "local_clients_only"})
             return
+        if not self._host_is_local():
+            self._send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "local_host_required"})
+            return
         if self.path not in API_ROUTES:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
+        if self.path in REVIEW_LIFECYCLE_ROUTES:
+            if not self.headers.get("Content-Type", "").lower().startswith(
+                "application/json"
+            ):
+                self._send_json(
+                    HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                    {"ok": False, "error": "application_json_required"},
+                )
+                return
+            if self.headers.get("Origin", "") != f"http://{self.headers.get('Host', '')}":
+                self._send_json(
+                    HTTPStatus.FORBIDDEN,
+                    {"ok": False, "error": "same_origin_required"},
+                )
+                return
+            if self.headers.get(LOCAL_SESSION_HEADER, "") != LOCAL_SESSION_ID:
+                self._send_json(
+                    HTTPStatus.FORBIDDEN,
+                    {"ok": False, "error": "local_session_invalid"},
+                )
+                return
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
@@ -417,7 +617,13 @@ class HermesWebHandler(BaseHTTPRequestHandler):
         if status != HTTPStatus.OK:
             self._send_json(status, payload)
             return
-        response_status, response = handle_api_request(self.path, payload)
+        response_status, response = handle_api_request(
+            self.path,
+            payload,
+            local_session_id=(
+                LOCAL_SESSION_ID if self.path in REVIEW_LIFECYCLE_ROUTES else ""
+            ),
+        )
         self._send_json(response_status, response)
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -426,12 +632,25 @@ class HermesWebHandler(BaseHTTPRequestHandler):
     def _client_is_local(self) -> bool:
         return self.client_address[0] in {"127.0.0.1", "localhost"}
 
+    def _host_is_local(self) -> bool:
+        return local_host_header_is_valid(
+            self.headers.get("Host", ""),
+            int(self.server.server_port),
+        )
+
+    def _send_security_headers(self) -> None:
+        self.send_header("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
         content = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(content)))
         self.send_header("Cache-Control", "no-store")
+        self._send_security_headers()
         self.end_headers()
         self.wfile.write(content)
 
@@ -457,12 +676,24 @@ def run_self_test() -> None:
     """Run browser UI helper tests without opening a server."""
 
     assert DEFAULT_HOST == "127.0.0.1", "server must bind to 127.0.0.1"
+    assert local_host_header_is_valid("127.0.0.1:8787", 8787)
+    assert local_host_header_is_valid("localhost:8787", 8787)
+    assert not local_host_header_is_valid("attacker.example:8787", 8787)
+    assert not local_host_header_is_valid("127.0.0.1:9999", 8787)
     assert ALLOWED_READ_ONLY_GIT_ARGS == {
         ("rev-parse", "--show-toplevel"),
         ("rev-parse", "--abbrev-ref", "HEAD"),
         ("rev-parse", "HEAD"),
         ("status", "--short"),
     }, "git allowlist must stay read-only"
+    assert _normalize_read_only_git_output(
+        ("status", "--short"),
+        " M apps/hermes-manager-pilot/run_web_app.py\r\n?? jarvis.bat\r\n",
+    ).startswith(" M "), "git status parser must preserve the first porcelain column"
+    assert _normalize_read_only_git_output(
+        ("rev-parse", "HEAD"),
+        "  abc123\r\n",
+    ) == "abc123", "non-status Git output must remain compact"
     assert wizard_step_after_action("initial") == 1
     assert len(WIZARD_STEPS) == 8
     assert WIZARD_STEPS[1] == "Confirm Scope"

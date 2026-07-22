@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 import re
 import unicodedata
@@ -373,6 +374,12 @@ def serialize_review_record(record: ReviewRecord) -> str:
     return serialized
 
 
+def review_record_digest(record: ReviewRecord) -> str:
+    """Return the stable SHA-256 digest of one canonical Review record."""
+
+    return hashlib.sha256(serialize_review_record(record).encode("utf-8")).hexdigest()
+
+
 def evaluate_review_record_freshness(
     record: ReviewRecord,
     current_git_snapshot: ReviewGitSnapshot | Mapping[str, Any],
@@ -482,23 +489,30 @@ def _path_list(
     if not isinstance(values, list) or len(values) > maximum:
         raise ReviewRecordError(f"{path}.{field} must be a bounded list")
     normalized = tuple(
-        _relative_path(value, f"{path}.{field}[{index}]")
+        _relative_path(
+            value,
+            f"{path}.{field}[{index}]",
+            allow_directory=True,
+        )
         for index, value in enumerate(values)
     )
     _reject_duplicates(normalized, f"{path}.{field}", paths=True)
     return tuple(sorted(normalized, key=lambda item: (item.casefold(), item)))
 
 
-def _relative_path(value: Any, path: str) -> str:
+def _relative_path(value: Any, path: str, *, allow_directory: bool = False) -> str:
     if not isinstance(value, str):
         raise ReviewRecordError(f"{path} must be a repository-relative path")
     normalized = value.replace("\\", "/").strip()
+    directory_target = normalized.endswith("/")
+    path_without_suffix = normalized[:-1] if directory_target else normalized
     if (
         not normalized
         or len(normalized) > MAX_PATH_CHARS
         or normalized.startswith("/")
         or _WINDOWS_DRIVE.match(normalized)
-        or any(part in {"", ".", ".."} for part in normalized.split("/"))
+        or (directory_target and not allow_directory)
+        or any(part in {"", ".", ".."} for part in path_without_suffix.split("/"))
         or any(unicodedata.category(character).startswith("C") for character in normalized)
     ):
         raise ReviewRecordError(f"{path} must be a safe repository-relative path")

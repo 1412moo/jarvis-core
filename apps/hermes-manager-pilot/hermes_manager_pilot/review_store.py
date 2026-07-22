@@ -22,6 +22,7 @@ from .review_record import (
     ReviewRecord,
     ReviewRecordError,
     parse_review_record_json,
+    review_record_digest,
     serialize_review_record,
 )
 
@@ -72,6 +73,16 @@ class ReviewStoreWriteResult:
     stored: bool
     review_id: str
     created_at: str
+    retention_policy: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewStoreDeleteResult:
+    """A path-free receipt for one exact Review record deletion."""
+
+    deleted: bool
+    review_id: str
+    previous_created_at: str
     retention_policy: str
 
 
@@ -227,9 +238,12 @@ def write_review_record(
 
         if not published:
             raise ReviewStoreError("review_record_write_failed")
-        stored = _read_record_file(final_file, expected_review_id=review_id)
+        try:
+            stored = _read_record_file(final_file, expected_review_id=review_id)
+        except ReviewStoreError:
+            raise ReviewStoreError("review_record_write_outcome_uncertain") from None
         if stored != record:
-            raise ReviewStoreError("review_record_corrupt")
+            raise ReviewStoreError("review_record_write_outcome_uncertain")
         return ReviewStoreWriteResult(
             stored=True,
             review_id=stored.review_id,
@@ -260,6 +274,65 @@ def read_review_record(
         return _read_record_file(
             _record_file(review_dir, safe_id),
             expected_review_id=safe_id,
+        )
+
+
+def delete_review_record(
+    review_id: str,
+    expected_digest: str,
+    *,
+    env: Mapping[str, Any] | None = None,
+    home_dir: Path | str | None = None,
+    repo_root: Path = REPO_ROOT,
+    is_windows: bool | None = None,
+) -> ReviewStoreDeleteResult:
+    """Delete exactly one unchanged canonical record; never delete corrupt data."""
+
+    safe_id = _safe_review_id(review_id)
+    if not isinstance(expected_digest, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", expected_digest
+    ):
+        raise ReviewStoreError("review_record_digest_invalid")
+    paths = resolve_review_store_paths(
+        env=env,
+        home_dir=home_dir,
+        repo_root=repo_root,
+        is_windows=is_windows,
+    )
+    with _STORE_LOCK:
+        review_dir = _require_store_directory(paths, repo_root=repo_root)
+        record_file = _record_file(review_dir, safe_id)
+        try:
+            before = os.lstat(record_file)
+        except FileNotFoundError:
+            raise ReviewStoreError("review_record_not_found") from None
+        except OSError:
+            raise ReviewStoreError("review_record_read_failed") from None
+        record = _read_record_file(record_file, expected_review_id=safe_id)
+        if review_record_digest(record) != expected_digest:
+            raise ReviewStoreError("review_delete_target_changed")
+        try:
+            after_read = os.lstat(record_file)
+        except FileNotFoundError:
+            raise ReviewStoreError("review_delete_target_changed") from None
+        except OSError:
+            raise ReviewStoreError("review_record_read_failed") from None
+        if not _same_file_snapshot(before, after_read):
+            raise ReviewStoreError("review_delete_target_changed")
+        try:
+            record_file.unlink()
+        except FileNotFoundError:
+            raise ReviewStoreError("review_delete_target_changed") from None
+        except OSError:
+            raise ReviewStoreError("review_record_delete_failed") from None
+        if os.path.lexists(record_file):
+            raise ReviewStoreError("review_record_delete_outcome_uncertain")
+        _sync_directory_best_effort(review_dir)
+        return ReviewStoreDeleteResult(
+            deleted=True,
+            review_id=record.review_id,
+            previous_created_at=record.created_at,
+            retention_policy=RETENTION_POLICY,
         )
 
 
@@ -488,15 +561,28 @@ def _stat_is_reparse_point(path_stat: os.stat_result) -> bool:
 def _same_file_snapshot(
     before: os.stat_result,
     during: os.stat_result,
-    after: os.stat_result,
+    after: os.stat_result | None = None,
 ) -> bool:
     fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns")
+    snapshots = (before, during) if after is None else (before, during, after)
     return all(
-        getattr(before, field, None)
-        == getattr(during, field, None)
-        == getattr(after, field, None)
+        len({getattr(snapshot, field, None) for snapshot in snapshots}) == 1
         for field in fields
     )
+
+
+def _sync_directory_best_effort(path: Path) -> None:
+    if os.name == "nt":
+        return
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def _open_exclusive_private_file(path: Path) -> Any:

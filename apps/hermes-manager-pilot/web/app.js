@@ -6,6 +6,9 @@ const state = {
   output: "",
   scopeConfirmed: false,
   review: null,
+  localSessionId: "",
+  savePreview: null,
+  deletePreview: null,
 };
 
 const stepMeta = {
@@ -71,6 +74,14 @@ const elements = {
   summaryValidation: document.getElementById("summaryValidation"),
   taskPromptTargets: document.getElementById("taskPromptTargets"),
   taskPromptCommitMessage: document.getElementById("taskPromptCommitMessage"),
+  privacyAcknowledged: document.getElementById("privacyAcknowledged"),
+  retentionAcknowledged: document.getElementById("retentionAcknowledged"),
+  confirmDurableSaveButton: document.getElementById("confirmDurableSaveButton"),
+  savedReviewSelect: document.getElementById("savedReviewSelect"),
+  reviewIdInput: document.getElementById("reviewIdInput"),
+  deleteConfirmationInput: document.getElementById("deleteConfirmationInput"),
+  confirmDeleteReviewButton: document.getElementById("confirmDeleteReviewButton"),
+  durableReviewDetails: document.getElementById("durableReviewDetails"),
 };
 
 const sectionIds = [
@@ -175,9 +186,51 @@ async function apiPost(path, payload) {
   });
   const data = await response.json();
   if (!response.ok || !data.ok) {
-    throw new Error(data.error || `Request failed: ${response.status}`);
+    const requestError = new Error(data.error || `Request failed: ${response.status}`);
+    requestError.payload = data;
+    throw requestError;
   }
   return data;
+}
+
+async function lifecyclePost(path, payload) {
+  if (!state.localSessionId) {
+    throw new Error("local_review_session_unavailable");
+  }
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Hermes-Local-Session": state.localSessionId,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) {
+    const requestError = new Error(data.error || `Request failed: ${response.status}`);
+    requestError.payload = data;
+    throw requestError;
+  }
+  return data;
+}
+
+function setDurableDetails(value) {
+  elements.durableReviewDetails.textContent = typeof value === "string"
+    ? value
+    : JSON.stringify(value, null, 2);
+}
+
+function invalidateLifecyclePreviews() {
+  state.savePreview = null;
+  state.deletePreview = null;
+  elements.confirmDurableSaveButton.disabled = true;
+  elements.confirmDeleteReviewButton.disabled = true;
+  elements.deleteConfirmationInput.value = "";
+  elements.deleteConfirmationInput.placeholder = "Preview deletion first";
+}
+
+function requestedReviewId() {
+  return elements.reviewIdInput.value.trim();
 }
 
 async function copyText(text) {
@@ -199,6 +252,7 @@ async function prepareSession() {
     state.session = data.session;
     state.scopeConfirmed = false;
     state.review = null;
+    invalidateLifecyclePreviews();
     elements.codexResult.value = "";
     updateSummary();
     updateStep(data.next_step || 2);
@@ -221,6 +275,7 @@ function continueToTaskPrompt() {
   }
   state.scopeConfirmed = true;
   state.review = null;
+  invalidateLifecyclePreviews();
   updateTaskPromptSummary();
   updateStep(3);
   setStatus("Scope confirmed. Next: copy the task prompt for Codex.");
@@ -293,6 +348,7 @@ function saveResultAndContinue() {
     targetFiles: Object.freeze([...(state.session.target_files || [])]),
     resultSummary: result,
   });
+  invalidateLifecyclePreviews();
   state.session.last_codex_result_summary = state.review.resultSummary;
   updateStep(5);
   setStatus("Review object saved. Copy a Jarvis handoff or render a direct review prompt.");
@@ -326,6 +382,7 @@ function resetApproval() {
   elements.reviewedCheckbox.checked = false;
   elements.approveCheckbox.checked = false;
   state.scopeConfirmed = false;
+  invalidateLifecyclePreviews();
   updateStep(1);
   setStatus("Approval reset. Start the next task when ready.");
 }
@@ -352,6 +409,198 @@ async function loadGitStatus() {
   }
 }
 
+async function initializeReviewLifecycle() {
+  try {
+    const response = await fetch("/api/local-session", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok || !data.ok || !data.local_session_id) {
+      throw new Error(data.error || "local_review_session_unavailable");
+    }
+    state.localSessionId = data.local_session_id;
+    await refreshSavedReviews();
+  } catch (error) {
+    state.localSessionId = "";
+    setDurableDetails(`Durable Review lifecycle unavailable: ${error.message}`);
+  }
+}
+
+async function refreshSavedReviews(options = {}) {
+  const preserveDetails = options && options.preserveDetails === true;
+  try {
+    const data = await lifecyclePost("/api/reviews/list", {});
+    const previous = requestedReviewId();
+    elements.savedReviewSelect.replaceChildren();
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = data.listing.count
+      ? "Select one saved Review"
+      : "No saved Reviews";
+    elements.savedReviewSelect.appendChild(emptyOption);
+    data.listing.records.forEach((record) => {
+      const option = document.createElement("option");
+      option.value = record.review_id;
+      option.textContent = `${record.created_at} — ${record.active_task} (${record.review_id})`;
+      elements.savedReviewSelect.appendChild(option);
+    });
+    if (previous && data.listing.records.some((record) => record.review_id === previous)) {
+      elements.savedReviewSelect.value = previous;
+    }
+    if (!preserveDetails) {
+      setDurableDetails({
+        status: "ready",
+        saved_review_count: data.listing.count,
+        capacity: data.listing.capacity,
+        retention_policy: data.listing.retention_policy,
+      });
+    }
+  } catch (error) {
+    setDurableDetails({ status: "recovery_required", error: error.message });
+  }
+}
+
+async function previewDurableSave() {
+  if (!state.session || !state.review || !reviewMatchesSession()) {
+    setStatus("Save one current in-memory Review object before previewing durable Save.");
+    return;
+  }
+  if (!state.scopeConfirmed) {
+    setStatus("Confirm the current target-file scope before previewing durable Save.");
+    return;
+  }
+  updateSessionFromForm();
+  try {
+    const data = await lifecyclePost("/api/reviews/save-preview", {
+      session: state.session,
+      result_summary: state.review.resultSummary,
+      scope_confirmed: true,
+      privacy_acknowledged: elements.privacyAcknowledged.checked,
+      retention_acknowledged: elements.retentionAcknowledged.checked,
+    });
+    state.savePreview = Object.freeze(data.preview);
+    elements.confirmDurableSaveButton.disabled = false;
+    const { confirmation_token: ignoredToken, ...displayPreview } = data.preview;
+    setDurableDetails({ operation: "save_preview", ...displayPreview });
+    setStatus(`Review ${data.preview.record.review_id} is previewed only. Confirm Durable Save to write it locally.`);
+  } catch (error) {
+    state.savePreview = null;
+    elements.confirmDurableSaveButton.disabled = true;
+    setDurableDetails({ operation: "save_preview_blocked", error: error.message });
+    setStatus(`Durable Save preview blocked: ${error.message}`);
+  }
+}
+
+async function confirmDurableSave() {
+  if (!state.savePreview) {
+    setStatus("Preview the exact durable Save first.");
+    return;
+  }
+  const preview = state.savePreview;
+  state.savePreview = null;
+  elements.confirmDurableSaveButton.disabled = true;
+  try {
+    const data = await lifecyclePost("/api/reviews/save-confirm", {
+      confirmation_token: preview.confirmation_token,
+    });
+    elements.reviewIdInput.value = data.receipt.review_id;
+    setDurableDetails({ operation: "save_receipt", ...data.receipt });
+    setStatus(`Saved ${data.receipt.review_id} locally. It grants no review, commit, or push approval.`);
+    await refreshSavedReviews({ preserveDetails: true });
+  } catch (error) {
+    const uncertainId = error.payload && error.payload.review_id;
+    if (uncertainId) elements.reviewIdInput.value = uncertainId;
+    setDurableDetails({
+      operation: "save_blocked_or_uncertain",
+      error: error.message,
+      review_id: uncertainId || "",
+      recovery_action: uncertainId ? "Use Inspect Recovery before any new Save attempt." : "Create a new preview.",
+    });
+    setStatus(`Durable Save did not return success: ${error.message}. Do not retry blindly.`);
+  }
+}
+
+async function reopenSavedReview() {
+  const reviewId = requestedReviewId();
+  if (!reviewId) {
+    setStatus("Enter or select one exact Review ID first.");
+    return;
+  }
+  try {
+    const data = await lifecyclePost("/api/reviews/reopen", { review_id: reviewId });
+    setDurableDetails({ operation: "read_only_reopen", record: data.record });
+    setStatus(`Reopened ${reviewId} read-only. No workflow approval was restored.`);
+  } catch (error) {
+    setDurableDetails({ operation: "reopen_blocked", review_id: reviewId, error: error.message });
+    setStatus(`Review reopen blocked: ${error.message}`);
+  }
+}
+
+async function inspectRecovery() {
+  const reviewId = requestedReviewId();
+  if (!reviewId) {
+    setStatus("Enter one exact Review ID to inspect.");
+    return;
+  }
+  try {
+    const data = await lifecyclePost("/api/reviews/recovery", { review_id: reviewId });
+    setDurableDetails({ operation: "read_only_recovery", ...data.inspection });
+    setStatus(`Recovery inspection for ${reviewId}: ${data.inspection.status}. No data was changed.`);
+  } catch (error) {
+    setDurableDetails({ operation: "recovery_blocked", review_id: reviewId, error: error.message });
+    setStatus(`Recovery inspection blocked: ${error.message}`);
+  }
+}
+
+async function previewExactDelete() {
+  const reviewId = requestedReviewId();
+  if (!reviewId) {
+    setStatus("Enter or select one exact Review ID first.");
+    return;
+  }
+  try {
+    const data = await lifecyclePost("/api/reviews/delete-preview", { review_id: reviewId });
+    state.deletePreview = Object.freeze(data.preview);
+    elements.confirmDeleteReviewButton.disabled = false;
+    elements.deleteConfirmationInput.value = "";
+    elements.deleteConfirmationInput.placeholder = data.preview.confirmation_text;
+    const { confirmation_token: ignoredToken, ...displayPreview } = data.preview;
+    setDurableDetails({
+      operation: "exact_delete_preview",
+      result_summary_included: false,
+      ...displayPreview,
+    });
+    setStatus(`Type exactly "${data.preview.confirmation_text}" and confirm to delete only this Review.`);
+  } catch (error) {
+    state.deletePreview = null;
+    elements.confirmDeleteReviewButton.disabled = true;
+    setDurableDetails({ operation: "delete_preview_blocked", review_id: reviewId, error: error.message });
+    setStatus(`Delete preview blocked: ${error.message}`);
+  }
+}
+
+async function confirmExactDelete() {
+  if (!state.deletePreview) {
+    setStatus("Preview one exact deletion first.");
+    return;
+  }
+  const preview = state.deletePreview;
+  state.deletePreview = null;
+  elements.confirmDeleteReviewButton.disabled = true;
+  try {
+    const data = await lifecyclePost("/api/reviews/delete-confirm", {
+      confirmation_token: preview.confirmation_token,
+      confirmation_text: elements.deleteConfirmationInput.value,
+    });
+    elements.reviewIdInput.value = "";
+    elements.deleteConfirmationInput.value = "";
+    setDurableDetails({ operation: "delete_receipt", ...data.receipt });
+    setStatus(`Deleted exactly ${data.receipt.review_id}. No other Review was changed.`);
+    await refreshSavedReviews({ preserveDetails: true });
+  } catch (error) {
+    setDurableDetails({ operation: "delete_blocked", review_id: preview.review_id, error: error.message });
+    setStatus(`Exact deletion blocked: ${error.message}. Preview again before another attempt.`);
+  }
+}
+
 document.getElementById("prepareButton").addEventListener("click", prepareSession);
 document.getElementById("continueToTaskPromptButton").addEventListener("click", continueToTaskPrompt);
 document.getElementById("copyTaskPromptButton").addEventListener("click", () => renderPrompt("implementation-prompt", "Task Prompt for Codex"));
@@ -365,9 +614,36 @@ document.getElementById("resetApprovalButton").addEventListener("click", resetAp
 document.getElementById("copyOutputButton").addEventListener("click", copyOutput);
 document.getElementById("clearOutputButton").addEventListener("click", clearOutput);
 document.getElementById("loadGitStatus").addEventListener("click", loadGitStatus);
+document.getElementById("refreshSavedReviewsButton").addEventListener("click", refreshSavedReviews);
+document.getElementById("previewDurableSaveButton").addEventListener("click", previewDurableSave);
+document.getElementById("confirmDurableSaveButton").addEventListener("click", confirmDurableSave);
+document.getElementById("reopenSavedReviewButton").addEventListener("click", reopenSavedReview);
+document.getElementById("inspectRecoveryButton").addEventListener("click", inspectRecovery);
+document.getElementById("previewDeleteReviewButton").addEventListener("click", previewExactDelete);
+document.getElementById("confirmDeleteReviewButton").addEventListener("click", confirmExactDelete);
+elements.savedReviewSelect.addEventListener("change", () => {
+  elements.reviewIdInput.value = elements.savedReviewSelect.value;
+  state.deletePreview = null;
+  elements.confirmDeleteReviewButton.disabled = true;
+  elements.deleteConfirmationInput.value = "";
+});
+elements.reviewIdInput.addEventListener("input", () => {
+  state.deletePreview = null;
+  elements.confirmDeleteReviewButton.disabled = true;
+  elements.deleteConfirmationInput.value = "";
+});
+elements.privacyAcknowledged.addEventListener("change", () => {
+  state.savePreview = null;
+  elements.confirmDurableSaveButton.disabled = true;
+});
+elements.retentionAcknowledged.addEventListener("change", () => {
+  state.savePreview = null;
+  elements.confirmDurableSaveButton.disabled = true;
+});
 elements.targetFilesInput.addEventListener("input", () => {
   state.scopeConfirmed = false;
   state.review = null;
+  invalidateLifecyclePreviews();
   updateConfirmationWarning();
 });
 elements.targetFilesInput.addEventListener("input", updateTaskPromptSummary);
@@ -375,3 +651,4 @@ elements.commitMessage.addEventListener("input", updateTaskPromptSummary);
 
 updateStep(1);
 setOutput("No artifact yet", "");
+initializeReviewLifecycle();
