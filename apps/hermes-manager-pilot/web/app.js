@@ -5,6 +5,7 @@ const state = {
   artifactTitle: "No artifact yet",
   output: "",
   scopeConfirmed: false,
+  review: null,
 };
 
 const stepMeta = {
@@ -130,9 +131,20 @@ function updateSessionFromForm() {
   const targets = targetFiles();
   state.session.target_files = targets;
   state.session.files_touched = targets;
-  state.session.last_codex_result_summary = elements.codexResult.value.trim();
+  state.session.last_codex_result_summary = state.review && reviewMatchesSession()
+    ? state.review.resultSummary
+    : elements.codexResult.value.trim();
   state.session.commit_message = elements.commitMessage.value.trim() || state.session.commit_message;
   state.session.push_allowed = false;
+}
+
+function reviewMatchesSession() {
+  if (!state.review || !state.session) return false;
+  const sessionTargets = Array.isArray(state.session.target_files) ? state.session.target_files : [];
+  return (
+    state.review.activeTask === state.session.active_task &&
+    JSON.stringify(state.review.targetFiles) === JSON.stringify(sessionTargets)
+  );
 }
 
 function needsConfirmation() {
@@ -186,6 +198,8 @@ async function prepareSession() {
     });
     state.session = data.session;
     state.scopeConfirmed = false;
+    state.review = null;
+    elements.codexResult.value = "";
     updateSummary();
     updateStep(data.next_step || 2);
     setStatus(data.needs_confirmation ? "Confirm target files before continuing to the task prompt." : "Prepared session. Confirm scope, then continue to the task prompt.");
@@ -206,6 +220,7 @@ function continueToTaskPrompt() {
     return;
   }
   state.scopeConfirmed = true;
+  state.review = null;
   updateTaskPromptSummary();
   updateStep(3);
   setStatus("Scope confirmed. Next: copy the task prompt for Codex.");
@@ -220,11 +235,15 @@ async function copyJarvisReviewHandoff() {
     setStatus("Confirm the current target-file scope before creating a Jarvis handoff.");
     return;
   }
-  updateSessionFromForm();
-  if (!state.session.last_codex_result_summary) {
-    setStatus("Paste the Codex result before creating a Jarvis handoff.");
+  if (!state.review) {
+    setStatus("Save the Codex result as a Review object before creating a Jarvis handoff.");
     return;
   }
+  if (!reviewMatchesSession()) {
+    setStatus("The saved Review object no longer matches the current task and target-file scope.");
+    return;
+  }
+  state.session.last_codex_result_summary = state.review.resultSummary;
   try {
     const data = await apiPost("/api/review-handoff", {
       session: state.session,
@@ -259,38 +278,6 @@ async function renderPrompt(mode, title) {
   }
 }
 
-async function pasteFromClipboard() {
-  try {
-    elements.codexResult.value = await navigator.clipboard.readText();
-    saveResultAndContinue();
-  } catch (error) {
-    setStatus(`Paste failed: ${error.message || "clipboard read failed"}`);
-  }
-}
-
-async function pasteResultAndCopyJarvisReviewHandoff() {
-  if (!state.session) {
-    setStatus("Prepare a session first.");
-    return;
-  }
-  if (!state.scopeConfirmed) {
-    setStatus("Confirm the current target-file scope before creating a Jarvis handoff.");
-    return;
-  }
-  try {
-    const result = (await navigator.clipboard.readText()).trim();
-    if (!result) {
-      setStatus("Clipboard does not contain a Codex result.");
-      return;
-    }
-    elements.codexResult.value = result;
-    state.session.last_codex_result_summary = result;
-    await copyJarvisReviewHandoff();
-  } catch (error) {
-    setStatus(`Paste and handoff failed: ${error.message || "clipboard read failed"}`);
-  }
-}
-
 function saveResultAndContinue() {
   if (!state.session) {
     setStatus("Prepare a session first.");
@@ -301,9 +288,14 @@ function saveResultAndContinue() {
     setStatus("Paste the Codex result before continuing.");
     return;
   }
-  state.session.last_codex_result_summary = result;
+  state.review = Object.freeze({
+    activeTask: state.session.active_task,
+    targetFiles: Object.freeze([...(state.session.target_files || [])]),
+    resultSummary: result,
+  });
+  state.session.last_codex_result_summary = state.review.resultSummary;
   updateStep(5);
-  setStatus("Codex result saved. Next: copy the review prompt for Codex.");
+  setStatus("Review object saved. Copy a Jarvis handoff or render a direct review prompt.");
 }
 
 function approveCommit() {
@@ -329,6 +321,8 @@ function resetApproval() {
     state.session.human_approval_granted = false;
     state.session.push_allowed = false;
   }
+  state.review = null;
+  elements.codexResult.value = "";
   elements.reviewedCheckbox.checked = false;
   elements.approveCheckbox.checked = false;
   state.scopeConfirmed = false;
@@ -361,8 +355,6 @@ async function loadGitStatus() {
 document.getElementById("prepareButton").addEventListener("click", prepareSession);
 document.getElementById("continueToTaskPromptButton").addEventListener("click", continueToTaskPrompt);
 document.getElementById("copyTaskPromptButton").addEventListener("click", () => renderPrompt("implementation-prompt", "Task Prompt for Codex"));
-document.getElementById("pasteAndCopyJarvisReviewHandoffButton").addEventListener("click", pasteResultAndCopyJarvisReviewHandoff);
-document.getElementById("pasteResultButton").addEventListener("click", pasteFromClipboard);
 document.getElementById("saveResultButton").addEventListener("click", saveResultAndContinue);
 document.getElementById("copyReviewPromptButton").addEventListener("click", () => renderPrompt("review-prompt", "Review Prompt for Codex"));
 document.getElementById("copyJarvisReviewHandoffButton").addEventListener("click", copyJarvisReviewHandoff);
@@ -375,6 +367,7 @@ document.getElementById("clearOutputButton").addEventListener("click", clearOutp
 document.getElementById("loadGitStatus").addEventListener("click", loadGitStatus);
 elements.targetFilesInput.addEventListener("input", () => {
   state.scopeConfirmed = false;
+  state.review = null;
   updateConfirmationWarning();
 });
 elements.targetFilesInput.addEventListener("input", updateTaskPromptSummary);

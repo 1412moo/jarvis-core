@@ -526,8 +526,8 @@ def run_self_test() -> None:
     assert "Describe Task" in index_html
     assert "Confirm Scope" in index_html
     assert "Confirm Scope and Continue" in index_html
-    assert "Paste Result &amp; Copy Jarvis Review Handoff" in index_html
-    assert "It does not call Jarvis or approve review." in index_html
+    assert "Save Review Object and Continue" in index_html
+    assert "Clipboard is output only." in index_html
     assert "Copy Jarvis Review Handoff" in index_html
     assert "Generated Output" in index_html
     assert "does not call Codex" in index_html
@@ -539,9 +539,9 @@ def run_self_test() -> None:
     assert HANDOFF_ENDPOINT in app_js
     assert "scopeConfirmed" in app_js
     assert "function copyJarvisReviewHandoff()" in app_js
-    assert "function pasteResultAndCopyJarvisReviewHandoff()" in app_js
-    assert "await copyJarvisReviewHandoff()" in app_js
-    assert "Clipboard does not contain a Codex result." in app_js
+    assert "function reviewMatchesSession()" in app_js
+    assert "state.review = Object.freeze" in app_js
+    assert "navigator.clipboard.readText" not in app_js
     print("Hermes Manager Pilot browser UI self-test passed")
 
 

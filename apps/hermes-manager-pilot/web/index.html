@@ -88,20 +88,16 @@
       <section id="resultSection" class="step-section hidden">
         <label for="codexResult">Paste Codex result here</label>
         <textarea id="codexResult" rows="10" placeholder="Use this after Codex answers."></textarea>
-        <p class="safety-note">Recommended local path: one explicit click reads the current clipboard, prepares the existing copy-only Jarvis review handoff, and copies that JSON back to the clipboard. It does not call Jarvis or approve review.</p>
-        <div class="button-row">
-          <button id="pasteAndCopyJarvisReviewHandoffButton" type="button" class="primary-button">Paste Result &amp; Copy Jarvis Review Handoff</button>
-          <button id="pasteResultButton" type="button" class="secondary-button">Paste From Clipboard</button>
-          <button id="saveResultButton" type="button" class="secondary-button">Save Result and Choose Review Path</button>
-        </div>
+        <p class="safety-note">Paste or type the result, then save one in-memory Review object. Clipboard contents are never workflow state and are read by neither this step nor the later Copy actions.</p>
+        <button id="saveResultButton" type="button" class="primary-button">Save Review Object and Continue</button>
       </section>
 
       <section id="reviewSection" class="step-section hidden">
-        <p>Ask Codex to review, or copy a bounded handoff into Jarvis Console for fresh read-only review.</p>
-        <p class="safety-note">The Jarvis handoff binds the scope you explicitly confirmed, reads current local Git metadata, and copies JSON only. It does not call Jarvis, approve review/commit, or execute anything.</p>
+        <p>Copy a bounded handoff into Jarvis Console for fresh read-only review, or ask Codex to review directly.</p>
+        <p class="safety-note">Every Copy regenerates output from the saved Review object and fresh local Git metadata. Clipboard is output only. Hermes does not call Jarvis, approve review/commit, or execute anything.</p>
         <div class="button-row">
-          <button id="copyReviewPromptButton" type="button" class="primary-button">Copy Review Prompt for Codex</button>
-          <button id="copyJarvisReviewHandoffButton" type="button" class="secondary-button">Copy Jarvis Review Handoff</button>
+          <button id="copyJarvisReviewHandoffButton" type="button" class="primary-button">Copy Jarvis Review Handoff</button>
+          <button id="copyReviewPromptButton" type="button" class="secondary-button">Copy Review Prompt for Codex</button>
         </div>
       </section>
 

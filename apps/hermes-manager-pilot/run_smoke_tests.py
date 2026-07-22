@@ -2730,17 +2730,23 @@ def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     _assert("Jarvis Console Memory / Skills candidate prompt" in index_html, "Jarvis Console handoff guidance missing")
     _assert("Manual review only" in index_html, "manual review guidance missing")
     _assert("nothing runs until you choose the next step" in index_html, "no-auto-run guidance missing")
-    _assert("Paste Result &amp; Copy Jarvis Review Handoff" in index_html, "one-click review handoff is missing")
-    _assert("It does not call Jarvis or approve review." in index_html, "one-click safety guidance missing")
-    _assert("function pasteResultAndCopyJarvisReviewHandoff()" in app_js, "one-click handoff function is missing")
-    one_click_source = app_js.split("async function pasteResultAndCopyJarvisReviewHandoff()", 1)[1].split(
-        "function saveResultAndContinue()",
+    _assert("Save Review Object and Continue" in index_html, "Review object save action is missing")
+    _assert("Clipboard is output only." in index_html, "clipboard output-only guidance missing")
+    _assert("function reviewMatchesSession()" in app_js, "Review object/session binding is missing")
+    review_save_source = app_js.split("function saveResultAndContinue()", 1)[1].split(
+        "function approveCommit()",
         1,
     )[0]
-    _assert("navigator.clipboard.readText()" in one_click_source, "one-click flow does not read the clipboard")
-    _assert("await copyJarvisReviewHandoff()" in one_click_source, "one-click flow bypasses the bounded handoff helper")
-    _assert("fetch(" not in one_click_source, "one-click flow must reuse the existing handoff function")
-    _assert("Clipboard does not contain a Codex result." in one_click_source, "empty clipboard must fail closed")
+    _assert("state.review = Object.freeze" in review_save_source, "Review object must be immutable")
+    _assert("targetFiles: Object.freeze" in review_save_source, "Review target scope must be immutable")
+    copy_handoff_source = app_js.split("async function copyJarvisReviewHandoff()", 1)[1].split(
+        "async function renderPrompt",
+        1,
+    )[0]
+    _assert("reviewMatchesSession()" in copy_handoff_source, "handoff must verify the saved Review object")
+    _assert("state.review.resultSummary" in copy_handoff_source, "handoff must consume the saved Review object")
+    _assert("elements.codexResult.value" not in copy_handoff_source, "handoff must not use the current textarea as state")
+    _assert("navigator.clipboard.readText" not in app_js, "clipboard must never be read as workflow state")
     _assert("Send to Hermes" not in index_html, "automatic handoff wording must not appear")
 
 
