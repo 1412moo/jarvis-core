@@ -209,13 +209,19 @@ HTTP metadata adapter. It requires duplicate-preserving header pairs, exactly
 one Host, Origin, Content-Type, Cookie, CSRF, and Content-Length value, rejects
 Transfer-Encoding and malformed or oversized lengths, and emits bounded input
 for the existing request guard. The save endpoint remains disabled/non-success;
-no live token issuance, UI Save/Confirm, Voice Inbox save, or saved candidates
-dashboard is enabled.
+no live session/token issuance, UI Save/Confirm, Voice Inbox save, or saved
+candidates dashboard is enabled.
 
-Next decision: Phase 2C-4c may define the session-bootstrap contract as a
-design-only package. It requires explicit approval and does not authorize a
-bootstrap route, handler integration, save endpoint, UI Save/Confirm, or Voice
-Inbox persistence. Phase 2C-4a/4b remain disconnected from live HTTP dispatch.
+Phase 2C-4c completes the design-only session-bootstrap contract review. It
+defines a future explicit same-origin/no-body bootstrap, bounded atomic session
+issue/rotation, separate Cookie/CSRF delivery, restart invalidation, and
+deterministic test obligations. It adds no application behavior.
+
+Next decision: Phase 2C-4d may implement only the route-free internal/tests-only
+bootstrap primitive under separate approval. It does not authorize a bootstrap
+route, handler integration, live session issue, save endpoint, UI Save/Confirm,
+or Voice Inbox persistence. Phase 2C-4a/4b remain disconnected from live HTTP
+dispatch.
 
 ## Safety Boundary
 

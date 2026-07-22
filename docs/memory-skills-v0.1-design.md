@@ -49,7 +49,8 @@ coordinator for internal/tests-only coverage. The candidate writer, request
 guard, session registry, preview token registry, and coordinator are not
 connected to live HTTP routes, UI, or Voice Inbox. Phase 2C-4b adds a bounded
 raw HTTP metadata adapter for internal/tests-only coverage; it is also absent
-from the HTTP handler and dispatcher.
+from the HTTP handler and dispatcher. Phase 2C-4c completes the design-only
+session-bootstrap contract review without changing application behavior.
 
 ## 3. v0.1 Scope
 
@@ -110,9 +111,10 @@ Phase 2 is not automatic memory. A saved candidate, if a later user-facing
 phase adds one, is still not a skill, not an approved skill, not a Skill
 Registry entry, and not an execution target.
 
-After Phase 2C-4b, hardened candidate-write and guarded-request/token
+After Phase 2C-4c, hardened candidate-write and guarded-request/token
 primitives, a route-free coordinator, and a route-free raw HTTP metadata
-adapter exist, but user-facing local save is not enabled. `POST
+adapter exist, and the session-bootstrap contract is designed, but user-facing
+local save is not enabled. `POST
 /api/memory-skills/candidates` remains disabled/non-success, and there is no UI
 `Save` / `Confirm Local Save` flow, Voice Inbox token/save path, or saved
 candidates dashboard.
@@ -311,7 +313,7 @@ are listed here as future candidates, not as Phase 1 scope.
 | `GET /api/memory-skills` | Return Memory / Skills status, notes, and sample overview. | Read | No | Phase 1 | Low | Include if implementing the panel. |
 | `GET /api/memory-skills/candidates` | Return sample or saved read-only candidate metadata. | Read | No | Phase 2D or later | Low | Not implemented; keep saved-candidate listing deferred. |
 | `POST /api/memory-skills/candidates/preview` | Normalize input and return the payload that would be saved, plus privacy warnings. | Read-like, no write | No | Phase 2B | Low-medium | Implemented; write-free. |
-| `POST /api/memory-skills/candidates` | Save a candidate locally. | Write | Yes | Later explicit phase | Medium | Disabled/non-success after Phase 2C-4b; guarded composition and metadata adaptation remain route-free/internal-tests-only. |
+| `POST /api/memory-skills/candidates` | Save a candidate locally. | Write | Yes | Later explicit phase | Medium | Disabled/non-success after Phase 2C-4c; guarded composition and metadata adaptation remain route-free/internal-tests-only, and bootstrap is design-only. |
 | `POST /api/memory-skills/candidates/{id}/approve` | Mark a candidate approved. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/reject` | Mark a candidate rejected. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/archive` | Archive a candidate. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
@@ -357,7 +359,7 @@ a task candidate with manual copy or detail handoff actions.
 
 In Phase 2B, Voice Inbox can link manually to a preview-only Memory / Skills
 flow. That preview must not write files or issue preview tokens. After Phase
-2C-4b, Voice Inbox still does not auto-save, request tokens, or call a save
+2C-4c, Voice Inbox still does not auto-save, request tokens, or call a save
 endpoint. Any future local save requires separate explicit approval and can
 happen only after the user reviews the preview and confirms the local save.
 
@@ -426,7 +428,7 @@ Memory / Skills must preserve these boundaries:
 - no background agents;
 - human-approved only;
 - local-first only;
-- user-facing save is still not enabled after Phase 2C-4b.
+- user-facing save is still not enabled after Phase 2C-4c.
 
 ## 11. Phase 2 Write Safety
 
@@ -447,7 +449,7 @@ persistence, the write design should follow these rules:
 - do not run git commands as part of save;
 - do not let app runtime write to arbitrary paths.
 
-Current helper status and design decision through Phase 2C-4b:
+Current helper status and design decision through Phase 2C-4c:
 
 - Phase 2C-0 implemented a storage path helper. It calculates and validates
   paths only. It rejects repo-internal paths, relative overrides, and
@@ -492,6 +494,10 @@ Current helper status and design decision through Phase 2C-4b:
   header pairs, enforces exact single required security headers, rejects
   Transfer-Encoding, and bounds canonical Content-Length values before guard
   use. It is not referenced by the HTTP handler or dispatcher.
+- Phase 2C-4c completed the dedicated session-bootstrap contract review. It
+  defines future same-origin no-body request validation, atomic issue/rotation,
+  credential delivery, lifecycle bounds, and deterministic test obligations.
+  It added no app code or runtime authority.
 - Saved JSON uses `status: saved`, but a saved candidate is still only a local
   candidate, not an approved skill and not executable.
 - The write helper, adapter, guard, token, and coordinator are not connected to
@@ -549,12 +555,12 @@ Current helper status and design decision through Phase 2C-4b:
   no unexpected git status files.
 - Do not: store raw transcripts long term, write user memory into tracked repo
   paths, save without preview, or save without explicit confirmation.
-- Current status through Phase 2C-4b: storage path, dry-run validation, hardened
+- Current status through Phase 2C-4c: storage path, dry-run validation, hardened
   candidate writer, request guard, session registry, canonical snapshot/digest,
   preview token helpers, guarded save coordinator, and raw HTTP metadata adapter
-  exist. They remain internal/tests-only. The 2C-3c/4a/4b work kept user-facing
-  save disabled and connected none of them to live HTTP routes, UI, or Voice
-  Inbox.
+  exist. They remain internal/tests-only, and the bootstrap contract is
+  design-only. The 2C-3c/4a/4b/4c work kept user-facing save disabled and
+  connected none of them to live HTTP routes, UI, or Voice Inbox.
 
 ### Phase 2C-3: Approval-gated Local Save Safety Decision
 
@@ -655,7 +661,9 @@ validated, self-reviewed, and approved before a live save route can be exposed:
 
 1. **Session bootstrap:** one bounded process-local bootstrap lifecycle with
    exact loopback Host/Origin checks, no token in URLs or logs, `Cache-Control:
-   no-store`, expiry, capacity behavior, and restart invalidation.
+   no-store`, expiry, capacity behavior, and restart invalidation. Phase 2C-4c
+   defines the design contract; implementation and live integration remain
+   incomplete and locked.
 2. **Raw HTTP metadata adapter:** preserve or reject duplicate security headers
    rather than silently merging them; validate exact Host, Origin,
    `Content-Type`, cookie, and CSRF values before JSON use; reject missing,
@@ -686,10 +694,12 @@ validated, self-reviewed, and approved before a live save route can be exposed:
    tokens without deleting saved files. Partial temporary files are cleaned up;
    an already published candidate is never overwritten. Retention and manual
    recovery instructions must be visible before the first live save.
-9. **Bounded responses and logs:** credentials, canonical bytes, raw text,
-   private paths, stack traces, and security-header values are absent from
-   responses and logs. Errors use fixed categories and do not reveal whether a
-   session or token existed.
+9. **Bounded responses and logs:** except for the newly issued CSRF value in one
+   successful bootstrap JSON response and the session ID in its `Set-Cookie`,
+   credentials, canonical bytes, raw text, private paths, stack traces, and
+   security-header values are absent from responses and logs. Neither bootstrap
+   credential is echoed later. Errors use fixed categories and do not reveal
+   whether a session or token existed.
 10. **Deterministic integration tests:** use an ephemeral loopback port and
     isolated temporary state to cover valid flow, duplicate/missing headers,
     wrong Host/Origin, media-type variants, malformed/oversized bodies, expired
@@ -717,12 +727,11 @@ validated, self-reviewed, and approved before a live save route can be exposed:
 
 Phase 2C-4a satisfies the internal coordinator and privacy-default portions of
 this design. Phase 2C-4b satisfies the route-free structural raw-metadata
-adapter portion. Neither grants HTTP or UI authority. The next candidate is a
-separately approved Phase 2C-4c design-only session-bootstrap contract review.
-It should settle bootstrap-specific Host/Origin checks, cookie/CSRF delivery,
-bounded lifecycle, restart invalidation, response bounds, and test obligations
-without registering a route. Live HTTP integration stays locked until the
-remaining checklist items are complete.
+adapter portion. Phase 2C-4c settles the session-bootstrap design contract in
+[`memory-skills-session-bootstrap-v0.1-design.md`](memory-skills-session-bootstrap-v0.1-design.md).
+None grants HTTP or UI authority. The next candidate is a separately approved
+Phase 2C-4d route-free internal/tests-only bootstrap primitive. Live HTTP
+integration stays locked until the remaining checklist items are complete.
 
 #### Phase 2C-4a: Guarded Save Coordinator and Privacy Default
 
@@ -760,6 +769,24 @@ remaining checklist items are complete.
   and request-guard handoff cases leave no runtime state or repo artifact.
 - Boundary: no handler/dispatcher reference, bootstrap route, token route, live
   save route, UI Save/Confirm, Voice Inbox path, or saved dashboard.
+
+#### Phase 2C-4c: Session Bootstrap Contract Review
+
+- Status: design/review completed on 2026-07-22; no application behavior was
+  implemented.
+- Request result: future bootstrap is one explicit same-origin loopback POST
+  with no body, exact actual-port Host/Origin, and a dedicated raw-header
+  contract that does not reuse the guarded-request adapter.
+- Lifecycle result: session issue/rotation is bounded, atomic, process-local,
+  expiry-aware, and restart-invalidated; invalid input allocates nothing.
+- Delivery result: the session ID appears only in `Set-Cookie`; the CSRF value
+  appears only in the no-store success body and frontend memory.
+- Authority result: bootstrap grants only a later request-guard attempt, never
+  privacy review, preview-token issue, save, skill approval, or execution.
+- Next candidate: separately approved Phase 2C-4d route-free bootstrap-specific
+  adapter plus atomic rotate-or-issue primitive with deterministic tests.
+- Boundary: no route name or registration, handler/UI/Voice change, live
+  session issue, persistence, save endpoint, or dashboard.
 
 ### Phase 2D: Saved Candidates Read-only List
 
@@ -818,12 +845,13 @@ The safest first implementation for the original v0.1 plan was Phase 1:
 This gives users a clear place to understand the future Memory / Skills flow
 without introducing state mutation or automation risk.
 
-At the current Phase 2C-4b status, Phase 2B preview-only capture, the Phase
+At the current Phase 2C-4c status, Phase 2B preview-only capture, the Phase
 2C-0/1/2/3a/3b internal helpers, the Phase 2C-3c trust model/checklist, and the
 route-free guarded save coordinator and raw HTTP metadata adapter are
-implemented. The privacy default omits `original_text_preview` from persisted
-JSON. The verdict remains to keep live save locked; no route, UI action, Voice
-Inbox path, or runtime persistence behavior is authorized.
+implemented, and the session-bootstrap contract review is complete. The privacy
+default omits `original_text_preview` from persisted JSON. The verdict remains
+to keep live save locked; no route, UI action, Voice Inbox path, or runtime
+persistence behavior is authorized.
 
 User-facing persistence should still wait for a separate explicit decision.
 It should prefer repo-external user-local app state, should not store raw
@@ -936,6 +964,19 @@ Phase 2C-4b validation should additionally verify:
   preview remains write-free/token-free;
 - tests leave no runtime state, candidate, listener, cache, or log artifact.
 
+Phase 2C-4c validation should additionally verify:
+
+- the bootstrap contract does not require an existing session or CSRF token and
+  does not reuse the guarded-request adapter;
+- exact peer, actual-port Host/Origin, no-body framing, optional stale-cookie
+  rotation, lifecycle bounds, and restart behavior are decided;
+- session cookie and CSRF delivery are separated and no later response may echo
+  either credential;
+- bootstrap authority is explicitly weaker than privacy review, token issue,
+  save confirmation, skill approval, and execution;
+- the next implementation unit is route-free/internal-tests-only and no route,
+  handler, UI, Voice Inbox, or persistence behavior is claimed.
+
 Future live-save validation, if user-facing save is explicitly approved, should
 additionally verify:
 
@@ -985,8 +1026,10 @@ Current Phase 2 recommendation:
 - Keep the implemented Phase 2B preview-only capture flow write-free.
 - Keep the implemented Phase 2C-0/1/2/3a/3b/4a/4b helpers internal/tests-only, not
   user-facing save.
-- If separately approved, make the next unit a design-only Phase 2C-4c
-  session-bootstrap contract review; do not register a route from that design.
+- Treat Phase 2C-4c as a completed design-only session-bootstrap contract
+  review; it authorizes no route or runtime session issue.
+- If separately approved, make the next unit a route-free internal/tests-only
+  Phase 2C-4d bootstrap-specific adapter and atomic rotate-or-issue primitive.
 - Avoid tracked repo user-memory storage.
 - Use repo-external user-local app state for any future saved candidates.
 - Do not add persistence without privacy/redaction policy.

@@ -224,8 +224,13 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
   adapter. Duplicate-preserving header pairs are required; mappings, duplicate
   or missing security headers, Transfer-Encoding, and malformed or oversized
   Content-Length values fail closed before request-guard use.
+- Phase 2C-4c completes the design-only session-bootstrap contract review. It
+  defines future same-origin/no-body bootstrap validation, atomic bounded
+  issue/rotation, separate Cookie/CSRF delivery, restart invalidation, and test
+  obligations without changing application behavior.
 - `POST /api/memory-skills/candidates` remains disabled/non-success.
 - The live preview endpoint remains write-free and token-free.
+- No live bootstrap route or session/CSRF issuance exists.
 - No UI Save/Confirm, Voice Inbox token/save, or saved candidates dashboard is
   enabled.
 
@@ -483,14 +488,15 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Session Bootstrap Contract Review — Phase 2C-4c
+### A. Route-free Session Bootstrap Primitive — Phase 2C-4d
 
 Priority: P1
 
-Design only: define the bootstrap trust boundary, exact loopback Host/Origin
-checks, bounded process-local lifecycle, cookie/CSRF delivery, response bounds,
-restart invalidation, and tests that would be required before implementation.
-Do not register a route or modify handler, UI, Voice Inbox, or persistence.
+If separately approved, implement only the bootstrap-specific raw metadata
+adapter, atomic bounded session rotate-or-issue operation, separated private
+Cookie/public JSON result, and deterministic fake-clock/token tests defined by
+the Phase 2C-4c contract. Do not register a route or modify handler, UI, Voice
+Inbox, or persistence.
 
 ### B. Planned Skill UX Polish
 
@@ -522,9 +528,10 @@ Priority: P2
 
 Phase 2C-4a guarded save coordination, the privacy-default decision, and Phase
 2C-4b raw HTTP metadata adaptation are complete for internal/tests-only
-coverage. The next candidate is the design-only Phase 2C-4c session-bootstrap
-contract review described above. Keep the adapter, request guard, token, and
-coordinator disconnected from HTTP dispatch, UI, and Voice Inbox.
+coverage. Phase 2C-4c session-bootstrap design review is also complete. The next
+candidate is the separately approved route-free Phase 2C-4d primitive described
+above. Keep bootstrap, adapter, request guard, token, and coordinator
+disconnected from HTTP dispatch, UI, and Voice Inbox.
 
 ### G. Skill Detail Visual Polish
 
