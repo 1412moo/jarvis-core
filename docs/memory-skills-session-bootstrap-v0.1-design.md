@@ -2,8 +2,8 @@
 
 Last updated: 2026-07-22
 
-Status: Phase 2C-4c design review complete. No route or runtime behavior is
-implemented or authorized by this document.
+Status: Phase 2C-4c design review and Phase 2C-4d route-free internal/tests-only
+primitive complete. No bootstrap route or live session issuance is enabled.
 
 ## 1. Owner Summary
 
@@ -29,8 +29,8 @@ The current product remains unchanged:
 
 ## 2. Decision
 
-Phase 2C-4c chooses the following contract for a future separately approved
-implementation:
+Phase 2C-4c chose the following contract. Phase 2C-4d implements its route-free
+portions; live integration remains separately approved and locked:
 
 1. Bootstrap is initiated only by an explicit future `Review Local Save`
    action. Page load, preview, Voice Inbox, and background code must not call it.
@@ -116,15 +116,18 @@ The current internal `SessionRegistry` values are the proposed v0.1 bounds:
 - expiry: purged before capacity checks and verification;
 - verification: successful guarded use extends the idle expiry.
 
-A future bootstrap primitive must add one atomic rotate-or-issue operation:
+A route-free bootstrap primitive now implements one atomic rotate-or-issue
+operation:
 
-1. Generate both replacement credentials before changing registry state.
-2. If the untrusted rotation hint matches an existing entry, replace that entry
-   under the registry lock without temporarily exceeding capacity.
-3. If the hint is absent or unknown, add one entry only when capacity remains.
-4. Do not reveal whether the hint matched an existing or expired session.
-5. If generation or capacity handling fails, preserve the previous entry and
-   issue no partial credential.
+1. Purge expired entries, then check capacity before looking up the hint. A full
+   registry returns the same fixed capacity error whether the hint exists or
+   not, so session existence is not disclosed.
+2. Generate both replacement credentials before changing registry state.
+3. If capacity remains and the untrusted rotation hint matches an existing
+   entry, replace that entry under the registry lock.
+4. If the hint is absent or unknown, add one entry only when capacity remains.
+5. If generation, collision, or capacity handling fails, preserve the previous
+   entry and issue no partial credential.
 6. Concurrent requests may each succeed only if the global bound is preserved;
    no eviction of unrelated live sessions is allowed.
 
@@ -216,8 +219,8 @@ require the one-time preview token and exact confirmation literal.
 
 ## 9. Deterministic Validation Contract
 
-The first route-free implementation package must use fake clocks, deterministic
-token generation, and no real server. It must cover:
+The Phase 2C-4d route-free package uses fake clocks, deterministic token
+generation, and no real server. Its coverage includes:
 
 - valid no-cookie issue and valid stale-cookie rotation;
 - exact actual-port Host/Origin matching;
@@ -244,18 +247,22 @@ Real HTTP and browser tests remain a later integration gate. They must use an
 ephemeral loopback port and isolated temporary state after route integration is
 separately approved.
 
-## 10. Proposed Next Unit
+## 10. Phase 2C-4d Result and Next Boundary
 
-The smallest next candidate is **Phase 2C-4d route-free session-bootstrap
-primitive**, internal/tests-only:
+Phase 2C-4d implemented:
 
-- add a bootstrap-specific raw metadata adapter and atomic registry
-  rotate-or-issue composition;
-- return a private internal result that separates cookie material from the
-  bounded public payload;
-- add deterministic tests from Section 9;
-- do not modify `JarvisConsoleHandler`, route allowlists, UI, Voice Inbox,
-  runtime persistence, or the live save endpoint.
+- a bootstrap-specific duplicate-preserving raw metadata adapter;
+- coordinator-owned transport validation before any session allocation;
+- atomic bounded rotate-or-issue with uniform full-capacity behavior;
+- a non-JSON-serializable private success object with redacted `repr`, separate
+  `Set-Cookie` material, and a bounded public CSRF payload;
+- narrowed Memory / Skills cookie path;
+- deterministic success, rejection, rotation, failure, expiry, restart,
+  collision, capacity, mismatch, and concurrency coverage.
 
-Phase 2C-4d requires a separate explicit approval. Completing it would still
-not authorize live HTTP integration.
+The primitive is absent from `JarvisConsoleHandler`, dispatch, UI, Voice Inbox,
+and runtime persistence. The live save and bootstrap routes remain disabled.
+
+The next candidate belongs to the wider Memory / Skills design: a separately
+approved Phase 2C-4e route-free guarded save-preparation coordinator. No live
+HTTP integration is authorized by 2C-4d.

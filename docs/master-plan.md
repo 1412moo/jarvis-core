@@ -18,7 +18,7 @@ Memory / Skills의 privacy-review token, exact confirmation, one-claim write
 시퀀스를 route-free internal/tests-only coordinator로 묶고, 중복을 보존하는
 raw HTTP header 입력을 bounded request-guard metadata로 바꾸는 adapter까지
 구현했다. 이어서 최초 session/cookie가 없는 bootstrap의 trust boundary와
-lifecycle을 design-only 계약으로 확정했다. 저장 JSON은
+lifecycle을 확정하고 route-free internal/tests-only primitive로 검증했다. 저장 JSON은
 `original_text_preview`를 기본 제외한다. 실제 HTTP route, UI, Voice Inbox,
 runtime persistence에는 아무 권한도 추가하지 않았다.
 
@@ -58,13 +58,13 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Memory / Skills Phase 2C-4c session bootstrap contract review**
-- 현재 다음 작업: **route-free bootstrap primitive — Phase 2C-4d, internal/tests-only 후보**
+- 최근 완료: **Memory / Skills Phase 2C-4d route-free session bootstrap primitive**
+- 현재 다음 작업: **guarded save-preparation coordinator — Phase 2C-4e, route-free/internal-tests-only 후보**
 - 다음 사용자 체감 milestone: **모든 재오픈 조건을 통과한 명시적 local-save
   확인 흐름** — 아직 승인되지 않음
 - vertical slice 완료 기준: 정확한 snapshot을 사람이 확인한 뒤 한 번만 저장하고,
   실패·restart·재시도에서도 자동 저장이나 실행 권한이 생기지 않음
-- 현재 결정 필요: **있음** — 2C-4d 내부 구현을 진행할지 별도 승인 필요
+- 현재 결정 필요: **있음** — 2C-4e token-preparation 조합을 진행할지 별도 승인 필요
 
 ### 언제부터 실제로 편해지는가
 
@@ -106,21 +106,21 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `d95233d8c7376192a986f00aed16ee6f1b2370fb`
+- Verified implementation HEAD: `9b86f49e6bdb96fd35391aec2f44d6fc156f59b7`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Memory / Skills approval-gated local-save safety
-- Current milestone: Phase 2C-4c session bootstrap contract review 완료, live save 잠금 유지
-- Recommended next step: Phase 2C-4d route-free bootstrap primitive, separate approval required
+- Current milestone: Phase 2C-4d route-free session bootstrap primitive 완료, live save 잠금 유지
+- Recommended next step: Phase 2C-4e route-free guarded save-preparation coordinator
 - Next user-visible milestone: 모든 조건을 통과한 명시적 local-save 확인 흐름
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
 2C-4b는 duplicate-preserving raw header pairs에서 exact single security header와
 bounded Content-Length를 검증하고 request guard 입력을 만든다. 둘 다 route-free
-internal/tests-only다. Phase 2C-4c는 bootstrap 전용 same-origin/no-body contract,
-atomic issue/rotation, cookie/CSRF 전달, expiry/capacity/restart 경계를 설계만 했다.
-저장 JSON은 `original_text_preview`를 제외한다. 현재 preview는 계속
+internal/tests-only다. Phase 2C-4c/4d는 bootstrap 전용 same-origin/no-body 검증,
+atomic issue/rotation, cookie/CSRF 분리, expiry/capacity/restart 경계를 설계하고
+route-free primitive로 검증했다. 저장 JSON은 `original_text_preview`를 제외한다. 현재 preview는 계속
 write-free/token-free이고 save endpoint는 disabled/non-success다. UI Save/Confirm,
 Voice Inbox auto-save, saved candidates dashboard도 없다.
 
@@ -131,7 +131,7 @@ Voice Inbox auto-save, saved candidates dashboard도 없다.
 | 0. 운영 기반 | 작업·승인·결과를 같은 규칙으로 지시하고 보고받음 | task, 승인, 상태 전이, 보고 계약 | 사용자 기능 | 반복 실사용 검증 |
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
 | 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff, read-only 검토 화면 | **사용자 기능 — 실제 작업 1건 검증** | 반복 사용 피드백 또는 다음 축 선택 |
-| 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 내부 coordinator·metadata adapter 구현과 bootstrap 설계, 저장 잠금 | route-free bootstrap primitive와 남은 재오픈 조건 |
+| 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 내부 coordinator·metadata/bootstrap primitive 구현, 저장 잠금 | guarded save-preparation 조합과 남은 재오픈 조건 |
 | 4. 통합 Jarvis Console | 여러 프로젝트의 검토·승인·보고를 한 화면에서 관리함 | read-only부터 확장하는 local control panel | 설계·기반 | 2·3단계 안전 계약 안정화 |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
 
@@ -149,15 +149,16 @@ flowchart LR
     F --> G["route-free save coordinator<br/>2C-4a"]
     G --> H["raw HTTP metadata adapter<br/>2C-4b"]
     H --> I["session bootstrap contract<br/>2C-4c design-only"]
-    I --> J["route-free bootstrap primitive<br/>2C-4d 승인 후보"]
-    J --> K["실제 HTTP·UI 통합<br/>모든 조건 충족 후"]
+    I --> J["route-free bootstrap primitive<br/>2C-4d"]
+    J --> K["guarded save preparation<br/>2C-4e 승인 후보"]
+    K --> L["실제 HTTP·UI 통합<br/>모든 조건 충족 후"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I done;
-    class J current;
-    class K future;
+    class A,B,C,D,E,F,G,H,I,J done;
+    class K current;
+    class L future;
 ```
 
 ### 구현된 기반
@@ -171,31 +172,32 @@ flowchart LR
 - explicit privacy review token issue와 exact confirmation literal
 - one-claim fail-closed coordinator와 persisted source-preview 기본 제외
 - duplicate-preserving bounded raw HTTP metadata adapter
+- route-free session bootstrap validation과 atomic rotate-or-issue
 
-### 최근 완료: Phase 2C-4c session bootstrap contract review
+### 최근 완료: Phase 2C-4d route-free session bootstrap primitive
 
-bootstrap은 기존 session/CSRF가 없는 첫 요청이므로 guarded-request adapter와
-분리했다. 미래 요청은 explicit user action에서만 시작하며 exact loopback peer와
-actual-port Host/Origin, POST, no query, `Content-Length: 0`을 요구한다.
+bootstrap coordinator가 raw transport와 duplicate-preserving headers를 직접
+검증하므로 adapter를 우회한 session allocation 경로가 없다. exact loopback
+peer/actual-port Host·Origin, POST, no query, `Content-Length: 0`만 허용한다.
 
-세션은 process-local 64개, 30분 idle TTL, restart invalidation을 유지한다. 성공
-시에만 session ID를 `HttpOnly`/`SameSite=Strict` cookie로, CSRF를 no-store JSON
-body로 분리 전달한다. 이 credential은 이후 guard 시도만 허용하며 save, privacy
-review, token issue, skill 승인 권한이 아니다.
+세션은 process-local 64개, 30분 idle TTL, restart invalidation을 유지한다. full
+capacity는 hint 존재 여부 확인 전에 동일 실패하고, generation/collision 실패는
+기존 session을 보존한다. Cookie와 public CSRF payload는 non-JSON-serializable
+private result에서 분리되고 `repr`에도 secret이 없다.
 
-### 다음 승인 지점: route-free bootstrap primitive — Phase 2C-4d
+### 다음 승인 지점: guarded save-preparation coordinator — Phase 2C-4e
 
-2C-4c 계약을 코드에 옮기되 실제 handler에는 연결하지 않는 internal/tests-only
-단위다. bootstrap-specific raw metadata adapter와 atomic rotate-or-issue primitive,
-private cookie material과 public JSON의 분리 결과, 결정론적 fake-clock/token
-테스트만 허용한다.
+현재 `PreviewTokenRegistry.issue`는 privacy review와 canonical snapshot을 검증하지만
+guarded request와 token preparation을 하나의 조합 경계로 묶는 coordinator는 없다.
+2C-4e는 guard, exact payload, explicit privacy review, server canonicalization,
+session-bound token issue와 bounded public metadata만 route-free로 조합하는 후보 단위다.
 
 ```text
-허용: route-free primitive와 deterministic tests
-차단: route 등록, handler 연결, live session 발급, token route, save/UI 활성화
+허용: route-free save-preparation coordinator와 deterministic tests
+차단: route 등록, handler 연결, live token/session 발급, save/UI 활성화
 ```
 
-2C-4d는 별도 승인 전 진행하지 않는다. save endpoint, UI, Voice Inbox, runtime
+2C-4e는 별도 승인 전 진행하지 않는다. save endpoint, UI, Voice Inbox, runtime
 persistence는 계속 별도 승인이다.
 
 ## 5. 작업 축별 상태
@@ -203,7 +205,7 @@ persistence는 계속 별도 승인이다.
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
-| Memory / Skills | Phase 2C-4c bootstrap contract 설계 완료, `keep locked` | write-free preview | Phase 2C-4d route-free bootstrap primitive |
+| Memory / Skills | Phase 2C-4d bootstrap primitive 내부 구현 완료, `keep locked` | write-free preview | Phase 2C-4e guarded save-preparation coordinator |
 | Jarvis Console | Codex Review 실제 작업 성공 화면 검증 완료 | fresh read-only work review | 반복 실사용 피드백 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
@@ -250,9 +252,9 @@ persistence는 계속 별도 승인이다.
 6. vertical slice는 실제 로컬 작업 하나로 end-to-end 검증해야 완료로 기록한다.
 7. read-only vertical slice는 자동 연결이 아닌 copy-only handoff로 실제 작업
    1건을 end-to-end 검증해 완료했다.
-8. Memory / Skills는 2C-4a와 2C-4b로 내부 package 두 개를 완료했고, 소유자
-   승인으로 2C-4c design review만 진행했다. 다음 2C-4d 내부 구현도 별도
-   명시적 승인을 받은 뒤 진행한다.
+8. Memory / Skills는 2C-4a/4b 뒤 소유자 승인으로 2C-4c design review와 2C-4d
+   내부 구현을 진행했다. 2C-4e는 두 번째 내부 package 후보지만 credential
+   preparation 경계이므로 다시 명시적 승인을 받은 뒤 진행한다.
 
 ## 9. Milestone 보고 형식
 

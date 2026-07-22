@@ -217,11 +217,16 @@ defines a future explicit same-origin/no-body bootstrap, bounded atomic session
 issue/rotation, separate Cookie/CSRF delivery, restart invalidation, and
 deterministic test obligations. It adds no application behavior.
 
-Next decision: Phase 2C-4d may implement only the route-free internal/tests-only
-bootstrap primitive under separate approval. It does not authorize a bootstrap
-route, handler integration, live session issue, save endpoint, UI Save/Confirm,
-or Voice Inbox persistence. Phase 2C-4a/4b remain disconnected from live HTTP
-dispatch.
+Phase 2C-4d implements that bootstrap contract as route-free internal/tests-only
+code. The coordinator owns raw transport validation before allocation, session
+rotation is atomic and bounded, full-capacity behavior does not reveal hint
+existence, and private Cookie material is separated from the public CSRF
+payload. It remains absent from HTTP dispatch.
+
+Next decision: Phase 2C-4e may add only a route-free internal/tests-only guarded
+save-preparation coordinator under separate approval. It does not authorize a
+bootstrap/token/save route, handler integration, live session/token issue, UI
+Save/Confirm, or Voice Inbox persistence.
 
 ## Safety Boundary
 

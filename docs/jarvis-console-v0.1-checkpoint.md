@@ -26,8 +26,8 @@ Jarvis Console does not execute skills automatically. It suggests, prepares, and
 
 ## Current HEAD / Status
 
-- Verified implementation HEAD: `d95233d8c7376192a986f00aed16ee6f1b2370fb`
-- Commit: `jarvis-console: add memory request metadata adapter`
+- Verified implementation HEAD: `9b86f49e6bdb96fd35391aec2f44d6fc156f59b7`
+- Commit: `jarvis-console: add route-free session bootstrap primitive`
 - Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -228,6 +228,10 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
   defines future same-origin/no-body bootstrap validation, atomic bounded
   issue/rotation, separate Cookie/CSRF delivery, restart invalidation, and test
   obligations without changing application behavior.
+- Phase 2C-4d implements the bootstrap contract as route-free
+  internal/tests-only code. Coordinator-owned transport validation precedes
+  allocation, full capacity is uniform before hint lookup, rotation is atomic,
+  and Cookie/public CSRF fields are separated in a redacted private result.
 - `POST /api/memory-skills/candidates` remains disabled/non-success.
 - The live preview endpoint remains write-free and token-free.
 - No live bootstrap route or session/CSRF issuance exists.
@@ -488,15 +492,15 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Route-free Session Bootstrap Primitive — Phase 2C-4d
+### A. Guarded Save-preparation Coordinator — Phase 2C-4e
 
 Priority: P1
 
-If separately approved, implement only the bootstrap-specific raw metadata
-adapter, atomic bounded session rotate-or-issue operation, separated private
-Cookie/public JSON result, and deterministic fake-clock/token tests defined by
-the Phase 2C-4c contract. Do not register a route or modify handler, UI, Voice
-Inbox, or persistence.
+If separately approved, compose only the existing request guard, exact
+save-preparation payload, explicit privacy review, server canonicalization, and
+session-bound preview-token issue behind a route-free internal/tests-only
+coordinator. Return only bounded token/display metadata. Do not register a route
+or modify handler, UI, Voice Inbox, save behavior, or persistence.
 
 ### B. Planned Skill UX Polish
 
@@ -528,9 +532,10 @@ Priority: P2
 
 Phase 2C-4a guarded save coordination, the privacy-default decision, and Phase
 2C-4b raw HTTP metadata adaptation are complete for internal/tests-only
-coverage. Phase 2C-4c session-bootstrap design review is also complete. The next
-candidate is the separately approved route-free Phase 2C-4d primitive described
-above. Keep bootstrap, adapter, request guard, token, and coordinator
+coverage. Phase 2C-4c session-bootstrap design review and the Phase 2C-4d
+route-free bootstrap primitive are also complete. The next candidate is the
+separately approved route-free Phase 2C-4e guarded save-preparation coordinator
+described above. Keep bootstrap, adapter, request guard, token, and coordinators
 disconnected from HTTP dispatch, UI, and Voice Inbox.
 
 ### G. Skill Detail Visual Polish
