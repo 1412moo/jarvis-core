@@ -508,7 +508,8 @@ human approval authority and actual queue integration remain separate.
 Status: the v0.1C-0C-1 bounded whole-status collector/verifier and v0.1C-0C-2
 composite bundle/verifier are implemented as internal/tests-only primitives.
 The v0.1C-0C-3 pure handoff decision and v0.1C-0C-4 review-observation adapter
-are also implemented internal/tests-only.
+are also implemented internal/tests-only. C0C-5 adds the internal/tests-only
+pure queue observation evaluator described in Section 18.12.
 
 ### 18.1 Problem
 
@@ -635,9 +636,9 @@ v0.1C-0C does not design or authorize:
 
 Implementation remains split into separately reviewable internal/tests-only
 units: bounded whole-status collection, composite-bundle verification, pure
-handoff decision, and review-observation adaptation. All four units are
-implemented. They do not authorize queue-state integration, route, UI,
-persistence, execution, or other user-facing behavior.
+handoff decision, review-observation adaptation, and pure queue observation
+evaluation. All five units are implemented. They do not authorize durable queue
+state, route, UI, persistence, execution, or other user-facing behavior.
 
 ### 18.8 v0.1C-0C-1 Implementation Boundary
 
@@ -743,13 +744,13 @@ C0C-4 does not normalize, insert, replace, or persist an item in
 `PromptQueueState`; call `evaluate_queue_item()`; create or validate a
 scope/review/commit approval binding; grant human approval; or expose route, UI,
 command execution, staging, commit, push, pull request, network, API, or LLM
-behavior. Queue-flow and approval-flow integration remain unimplemented and
-separately gated.
+behavior. Queue persistence, renderer/execution, and approval-flow integration
+remain unimplemented and separately gated.
 
-### 18.12 v0.1C-0C-5 Queue Observation Evaluation Design
+### 18.12 v0.1C-0C-5 Queue Observation Evaluation
 
-Status: design-only. No C0C-5 application code, route, UI, or persistence is
-implemented.
+Status: the C0C-5 pure queue observation evaluator is implemented as
+internal/tests-only. No route, UI, or persistence is connected.
 
 #### 18.12.1 Problem
 
@@ -757,13 +758,12 @@ C0C-4 can return a safe replacement review item but deliberately has no queue
 context and does not call the existing evaluator. A caller could otherwise
 replace the wrong item, alter another queue entry, lose ordering, or treat a
 safe evidence preview as though it had already passed scope and approval
-checks. The next bridge must make that transition deterministic without
+checks. The bridge must make that transition deterministic without
 turning an in-memory classification into execution authority.
 
-#### 18.12.2 Proposed Interface
+#### 18.12.2 Implemented Interface
 
-The first implementation unit should add an immutable result type equivalent
-to:
+The implementation adds this immutable result type:
 
 ```python
 @dataclass(frozen=True)
@@ -773,7 +773,7 @@ class QueueObservationEvaluation:
     evaluation: QueueEvaluation
 ```
 
-and one pure entry point equivalent to:
+and this pure entry point:
 
 ```python
 def evaluate_review_evidence_in_queue(
@@ -784,10 +784,7 @@ def evaluate_review_evidence_in_queue(
     ...
 ```
 
-Names may change during implementation review, but the data and authority
-boundary must not.
-
-#### 18.12.3 Required Algorithm
+#### 18.12.3 Implemented Algorithm
 
 1. Require a normalized `PromptQueueState`, a bounded non-empty item ID, and a
    `ReviewEvidenceBundle`.
@@ -811,8 +808,8 @@ into success and must not create or repair approval metadata.
 
 #### 18.12.4 Snapshot And Staleness Boundary
 
-C0C-5 would be pure after evidence collection. It would perform no Git or
-filesystem read and therefore could only classify the captured C0C-2 snapshot.
+C0C-5 is pure after evidence collection. It performs no Git or filesystem read
+and therefore can only classify the captured C0C-2 snapshot.
 It must not claim that branch, HEAD, content, or whole-worktree status is still
 current after collection. The existing repeated collector reduces in-window
 races but cannot eliminate a mutation after its final sample.
@@ -822,9 +819,9 @@ or unattended workflow must define and implement its own current-state
 recollection or stale-evidence rejection before gaining authority. C0C-5 does
 not satisfy that later boundary.
 
-#### 18.12.5 Required Tests
+#### 18.12.5 Implemented Tests
 
-The first implementation unit must deterministically cover:
+Deterministic tests cover:
 
 - Safe replacement of exactly one selected item with project and item order
   preserved.
@@ -849,7 +846,12 @@ invocation, command execution, review/commit approval creation, staging,
 commit, push, pull request, Memory/Skills save, UI Save/Confirm, Voice Inbox
 auto-save, credential use, or external communication.
 
-Implementation must remain internal/tests-only and limited to the pure bridge
-and deterministic tests. Connecting its output to `build_hermes_session()`, the
-renderer pipeline, a route, UI, persistence, or any execution/approval flow is
-a separate scope gate.
+The implementation remains internal/tests-only and limited to the pure bridge
+and deterministic tests. `evaluate_review_evidence_in_queue()` validates queue
+identity consistency, calls C0C-4, replaces one selected item in a new immutable
+snapshot, and calls the existing evaluator exactly once. It returns evaluator
+blocking reasons without upgrading authority and raises `ValidationError`
+before evaluation when queue identity or evidence validation fails.
+
+Connecting its output to `build_hermes_session()`, the renderer pipeline, a
+route, UI, persistence, or any execution/approval flow is a separate scope gate.

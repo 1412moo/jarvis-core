@@ -427,8 +427,8 @@ still not implemented.
 ## Prompt Queue v0.1C-0C Whole-Worktree Evidence
 
 Status: v0.1C-0C-1 bounded collector, v0.1C-0C-2 composite bundle,
-v0.1C-0C-3 pure handoff decision, and v0.1C-0C-4 queue observation adapter
-implemented as internal/tests-only.
+v0.1C-0C-3 pure handoff decision, v0.1C-0C-4 queue observation adapter, and
+v0.1C-0C-5 pure queue observation evaluator implemented as internal/tests-only.
 
 v0.1C-0C keeps v0.1C-0B target-content evidence and adds a separate,
 bounded observation of the complete Git-visible working tree. A composite
@@ -475,24 +475,25 @@ scope, review, commit, prompt, and result metadata remain unchanged. Existing
 evidence, passed-review metadata, commit-approval metadata, unsafe status, and
 tampered bundles fail closed. The adapter performs no Git/filesystem read and
 does not normalize or mutate queue state, call the evaluator, create an approval
-binding, or expose route/UI/persistence/execution behavior. Actual queue-flow
-integration remains unimplemented and separately gated.
+binding, or expose route/UI/persistence/execution behavior. Queue persistence,
+renderer/execution, and approval-flow integration remain separately gated.
 
-### C0C-5 Queue Observation Evaluation Design
+### C0C-5 Queue Observation Evaluation
 
-Status: design-only; no C0C-5 application code is implemented.
+Status: implemented as internal/tests-only; no route, UI, or persistence is
+connected.
 
-The next bounded bridge would accept an already normalized in-memory
-`PromptQueueState`, one item ID, and a C0C-2 bundle. It would use C0C-4 to create
-a replacement review item, place only that item into a new immutable queue
-snapshot, run the existing `evaluate_queue_item()` against the new snapshot,
-and return both the snapshot and evaluation. An evaluator-blocked result would
-remain blocked and visible rather than becoming an exception or authorization.
+The bounded bridge accepts an already normalized in-memory `PromptQueueState`,
+one item ID, and a C0C-2 bundle. It uses C0C-4 to create a replacement review
+item, places only that item into a new immutable queue snapshot, runs the
+existing `evaluate_queue_item()` against the new snapshot, and returns both the
+snapshot and evaluation. An evaluator-blocked result remains blocked and visible
+rather than becoming an exception or authorization.
 
-This bridge would not read Git, recollect evidence, normalize untrusted JSON,
+This bridge does not read Git, recollect evidence, normalize untrusted JSON,
 mutate or persist queue state, create approval metadata, render or execute a
-prompt, or expose route/UI/network behavior. It would evaluate the captured
-evidence snapshot, not prove that the working tree is still current. Collection
+prompt, or expose route/UI/network behavior. It evaluates the captured evidence
+snapshot; it does not prove that the working tree is still current. Collection
 or stale-state revalidation at a later execution boundary remains separately
 gated.
 
