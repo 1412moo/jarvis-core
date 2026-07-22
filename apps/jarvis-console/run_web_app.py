@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from collections.abc import Mapping
 import hashlib
 import hmac
 import inspect
@@ -260,7 +261,22 @@ MEMORY_CANDIDATE_ID_PATTERN = re.compile(r"^mem_[a-f0-9]{12,32}$")
 MEMORY_REQUEST_GUARD_STATUS = "internal_tests_only"
 MEMORY_PREVIEW_TOKEN_SUBSYSTEM_STATUS = "internal_tests_only"
 MEMORY_GUARDED_SAVE_COORDINATOR_STATUS = "internal_tests_only"
+MEMORY_HTTP_METADATA_ADAPTER_STATUS = "internal_tests_only"
 MEMORY_SESSION_COOKIE_NAME = "jarvis_session"
+MEMORY_CSRF_HEADER_NAME = "X-Jarvis-CSRF"
+MEMORY_HTTP_METADATA_HEADER_MAP = {
+    "host": "host",
+    "origin": "origin",
+    "content-type": "content_type",
+    "cookie": "cookie",
+    MEMORY_CSRF_HEADER_NAME.lower(): "csrf",
+    "content-length": "content_length",
+}
+MEMORY_HTTP_METADATA_REQUIRED_HEADERS = frozenset(MEMORY_HTTP_METADATA_HEADER_MAP)
+MEMORY_HTTP_METADATA_MAX_HEADER_COUNT = 32
+MEMORY_HTTP_METADATA_MAX_HEADER_NAME_CHARS = 64
+MEMORY_HTTP_METADATA_MAX_HEADER_VALUE_CHARS = 4096
+MEMORY_HTTP_HEADER_NAME_PATTERN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 MEMORY_SESSION_IDLE_TTL_SECONDS = 30 * 60
 MEMORY_SESSION_MAX_ENTRIES = 64
 MEMORY_PREVIEW_TOKEN_TTL_SECONDS = 5 * 60
@@ -1112,6 +1128,7 @@ def memory_skills_payload() -> dict[str, Any]:
         "request_guard": MEMORY_REQUEST_GUARD_STATUS,
         "preview_token_subsystem": MEMORY_PREVIEW_TOKEN_SUBSYSTEM_STATUS,
         "guarded_save_coordinator": MEMORY_GUARDED_SAVE_COORDINATOR_STATUS,
+        "http_metadata_adapter": MEMORY_HTTP_METADATA_ADAPTER_STATUS,
         "persisted_original_text_preview": False,
         "preview_token_issuance": False,
         "ui_save_action": False,
@@ -1715,6 +1732,104 @@ class SessionRegistry:
                 return len(self._entries)
         except Exception:
             return 0
+
+
+def memory_http_metadata_error(status: HTTPStatus, error: str) -> tuple[int, dict[str, Any]]:
+    """Return a bounded raw-header adapter error without echoing header values."""
+
+    return status, {"ok": False, "error": error}
+
+
+def adapt_memory_guarded_http_metadata(
+    raw_headers: Any,
+    *,
+    max_body_bytes: int = MAX_JSON_BODY_BYTES,
+    max_header_count: int = MEMORY_HTTP_METADATA_MAX_HEADER_COUNT,
+) -> tuple[int, dict[str, Any]]:
+    """Adapt duplicate-preserving raw header pairs for internal/tests-only guard use."""
+
+    if (
+        isinstance(raw_headers, (str, bytes, bytearray, Mapping))
+        or not isinstance(max_body_bytes, int)
+        or isinstance(max_body_bytes, bool)
+        or max_body_bytes < 0
+        or not isinstance(max_header_count, int)
+        or isinstance(max_header_count, bool)
+        or max_header_count <= 0
+    ):
+        return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+
+    try:
+        iterator = iter(raw_headers)
+    except TypeError:
+        return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+
+    collected: dict[str, str] = {}
+    seen_security_headers: set[str] = set()
+    header_count = 0
+    try:
+        for item in iterator:
+            header_count += 1
+            if header_count > max_header_count:
+                return memory_http_metadata_error(
+                    HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE,
+                    "request_headers_too_large",
+                )
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+            raw_name, raw_value = item
+            if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+                return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+            if (
+                not raw_name
+                or len(raw_name) > MEMORY_HTTP_METADATA_MAX_HEADER_NAME_CHARS
+                or MEMORY_HTTP_HEADER_NAME_PATTERN.fullmatch(raw_name) is None
+                or len(raw_value) > MEMORY_HTTP_METADATA_MAX_HEADER_VALUE_CHARS
+                or raw_value != raw_value.strip()
+                or any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_value)
+            ):
+                return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+            try:
+                raw_name.encode("ascii", errors="strict")
+                raw_value.encode("ascii", errors="strict")
+            except UnicodeEncodeError:
+                return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+
+            name = raw_name.lower()
+            if name == "transfer-encoding":
+                return memory_http_metadata_error(
+                    HTTPStatus.BAD_REQUEST,
+                    "transfer_encoding_not_allowed",
+                )
+            metadata_key = MEMORY_HTTP_METADATA_HEADER_MAP.get(name)
+            if metadata_key is None:
+                continue
+            if name in seen_security_headers:
+                return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+            seen_security_headers.add(name)
+            collected[metadata_key] = raw_value
+    except Exception:
+        return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+
+    if seen_security_headers != MEMORY_HTTP_METADATA_REQUIRED_HEADERS:
+        return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+
+    raw_content_length = collected.pop("content_length")
+    if re.fullmatch(r"(?:0|[1-9][0-9]*)", raw_content_length) is None:
+        return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_content_length")
+    try:
+        content_length = int(raw_content_length)
+    except ValueError:
+        return memory_http_metadata_error(HTTPStatus.BAD_REQUEST, "invalid_content_length")
+    if content_length > max_body_bytes:
+        return memory_http_metadata_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request_too_large")
+
+    return HTTPStatus.OK, {
+        "ok": True,
+        "request_metadata": collected,
+        "content_length": content_length,
+        "header_count": header_count,
+    }
 
 
 class LocalRequestGuard:
@@ -3320,6 +3435,155 @@ def run_memory_request_guard_token_self_tests() -> None:
     assert before_status == after_status
 
 
+def run_memory_http_metadata_adapter_self_tests() -> None:
+    """Exercise duplicate-preserving raw metadata adaptation without HTTP routes."""
+
+    class DeterministicBytes:
+        def __init__(self) -> None:
+            self.counter = 0
+
+        def __call__(self, size: int) -> bytes:
+            self.counter += 1
+            seed = hashlib.sha256(f"jarvis-http-metadata-{self.counter}".encode("ascii")).digest()
+            return (seed * ((size + len(seed) - 1) // len(seed)))[:size]
+
+    before_status = run_read_only_git(("status", "--short"))
+    sessions = SessionRegistry(clock=lambda: 100.0, token_generator=DeterministicBytes())
+    session_status, session = sessions.issue()
+    assert session_status == HTTPStatus.OK
+    raw_headers = [
+        ("hOsT", f"{DEFAULT_HOST}:{DEFAULT_PORT}"),
+        ("Origin", f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"),
+        ("CONTENT-TYPE", "application/json; charset=utf-8"),
+        ("Cookie", f'{MEMORY_SESSION_COOKIE_NAME}={session["session_id"]}'),
+        (MEMORY_CSRF_HEADER_NAME, session["csrf_token"]),
+        ("Content-Length", "123"),
+        ("User-Agent", "Jarvis-Metadata-Self-Test"),
+    ]
+
+    valid_status, valid = adapt_memory_guarded_http_metadata(iter(raw_headers))
+    assert valid_status == HTTPStatus.OK
+    assert valid["ok"] is True
+    assert valid["content_length"] == 123
+    assert valid["header_count"] == len(raw_headers)
+    assert valid["request_metadata"] == {
+        "host": f"{DEFAULT_HOST}:{DEFAULT_PORT}",
+        "origin": f"http://{DEFAULT_HOST}:{DEFAULT_PORT}",
+        "content_type": "application/json; charset=utf-8",
+        "cookie": f'{MEMORY_SESSION_COOKIE_NAME}={session["session_id"]}',
+        "csrf": session["csrf_token"],
+    }
+    guard = LocalRequestGuard(DEFAULT_HOST, DEFAULT_PORT, sessions)
+    assert guard.validate(valid["request_metadata"])[0] == HTTPStatus.OK
+
+    def assert_adapter_error(
+        headers: Any,
+        expected_status: HTTPStatus,
+        expected_error: str,
+        **kwargs: Any,
+    ) -> None:
+        status, result = adapt_memory_guarded_http_metadata(headers, **kwargs)
+        assert status == expected_status
+        assert result == {"ok": False, "error": expected_error}
+        rendered = str(result)
+        assert session["session_id"] not in rendered
+        assert session["csrf_token"] not in rendered
+
+    security_header_names = tuple(MEMORY_HTTP_METADATA_REQUIRED_HEADERS)
+    for security_header_name in security_header_names:
+        matching = [item for item in raw_headers if item[0].lower() == security_header_name]
+        assert len(matching) == 1
+        assert_adapter_error(
+            [*raw_headers, matching[0]],
+            HTTPStatus.BAD_REQUEST,
+            "invalid_request_metadata",
+        )
+        assert_adapter_error(
+            [item for item in raw_headers if item[0].lower() != security_header_name],
+            HTTPStatus.BAD_REQUEST,
+            "invalid_request_metadata",
+        )
+
+    assert_adapter_error(dict(raw_headers), HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error("Host: value", HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error(None, HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error([*raw_headers, ("broken",)], HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error([*raw_headers, (123, "value")], HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error([*raw_headers, ("Bad Header", "value")], HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error([*raw_headers, ("X-Test", " leading")], HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error([*raw_headers, ("X-Test", "trailing ")], HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error([*raw_headers, ("X-Test", "line\r\nbreak")], HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error([*raw_headers, ("X-Test", "nul\x00value")], HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error([*raw_headers, ("X-Test", "한글")], HTTPStatus.BAD_REQUEST, "invalid_request_metadata")
+    assert_adapter_error(
+        [*raw_headers, ("X-Test", "x" * (MEMORY_HTTP_METADATA_MAX_HEADER_VALUE_CHARS + 1))],
+        HTTPStatus.BAD_REQUEST,
+        "invalid_request_metadata",
+    )
+    assert_adapter_error(
+        [*raw_headers, ("X" * (MEMORY_HTTP_METADATA_MAX_HEADER_NAME_CHARS + 1), "value")],
+        HTTPStatus.BAD_REQUEST,
+        "invalid_request_metadata",
+    )
+    assert_adapter_error(
+        [*raw_headers, ("Transfer-Encoding", "chunked")],
+        HTTPStatus.BAD_REQUEST,
+        "transfer_encoding_not_allowed",
+    )
+
+    def with_content_length(value: str) -> list[tuple[str, str]]:
+        return [
+            (name, value if name.lower() == "content-length" else header_value)
+            for name, header_value in raw_headers
+        ]
+
+    for invalid_length in ("", "-1", "+1", "01", "1.0", "1,1"):
+        assert_adapter_error(
+            with_content_length(invalid_length),
+            HTTPStatus.BAD_REQUEST,
+            "invalid_content_length",
+        )
+    assert_adapter_error(
+        with_content_length(str(MAX_JSON_BODY_BYTES + 1)),
+        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+        "request_too_large",
+    )
+    assert adapt_memory_guarded_http_metadata(with_content_length("0"))[1]["content_length"] == 0
+    assert adapt_memory_guarded_http_metadata(
+        with_content_length(str(MAX_JSON_BODY_BYTES))
+    )[1]["content_length"] == MAX_JSON_BODY_BYTES
+
+    too_many_headers = [
+        *raw_headers,
+        *[(f"X-Bounded-{index}", "value") for index in range(MEMORY_HTTP_METADATA_MAX_HEADER_COUNT)],
+    ]
+    assert_adapter_error(
+        too_many_headers,
+        HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE,
+        "request_headers_too_large",
+    )
+    assert_adapter_error(raw_headers, HTTPStatus.BAD_REQUEST, "invalid_request_metadata", max_header_count=0)
+    assert_adapter_error(raw_headers, HTTPStatus.BAD_REQUEST, "invalid_request_metadata", max_body_bytes=-1)
+    assert_adapter_error(
+        with_content_length("1"),
+        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+        "request_too_large",
+        max_body_bytes=0,
+    )
+
+    assert "adapt_memory_guarded_http_metadata" not in inspect.getsource(handle_post_api)
+    assert "adapt_memory_guarded_http_metadata" not in inspect.getsource(JarvisConsoleHandler)
+    assert handle_post_api(MEMORY_SAVE_ENDPOINT, {}) == (
+        HTTPStatus.NOT_FOUND,
+        {"ok": False, "error": "not_found"},
+    )
+    assert not (APP_ROOT / "state").exists()
+    assert not (REPO_ROOT / ".jarvis-local").exists()
+    assert not (REPO_ROOT / "memory" / "skills").exists()
+    after_status = run_read_only_git(("status", "--short"))
+    assert before_status == after_status
+
+
 def run_memory_guarded_save_coordinator_self_tests() -> None:
     """Verify the route-free one-claim coordinator only against temporary local state."""
 
@@ -3954,6 +4218,7 @@ def run_self_test() -> None:
     assert memory["request_guard"] == "internal_tests_only"
     assert memory["preview_token_subsystem"] == "internal_tests_only"
     assert memory["guarded_save_coordinator"] == "internal_tests_only"
+    assert memory["http_metadata_adapter"] == "internal_tests_only"
     assert memory["persisted_original_text_preview"] is False
     assert memory["preview_token_issuance"] is False
     assert memory["ui_save_action"] is False
@@ -3972,6 +4237,7 @@ def run_self_test() -> None:
     for candidate in memory["candidates"]:
         assert_memory_candidate_safety(candidate)
 
+    run_memory_http_metadata_adapter_self_tests()
     run_memory_request_guard_token_self_tests()
     run_memory_guarded_save_coordinator_self_tests()
 
