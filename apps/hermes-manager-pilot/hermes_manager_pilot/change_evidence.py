@@ -101,7 +101,7 @@ class LocalChangeEvidence:
 
 @dataclass(frozen=True)
 class WholeWorktreeStatusEvidence:
-    """Bounded Git-visible whole-worktree status without file contents."""
+    """Bounded Git-visible status artifact that contains no file contents."""
 
     project_id: str
     item_id: str
@@ -197,7 +197,7 @@ def collect_whole_worktree_status_evidence(
     project: ProjectCard,
     item: QueueItem,
 ) -> WholeWorktreeStatusEvidence:
-    """Collect stable whole Git-visible status without reading file contents."""
+    """Collect stable whole Git-visible status without returning file contents."""
 
     _validate_project_item(project, item)
     root = _validated_git_root(trusted_repo_root, project)

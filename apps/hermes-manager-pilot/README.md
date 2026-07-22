@@ -423,9 +423,10 @@ were a complete working-tree observation. A future design decision must define
 safe whole-repository coverage or another fail-closed mapping before any queue
 integration is implemented.
 
-## Prompt Queue v0.1C-0C Whole-Worktree Evidence Design
+## Prompt Queue v0.1C-0C Whole-Worktree Evidence
 
-Status: design-only; not implemented.
+Status: v0.1C-0C-1 bounded collector implemented as internal/tests-only;
+composite bundle and handoff remain design-only.
 
 v0.1C-0C keeps v0.1C-0B target-content evidence and proposes a separate,
 bounded observation of the complete Git-visible working tree. A composite
@@ -439,16 +440,19 @@ status must preserve every Git-visible changed path, including unexpected
 paths, so a fail-closed decision can explain why handoff is blocked. Ignored
 files and non-Git filesystem state remain outside the claim.
 
-The proposed collector would use fixed local read-only Git commands, sanitized
-environment settings, explicit output/entry/time limits, and repeated state
+C0C-1 uses fixed local read-only Git commands, sanitized environment settings,
+bounded pipe readers, explicit output/entry/time limits, and repeated state
 sampling. Exceeding a bound, encountering unsupported status, or observing a
-state change would block evidence creation. This is not an atomic filesystem
-snapshot and must document that residual race boundary.
+state change blocks evidence creation. It preserves unexpected paths and
+returns no file contents. Collector code does not explicitly open or hash
+out-of-target files, but Git may inspect working-tree files while computing
+status. The pure verifier performs no Git or filesystem read. This is not an
+atomic filesystem snapshot and retains that residual race boundary.
 
-No v0.1C-0C route, UI, persistence, evaluator integration, QueueItem mutation,
-approval authority, staging, commit execution, network call, or application
-code exists. Implementation requires separate approval because it expands Git
-read coverage from declared paths to the whole Git-visible working tree.
+C0C-1 adds no route, UI, persistence, evaluator integration, QueueItem mutation,
+approval authority, staging, commit execution, or network call. It is not yet
+combined with target-content evidence and must not populate queue observation
+fields. Composite bundle implementation is the next internal-only unit.
 
 ## Contract
 

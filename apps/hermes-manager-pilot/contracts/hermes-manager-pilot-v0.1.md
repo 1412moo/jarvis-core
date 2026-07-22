@@ -503,9 +503,11 @@ item's `observed_git_status`. Before integration, a separate design decision
 must define fail-closed whole-repository coverage or an equivalent safety model,
 plus stale-evidence handling and human approval authority.
 
-## 18. Prompt Queue v0.1C-0C Whole-Worktree Evidence Design
+## 18. Prompt Queue v0.1C-0C Whole-Worktree Evidence
 
-Status: design-only. No v0.1C-0C runtime primitive is implemented.
+Status: the v0.1C-0C-1 bounded whole-status collector and verifier are
+implemented as internal/tests-only primitives. Composite bundle and handoff
+layers remain design-only.
 
 ### 18.1 Problem
 
@@ -540,18 +542,19 @@ status—would be the only future candidate for `observed_git_status`.
 
 - Directly map `scoped_git_status` into `observed_git_status`: rejected because
   it would make an incomplete observation appear complete.
-- Hash or read the contents of every changed file: rejected because it expands
-  sensitive-content reads beyond approved target files. Whole-worktree evidence
-  contains paths and Git status only.
+- Explicitly open or hash every changed file in collector code: rejected because
+  it expands sensitive-content collection beyond approved target files.
+  Whole-worktree evidence contains paths and Git status only; the underlying
+  Git command may still inspect working-tree files while computing status.
 - Store only a clean/dirty boolean: rejected because it cannot identify
   protected, unexpected, staged, conflicted, renamed, or copied paths and is not
   reviewable.
 - Collect target and whole-worktree evidence in unrelated calls: rejected
   because state could change between artifacts without invalidating the bundle.
 
-### 18.4 Proposed Collection Algorithm
+### 18.4 Composite Collection Algorithm
 
-A future local collector would:
+A future composite collector would:
 
 1. Require the same explicitly trusted local absolute root and normalized
    project/item boundary as v0.1C-0B.
@@ -574,21 +577,22 @@ or cryptographic provenance.
 
 ### 18.5 Bounds And Failure Rules
 
-The first implementation must reuse conservative fixed limits for command
-duration, captured output, canonical bytes, path length, and status-entry count.
-It must terminate or reject output at the configured byte limit rather than
-accepting truncated status. Any limit violation produces no bundle.
+C0C-1 reuses conservative fixed limits for command duration, output, canonical
+bytes, path length, and status-entry count. Bounded pipe readers terminate the
+Git process when stdout or stderr exceeds the byte limit rather than accepting
+truncated status. Any limit violation produces no status artifact.
 
-Evidence creation must also fail for:
+Whole-status evidence creation fails for:
 
 - A branch, HEAD, or status change between samples.
 - Non-UTF-8, malformed, quoted, absolute, traversal, pathspec-magic, rename, or
   copy status that cannot be represented unambiguously.
-- Staged or conflicted changes before an approved commit workflow.
+- Staged or conflicted changes.
 - Missing declared known-untracked paths.
-- Target/status disagreement between the scoped manifest and complete status.
-- A protected target, symlink/reparse traversal in content targets, directory
-  target, unsupported submodule target, or content-size violation.
+
+Future composite evidence creation must additionally fail for target/status
+disagreement, a protected target, symlink/reparse traversal in content targets,
+directory or unsupported submodule targets, and content-size violations.
 
 Unexpected but well-formed out-of-scope paths must remain present in the
 whole-status artifact. They must produce blocking reasons and must never be
@@ -617,12 +621,37 @@ v0.1C-0C does not design or authorize:
 
 - Human identity, authenticated approval, signing, secrets, or one-time tokens.
 - Route, API, UI, persistence, background monitoring, or unattended execution.
-- Reading file contents outside exact approved targets.
+- Explicit content collection, hashing, or return outside exact approved
+  targets. Whole-status approval still permits Git's normal local working-tree
+  inspection required to compute status.
 - Staging, committing, pushing, pull requests, deletion, archive, or migration.
 - External API, LLM, network, or credential use.
 - Memory/Skills save, UI Save/Confirm, or Voice Inbox auto-save behavior.
 
-Implementation must be split into separately reviewable internal/tests-only
+Implementation remains split into separately reviewable internal/tests-only
 units: bounded whole-status collection, composite-bundle verification, and pure
-handoff decision. The first unit expands Git read coverage and therefore
-requires explicit approval before app-code changes.
+handoff decision. The first unit is implemented in v0.1C-0C-1. It does not
+authorize the remaining units or user-facing integration.
+
+### 18.8 v0.1C-0C-1 Implementation Boundary
+
+`collect_whole_worktree_status_evidence()` now collects branch, HEAD, and every
+Git-visible porcelain status entry without a pathspec. It binds an explicit
+`git-visible-whole-worktree` coverage marker and produces a domain-separated
+v0.1C-0C-1 digest. Collector code does not explicitly open or hash out-of-target
+files, and the artifact contains no file contents. The invoked Git status
+command may perform its normal local working-tree inspection.
+
+`verify_whole_worktree_status_evidence()` performs pure structural, canonical,
+and digest verification without Git or filesystem reads. The digest remains
+unkeyed and proves neither collector provenance nor human approval.
+
+The Git runner now bounds stdout and stderr while the process is running and
+terminates on overflow or timeout. Deterministic tests cover complete status,
+unexpected and protected paths, known untracked paths, no-content behavior,
+index stability, inherited safety settings, tampering, missing expected paths,
+staged state, collection races, entry limits, and exact/oversized pipe bounds.
+
+C0C-1 is not connected to C0B target evidence, the queue evaluator, approval
+bindings, routes, UI, persistence, or execution. Until a composite bundle is
+implemented and verified, its status and digest must not populate a queue item.
