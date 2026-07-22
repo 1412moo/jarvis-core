@@ -190,13 +190,15 @@ trusted root/command IDs, field and list bounds, duplicate values, portable
 relative paths, branch names, Unicode controls, and Windows path hazards. It
 does not read a registry file, open a repo, run Git, or connect to overview/UI.
 
-The next Project Control direction is a single-repo owner dashboard that makes
-Jarvis-Core's internal workstreams visible. Jarvis Console, Hermes Manager,
-Memory / Skills, Research Council, and Daily AI Radar are workstreams, apps, or
-capabilities inside Jarvis-Core, not separate projects. The intended read-only
-view summarizes why the current work exists, what the owner gains when it is
-complete, recent completion, current milestone, next step, locked features, and
-whether approval is needed.
+Project Control v0.1D now defines, but does not yet implement, a single-repo
+owner dashboard that makes Jarvis-Core's internal workstreams visible. Jarvis
+Console, Hermes Manager, Memory / Skills, Research Council, and Daily AI Radar
+are workstreams, apps, or capabilities inside Jarvis-Core, not separate
+projects. The planned read-only view puts why the current work exists and what
+the owner gains when it is complete ahead of technical codes, then summarizes
+recent completion, current milestone, next step, locked features, and whether
+approval is needed. See
+[`../../docs/project-control-single-repo-workstreams-v0.1-design.md`](../../docs/project-control-single-repo-workstreams-v0.1-design.md).
 
 ### Research Council
 

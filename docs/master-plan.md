@@ -64,8 +64,8 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Project Control v0.1C internal registry normalizer**
-- 현재 다음 작업: **Jarvis-Core 내부 workstream 가시성의 작은 vertical slice 설계**
+- 최근 완료: **Project Control v0.1D single-repo workstream visibility design**
+- 현재 다음 작업: **설계된 single-repo Owner Dashboard vertical slice 구현·검증**
 - 다음 사용자 체감 milestone: **내부 workstream별 상태·최근 완료·현재 milestone·
   다음 단계·잠긴 기능·승인 필요 여부를 보여주는 single-repo Owner Dashboard**
 - vertical slice 완료 기준: Jarvis-Core 한 저장소만 표시하고, 문서 방향과 live Git
@@ -118,9 +118,14 @@ flowchart LR
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Project Control — Jarvis-Core single-repo owner dashboard
-- Current milestone: Single-repo internal workstream visibility direction confirmed
-- Recommended next step: Design the single-repo internal workstream visibility vertical slice
+- Current milestone: Project Control v0.1D single-repo workstream visibility design complete
+- Recommended next step: Implement and verify the complete read-only single-repo vertical slice
 - Next user-visible milestone: 내부 workstream별 상태와 다음 결정을 보여주는 Owner Dashboard
+- Current reason: 흩어진 Jarvis-Core 내부 workstream 상태를 소유자가 문서별로 찾아보는 부담을 줄이기 위해 만든다
+- Owner outcome: 현재 이유·최근 완료·milestone·다음 단계·잠금·승인 필요 여부를 한 화면에서 이해한다
+- Recent completed: Project Control v0.1D single-repo workstream visibility design
+- Approval state: none
+- Approval note: 승인된 read-only single-repo 범위 안에서 다음 구현 work package를 진행할 수 있다
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
@@ -161,15 +166,14 @@ flowchart LR
     F --> G["단일 owner project card<br/>v0.1A 완료"]
     G --> H["multi-project contract<br/>v0.1B 보존"]
     H --> I["route-free normalizer<br/>v0.1C 보존"]
-    I --> J["single-repo workstream visibility<br/>현재 설계 단계"]
-    J --> K["내부 workstream Owner Dashboard<br/>후속 사용자 기능"]
+    I --> J["single-repo workstream visibility<br/>v0.1D design 완료"]
+    J --> K["내부 workstream Owner Dashboard<br/>현재 구현 단계"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I done;
-    class J current;
-    class K future;
+    class A,B,C,D,E,F,G,H,I,J done;
+    class K current;
 ```
 
 ### 구현된 기반
@@ -183,12 +187,19 @@ flowchart LR
 - 기존 `/api/overview` 안의 list-shaped `project_control.v0.1A` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
 
-### 최근 완료: Project Control v0.1C internal registry normalizer
+### 최근 완료: Project Control v0.1D single-repo workstream visibility design
 
-v0.1B contract를 `project_control_registry.py`의 route-free internal/tests-only
-primitive로 구현했다. 1~16개 프로젝트의 in-memory mapping을 immutable record로
-정규화하고 server-supplied trusted-root-key/validation-command-ID set에 없는 값은
-차단한다.
+`project-control-single-repo-workstreams-v0.1-design.md`에서 기존 master plan과
+`GET /api/overview`를 재사용하는 complete vertical slice를 확정했다. Owner
+Dashboard는 `현재 만드는 이유`와 `이 단계가 끝나면 사용자가 얻는 것`을 기술
+단계보다 먼저 보여주고, 내부 workstream 상태·최근 완료·현재 milestone·다음
+단계·잠긴 기능·승인 필요 여부를 한 개의 Jarvis-Core 카드 안에 표시한다. 이
+단계는 design-only이며 앱 코드나 UI 동작은 아직 바뀌지 않았다.
+
+기반으로 보존된 v0.1C는 v0.1B contract를 `project_control_registry.py`의
+route-free internal/tests-only primitive로 구현했다. 1~16개 프로젝트의 in-memory
+mapping을 immutable record로 정규화하고 server-supplied
+trusted-root-key/validation-command-ID set에 없는 값은 차단한다.
 
 unknown field, duplicate ID/path/command, traversal, drive/backslash, control
 character, hidden/non-Markdown master plan, Windows alternate stream/wildcard,
@@ -196,11 +207,11 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 다음 안전 단계: Jarvis-Core 내부 workstream 가시성 설계
+### 다음 안전 단계: complete read-only Owner Dashboard vertical slice
 
 Project Control의 현재 제품 방향은 Jarvis-Core 한 저장소만 보여주는 소유자
-대시보드다. 다음 work package에서는 아래 항목을 보여주는 가장 작은 read-only
-vertical slice의 source와 표시 계약을 먼저 설계한다.
+대시보드다. 다음 work package에서는 v0.1D 설계에 따라 아래 항목을 기존
+`GET /api/overview`와 Project Control tab에 구현하고 한 번에 검증한다.
 
 - Jarvis Console, Hermes Manager, Memory / Skills, Research Council, Daily AI
   Radar 등 내부 workstream의 제한된 목록
@@ -220,7 +231,7 @@ save도 계속 잠겨 있다.
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1A local browser 검증, v0.1B design·v0.1C dormant internal normalizer 완료 | owner project card와 fresh read-only work review | 내부 workstream 가시성 vertical slice 설계 |
+| Jarvis Console | Project Control v0.1D single-repo workstream visibility design 완료 | owner project card와 fresh read-only work review | complete read-only Owner Dashboard vertical slice 구현·검증 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
@@ -271,7 +282,8 @@ save도 계속 잠겨 있다.
 9. Project Control v0.1A는 단일 owner card를 검증하고 v0.1B는 source contract,
    v0.1C는 route-free internal normalizer를 완료했다. v0.1B/v0.1C는 연결하지
    않은 기반으로 보존하며, 현재 제품 방향은 Jarvis-Core 한 저장소의 내부
-   workstream 가시성이다.
+   workstream 가시성이다. v0.1D는 owner summary와 workstream 표의 source,
+   payload, UI, validation 계약을 design-only로 확정했다.
 
 ## 9. Milestone 보고 형식
 
@@ -319,6 +331,7 @@ save도 계속 잠겨 있다.
 - [Codex review read-only design](codex-review-read-only-v0.1-design.md)
 - [Codex review copy-only handoff design](codex-review-copy-handoff-v0.1-design.md)
 - [Project Control dormant multi-project source design](project-control-multi-project-source-v0.1-design.md)
+- [Project Control single-repo workstream visibility design](project-control-single-repo-workstreams-v0.1-design.md)
 - [Memory / Skills design](memory-skills-v0.1-design.md)
 - [Memory / Skills session bootstrap design](memory-skills-session-bootstrap-v0.1-design.md)
 - [Hermes Manager README](../apps/hermes-manager-pilot/README.md)

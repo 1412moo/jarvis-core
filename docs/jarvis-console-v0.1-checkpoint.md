@@ -155,6 +155,11 @@ projects. The next direction is to make their status, recent completion,
 current milestone, next step, locked features, and approval needs easier for a
 non-developer owner to understand.
 
+Project Control v0.1D has completed the design-only source, payload, UI, and
+validation contract for that single-repo view. No application behavior changed
+in the design step. The complete read-only vertical slice remains the next
+implementation candidate.
+
 Recent items are normalized with deterministic read-only metadata:
 
 - `item_id`
@@ -544,16 +549,16 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Single-repo Internal Workstream Visibility
+### A. Single-repo Internal Workstream Visibility Slice
 
 Priority: P1
 
-Design the smallest read-only vertical slice that shows Jarvis-Core's internal
-workstream status, recent completion, current milestone, next step, locked
-features, and approval need. Put plain-language `why this is being built` and
-`what the owner gets when this stage is complete` ahead of technical stage
-codes. Keep the dashboard single-repo and do not connect the dormant registry
-primitive to HTTP, UI, filesystem paths, or persistence in that design step.
+Implement and verify the complete v0.1D read-only vertical slice that shows
+Jarvis-Core's internal workstream status, recent completion, current milestone,
+next step, locked features, and approval need. Put plain-language `why this is
+being built` and `what the owner gets when this stage is complete` ahead of
+technical stage codes. Keep the dashboard single-repo and do not connect the
+dormant registry primitive to HTTP, UI, filesystem paths, or persistence.
 
 ### B. Planned Skill UX Polish
 
