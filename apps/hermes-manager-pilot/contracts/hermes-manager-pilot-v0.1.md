@@ -461,3 +461,44 @@ Before integration, a future design/review step must define the exact mapping
 from a current evidence snapshot to one queue transition, stale-evidence
 invalidation, and a separate human approval authority. Route, UI, persistence,
 and unattended execution remain out of scope until separately approved.
+
+## 17. Prompt Queue v0.1C-0B Evidence Integrity Boundary
+
+Prompt Queue v0.1C-0B supersedes the emitted v0.1C-0A evidence manifest version
+without expanding collection I/O. Project identity, item identity, and the
+declared repository path are exposed as typed evidence fields. The declared
+path is included in canonical bytes, and the evidence digest uses a new
+v0.1C-0B-specific domain prefix.
+
+`verify_local_change_evidence()` is a pure, in-memory structural verifier. It
+requires:
+
+- The supported evidence type and v0.1C-0B version.
+- Matching project and item identities and the normalized declared repository
+  path.
+- Local absolute declared and collected repository paths.
+- The expected branch and HEAD.
+- Exact, canonically ordered status-scope and target paths.
+- Canonical scoped Git status and status/target consistency.
+- Valid file or deletion metadata, per-file and aggregate bounds, and lowercase
+  SHA-256 content digests for files.
+- Canonical manifest bytes, matching byte size, and a matching
+  domain-separated evidence digest.
+
+Verification performs no Git command or filesystem read. It does not collect
+new evidence, modify a queue item, build an approval binding, or grant
+authority.
+Deterministic tests cover valid evidence, identity and scope drift, unsupported
+versions, non-local paths, protected targets, non-canonical status, target and
+manifest tampering, byte-size mismatch, and digest mismatch.
+
+The verifier establishes internal consistency only. Because the digest is
+unkeyed, it is not proof that the collector produced the manifest and remains
+neither authentication nor human approval. It adds no route, UI, persistence,
+network access, prompt execution, staging, commit, push, or pull request.
+
+The status in v0.1C-0B evidence remains deliberately scoped. It is not a
+complete working-tree observation and must not be mapped directly to the queue
+item's `observed_git_status`. Before integration, a separate design decision
+must define fail-closed whole-repository coverage or an equivalent safety model,
+plus stale-evidence handling and human approval authority.

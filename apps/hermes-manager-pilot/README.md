@@ -4,8 +4,8 @@ Hermes Manager Pilot is a Jarvis-Core app module for testing Hermes as a middle
 manager in the Jarvis-Core development workflow. It started as a v0.1
 design-only contract and now includes local-only v0.2-v0.4 helper tools plus
 internal Prompt Queue v0.1A, approval-binding v0.1B-1, and evaluator-enforcement
-v0.1B-2 primitives, plus the internal local change-evidence collector
-v0.1C-0A.
+v0.1B-2 primitives, plus internal local change-evidence collection v0.1C-0A
+and integrity verification v0.1C-0B.
 
 Hermes is not a coding worker. Hermes does not replace Codex. Hermes helps
 manage Codex work by preserving context, waiting for responses, summarizing
@@ -398,6 +398,30 @@ A future design/review step must define how current collector output could be
 bound to a queue transition and invalidated when state changes. Human approval
 authority and any route, UI, persistence, or unattended workflow remain
 separate and out of scope.
+
+## Prompt Queue v0.1C-0B Evidence Integrity Verification
+
+Prompt Queue v0.1C-0B supersedes the emitted evidence manifest version while
+retaining the v0.1C-0A collection boundary. The manifest now exposes project
+and item identity plus the declared repository path as typed fields and binds
+the declared path into canonical bytes under a new v0.1C-0B domain prefix.
+
+The new pure verifier checks type and version, project/item identity, local
+absolute repository paths, expected branch and HEAD, exact status scope and
+targets, canonical status ordering, target metadata bounds, canonical bytes and
+byte size, and the domain-separated digest. Verification reads neither Git nor
+the filesystem and does not modify the queue item.
+
+Integrity verification does not prove provenance. The digest is unkeyed, so a
+caller that constructs a new manifest can also compute a new digest. v0.1C-0B
+therefore remains internal/tests-only, non-authoritative, route-free, and
+disconnected from the queue evaluator and approval-binding chain.
+
+The collected Git status is still explicitly scoped to target files and known
+untracked paths. It must not be copied into `observed_git_status` as though it
+were a complete working-tree observation. A future design decision must define
+safe whole-repository coverage or another fail-closed mapping before any queue
+integration is implemented.
 
 ## Contract
 
