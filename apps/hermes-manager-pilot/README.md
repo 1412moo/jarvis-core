@@ -499,8 +499,10 @@ gated.
 
 ### C0C-6 Fresh Review Handoff
 
-Status: C0C-6a and C0C-6b are implemented as internal/tests-only. The session
-adapter is not connected to a renderer, route, UI, or persistence.
+Status: C0C-6a and C0C-6b remain internal/tests-only primitives. A separately
+approved Jarvis Console consumer now calls them through a write-free local
+preview route and displays bounded review-session fields. No Hermes renderer,
+route, or persistence was added.
 
 C0C-6 is split into two separately gated units. C0C-6a validates a C0C-5
 wrapper, rejects blocked or later-stage metadata before I/O, recollects one fresh
@@ -512,9 +514,10 @@ the exact review data and review-only safety conditions.
 
 The fresh decision is still a repeated local sample, not an atomic
 snapshot or authority to execute. No preview may be treated as commit approval,
-and a mutation after the final collection sample remains possible. Prompt
-rendering or display, route/UI/persistence, command execution, approval creation,
-and external communication remain unimplemented and separately gated.
+and a mutation after the final collection sample remains possible. Jarvis
+Console displays review fields only; prompt rendering, queue/session persistence,
+command execution, approval creation, and external communication remain
+unimplemented and separately gated.
 
 ## Contract
 

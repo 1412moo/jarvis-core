@@ -5,8 +5,9 @@ main UI. It is meant to feel closer to a ChatGPT/Codex-style command surface
 than a collection of separate files, CLI commands, and JSON fixtures.
 
 v0.1 is intentionally small. It shows the future console shape, skill tabs,
-deterministic skill suggestions, usage-card skill details, and safety
-boundaries. It does not run the other Jarvis apps automatically.
+deterministic skill suggestions, usage-card skill details, a fresh read-only
+Codex work review, and safety boundaries. It does not run the other Jarvis apps
+automatically.
 
 Skill cards, usage guides, and command suggestions are loaded from the read-only
 `skills.json` registry. The registry is display and routing metadata only; it
@@ -69,6 +70,10 @@ Included:
 - Skill detail usage cards for what it does, when to use it, next action,
   commands, docs, safety notes, and non-goals.
 - Copy command buttons that never execute commands.
+- A `Codex Review` tab that accepts one already scope-approved Hermes queue
+  snapshot and displays a freshly revalidated review session.
+- A write-free `POST /api/codex-review/preview` route fixed to the Jarvis-Core
+  repository root.
 - Read-only skill registry validation.
 - Local-only safety banner.
 - Status, skill detail, and suggestion API endpoints.
@@ -123,6 +128,28 @@ http://127.0.0.1:8787/
 ```
 
 Jarvis Console does not start Hermes Manager automatically.
+
+### Codex Review
+
+Purpose: show one current Codex work package only after the committed Hermes
+evidence chain confirms that the supplied review handoff still matches the local
+working tree.
+
+The user manually pastes a complete, already scope-approved Hermes queue JSON
+snapshot and enters its review item ID. Jarvis Console normalizes the queue,
+collects bounded local evidence, evaluates the observed item, performs C0C-6a
+fresh revalidation, builds the C0C-6b review-only `SessionState`, and returns a
+bounded presentation payload.
+
+The preview route is local-only and write-free. It fixes filesystem authority to
+the Jarvis-Core root and does not return raw file contents, evidence bytes,
+approval digests, a rendered prompt, or a commit message. Invalid, stale,
+out-of-scope, staged, or otherwise blocked handoffs display blocking reasons and
+no review session.
+
+The tab does not persist the pasted queue, evidence, session, or result. It does
+not create approval, render or execute a prompt, invoke Codex/ChatGPT/Hermes,
+stage, commit, push, or call an external service.
 
 ### Research Council
 
@@ -194,6 +221,8 @@ Jarvis Console v0.1 is a shell, not an autonomous executor.
   approval.
 - It treats Research Council reports as decision support, not final proof.
 - It treats Hermes Manager as workflow coordination, not a Codex replacement.
+- It treats a fresh Codex review session as inspection data, not review approval
+  or execution authority.
 - Human approval is required before implementation, commit, push, or any
   external action.
 
@@ -207,10 +236,14 @@ Possible later phases:
 
 1. Add richer registry metadata such as icons, examples, and handoff contracts.
 2. Add local report preview forms for existing deterministic renderers.
-3. Add an approval queue with explicit human approval states.
-4. Consider deeper worker handoff integration only after separate design and
+3. Add a copy-only Hermes-to-Jarvis review handoff so the user does not need to
+   construct queue JSON manually.
+4. Consider an approval queue only after a separate human-approval design.
+5. Consider deeper worker handoff integration only after separate design and
    review.
 
 See also [../../docs/jarvis-console.md](../../docs/jarvis-console.md).
+See the read-only review design at
+[../../docs/codex-review-read-only-v0.1-design.md](../../docs/codex-review-read-only-v0.1-design.md).
 See the registry contract at
 [contracts/skill-registry-v0.1.md](contracts/skill-registry-v0.1.md).

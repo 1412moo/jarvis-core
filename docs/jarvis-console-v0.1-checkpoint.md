@@ -4,7 +4,9 @@ Last updated: 2026-07-22
 
 ## Summary
 
-Jarvis Console v0.1 is the current local browser shell, skill hub, read-only operations dashboard, read-only checkpoint/history view, and text-only Voice Inbox for Jarvis.
+Jarvis Console v0.1 is the current local browser shell, skill hub, read-only
+operations dashboard, read-only checkpoint/history view, text-only Voice Inbox,
+and fresh Codex work review surface for Jarvis.
 
 It provides:
 
@@ -17,14 +19,16 @@ It provides:
 - Recent item grouping for tasks, reports, checkpoints, docs, examples, configs, and related metadata.
 - Checkpoints / History view with recent commits, checkpoint docs, related reports/examples, and read-only history discovery rules.
 - Voice Inbox v0.1 for turning pasted voice-like transcripts or rough thoughts into task candidates and manual skill handoffs.
+- Codex Review for revalidating one already scope-approved Hermes queue snapshot
+  and displaying a bounded review-only session.
 
 Jarvis Console does not execute skills automatically. It suggests, prepares, and displays handoffs; it is a starting point and operations dashboard, not an autonomous runner.
 
 ## Current HEAD / Status
 
-- HEAD: `199672b`
-- Commit: `jarvis-console: polish voice inbox task capture`
-- Expected working tree after this checkpoint update: this document modified, plus `?? jarvis.bat`
+- Verified implementation HEAD: `666bde6831d9a7d1edd35bc1ebe5fd5bfe621f0a`
+- Commit: `jarvis-console: add read-only codex review slice`
+- Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
 ## Current Capabilities
@@ -153,6 +157,25 @@ The `/api/history` endpoint returns read-only metadata only:
 
 History rendering escapes commit subjects, file titles, summaries, paths, and metadata before insertion into the page. The view has no open, edit, delete, commit, or push buttons.
 
+### Codex Review Read-only Vertical Slice
+
+- `POST /api/codex-review/preview` is a local-only, write-free preview route.
+- Input is one complete Hermes queue snapshot plus a selected review item ID.
+- The input must already contain a current scope approval and must not contain
+  prior change evidence, review approval, or commit-stage metadata.
+- The HTTP handler fixes the trusted filesystem root to Jarvis-Core; the request
+  cannot select another repository.
+- The route runs C0C-2 collection, C0C-5 evaluation, C0C-6a fresh revalidation,
+  and C0C-6b review-session construction before returning presentation fields.
+- Success shows goal, task, branch, HEAD, working-tree summary, changed/target
+  files, validation commands, next action, and explicit disabled authority.
+- Raw target contents, evidence bytes/digests, full repository root, rendered
+  prompts, approval creation, commit messages, and execution actions are absent.
+- Invalid, stale, out-of-scope, staged, or blocked handoffs return no displayable
+  review session.
+- The browser escapes all supplied values and has no approve, execute, save,
+  commit, or push control.
+
 ## Connected Skills
 
 ### Hermes Manager
@@ -161,6 +184,8 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
 - Provides copy-only launch commands.
 - Provides a local URL handoff to `http://127.0.0.1:8787/`.
 - Verified end-to-end from Jarvis Console suggestion to Hermes Manager local handoff.
+- The separate `Codex Review` tab now consumes the approved C0C-6 chain through
+  a manual, write-free queue-snapshot handoff; Hermes is still not invoked.
 
 ### Research Council
 
@@ -377,6 +402,8 @@ Server and API checks passed:
 - `/api/history` returned grouped read-only history metadata.
 - `/api/suggest-skill` returned the expected routing matrix.
 - `/api/skill?skill_id=hermes_manager` returned the Hermes Manager detail payload.
+- `/api/codex-review/preview` produced one bounded review payload for a temporary
+  local Git change and blocked unsafe variants without a session.
 
 Manual browser checks passed:
 
@@ -388,10 +415,11 @@ Manual browser checks passed:
 - Checkpoints / History rendered Recent Commits, Checkpoint Docs, Related Reports / Examples, Safety Notes, and Read-only History Discovery.
 - No open, edit, delete, commit, or push buttons were present in read-only dashboards.
 - Unsafe-looking HTML-like text is rendered through escaped/text-safe paths, not as executable HTML.
+- Codex Review showed its empty and blocked states with permanent no-save,
+  no-approval, no-render, no-execution wording and zero browser console errors.
 
 Regression commands passed:
 
-- `python -B -m py_compile apps\jarvis-console\run_web_app.py apps\jarvis-console\run_smoke_tests.py`
 - `python -B apps\jarvis-console\run_web_app.py --self-test`
 - `python -B apps\jarvis-console\run_smoke_tests.py`
 - `python -B apps\hermes-manager-pilot\run_smoke_tests.py`
@@ -415,6 +443,8 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 - Memory / Skills remains a proposal surface; any live save route or UI action
   requires a separate explicit decision.
+- Codex Review still requires manual construction/paste of a valid approved
+  Hermes queue snapshot; a copy-only Hermes export is the next usability gap.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
 - Tasks / Reports grouping refinement: grouping can become more precise as real task/report/checkpoint indexes appear.
 - History/checkpoint index refinement: a structured checkpoint index would make history grouping more intentional than filename markers alone.
@@ -428,31 +458,39 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Planned Skill UX Polish
+### A. Copy-only Hermes To Jarvis Review Handoff
+
+Priority: P1
+
+Generate the exact queue JSON required by Codex Review from Hermes Manager and
+let the user copy it manually. Do not add cross-server calls, persistence,
+approval creation, prompt execution, commit, or push.
+
+### B. Planned Skill UX Polish
 
 Priority: P1
 
 Clarify planned skills that have no command yet. Show a first-class `No command yet` state and avoid generic handoff steps for planned-only capabilities.
 
-### B. Template vs Report Item Type Separation
+### C. Template vs Report Item Type Separation
 
 Priority: P1
 
 Separate generated reports, sample reports, and report templates so Recent Reports and History views read less like mixed file inventories.
 
-### C. History / Checkpoint Index Refinement
+### D. History / Checkpoint Index Refinement
 
 Priority: P2
 
 Introduce a read-only checkpoint index once checkpoint metadata becomes stable. Keep discovery read-only and approval-gated.
 
-### D. Tasks / Reports Grouping Refinement
+### E. Tasks / Reports Grouping Refinement
 
 Priority: P2
 
 Improve source-area and item-type inference as real task, report, and checkpoint indexes become available.
 
-### E. Memory / Skills Next Safety Decision
+### F. Memory / Skills Next Safety Decision
 
 Priority: P2
 
@@ -462,25 +500,25 @@ privacy/redaction, confirmation, recovery, and HTTP-test conditions required
 before reconsidering a live approval-gated save route. Keep the current request
 guard/token primitives route-free until separately approved.
 
-### F. Skill Detail Visual Polish
+### G. Skill Detail Visual Polish
 
 Priority: P2
 
 Improve the visual hierarchy of detail cards, command blocks, docs, safety notes, and non-goals while preserving copy-only behavior.
 
-### G. Voice Inbox Refinement
+### H. Voice Inbox Refinement
 
 Priority: P2
 
 Move unknown guidance and handoff examples toward registry-backed metadata while keeping Voice Inbox text-only, local-first, and approval-oriented.
 
-### H. Daily AI Radar Source Collection
+### I. Daily AI Radar Source Collection
 
 Priority: P3
 
 Add real source collection later only behind explicit user approval and a clear external-network boundary.
 
-### I. Hermes / Codex Automation
+### J. Hermes / Codex Automation
 
 Priority: P3
 

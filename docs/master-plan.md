@@ -14,9 +14,9 @@
 
 ### 현재 만드는 것
 
-Codex가 작업을 끝냈다고 보고했을 때 실제 파일 상태가 그 보고와 같은지
-다시 확인하고, 안전 검증을 통과한 review session만 읽기 전용 화면으로
-전달하는 첫 사용자 체감 흐름을 만들고 있다.
+안전 검증을 통과한 Codex review session을 Jarvis Console의 읽기 전용 화면에서
+확인하는 기능과 임시 저장소 통합 검증을 완료했다. 이제 사람이 queue JSON을
+직접 구성하는 마찰을 줄이고 실제 Codex 작업의 성공 경로를 검증하려 한다.
 
 ### 이 작업 축이 끝나면 가능한 것
 
@@ -34,7 +34,7 @@ Codex가 작업을 끝냈다고 보고했을 때 실제 파일 상태가 그 보
 ```text
 운영 기반       ████░  사용자 기능
 역할별 앱       ████░  사용자 기능
-안전 작업 운영  ██░░░  내부 구현 — 현재 활성
+안전 작업 운영  ████░  사용자 기능 — 실사용 검증 대기
 Memory / Skills ██░░░  내부 구현 — 저장 잠금
 통합 Console    █░░░░  설계·기반
 홈서버 / 모바일 █░░░░  장기 설계
@@ -52,12 +52,12 @@ Memory / Skills ██░░░  내부 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **검토 세션 연결 — C0C-6b**
-- 현재 다음 작업: **Codex 작업 읽기 전용 검토 화면**
-- 다음 사용자 체감 milestone: **Codex 작업 읽기 전용 검토 화면**
+- 최근 완료: **읽기 전용 검토 화면 구현과 임시 저장소 통합 검증**
+- 현재 다음 작업: **Hermes → Jarvis copy-only handoff와 실제 작업 검증**
+- 다음 사용자 체감 milestone: **실제 Codex 작업을 JSON 수작업 없이 열어 검토하기**
 - vertical slice 완료 기준: 실제 Codex 작업 하나가 수집, 범위 검사, 최신성
   재확인, 검토 화면 표시까지 로컬에서 end-to-end로 통과함
-- 현재 결정 필요: 읽기 전용 검토 화면 vertical slice 범위 승인
+- 현재 결정 필요: copy-only Hermes handoff 설계·구현 승인
 
 ### 언제부터 실제로 편해지는가
 
@@ -99,17 +99,18 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-22
-- Verified implementation HEAD: `79af8a1237c4edbdba73d74184243beb9545224a`
+- Verified implementation HEAD: `666bde6831d9a7d1edd35bc1ebe5fd5bfe621f0a`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Hermes Manager의 안전한 Codex 작업 운영
-- Current milestone: 검토 세션 연결 — C0C-6b 구현·검증 완료
-- Recommended next implementation: Codex 작업 읽기 전용 검토 화면 vertical slice
-- Next user-visible milestone: Codex 작업 읽기 전용 검토 화면
+- Current milestone: 읽기 전용 검토 화면 구현과 임시 저장소 통합 검증 완료
+- Recommended next implementation: copy-only Hermes handoff와 실제 작업 성공 경로 검증
+- Next user-visible milestone: 실제 Codex 작업의 수동 JSON 구성 없는 검토
 
-현재 내부 기반은 사용자 기능에 아직 직접 연결되지 않았다. C0C-6b까지 필요한
-내부 단위를 마쳤으므로 primitive를 더 늘리기보다 read-only 검토 화면 vertical
-slice를 우선한다.
+Jarvis Console은 승인된 Hermes queue snapshot을 받아 현재 저장소를 다시
+검증하고 read-only review session을 표시한다. 임시 저장소 기반 통합 검증은
+통과했지만 실제 Codex 작업의 성공 화면 검증은 남았다. 다음은 자동 호출이
+아니라 Hermes가 정확한 snapshot을 만들고 사용자가 직접 복사하는 단계다.
 
 ## 3. 전체 단계
 
@@ -117,7 +118,7 @@ slice를 우선한다.
 | --- | --- | --- | --- | --- |
 | 0. 운영 기반 | 작업·승인·결과를 같은 규칙으로 지시하고 보고받음 | task, 승인, 상태 전이, 보고 계약 | 사용자 기능 | 반복 실사용 검증 |
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
-| 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, fresh handoff, read-only 검토 화면 | **내부 구현 — 현재 활성** | read-only vertical slice |
+| 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, fresh handoff, read-only 검토 화면 | **사용자 기능 — 실사용 검증 대기** | copy-only handoff와 실제 작업 검증 |
 | 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 내부 구현, 저장 잠금 | Phase 2C-3c reopen 조건 |
 | 4. 통합 Jarvis Console | 여러 프로젝트의 검토·승인·보고를 한 화면에서 관리함 | read-only부터 확장하는 local control panel | 설계·기반 | 2·3단계 안전 계약 안정화 |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
@@ -134,13 +135,14 @@ flowchart LR
     D --> E["검토 가능 여부 분류<br/>C0C-5"]
     E --> F["작업 최신성 재확인<br/>C0C-6a"]
     F --> G["검토 세션 연결<br/>C0C-6b"]
-    G --> H["읽기 전용 검토 화면<br/>first vertical slice"]
+    G --> H["읽기 전용 검토 화면<br/>구현·통합 검증"]
+    H --> I["copy-only Hermes handoff<br/>실제 작업 검증"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G done;
-    class H current;
+    class A,B,C,D,E,F,G,H done;
+    class I current;
 ```
 
 ### 구현된 기반
@@ -155,35 +157,40 @@ flowchart LR
 - observation queue를 기존 evaluator로 분류하는 C0C-5 pure bridge
 - 실제 working tree를 다시 수집해 stale observation을 차단하는 C0C-6a
 - fresh preview만 exact review-only `SessionState`로 변환하는 C0C-6b
+- approved queue를 다시 검증해 bounded session fields만 표시하는 Jarvis Console
+  read-only 화면과 임시 저장소 통합 검증
 
-### 현재 작업: Codex 작업 읽기 전용 검토 화면
+### 최근 완료: 읽기 전용 검토 화면 구현과 임시 저장소 통합 검증
 
 C0C-6a는 Codex 보고 이후 실제 working tree가 달라졌는지 다시 확인하고,
 C0C-6b는 그 검증을 통과한 preview만 기존 로컬 review `SessionState`로
 안전하게 변환한다. 두 단위는 internal/tests-only로 완료됐다.
 
-다음 work package는 새 primitive가 아니라 실제 Codex 작업을 읽기 전용으로
-보여주는 최소 vertical slice다. 화면 연결은 아직 구현되지 않았으며 새 route/UI
-범위이므로 소유자 승인 전에는 시작하지 않는다.
+Jarvis Console의 write-free POST preview와 `Codex Review` 탭이 구현됐다. 임시
+로컬 Git fixture가 수집, 범위 검사, 최신성 재확인, review session, bounded 화면
+payload까지 통과했다. 브라우저 DOM과 차단 화면도 확인했고 범위 밖·staged·stale
+입력은 session 없이 차단됐다. 실제 Codex 작업의 성공 화면 실사용 검증은 남았다.
 
-### 다음 사용자 체감 milestone
+### 현재 다음 작업: copy-only handoff와 실제 작업 검증
 
-실제 Codex 작업 하나를 대상으로 다음 흐름을 end-to-end로 검증한다.
+현재 화면은 이미 승인된 Hermes queue JSON을 사람이 직접 구성·붙여넣어야 한다.
+다음 단계는 Hermes가 정확한 handoff JSON을 만들고 사용자가 명시적으로 복사한
+뒤, 실제 Codex 작업 하나의 성공 화면까지 검증하는 흐름이다.
 
 ```text
-작업 결과 수집 → 범위 검사 → 최신성 재확인 → review session → read-only 화면
+Hermes queue → 사용자가 Copy → Jarvis Console Paste → fresh read-only review
 ```
 
-이 화면은 검토 정보만 보여주며 승인 생성, 명령 실행, 자동 commit 또는 외부
-호출을 하지 않는다.
+서버 간 자동 호출, persistence, 승인 생성, prompt 실행, 자동 commit/push는
+추가하지 않는다. 이 새 UI 범위는 소유자 승인 전에는 구현하지 않는다.
 
 ## 5. 작업 축별 상태
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
-| Hermes Manager | 검토 세션 연결(C0C-6b)까지 내부 구현 완료 | 기존 수동 prompt drafting UI | Codex 작업 read-only 검토 slice |
+| Hermes Manager | C0C-6b와 Jarvis read-only consumer의 임시 저장소 검증 완료 | 기존 수동 prompt drafting UI | copy-only handoff와 실제 작업 검증 |
 | Memory / Skills | Phase 2B preview와 2C-0/1/2/3a/3b 내부 primitive 구현 | write-free preview | Phase 2C-3c reopen 조건 설계 |
-| Jarvis Console | 로컬 skill hub, read-only dashboard/history, text Voice Inbox | 로컬 browser shell | Codex 작업 read-only 검토 slice 범위 검토 |
+| Jarvis Console | Codex Review 화면 구현·통합 검증 완료 | fresh read-only work review | 실제 작업 성공 화면 검증 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
@@ -227,6 +234,8 @@ C0C-6b는 그 검증을 통과한 preview만 기존 로컬 review `SessionState`
 4. C0C-6a 이후 허용된 다음 내부 단위는 C0C-6b 하나다.
 5. C0C-6b 다음 기본 작업은 `Codex 작업 읽기 전용 검토 화면`이다.
 6. vertical slice는 실제 로컬 작업 하나로 end-to-end 검증해야 완료로 기록한다.
+7. read-only 화면 구현과 임시 저장소 통합 검증은 완료됐다. 실제 작업 기반
+   완료 기준은 자동 연결이 아닌 copy-only handoff와 함께 검증한다.
 
 ## 9. Milestone 보고 형식
 
@@ -271,6 +280,7 @@ C0C-6b는 그 검증을 통과한 preview만 기존 로컬 review `SessionState`
 - [Architecture](architecture.md)
 - [Jarvis development loop](jarvis-dev-loop.md)
 - [Jarvis Console checkpoint](jarvis-console-v0.1-checkpoint.md)
+- [Codex review read-only design](codex-review-read-only-v0.1-design.md)
 - [Memory / Skills design](memory-skills-v0.1-design.md)
 - [Hermes Manager README](../apps/hermes-manager-pilot/README.md)
 - [Hermes Manager contract](../apps/hermes-manager-pilot/contracts/hermes-manager-pilot-v0.1.md)

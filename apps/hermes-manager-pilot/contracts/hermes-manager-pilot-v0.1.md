@@ -863,8 +863,10 @@ route, UI, persistence, or any execution/approval flow is a separate scope gate.
 
 Status: the C0C-6a fresh blocked-or-preview decision is implemented as
 internal/tests-only. The C0C-6b review-session adapter is also implemented as
-internal/tests-only. No renderer connection, prompt display, route, UI, or
-persistence is implemented.
+internal/tests-only. A separately approved Jarvis Console consumer now exposes a
+write-free local preview route and bounded read-only session display. No Hermes
+renderer connection, prompt display, approval creation, or persistence is
+implemented.
 
 #### 18.13.1 Problem
 
@@ -887,8 +889,8 @@ C0C-6 is divided into two separately reviewable units:
    persist, or communicate externally.
 
 This split keeps the Git/filesystem revalidation boundary separate from session
-adaptation, and keeps both internal units separate from future renderer or UI
-integration.
+adaptation. The later Jarvis Console consumer composes these units without
+changing either primitive's authority.
 
 #### 18.13.3 Implemented C0C-6a Interface
 
@@ -1057,5 +1059,14 @@ and verifies one fresh C0C-2 bundle for actionable review, and returns a preview
 only for exact digest/branch/HEAD/status agreement. The second accepts only that
 validated preview and returns an exact review-only `SessionState`.
 
-Connecting the C0C-6b result to any renderer, route, UI, persistence, or session
-consumer requires a new explicit scope approval.
+The separately approved Jarvis Console v0.1 consumer is limited to one
+write-free local preview route. It accepts a caller-supplied, already
+scope-approved queue snapshot, fixes filesystem authority to the Jarvis-Core
+root, re-runs C0C-2/C0C-5/C0C-6a/C0C-6b, and displays only bounded review-session
+fields. It does not persist the input or output, create approval metadata, return
+raw target contents or evidence bytes, render a prompt, execute a command, or
+enable commit/push authority.
+
+Any broader renderer, persistence, automatic handoff, approval, execution,
+arbitrary-repository, or external consumer still requires a new explicit scope
+approval.

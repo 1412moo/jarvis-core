@@ -1,5 +1,9 @@
 # Codex Review Read-Only Vertical Slice v0.1
 
+Status: implemented and locally verified on 2026-07-22.
+
+Implementation commit: `666bde6831d9a7d1edd35bc1ebe5fd5bfe621f0a`.
+
 ## 1. Owner Outcome
 
 Jarvis Console should show one current Codex work package only after the existing
@@ -104,3 +108,15 @@ Out of scope:
    write-free preview and exposes no approval or execution action.
 5. Existing Memory / Skills and Voice Inbox safety tests remain unchanged and
    passing.
+
+## 7. Verification Result
+
+- Jarvis Console smoke tests passed with a real temporary Git change traversing
+  C0C-2, C0C-5, C0C-6a, C0C-6b, and the presentation payload.
+- Out-of-scope, staged, malformed, and stale-scope inputs returned no review
+  session.
+- The Hermes Manager full smoke suite and JavaScript syntax check passed.
+- Local browser QA confirmed the new tab, empty state, blocked state, permanent
+  safety wording, and zero browser console errors.
+- The test server was stopped; no listener, generated runtime state, or saved
+  queue/session/evidence remained.
