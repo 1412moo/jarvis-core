@@ -358,6 +358,8 @@ def main() -> None:
     assert memory["candidate_write_helper"] == "tests_only"
     assert memory["request_guard"] == "internal_tests_only"
     assert memory["preview_token_subsystem"] == "internal_tests_only"
+    assert memory["guarded_save_coordinator"] == "internal_tests_only"
+    assert memory["persisted_original_text_preview"] is False
     assert memory["preview_token_issuance"] is False
     assert memory["ui_save_action"] is False
     assert memory["voice_inbox_auto_save"] is False
@@ -725,6 +727,7 @@ def main() -> None:
         assert endpoint_stored_candidate["redaction_status"] == "user_confirmed"
         assert endpoint_stored_candidate["suggested_skill_id"] == "memory_skills"
         for forbidden_field in (
+            "original_text_preview",
             "original_text",
             "raw_transcript",
             "full_transcript",
@@ -908,6 +911,7 @@ def main() -> None:
         assert stored_candidate["user_approved_at"] == fixed_timestamp
         assert stored_candidate["redaction_status"] == "user_confirmed"
         assert stored_candidate["suggested_skill_id"] == "memory_skills"
+        assert "original_text_preview" not in stored_candidate
         assert "original_text" not in stored_candidate
         assert "raw_transcript" not in stored_candidate
         assert "full_transcript" not in stored_candidate

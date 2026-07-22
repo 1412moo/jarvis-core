@@ -212,11 +212,11 @@ MEMORY_SKILLS_ALLOWED_ACTIONS = (
     "Open Skill Details",
 )
 MEMORY_SKILLS_UNAVAILABLE_ACTIONS = (
-    "State changes are not available from the UI in Phase 2C-3a.",
-    "Local persistence is not available from the UI in Phase 2C-3a.",
-    "Save actions are not available from the UI in Phase 2C-3a.",
-    "Skill creation is not available in Phase 2C-3a.",
-    "Tool or command launch is not available in Phase 2C-3a.",
+    "State changes are not available from the UI.",
+    "Local persistence is not available from the UI.",
+    "Save actions are not available from the UI.",
+    "Skill creation is not available from the UI.",
+    "Tool or command launch is not available from the UI.",
 )
 MEMORY_PREVIEW_ENDPOINT = "/api/memory-skills/candidates/preview"
 MEMORY_SAVE_ENDPOINT = "/api/memory-skills/candidates"
@@ -259,12 +259,15 @@ MEMORY_CANDIDATE_TEMP_CREATE_ATTEMPTS = 3
 MEMORY_CANDIDATE_ID_PATTERN = re.compile(r"^mem_[a-f0-9]{12,32}$")
 MEMORY_REQUEST_GUARD_STATUS = "internal_tests_only"
 MEMORY_PREVIEW_TOKEN_SUBSYSTEM_STATUS = "internal_tests_only"
+MEMORY_GUARDED_SAVE_COORDINATOR_STATUS = "internal_tests_only"
 MEMORY_SESSION_COOKIE_NAME = "jarvis_session"
 MEMORY_SESSION_IDLE_TTL_SECONDS = 30 * 60
 MEMORY_SESSION_MAX_ENTRIES = 64
 MEMORY_PREVIEW_TOKEN_TTL_SECONDS = 5 * 60
 MEMORY_PREVIEW_TOKEN_MAX_ENTRIES = 128
 MEMORY_PREVIEW_TOKEN_PER_SESSION_MAX_ENTRIES = 8
+MEMORY_GUARDED_SAVE_CONFIRMATION = "save_local_candidate"
+MEMORY_GUARDED_SAVE_ALLOWED_FIELDS = frozenset({"preview_token", "confirmation"})
 MEMORY_SECRET_BYTES = 32
 MEMORY_SECRET_CREATE_ATTEMPTS = 3
 MEMORY_SECRET_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43,}$")
@@ -1108,6 +1111,8 @@ def memory_skills_payload() -> dict[str, Any]:
         "candidate_write_helper": "tests_only",
         "request_guard": MEMORY_REQUEST_GUARD_STATUS,
         "preview_token_subsystem": MEMORY_PREVIEW_TOKEN_SUBSYSTEM_STATUS,
+        "guarded_save_coordinator": MEMORY_GUARDED_SAVE_COORDINATOR_STATUS,
+        "persisted_original_text_preview": False,
         "preview_token_issuance": False,
         "ui_save_action": False,
         "voice_inbox_auto_save": False,
@@ -1873,11 +1878,19 @@ class PreviewTokenRegistry:
         for digest in expired:
             self._entries.pop(digest, None)
 
-    def issue(self, session_id: Any, candidate_preview: Any) -> tuple[int, dict[str, Any]]:
+    def issue(
+        self,
+        session_id: Any,
+        candidate_preview: Any,
+        *,
+        privacy_reviewed: Any = False,
+    ) -> tuple[int, dict[str, Any]]:
         """Issue one token bound to a validated server-stored canonical snapshot."""
 
         if not memory_secret_token_is_valid(session_id):
             return memory_internal_subsystem_error(HTTPStatus.FORBIDDEN, "request_verification_failed")
+        if privacy_reviewed is not True:
+            return memory_internal_subsystem_error(HTTPStatus.BAD_REQUEST, "privacy_review_required")
         snapshot_status, snapshot_result = canonicalize_memory_candidate_snapshot(candidate_preview)
         if snapshot_status != HTTPStatus.OK:
             return snapshot_status, snapshot_result
@@ -2024,7 +2037,7 @@ def memory_candidate_timestamp(clock: Any | None = None) -> str:
 
 
 def saved_memory_candidate_from_dry_run(candidate: dict[str, Any], candidate_id: str, timestamp: str) -> dict[str, Any]:
-    """Build the persisted candidate object without carrying raw transcript or path fields."""
+    """Build the persisted candidate object without source preview, raw transcript, or path fields."""
 
     return {
         "schema_version": "memory_candidate.v1",
@@ -2032,7 +2045,6 @@ def saved_memory_candidate_from_dry_run(candidate: dict[str, Any], candidate_id:
         "id": candidate_id,
         "title": candidate["title"],
         "cleaned_text": candidate["cleaned_text"],
-        "original_text_preview": candidate.get("original_text_preview", ""),
         "candidate_type": candidate["candidate_type"],
         "suggested_skill_id": "memory_skills",
         "confidence": candidate["confidence"],
@@ -2336,6 +2348,115 @@ def save_memory_skills_candidate(
         "registry_modified": False,
         "will_run_automatically": False,
         "local_only": True,
+        "schema_version": write_result["schema_version"],
+        "storage_version": write_result["storage_version"],
+    }
+
+
+def coordinate_guarded_memory_skills_save(
+    request_guard: Any,
+    preview_tokens: Any,
+    request_metadata: Any,
+    payload: Any,
+    *,
+    env: Any | None = None,
+    home_dir: Path | str | None = None,
+    repo_root: Path = REPO_ROOT,
+    is_windows: bool | None = None,
+    id_generator: Any | None = None,
+    clock: Any | None = None,
+    max_json_bytes: int = MEMORY_CANDIDATE_JSON_MAX_BYTES,
+    linker: Any | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """Compose guarded one-claim candidate saving for internal/tests-only coverage."""
+
+    if not isinstance(request_guard, LocalRequestGuard) or not isinstance(preview_tokens, PreviewTokenRegistry):
+        return memory_save_endpoint_error(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "guarded_save_configuration_invalid",
+        )
+
+    guard_status, guard_result = request_guard.validate(request_metadata)
+    if guard_status != HTTPStatus.OK:
+        error = (
+            "unsupported_media_type"
+            if guard_status == HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+            else "request_verification_failed"
+        )
+        return memory_save_endpoint_error(guard_status, error)
+
+    if not isinstance(payload, dict) or set(payload) != MEMORY_GUARDED_SAVE_ALLOWED_FIELDS:
+        return memory_save_endpoint_error(HTTPStatus.BAD_REQUEST, "invalid_save_request")
+    if payload.get("confirmation") != MEMORY_GUARDED_SAVE_CONFIRMATION:
+        return memory_save_endpoint_error(HTTPStatus.BAD_REQUEST, "explicit_confirmation_required")
+
+    claim_status, claim_result = preview_tokens.claim(
+        guard_result["session_id"],
+        payload.get("preview_token"),
+    )
+    if claim_status != HTTPStatus.OK:
+        return memory_save_endpoint_error(
+            HTTPStatus.CONFLICT,
+            "invalid_or_expired_preview_token",
+        )
+
+    snapshot_status, snapshot_result = canonicalize_memory_candidate_snapshot(
+        claim_result.get("canonical_snapshot")
+    )
+    claimed_digest = claim_result.get("candidate_digest")
+    if (
+        snapshot_status != HTTPStatus.OK
+        or not isinstance(claimed_digest, str)
+        or len(claimed_digest) != 64
+        or any(character not in "0123456789abcdef" for character in claimed_digest)
+        or not hmac.compare_digest(
+            claimed_digest,
+            str(snapshot_result.get("candidate_digest", "")),
+        )
+    ):
+        return memory_save_endpoint_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_save_failed")
+
+    validation_status, validation_result = validate_memory_skills_save_dry_run(
+        {
+            "candidate_preview": snapshot_result["canonical_snapshot"],
+            "explicit_confirmation": True,
+            "privacy_reviewed": True,
+            "save_scope": MEMORY_SAVE_DRY_RUN_REQUIRED_SCOPE,
+        }
+    )
+    if validation_status != HTTPStatus.OK:
+        return memory_save_endpoint_error(HTTPStatus.INTERNAL_SERVER_ERROR, "candidate_save_failed")
+
+    write_status, write_result = write_memory_skills_candidate(
+        validation_result,
+        env=env,
+        home_dir=home_dir,
+        repo_root=repo_root,
+        is_windows=is_windows,
+        id_generator=id_generator,
+        clock=clock,
+        max_json_bytes=max_json_bytes,
+        linker=linker,
+    )
+    if write_status != HTTPStatus.OK:
+        return memory_save_endpoint_error(
+            write_status,
+            str(write_result.get("error", "candidate_write_failed")),
+        )
+
+    candidate = validation_result["candidate"]
+    return HTTPStatus.OK, {
+        "ok": True,
+        "saved": True,
+        "status": "saved",
+        "candidate_id": write_result["candidate_id"],
+        "title": candidate["title"],
+        "message": MEMORY_SAVE_SUCCESS_MESSAGE,
+        "skill_created": False,
+        "registry_modified": False,
+        "will_run_automatically": False,
+        "local_only": True,
+        "original_text_preview_stored": False,
         "schema_version": write_result["schema_version"],
         "storage_version": write_result["storage_version"],
     }
@@ -2995,7 +3116,22 @@ def run_memory_request_guard_token_self_tests() -> None:
 
     token_clock = FakeClock()
     token_registry = PreviewTokenRegistry(clock=token_clock, token_generator=DeterministicBytes("tokens"))
-    issue_status, issued = token_registry.issue(first_session["session_id"], candidate)
+    missing_privacy_status, missing_privacy = token_registry.issue(first_session["session_id"], candidate)
+    assert missing_privacy_status == HTTPStatus.BAD_REQUEST
+    assert missing_privacy == {"ok": False, "error": "privacy_review_required"}
+    false_privacy_status, false_privacy = token_registry.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=False,
+    )
+    assert false_privacy_status == HTTPStatus.BAD_REQUEST
+    assert false_privacy == {"ok": False, "error": "privacy_review_required"}
+    assert token_registry.active_count() == 0
+    issue_status, issued = token_registry.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=True,
+    )
     assert issue_status == HTTPStatus.OK
     assert memory_secret_token_is_valid(issued["preview_token"])
     assert issued["candidate_digest"] == canonical["candidate_digest"]
@@ -3013,7 +3149,11 @@ def run_memory_request_guard_token_self_tests() -> None:
         "issued_at_monotonic",
         "expires_at_monotonic",
     }
-    duplicate_status, duplicate = token_registry.issue(first_session["session_id"], candidate)
+    duplicate_status, duplicate = token_registry.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=True,
+    )
     assert duplicate_status == HTTPStatus.CONFLICT
     assert duplicate == {"ok": False, "error": "preview_token_already_active"}
     assert token_registry.active_count() == 1
@@ -3048,14 +3188,22 @@ def run_memory_request_guard_token_self_tests() -> None:
         clock=before_expiry_clock,
         token_generator=DeterministicBytes(),
     )
-    before_expiry_status, before_expiry_token = before_expiry_registry.issue(first_session["session_id"], candidate)
+    before_expiry_status, before_expiry_token = before_expiry_registry.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=True,
+    )
     assert before_expiry_status == HTTPStatus.OK
     before_expiry_clock.advance(MEMORY_PREVIEW_TOKEN_TTL_SECONDS - 0.001)
     assert before_expiry_registry.claim(first_session["session_id"], before_expiry_token["preview_token"])[0] == HTTPStatus.OK
 
     boundary_clock = FakeClock()
     boundary_registry = PreviewTokenRegistry(clock=boundary_clock, token_generator=DeterministicBytes())
-    boundary_status, boundary_token = boundary_registry.issue(first_session["session_id"], candidate)
+    boundary_status, boundary_token = boundary_registry.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=True,
+    )
     assert boundary_status == HTTPStatus.OK
     boundary_clock.advance(MEMORY_PREVIEW_TOKEN_TTL_SECONDS)
     expired_token_status, expired_token = boundary_registry.claim(
@@ -3074,11 +3222,16 @@ def run_memory_request_guard_token_self_tests() -> None:
         clock=cleanup_clock,
         token_generator=DeterministicBytes("issue-cleanup"),
     )
-    assert cleanup_registry.issue(first_session["session_id"], candidate)[0] == HTTPStatus.OK
+    assert cleanup_registry.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=True,
+    )[0] == HTTPStatus.OK
     cleanup_clock.advance(MEMORY_PREVIEW_TOKEN_TTL_SECONDS)
     assert cleanup_registry.issue(
         first_session["session_id"],
         candidate_variant(candidate, "after-expiry-cleanup"),
+        privacy_reviewed=True,
     )[0] == HTTPStatus.OK
     assert cleanup_registry.active_count() == 1
 
@@ -3088,10 +3241,15 @@ def run_memory_request_guard_token_self_tests() -> None:
         clock=FakeClock(),
         token_generator=DeterministicBytes(),
     )
-    assert per_session_registry.issue(first_session["session_id"], candidate)[0] == HTTPStatus.OK
+    assert per_session_registry.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=True,
+    )[0] == HTTPStatus.OK
     per_session_status, per_session_error = per_session_registry.issue(
         first_session["session_id"],
         candidate_variant(candidate, "per-session"),
+        privacy_reviewed=True,
     )
     assert per_session_status == HTTPStatus.SERVICE_UNAVAILABLE
     assert per_session_error == {"ok": False, "error": "preview_token_capacity_reached"}
@@ -3104,18 +3262,31 @@ def run_memory_request_guard_token_self_tests() -> None:
         clock=FakeClock(),
         token_generator=DeterministicBytes(),
     )
-    assert global_registry.issue(first_session["session_id"], candidate)[0] == HTTPStatus.OK
-    assert global_registry.issue(second_session["session_id"], candidate_variant(candidate, "global-2"))[0] == HTTPStatus.OK
+    assert global_registry.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=True,
+    )[0] == HTTPStatus.OK
+    assert global_registry.issue(
+        second_session["session_id"],
+        candidate_variant(candidate, "global-2"),
+        privacy_reviewed=True,
+    )[0] == HTTPStatus.OK
     global_status, global_error = global_registry.issue(
         third_session["session_id"],
         candidate_variant(candidate, "global-3"),
+        privacy_reviewed=True,
     )
     assert global_status == HTTPStatus.SERVICE_UNAVAILABLE
     assert global_error == {"ok": False, "error": "preview_token_capacity_reached"}
     assert global_registry.active_count() == 2
 
     original_registry = PreviewTokenRegistry(clock=FakeClock(), token_generator=DeterministicBytes())
-    restart_issue_status, restart_issue = original_registry.issue(first_session["session_id"], candidate)
+    restart_issue_status, restart_issue = original_registry.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=True,
+    )
     assert restart_issue_status == HTTPStatus.OK
     restarted_registry = PreviewTokenRegistry(clock=FakeClock(), token_generator=DeterministicBytes())
     restart_claim_status, restart_claim = restarted_registry.claim(
@@ -3141,6 +3312,271 @@ def run_memory_request_guard_token_self_tests() -> None:
     )
     assert "LocalRequestGuard" not in inspect.getsource(JarvisConsoleHandler)
     assert "PreviewTokenRegistry" not in inspect.getsource(handle_post_api)
+    assert "preview_token" not in str(prepare_voice_inbox_task({"transcript": "이 반복 작업을 기억해줘"}))
+    assert not (APP_ROOT / "state").exists()
+    assert not (REPO_ROOT / ".jarvis-local").exists()
+    assert not (REPO_ROOT / "memory" / "skills").exists()
+    after_status = run_read_only_git(("status", "--short"))
+    assert before_status == after_status
+
+
+def run_memory_guarded_save_coordinator_self_tests() -> None:
+    """Verify the route-free one-claim coordinator only against temporary local state."""
+
+    class DeterministicBytes:
+        def __init__(self, namespace: str) -> None:
+            self.namespace = namespace
+            self.counter = 0
+
+        def __call__(self, size: int) -> bytes:
+            self.counter += 1
+            seed = hashlib.sha256(
+                f"jarvis-guarded-save-{self.namespace}-{self.counter}".encode("ascii")
+            ).digest()
+            return (seed * ((size + len(seed) - 1) // len(seed)))[:size]
+
+    def session_metadata(session: dict[str, Any]) -> dict[str, str]:
+        return {
+            "host": f"{DEFAULT_HOST}:{DEFAULT_PORT}",
+            "origin": f"http://{DEFAULT_HOST}:{DEFAULT_PORT}",
+            "content_type": "application/json",
+            "cookie": f'{MEMORY_SESSION_COOKIE_NAME}={session["session_id"]}',
+            "csrf": session["csrf_token"],
+        }
+
+    def final_payload(token: str) -> dict[str, str]:
+        return {
+            "preview_token": token,
+            "confirmation": MEMORY_GUARDED_SAVE_CONFIRMATION,
+        }
+
+    def candidate_variant(candidate: dict[str, Any], marker: str) -> dict[str, Any]:
+        variant = dict(candidate)
+        variant["cleaned_text"] = f'{candidate["cleaned_text"]} {marker}'
+        variant["tags"] = list(candidate.get("tags", []))
+        variant["safety_notes"] = list(candidate.get("safety_notes", []))
+        return variant
+
+    before_status = run_read_only_git(("status", "--short"))
+    preview_status, preview = prepare_memory_candidate_preview(
+        {
+            "title": "Guarded save coordinator candidate",
+            "cleaned_text": "Persist only the reviewed normalized candidate.",
+            "original_text_preview": "Private source preview must not be stored.",
+            "candidate_type": "operating_rule",
+            "confidence": "medium",
+            "source": "manual",
+            "tags": ["guarded", "coordinator"],
+            "safety_notes": ["Internal tests only; no live route."],
+        }
+    )
+    assert preview_status == HTTPStatus.OK
+    candidate = preview["candidate_preview"]
+
+    sessions = SessionRegistry(clock=lambda: 100.0, token_generator=DeterministicBytes("sessions"))
+    first_status, first_session = sessions.issue()
+    second_status, second_session = sessions.issue()
+    assert first_status == second_status == HTTPStatus.OK
+    guard = LocalRequestGuard(DEFAULT_HOST, DEFAULT_PORT, sessions)
+    first_metadata = session_metadata(first_session)
+    second_metadata = session_metadata(second_session)
+
+    tokens = PreviewTokenRegistry(clock=lambda: 200.0, token_generator=DeterministicBytes("tokens"))
+    issue_status, issued = tokens.issue(
+        first_session["session_id"],
+        candidate,
+        privacy_reviewed=True,
+    )
+    assert issue_status == HTTPStatus.OK
+    token = issued["preview_token"]
+
+    wrong_origin_status, wrong_origin = coordinate_guarded_memory_skills_save(
+        guard,
+        tokens,
+        {**first_metadata, "origin": "https://evil.example"},
+        final_payload(token),
+    )
+    assert wrong_origin_status == HTTPStatus.FORBIDDEN
+    assert wrong_origin["error"] == "request_verification_failed"
+    assert tokens.active_count() == 1
+
+    invalid_body_status, invalid_body = coordinate_guarded_memory_skills_save(
+        guard,
+        tokens,
+        first_metadata,
+        {**final_payload(token), "candidate_preview": candidate},
+    )
+    assert invalid_body_status == HTTPStatus.BAD_REQUEST
+    assert invalid_body["error"] == "invalid_save_request"
+    assert tokens.active_count() == 1
+
+    missing_confirmation_status, missing_confirmation = coordinate_guarded_memory_skills_save(
+        guard,
+        tokens,
+        first_metadata,
+        {"preview_token": token, "confirmation": True},
+    )
+    assert missing_confirmation_status == HTTPStatus.BAD_REQUEST
+    assert missing_confirmation["error"] == "explicit_confirmation_required"
+    assert tokens.active_count() == 1
+
+    with TemporaryDirectory(prefix="jarvis-guarded-save-success-") as success_root_text:
+        success_root = Path(success_root_text)
+        save_status, saved = coordinate_guarded_memory_skills_save(
+            guard,
+            tokens,
+            first_metadata,
+            final_payload(token),
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(success_root)},
+            id_generator=lambda: "mem_c0a400000001",
+            clock=lambda: "2026-07-22T00:00:00Z",
+        )
+        assert save_status == HTTPStatus.OK
+        assert saved["saved"] is True
+        assert saved["candidate_id"] == "mem_c0a400000001"
+        assert saved["original_text_preview_stored"] is False
+        assert saved["skill_created"] is False
+        assert saved["registry_modified"] is False
+        assert saved["will_run_automatically"] is False
+        assert "preview_token" not in saved
+        assert "candidate_digest" not in saved
+        assert "candidate_file" not in saved
+        assert candidate["cleaned_text"] not in str(saved)
+        assert candidate["original_text_preview"] not in str(saved)
+        candidate_file = success_root / "memory-skills" / "candidates" / "mem_c0a400000001.json"
+        stored = json.loads(candidate_file.read_text(encoding="utf-8"))
+        assert stored["cleaned_text"] == candidate["cleaned_text"]
+        assert "original_text_preview" not in stored
+        assert "original_text" not in stored
+        assert "raw_transcript" not in stored
+        assert tokens.active_count() == 0
+
+        replay_status, replay = coordinate_guarded_memory_skills_save(
+            guard,
+            tokens,
+            first_metadata,
+            final_payload(token),
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(success_root)},
+            id_generator=lambda: "mem_c0a400000002",
+            clock=lambda: "2026-07-22T00:00:01Z",
+        )
+        assert replay_status == HTTPStatus.CONFLICT
+        assert replay["error"] == "invalid_or_expired_preview_token"
+        assert len(list(candidate_file.parent.glob("*.json"))) == 1
+
+    cross_session_tokens = PreviewTokenRegistry(
+        clock=lambda: 300.0,
+        token_generator=DeterministicBytes("cross-session"),
+    )
+    cross_status, cross_issued = cross_session_tokens.issue(
+        first_session["session_id"],
+        candidate_variant(candidate, "cross-session"),
+        privacy_reviewed=True,
+    )
+    assert cross_status == HTTPStatus.OK
+    cross_token = cross_issued["preview_token"]
+    wrong_session_status, wrong_session = coordinate_guarded_memory_skills_save(
+        guard,
+        cross_session_tokens,
+        second_metadata,
+        final_payload(cross_token),
+    )
+    assert wrong_session_status == HTTPStatus.CONFLICT
+    assert wrong_session["error"] == "invalid_or_expired_preview_token"
+    assert cross_session_tokens.active_count() == 1
+
+    with TemporaryDirectory(prefix="jarvis-guarded-save-cross-session-") as cross_root_text:
+        cross_root = Path(cross_root_text)
+        correct_session_status, correct_session = coordinate_guarded_memory_skills_save(
+            guard,
+            cross_session_tokens,
+            first_metadata,
+            final_payload(cross_token),
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(cross_root)},
+            id_generator=lambda: "mem_c0a400000003",
+            clock=lambda: "2026-07-22T00:00:02Z",
+        )
+        assert correct_session_status == HTTPStatus.OK
+        assert correct_session["saved"] is True
+        assert cross_session_tokens.active_count() == 0
+
+    failure_tokens = PreviewTokenRegistry(
+        clock=lambda: 400.0,
+        token_generator=DeterministicBytes("failure"),
+    )
+    failure_issue_status, failure_issued = failure_tokens.issue(
+        first_session["session_id"],
+        candidate_variant(candidate, "writer-failure"),
+        privacy_reviewed=True,
+    )
+    assert failure_issue_status == HTTPStatus.OK
+    failure_token = failure_issued["preview_token"]
+    with TemporaryDirectory(prefix="jarvis-guarded-save-failure-") as failure_root_text:
+        failure_root = Path(failure_root_text)
+        (failure_root / "memory-skills").write_text("blocking file", encoding="utf-8")
+        failure_status, failure = coordinate_guarded_memory_skills_save(
+            guard,
+            failure_tokens,
+            first_metadata,
+            final_payload(failure_token),
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(failure_root)},
+            id_generator=lambda: "mem_c0a400000004",
+            clock=lambda: "2026-07-22T00:00:03Z",
+        )
+        assert failure_status == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert failure["error"] == "candidate_write_failed"
+        assert "candidate_file" not in failure
+        assert str(failure_root) not in str(failure)
+        assert failure_tokens.active_count() == 0
+
+    with TemporaryDirectory(prefix="jarvis-guarded-save-dead-token-") as retry_root_text:
+        retry_root = Path(retry_root_text)
+        retry_status, retry = coordinate_guarded_memory_skills_save(
+            guard,
+            failure_tokens,
+            first_metadata,
+            final_payload(failure_token),
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(retry_root)},
+            id_generator=lambda: "mem_c0a400000005",
+            clock=lambda: "2026-07-22T00:00:04Z",
+        )
+        assert retry_status == HTTPStatus.CONFLICT
+        assert retry["error"] == "invalid_or_expired_preview_token"
+        assert not (retry_root / "memory-skills").exists()
+
+    corrupt_tokens = PreviewTokenRegistry(
+        clock=lambda: 500.0,
+        token_generator=DeterministicBytes("corrupt"),
+    )
+    corrupt_issue_status, corrupt_issued = corrupt_tokens.issue(
+        first_session["session_id"],
+        candidate_variant(candidate, "corrupt-digest"),
+        privacy_reviewed=True,
+    )
+    assert corrupt_issue_status == HTTPStatus.OK
+    next(iter(corrupt_tokens._entries.values()))["candidate_digest"] = "0" * 64
+    with TemporaryDirectory(prefix="jarvis-guarded-save-corrupt-") as corrupt_root_text:
+        corrupt_root = Path(corrupt_root_text)
+        corrupt_status, corrupt = coordinate_guarded_memory_skills_save(
+            guard,
+            corrupt_tokens,
+            first_metadata,
+            final_payload(corrupt_issued["preview_token"]),
+            env={JARVIS_LOCAL_STATE_DIR_ENV: str(corrupt_root)},
+            id_generator=lambda: "mem_c0a400000006",
+            clock=lambda: "2026-07-22T00:00:05Z",
+        )
+        assert corrupt_status == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert corrupt["error"] == "candidate_save_failed"
+        assert corrupt_tokens.active_count() == 0
+        assert not (corrupt_root / "memory-skills").exists()
+
+    assert handle_post_api(MEMORY_SAVE_ENDPOINT, {}) == (
+        HTTPStatus.NOT_FOUND,
+        {"ok": False, "error": "not_found"},
+    )
+    assert "coordinate_guarded_memory_skills_save" not in inspect.getsource(handle_post_api)
+    assert "coordinate_guarded_memory_skills_save" not in inspect.getsource(JarvisConsoleHandler)
     assert "preview_token" not in str(prepare_voice_inbox_task({"transcript": "이 반복 작업을 기억해줘"}))
     assert not (APP_ROOT / "state").exists()
     assert not (REPO_ROOT / ".jarvis-local").exists()
@@ -3517,6 +3953,8 @@ def run_self_test() -> None:
     assert memory["candidate_write_helper"] == "tests_only"
     assert memory["request_guard"] == "internal_tests_only"
     assert memory["preview_token_subsystem"] == "internal_tests_only"
+    assert memory["guarded_save_coordinator"] == "internal_tests_only"
+    assert memory["persisted_original_text_preview"] is False
     assert memory["preview_token_issuance"] is False
     assert memory["ui_save_action"] is False
     assert memory["voice_inbox_auto_save"] is False
@@ -3535,6 +3973,7 @@ def run_self_test() -> None:
         assert_memory_candidate_safety(candidate)
 
     run_memory_request_guard_token_self_tests()
+    run_memory_guarded_save_coordinator_self_tests()
 
     with TemporaryDirectory(prefix="jarvis-localappdata-") as fake_local_appdata_text:
         fake_local_appdata = Path(fake_local_appdata_text)
@@ -3891,6 +4330,7 @@ def run_self_test() -> None:
         assert endpoint_stored_candidate["redaction_status"] == "user_confirmed"
         assert endpoint_stored_candidate["suggested_skill_id"] == "memory_skills"
         for forbidden_field in (
+            "original_text_preview",
             "original_text",
             "raw_transcript",
             "full_transcript",
@@ -4075,6 +4515,7 @@ def run_self_test() -> None:
         assert stored_candidate["user_approved_at"] == fixed_timestamp
         assert stored_candidate["redaction_status"] == "user_confirmed"
         assert stored_candidate["suggested_skill_id"] == "memory_skills"
+        assert "original_text_preview" not in stored_candidate
         assert "original_text" not in stored_candidate
         assert "raw_transcript" not in stored_candidate
         assert "full_transcript" not in stored_candidate
