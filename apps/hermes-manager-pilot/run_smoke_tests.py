@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
+import io
 import json
 import os
 import subprocess
@@ -20,8 +21,12 @@ from hermes_manager_pilot.approval_binding import (
 )
 from hermes_manager_pilot.change_evidence import (
     MAX_FILE_BYTES,
+    MAX_GIT_OUTPUT_BYTES,
+    WHOLE_STATUS_COVERAGE,
     collect_local_change_evidence,
+    collect_whole_worktree_status_evidence,
     verify_local_change_evidence,
+    verify_whole_worktree_status_evidence,
 )
 from hermes_manager_pilot.pipeline import run_hermes_manager_pilot
 from hermes_manager_pilot.prompt_queue import (
@@ -1273,6 +1278,173 @@ def _test_local_change_evidence_verifier_rejects_tampering_and_scope_drift() -> 
         )
 
 
+def _test_whole_worktree_status_evidence_is_complete_deterministic_and_read_only() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-whole-status-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        outside_content = "outside target content must not be collected\n"
+        (repo / "outside.txt").write_text(outside_content, encoding="utf-8")
+        index_path = repo / ".git" / "index"
+        index_mtime_before = index_path.stat().st_mtime_ns
+
+        first = collect_whole_worktree_status_evidence(repo, project, item)
+        second = collect_whole_worktree_status_evidence(repo, project, item)
+        _assert(first == second, "whole-worktree status evidence should be deterministic")
+        _assert(first.version == "0.1C-0C-1", "whole-status evidence version is wrong")
+        _assert(first.coverage == WHOLE_STATUS_COVERAGE, "whole-status coverage is wrong")
+        _assert("?? outside.txt" in first.whole_git_status, "outside status was hidden")
+        _assert("?? known.local" in first.whole_git_status, "known untracked status missing")
+        _assert(
+            " M src/tracked.txt" in first.whole_git_status,
+            "tracked target status missing from whole status",
+        )
+        _assert(
+            outside_content.encode("utf-8") not in first.canonical_bytes,
+            "outside target content leaked into whole-status evidence",
+        )
+        _assert(index_path.stat().st_mtime_ns == index_mtime_before, "whole status modified index")
+
+        original_run_git = change_evidence_module._run_git_bytes
+
+        def forbidden_git_read(*args: object, **kwargs: object) -> bytes:
+            raise AssertionError("whole-status verification must not read Git")
+
+        change_evidence_module._run_git_bytes = forbidden_git_read
+        try:
+            _assert(
+                verify_whole_worktree_status_evidence(first, project, item) is None,
+                "valid whole-worktree status evidence should verify",
+            )
+            verify_whole_worktree_status_evidence(
+                first,
+                replace(project, protected_paths=("known.local", "outside.txt")),
+                item,
+            )
+        finally:
+            change_evidence_module._run_git_bytes = original_run_git
+
+        (repo / "outside.txt").write_text("different outside content\n", encoding="utf-8")
+        content_changed = collect_whole_worktree_status_evidence(repo, project, item)
+        _assert(
+            content_changed.status_evidence_digest == first.status_evidence_digest,
+            "path/status-only evidence should not hash outside content",
+        )
+
+
+def _test_whole_worktree_status_evidence_rejects_tampering_and_unsafe_state() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-whole-status-verify-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        evidence = collect_whole_worktree_status_evidence(repo, project, item)
+
+        _assert_validation_error(
+            lambda: verify_whole_worktree_status_evidence(
+                replace(evidence, coverage="scoped"),
+                project,
+                item,
+            ),
+            "metadata is unsupported",
+        )
+        _assert_validation_error(
+            lambda: verify_whole_worktree_status_evidence(
+                replace(evidence, whole_git_status=tuple(reversed(evidence.whole_git_status))),
+                project,
+                item,
+            ),
+            "Git status is not canonical",
+        )
+        _assert_validation_error(
+            lambda: verify_whole_worktree_status_evidence(
+                replace(evidence, canonical_bytes=evidence.canonical_bytes + b" "),
+                project,
+                item,
+            ),
+            "canonical manifest is inconsistent",
+        )
+        _assert_validation_error(
+            lambda: verify_whole_worktree_status_evidence(
+                replace(evidence, status_evidence_digest="0" * 64),
+                project,
+                item,
+            ),
+            "digest is inconsistent",
+        )
+
+        (repo / "known.local").unlink()
+        _assert_validation_error(
+            lambda: collect_whole_worktree_status_evidence(repo, project, item),
+            "expected untracked path is missing",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-whole-status-staged-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        _run_fixture_git(repo, "add", "src/tracked.txt")
+        _assert_validation_error(
+            lambda: collect_whole_worktree_status_evidence(repo, project, item),
+            "staged changes are not allowed in whole status",
+        )
+
+
+def _test_whole_worktree_status_evidence_rejects_unstable_and_excessive_state() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-whole-status-unstable-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        original_collect = change_evidence_module._collect_whole_repository_state
+        call_count = 0
+
+        def mutating_collect(*args: object, **kwargs: object) -> object:
+            nonlocal call_count
+            result = original_collect(*args, **kwargs)
+            call_count += 1
+            if call_count == 1:
+                (repo / "outside-after-first-sample.txt").write_text(
+                    "changed during whole-status collection\n",
+                    encoding="utf-8",
+                )
+            return result
+
+        change_evidence_module._collect_whole_repository_state = mutating_collect
+        try:
+            _assert_validation_error(
+                lambda: collect_whole_worktree_status_evidence(repo, project, item),
+                "repository changed during whole-status collection",
+            )
+        finally:
+            change_evidence_module._collect_whole_repository_state = original_collect
+
+    with tempfile.TemporaryDirectory(prefix="hermes-whole-status-count-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        generated = repo / "generated"
+        generated.mkdir()
+        for index in range(129):
+            (generated / f"file-{index:03d}.txt").write_text("x\n", encoding="utf-8")
+        _assert_validation_error(
+            lambda: collect_whole_worktree_status_evidence(repo, project, item),
+            "too many evidence entries",
+        )
+
+    exact_chunks: list[bytes] = []
+    exact_overflow = change_evidence_module.threading.Event()
+    exact_errors: list[Exception] = []
+    change_evidence_module._read_bounded_pipe(
+        io.BytesIO(b"x" * MAX_GIT_OUTPUT_BYTES),
+        exact_chunks,
+        exact_overflow,
+        exact_errors,
+    )
+    _assert(not exact_overflow.is_set(), "exact Git output limit should be accepted")
+    _assert(not exact_errors, "exact Git output limit produced a reader error")
+
+    overflow_chunks: list[bytes] = []
+    overflow = change_evidence_module.threading.Event()
+    overflow_errors: list[Exception] = []
+    change_evidence_module._read_bounded_pipe(
+        io.BytesIO(b"x" * (MAX_GIT_OUTPUT_BYTES + 1)),
+        overflow_chunks,
+        overflow,
+        overflow_errors,
+    )
+    _assert(overflow.is_set(), "oversized Git output was not rejected")
+    _assert(not overflow_errors, "oversized Git output produced a reader error")
+
+
 def _test_local_change_evidence_rejects_scope_root_stage_and_size_violations() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-safety-") as temp_dir:
         repo, project, item = _create_change_evidence_fixture(temp_dir)
@@ -1482,6 +1654,9 @@ def main() -> None:
         _test_binding_enforcement_rejects_orphan_metadata,
         _test_local_change_evidence_is_deterministic_bounded_and_read_only,
         _test_local_change_evidence_verifier_rejects_tampering_and_scope_drift,
+        _test_whole_worktree_status_evidence_is_complete_deterministic_and_read_only,
+        _test_whole_worktree_status_evidence_rejects_tampering_and_unsafe_state,
+        _test_whole_worktree_status_evidence_rejects_unstable_and_excessive_state,
         _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,

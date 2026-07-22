@@ -15,6 +15,8 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import threading
+import time
 from typing import Any
 
 from .prompt_queue import ProjectCard, QueueItem
@@ -23,6 +25,9 @@ from .schemas import ValidationError
 
 VERSION = "0.1C-0B"
 EVIDENCE_TYPE = "hermes_local_change_evidence"
+WHOLE_STATUS_VERSION = "0.1C-0C-1"
+WHOLE_STATUS_EVIDENCE_TYPE = "hermes_whole_worktree_status_evidence"
+WHOLE_STATUS_COVERAGE = "git-visible-whole-worktree"
 
 MAX_FILE_BYTES = 4 * 1024 * 1024
 MAX_TOTAL_FILE_BYTES = 16 * 1024 * 1024
@@ -34,6 +39,9 @@ MAX_STATUS_ENTRIES = 128
 MAX_EVIDENCE_TEXT_LENGTH = 4096
 
 _DIGEST_PREFIX = b"jarvis-core/hermes/local-change-evidence/v0.1C-0B\x00"
+_WHOLE_STATUS_DIGEST_PREFIX = (
+    b"jarvis-core/hermes/whole-worktree-status-evidence/v0.1C-0C-1\x00"
+)
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _TRACKED_STATUS_CODES = frozenset(" MADRCU")
 _GIT_BASE_ARGS = (
@@ -47,6 +55,8 @@ _GIT_BASE_ARGS = (
     "core.hooksPath=NUL",
     "-c",
     "diff.external=",
+    "-c",
+    "status.renames=true",
 )
 
 
@@ -90,6 +100,33 @@ class LocalChangeEvidence:
 
 
 @dataclass(frozen=True)
+class WholeWorktreeStatusEvidence:
+    """Bounded Git-visible whole-worktree status without file contents."""
+
+    project_id: str
+    item_id: str
+    declared_repo_path: str
+    repo_root: str
+    branch: str
+    head: str
+    coverage: str
+    whole_git_status: tuple[str, ...]
+    status_evidence_digest: str
+    canonical_bytes: bytes
+    byte_size: int
+    evidence_type: str = WHOLE_STATUS_EVIDENCE_TYPE
+    version: str = WHOLE_STATUS_VERSION
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a new JSON-decoded copy of the canonical status manifest."""
+
+        value = json.loads(self.canonical_bytes.decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ValidationError("whole-worktree status snapshot must be an object")
+        return value
+
+
+@dataclass(frozen=True)
 class _RepositoryState:
     branch: str
     head: str
@@ -108,13 +145,8 @@ def collect_local_change_evidence(
     """Collect stable read-only evidence for exact review or commit targets."""
 
     _validate_project_item(project, item)
-    root = _validated_trusted_root(trusted_repo_root, project.repo_path)
+    root = _validated_git_root(trusted_repo_root, project)
     _validate_target_scope(root, project, item)
-
-    actual_top_level = _run_git_text(root, ("rev-parse", "--show-toplevel"))
-    git_root = _resolve_directory(actual_top_level, "Git top-level")
-    if not _same_path(root, git_root):
-        raise ValidationError("trusted repo root does not match Git top-level")
 
     status_paths = _status_scope_paths(item.target_files, project.expected_untracked)
     before = _collect_repository_state(root, status_paths)
@@ -155,6 +187,51 @@ def collect_local_change_evidence(
         scoped_git_status=before.status_lines,
         targets=first_targets,
         change_evidence_digest=digest,
+        canonical_bytes=canonical_bytes,
+        byte_size=len(canonical_bytes),
+    )
+
+
+def collect_whole_worktree_status_evidence(
+    trusted_repo_root: str | Path,
+    project: ProjectCard,
+    item: QueueItem,
+) -> WholeWorktreeStatusEvidence:
+    """Collect stable whole Git-visible status without reading file contents."""
+
+    _validate_project_item(project, item)
+    root = _validated_git_root(trusted_repo_root, project)
+    _validate_declared_scope(project, item)
+
+    before = _collect_whole_repository_state(root)
+    _validate_expected_project_state(project, before)
+    _validate_whole_status_entries(before.status_entries)
+    after = _collect_whole_repository_state(root)
+    if after != before:
+        raise ValidationError("repository changed during whole-status collection")
+
+    snapshot = _whole_status_snapshot(
+        project_id=project.project_id,
+        item_id=item.item_id,
+        declared_repo_path=_portable_declared_path(project.repo_path),
+        repo_root=_portable_path(root),
+        branch=before.branch,
+        head=before.head,
+        coverage=WHOLE_STATUS_COVERAGE,
+        whole_git_status=before.status_lines,
+    )
+    canonical_bytes = _canonical_json_bytes(snapshot)
+    digest = hashlib.sha256(_WHOLE_STATUS_DIGEST_PREFIX + canonical_bytes).hexdigest()
+    return WholeWorktreeStatusEvidence(
+        project_id=project.project_id,
+        item_id=item.item_id,
+        declared_repo_path=_portable_declared_path(project.repo_path),
+        repo_root=_portable_path(root),
+        branch=before.branch,
+        head=before.head,
+        coverage=WHOLE_STATUS_COVERAGE,
+        whole_git_status=before.status_lines,
+        status_evidence_digest=digest,
         canonical_bytes=canonical_bytes,
         byte_size=len(canonical_bytes),
     )
@@ -225,6 +302,68 @@ def verify_local_change_evidence(
     expected_digest = hashlib.sha256(_DIGEST_PREFIX + expected_canonical).hexdigest()
     if not hmac.compare_digest(evidence.change_evidence_digest, expected_digest):
         raise ValidationError("change evidence digest is inconsistent")
+
+
+def verify_whole_worktree_status_evidence(
+    evidence: WholeWorktreeStatusEvidence,
+    project: ProjectCard,
+    item: QueueItem,
+) -> None:
+    """Verify whole-status structure without proving provenance or authority."""
+
+    if not isinstance(evidence, WholeWorktreeStatusEvidence):
+        raise ValidationError("evidence must be WholeWorktreeStatusEvidence")
+    _validate_project_item(project, item)
+    _validate_whole_status_evidence_shape(evidence)
+
+    if (
+        evidence.evidence_type != WHOLE_STATUS_EVIDENCE_TYPE
+        or evidence.version != WHOLE_STATUS_VERSION
+        or evidence.coverage != WHOLE_STATUS_COVERAGE
+    ):
+        raise ValidationError("whole-worktree status evidence metadata is unsupported")
+    if evidence.project_id != project.project_id:
+        raise ValidationError("whole-worktree status project does not match project card")
+    if evidence.item_id != item.item_id:
+        raise ValidationError("whole-worktree status item does not match queue item")
+    _validate_local_absolute_root(project.repo_path, "project repo_path")
+    if evidence.declared_repo_path != _portable_declared_path(project.repo_path):
+        raise ValidationError("whole-worktree declared repo path does not match project")
+    if evidence.branch != project.expected_branch:
+        raise ValidationError("whole-worktree status branch does not match expected branch")
+    if evidence.head != project.expected_head:
+        raise ValidationError("whole-worktree status HEAD does not match expected HEAD")
+
+    _validate_declared_scope(project, item)
+    entries = _parse_evidence_status_lines(evidence.whole_git_status)
+    state = _RepositoryState(
+        branch=evidence.branch,
+        head=evidence.head,
+        status_entries=entries,
+    )
+    _validate_expected_project_state(project, state)
+    _validate_whole_status_entries(entries)
+
+    expected_snapshot = _whole_status_snapshot(
+        project_id=evidence.project_id,
+        item_id=evidence.item_id,
+        declared_repo_path=evidence.declared_repo_path,
+        repo_root=evidence.repo_root,
+        branch=evidence.branch,
+        head=evidence.head,
+        coverage=evidence.coverage,
+        whole_git_status=evidence.whole_git_status,
+    )
+    expected_canonical = _canonical_json_bytes(expected_snapshot)
+    if evidence.byte_size != len(expected_canonical):
+        raise ValidationError("whole-worktree status byte size is inconsistent")
+    if not hmac.compare_digest(evidence.canonical_bytes, expected_canonical):
+        raise ValidationError("whole-worktree status canonical manifest is inconsistent")
+    expected_digest = hashlib.sha256(
+        _WHOLE_STATUS_DIGEST_PREFIX + expected_canonical
+    ).hexdigest()
+    if not hmac.compare_digest(evidence.status_evidence_digest, expected_digest):
+        raise ValidationError("whole-worktree status digest is inconsistent")
 
 
 def _validate_project_item(project: ProjectCard, item: QueueItem) -> None:
@@ -299,6 +438,53 @@ def _validate_evidence_shape(evidence: LocalChangeEvidence) -> None:
         evidence.status_scope_paths
     ):
         raise ValidationError("change evidence status scope contains duplicate paths")
+
+
+def _validate_whole_status_evidence_shape(
+    evidence: WholeWorktreeStatusEvidence,
+) -> None:
+    text_fields = (
+        (evidence.project_id, "project_id"),
+        (evidence.item_id, "item_id"),
+        (evidence.declared_repo_path, "declared_repo_path"),
+        (evidence.repo_root, "repo_root"),
+        (evidence.branch, "branch"),
+        (evidence.head, "head"),
+        (evidence.coverage, "coverage"),
+        (evidence.status_evidence_digest, "status_evidence_digest"),
+        (evidence.evidence_type, "evidence_type"),
+        (evidence.version, "version"),
+    )
+    for value, label in text_fields:
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > MAX_EVIDENCE_TEXT_LENGTH
+            or any(ord(character) < 32 for character in value)
+        ):
+            raise ValidationError(f"whole-worktree status {label} is malformed")
+    if not _DIGEST_PATTERN.fullmatch(evidence.status_evidence_digest):
+        raise ValidationError("whole-worktree status digest is malformed")
+    _validate_local_absolute_root(
+        evidence.declared_repo_path,
+        "whole-worktree declared_repo_path",
+    )
+    _validate_local_absolute_root(evidence.repo_root, "whole-worktree repo_root")
+    if not isinstance(evidence.canonical_bytes, bytes):
+        raise ValidationError("whole-worktree status canonical manifest must be bytes")
+    if len(evidence.canonical_bytes) > MAX_CANONICAL_BYTES:
+        raise ValidationError("whole-worktree status canonical manifest exceeds limit")
+    if (
+        not isinstance(evidence.byte_size, int)
+        or isinstance(evidence.byte_size, bool)
+        or evidence.byte_size < 1
+        or evidence.byte_size > MAX_CANONICAL_BYTES
+    ):
+        raise ValidationError("whole-worktree status byte size is malformed")
+    if not isinstance(evidence.whole_git_status, tuple):
+        raise ValidationError("whole-worktree Git status must be a tuple")
+    if len(evidence.whole_git_status) > MAX_STATUS_ENTRIES:
+        raise ValidationError("whole-worktree Git status count exceeds limit")
 
 
 def _parse_evidence_status_lines(lines: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
@@ -383,6 +569,15 @@ def _validated_trusted_root(
     declared_root = _resolve_directory(declared_path, "project repo_path")
     if not _same_path(root, declared_root):
         raise ValidationError("trusted repo root does not match project repo_path")
+    return root
+
+
+def _validated_git_root(trusted_repo_root: str | Path, project: ProjectCard) -> Path:
+    root = _validated_trusted_root(trusted_repo_root, project.repo_path)
+    actual_top_level = _run_git_text(root, ("rev-parse", "--show-toplevel"))
+    git_root = _resolve_directory(actual_top_level, "Git top-level")
+    if not _same_path(root, git_root):
+        raise ValidationError("trusted repo root does not match Git top-level")
     return root
 
 
@@ -476,6 +671,22 @@ def _collect_repository_state(
     return _RepositoryState(branch=branch, head=head, status_entries=entries)
 
 
+def _collect_whole_repository_state(root: Path) -> _RepositoryState:
+    branch = _run_git_text(root, ("rev-parse", "--abbrev-ref", "HEAD"))
+    head = _run_git_text(root, ("rev-parse", "HEAD"))
+    status_bytes = _run_git_bytes(
+        root,
+        (
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+        ),
+    )
+    entries = _parse_porcelain_status(status_bytes)
+    return _RepositoryState(branch=branch, head=head, status_entries=entries)
+
+
 def _validate_expected_project_state(project: ProjectCard, state: _RepositoryState) -> None:
     if state.branch != project.expected_branch:
         raise ValidationError("collected branch does not match expected branch")
@@ -485,6 +696,16 @@ def _validate_expected_project_state(project: ProjectCard, state: _RepositorySta
     for expected_path in project.expected_untracked:
         if _path_key(expected_path) not in untracked:
             raise ValidationError(f"expected untracked path is missing: {expected_path}")
+
+
+def _validate_whole_status_entries(entries: tuple[tuple[str, str], ...]) -> None:
+    for code, path in entries:
+        if code != "??" and code[0] != " ":
+            raise ValidationError(f"staged changes are not allowed in whole status: {path}")
+        if "U" in code or code in {"AA", "DD"}:
+            raise ValidationError(f"conflicted changes are not allowed in whole status: {path}")
+        if "R" in code or "C" in code:
+            raise ValidationError(f"rename/copy changes are not allowed in whole status: {path}")
 
 
 def _validate_status_entries(
@@ -633,23 +854,106 @@ def _run_git_text(root: Path, args: tuple[str, ...]) -> str:
 def _run_git_bytes(root: Path, args: tuple[str, ...]) -> bytes:
     command = (*_GIT_BASE_ARGS, *args)
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=root,
             env=_sanitized_git_environment(),
-            check=False,
-            capture_output=True,
-            timeout=GIT_TIMEOUT_SECONDS,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             shell=False,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
+    except OSError as exc:
         raise ValidationError("read-only Git evidence command failed") from exc
-    if len(completed.stdout) > MAX_GIT_OUTPUT_BYTES or len(completed.stderr) > MAX_GIT_OUTPUT_BYTES:
+    if process.stdout is None or process.stderr is None:
+        process.kill()
+        raise ValidationError("read-only Git evidence command failed")
+
+    stdout_chunks: list[bytes] = []
+    stderr_chunks: list[bytes] = []
+    overflow = threading.Event()
+    reader_errors: list[Exception] = []
+
+    stdout_thread = threading.Thread(
+        target=_read_bounded_pipe,
+        args=(process.stdout, stdout_chunks, overflow, reader_errors),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_read_bounded_pipe,
+        args=(process.stderr, stderr_chunks, overflow, reader_errors),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+
+    deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
+    timed_out = False
+    while process.poll() is None:
+        if overflow.wait(timeout=0.01):
+            _kill_process(process)
+            break
+        if time.monotonic() >= deadline:
+            timed_out = True
+            _kill_process(process)
+            break
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        _kill_process(process)
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired as exc:
+            raise ValidationError("read-only Git evidence command failed to stop") from exc
+    stdout_thread.join(timeout=1)
+    stderr_thread.join(timeout=1)
+
+    if timed_out:
+        raise ValidationError("read-only Git evidence command timed out")
+    if overflow.is_set():
         raise ValidationError("Git evidence output exceeds limit")
-    if completed.returncode != 0:
-        error = completed.stderr.decode("utf-8", errors="replace").strip()
+    if stdout_thread.is_alive() or stderr_thread.is_alive() or reader_errors:
+        raise ValidationError("read-only Git evidence command failed")
+
+    stdout = b"".join(stdout_chunks)
+    stderr = b"".join(stderr_chunks)
+    if process.returncode != 0:
+        error = stderr.decode("utf-8", errors="replace").strip()
         raise ValidationError(f"read-only Git evidence command failed: {error[:240]}")
-    return completed.stdout
+    return stdout
+
+
+def _read_bounded_pipe(
+    pipe: Any,
+    chunks: list[bytes],
+    overflow: threading.Event,
+    errors: list[Exception],
+) -> None:
+    total = 0
+    try:
+        while not overflow.is_set():
+            remaining = MAX_GIT_OUTPUT_BYTES - total
+            chunk = pipe.read(min(64 * 1024, remaining + 1))
+            if not chunk:
+                break
+            if len(chunk) > remaining:
+                overflow.set()
+                return
+            chunks.append(chunk)
+            total += len(chunk)
+    except Exception as exc:
+        errors.append(exc)
+    finally:
+        try:
+            pipe.close()
+        except OSError:
+            pass
+
+
+def _kill_process(process: subprocess.Popen[bytes]) -> None:
+    try:
+        process.kill()
+    except OSError:
+        pass
 
 
 def _sanitized_git_environment() -> dict[str, str]:
@@ -712,6 +1016,31 @@ def _evidence_snapshot(
             }
             for target in targets
         ],
+    }
+
+
+def _whole_status_snapshot(
+    *,
+    project_id: str,
+    item_id: str,
+    declared_repo_path: str,
+    repo_root: str,
+    branch: str,
+    head: str,
+    coverage: str,
+    whole_git_status: tuple[str, ...],
+) -> dict[str, Any]:
+    return {
+        "evidence_type": WHOLE_STATUS_EVIDENCE_TYPE,
+        "version": WHOLE_STATUS_VERSION,
+        "project_id": project_id,
+        "item_id": item_id,
+        "declared_repo_path": declared_repo_path,
+        "repo_root": repo_root,
+        "branch": branch,
+        "head": head,
+        "coverage": coverage,
+        "whole_git_status": list(whole_git_status),
     }
 
 
