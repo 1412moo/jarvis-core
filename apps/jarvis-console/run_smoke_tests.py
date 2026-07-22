@@ -218,7 +218,74 @@ def _test_codex_review_vertical_slice() -> None:
     assert all(pattern not in adapter_source for pattern in forbidden_adapter_patterns)
 
 
+def _test_project_control_snapshot() -> None:
+    with TemporaryDirectory(prefix="jarvis-project-control-") as temp_dir:
+        root = Path(temp_dir)
+        docs = root / "docs"
+        docs.mkdir()
+        plan = docs / "master-plan.md"
+        baseline = """# Fixture Master Plan
+
+## 2. 현재 기준점
+
+- Last verified: 2026-07-22
+- Verified implementation HEAD: `0123456789abcdef`
+- Branch: `main`
+- Known protected untracked file: `jarvis.bat`
+- Current workstream: Prompt Queue / Project Control Panel
+- Current milestone: Read-only owner project card
+- Recommended next step: Verify the local vertical slice
+- Next user-visible milestone: One trusted project card in Jarvis Console
+
+## 3. Later
+"""
+        plan.write_text(baseline, encoding="utf-8")
+        first = run_web_app.read_master_plan_snapshot(plan, root)
+        second = run_web_app.read_master_plan_snapshot(plan, root)
+        assert first == second
+        assert first == {
+            "last_verified": "2026-07-22",
+            "verified_implementation_head": "0123456789abcdef",
+            "branch": "main",
+            "known_protected_untracked_file": "jarvis.bat",
+            "current_workstream": "Prompt Queue / Project Control Panel",
+            "current_milestone": "Read-only owner project card",
+            "recommended_next_step": "Verify the local vertical slice",
+            "next_user_visible_milestone": "One trusted project card in Jarvis Console",
+            "source": "docs/master-plan.md",
+        }
+
+        duplicate = baseline.replace(
+            "- Last verified: 2026-07-22",
+            "- Last verified: 2026-07-22\n- Last verified: 2026-07-23",
+        )
+        plan.write_text(duplicate, encoding="utf-8")
+        try:
+            run_web_app.read_master_plan_snapshot(plan, root)
+        except run_web_app.RegistryError as exc:
+            assert "duplicated" in str(exc)
+        else:
+            raise AssertionError("duplicate master-plan fields must be rejected")
+
+        plan.write_text(baseline.replace("- Branch: `main`\n", ""), encoding="utf-8")
+        try:
+            run_web_app.read_master_plan_snapshot(plan, root)
+        except run_web_app.RegistryError as exc:
+            assert "missing" in str(exc)
+        else:
+            raise AssertionError("missing master-plan fields must be rejected")
+
+        plan.write_bytes(b"x" * (run_web_app.MASTER_PLAN_MAX_BYTES + 1))
+        try:
+            run_web_app.read_master_plan_snapshot(plan, root)
+        except run_web_app.RegistryError as exc:
+            assert "exceeds" in str(exc)
+        else:
+            raise AssertionError("oversized master plans must be rejected")
+
+
 def main() -> None:
+    _test_project_control_snapshot()
     run_web_app.run_self_test()
     _test_codex_review_vertical_slice()
 
@@ -261,6 +328,20 @@ def main() -> None:
     assert overview_code == HTTPStatus.OK
     assert overview["ok"] is True
     assert overview["mode"] == "read-only"
+    project_control = overview["project_control"]
+    assert project_control["version"] == "project_control.v0.1A"
+    assert project_control["mode"] == "read-only"
+    assert project_control["source"] == "docs/master-plan.md"
+    assert len(project_control["project_cards"]) == 1
+    project_card = project_control["project_cards"][0]
+    assert project_card["project_id"] == "jarvis-core"
+    assert project_card["branch"] == overview["repo"]["branch"]
+    assert project_card["live_head"] == overview["repo"]["head_short"]
+    assert project_card["known_protected_untracked"] == ["jarvis.bat"]
+    assert project_card["validation_commands"] == ["git status --short", "git diff --check"]
+    assert project_card["status"] == "observed"
+    assert project_card["attention_reasons"] == []
+    assert any("commit" in item.lower() for item in project_card["forbidden_actions"])
     assert overview["repo"]["head_short"]
     assert "jarvis.bat" in overview["repo"]["protected_path_note"]
     assert len(overview["tasks"]) <= run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
@@ -1187,18 +1268,20 @@ def main() -> None:
     assert "Clear Transcript" in html
     assert "v0.1 does not record audio." in html
     assert "Jarvis will not run tools until you choose a handoff." in html
-    assert "Refresh Overview" in html
+    assert "Refresh Project Control" in html
     assert "Refresh History" in html
     assert "Refresh Memory / Skills" in html
     assert "Checkpoints / History" in html
     assert "Codex Review" in html
+    assert "Project Control" in html
+    assert "Owner-facing local project dashboard" in html
     assert "Fresh local work review" in html
     assert "Load Read-Only Review" in html
     assert "already scope-approved raw queue" in html
     assert "copy-only Hermes review handoff" in html
     assert "queue + item_id envelope" in html
     assert "no queue/session persistence" in html
-    assert "Read-only operations dashboard" in html
+    assert "Owner-facing local project dashboard" in html
     assert "does not create tasks" in html
     assert "does not create commits" in html
     assert "preview-only: sample candidates" in html
@@ -1209,6 +1292,9 @@ def main() -> None:
     assert "handoffStepsForSkill" in app_js
     assert "copyNextActionForHandoff" in app_js
     assert "/api/overview" in app_js
+    assert "renderProjectControl" in app_js
+    assert "Next user-visible result" in app_js
+    assert "Read-only Project Control overview refreshed." in app_js
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js
     assert "/api/memory-skills/candidates/preview" in app_js

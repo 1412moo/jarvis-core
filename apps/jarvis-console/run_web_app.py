@@ -35,9 +35,32 @@ APP_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = APP_ROOT.parents[1]
 WEB_ROOT = APP_ROOT / "web"
 REGISTRY_PATH = APP_ROOT / "skills.json"
+MASTER_PLAN_PATH = REPO_ROOT / "docs" / "master-plan.md"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8790
 MAX_JSON_BODY_BYTES = 64_000
+MASTER_PLAN_MAX_BYTES = 128_000
+MASTER_PLAN_VALUE_MAX_CHARS = 500
+MASTER_PLAN_FIELDS = {
+    "Last verified": "last_verified",
+    "Verified implementation HEAD": "verified_implementation_head",
+    "Branch": "branch",
+    "Known protected untracked file": "known_protected_untracked_file",
+    "Current workstream": "current_workstream",
+    "Current milestone": "current_milestone",
+    "Recommended next step": "recommended_next_step",
+    "Next user-visible milestone": "next_user_visible_milestone",
+}
+PROJECT_CONTROL_FORBIDDEN_ACTIONS = (
+    "Jarvis Console does not invoke Codex, ChatGPT, or Hermes",
+    "Jarvis Console does not stage, commit, push, or create PRs",
+    "External API, LLM, or credential access",
+    "Memory save, Voice Inbox auto-save, or saved-candidate actions",
+)
+PROJECT_CONTROL_VALIDATION_COMMANDS = (
+    "git status --short",
+    "git diff --check",
+)
 OVERVIEW_ALLOWED_EXTENSIONS = {".json", ".md", ".txt"}
 OVERVIEW_SOURCE_AREAS = {
     "docs",
@@ -767,6 +790,107 @@ def repo_status_payload() -> dict[str, Any]:
     }
 
 
+def read_master_plan_snapshot(
+    path: str | Path = MASTER_PLAN_PATH,
+    allowed_root: str | Path = REPO_ROOT,
+) -> dict[str, str]:
+    """Read bounded owner-facing fields from the trusted master plan."""
+
+    source = Path(path)
+    root = Path(allowed_root).resolve()
+    try:
+        resolved = source.resolve(strict=True)
+    except OSError as exc:
+        raise RegistryError(f"master plan is unavailable: {exc}") from exc
+    if source.is_symlink() or not resolved.is_file() or not resolved.is_relative_to(root):
+        raise RegistryError("master plan must be a regular file inside the trusted root")
+    try:
+        raw = resolved.read_bytes()
+    except OSError as exc:
+        raise RegistryError(f"master plan could not be read: {exc}") from exc
+    if len(raw) > MASTER_PLAN_MAX_BYTES:
+        raise RegistryError("master plan exceeds the read-only display limit")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RegistryError("master plan must be valid UTF-8") from exc
+
+    section_match = re.search(
+        r"(?ms)^## 2\. 현재 기준점\s*$\n(?P<body>.*?)(?=^##\s|\Z)",
+        text,
+    )
+    if section_match is None:
+        raise RegistryError("master plan current-baseline section is missing")
+
+    values: dict[str, str] = {}
+    for line in section_match.group("body").splitlines():
+        if not line.startswith("- ") or ":" not in line:
+            continue
+        label, value = line[2:].split(":", 1)
+        key = MASTER_PLAN_FIELDS.get(label.strip())
+        if key is None:
+            continue
+        if key in values:
+            raise RegistryError(f"master plan field is duplicated: {label.strip()}")
+        normalized = value.strip().replace("`", "").replace("**", "")
+        if not normalized or len(normalized) > MASTER_PLAN_VALUE_MAX_CHARS:
+            raise RegistryError(f"master plan field is empty or too long: {label.strip()}")
+        values[key] = normalized
+
+    missing = sorted(set(MASTER_PLAN_FIELDS.values()) - set(values))
+    if missing:
+        raise RegistryError("master plan fields are missing: " + ", ".join(missing))
+    values["source"] = resolved.relative_to(root).as_posix()
+    return values
+
+
+def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
+    """Build one write-free owner project card from master-plan and Git metadata."""
+
+    snapshot = read_master_plan_snapshot()
+    expected_branch = snapshot["branch"]
+    live_branch = str(repo.get("branch") or "unknown")
+    attention_reasons = []
+    if live_branch != expected_branch:
+        attention_reasons.append(
+            f"Live branch {live_branch!r} does not match master-plan branch {expected_branch!r}."
+        )
+    return {
+        "version": "project_control.v0.1A",
+        "mode": "read-only",
+        "source": snapshot["source"],
+        "project_cards": [
+            {
+                "project_id": "jarvis-core",
+                "display_name": "Jarvis-Core",
+                "status": "attention" if attention_reasons else "observed",
+                "branch": live_branch,
+                "live_head": str(repo.get("head_short") or "unknown"),
+                "verified_implementation_head": snapshot["verified_implementation_head"],
+                "working_tree_status": str(repo.get("working_tree_status") or "unknown"),
+                "last_verified": snapshot["last_verified"],
+                "known_protected_untracked": [snapshot["known_protected_untracked_file"]],
+                "current_goal": (
+                    "Develop Jarvis-Core as a local-first, human-approved, "
+                    "skill-based personal AI assistant."
+                ),
+                "current_workstream": snapshot["current_workstream"],
+                "current_milestone": snapshot["current_milestone"],
+                "recommended_next_step": snapshot["recommended_next_step"],
+                "next_user_visible_milestone": snapshot["next_user_visible_milestone"],
+                "validation_commands": list(PROJECT_CONTROL_VALIDATION_COMMANDS),
+                "forbidden_actions": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
+                "attention_reasons": attention_reasons,
+            }
+        ],
+        "notes": [
+            "The project card is reconstructed from tracked master-plan fields and fixed read-only Git commands.",
+            "It does not create tasks, approvals, prompts, commits, runtime state, or cross-app calls.",
+            "The list-shaped contract can add separately approved trusted projects later; v0.1A exposes Jarvis-Core only.",
+        ],
+    }
+
+
 def history_repo_payload() -> dict[str, Any]:
     """Return repository metadata for the read-only history view."""
 
@@ -1066,9 +1190,10 @@ def overview_skills_payload(skills: list[dict[str, Any]]) -> list[dict[str, Any]
 
 
 def overview_payload() -> dict[str, Any]:
-    """Return the read-only Tasks / Reports dashboard payload."""
+    """Return the read-only Project Control and local-artifact dashboard payload."""
 
     registry = load_registry()
+    repo = repo_status_payload()
     tasks = discover_recent_items(("memory_tasks",))
     reports = filter_overview_items(
         discover_recent_items(("reports", "research_examples", "daily_ai_radar_examples")),
@@ -1087,7 +1212,8 @@ def overview_payload() -> dict[str, Any]:
     return {
         "ok": True,
         "mode": "read-only",
-        "repo": repo_status_payload(),
+        "repo": repo,
+        "project_control": project_control_payload(repo),
         "skills": overview_skills_payload(registry["skills"]),
         "tasks": tasks,
         "reports": reports,
@@ -5341,6 +5467,18 @@ def run_self_test() -> None:
     assert overview_code == HTTPStatus.OK
     assert overview["ok"] is True
     assert overview["mode"] == "read-only"
+    assert overview["project_control"]["version"] == "project_control.v0.1A"
+    assert overview["project_control"]["mode"] == "read-only"
+    assert overview["project_control"]["source"] == "docs/master-plan.md"
+    assert len(overview["project_control"]["project_cards"]) == 1
+    owner_card = overview["project_control"]["project_cards"][0]
+    assert owner_card["project_id"] == "jarvis-core"
+    assert owner_card["branch"] == overview["repo"]["branch"]
+    assert owner_card["live_head"] == overview["repo"]["head_short"]
+    assert owner_card["known_protected_untracked"] == ["jarvis.bat"]
+    assert owner_card["validation_commands"] == ["git status --short", "git diff --check"]
+    assert owner_card["status"] == "observed"
+    assert owner_card["attention_reasons"] == []
     assert overview["repo"]["head_short"]
     assert "jarvis.bat" in overview["repo"]["protected_path_note"]
     assert overview["repo"]["working_tree_status"]
@@ -6143,10 +6281,12 @@ def run_self_test() -> None:
     assert "Skills" in html
     assert "Hermes Manager" in html
     assert "Codex Review" in html
+    assert "Project Control" in html
+    assert "Owner-facing local project dashboard" in html
     assert "Load Read-Only Review" in html
     assert "Research Council" in html
     assert "Daily AI Radar" in html
-    assert "Tasks / Reports" in html
+    assert "Project Control" in html
     assert "Checkpoints / History" in html
     assert "Memory / Skills" in html
     assert "Settings" in html
@@ -6164,10 +6304,10 @@ def run_self_test() -> None:
     assert "v0.1 does not record audio." in html
     assert "Jarvis will not run tools until you choose a handoff." in html
     assert "jarvis.bat" in html
-    assert "Refresh Overview" in html
+    assert "Refresh Project Control" in html
     assert "Refresh History" in html
     assert "Refresh Memory / Skills" in html
-    assert "Read-only operations dashboard" in html
+    assert "Owner-facing local project dashboard" in html
     assert "does not create tasks" in html
     assert "does not create commits" in html
     assert "preview-only: sample candidates" in html
@@ -6180,6 +6320,9 @@ def run_self_test() -> None:
     assert "/api/status" in app_js
     assert "/api/skill" in app_js
     assert "/api/overview" in app_js
+    assert "renderProjectControl" in app_js
+    assert "Next user-visible result" in app_js
+    assert "Read-only Project Control overview refreshed." in app_js
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js
     assert "/api/memory-skills/candidates/preview" in app_js
@@ -6213,7 +6356,7 @@ def run_self_test() -> None:
     assert "MediaRecorder" not in app_js
     assert "loadOverview" in app_js
     assert "loadHistory" in app_js
-    assert "Refresh Overview" not in app_js
+    assert "Refresh Project Control" not in app_js
     assert "Refresh History" not in app_js
     assert "renderSkillCards" in app_js
     assert "renderSkillDetail" in app_js

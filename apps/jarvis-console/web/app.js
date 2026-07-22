@@ -1038,6 +1038,69 @@ async function loadMemorySkills() {
   }
 }
 
+function renderProjectControl(projectControl) {
+  const cards = projectControl?.project_cards || [];
+  if (!cards.length) {
+    return `
+      <section class="overview-card safety-card">
+        <h3>Project Control</h3>
+        <p class="placeholder">No trusted project card is available.</p>
+      </section>
+    `;
+  }
+  return `
+    <section class="overview-card">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Owner Dashboard</p>
+          <h3>Project Control</h3>
+        </div>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Read-only</span>
+          <span class="overview-badge">${escapeHtml(projectControl.version || "project_control.v0.1A")}</span>
+        </div>
+      </div>
+      <p class="muted">Current direction comes from ${escapeHtml(projectControl.source || "the tracked master plan")}; live repository facts are refreshed locally.</p>
+      <div class="overview-skill-grid">
+        ${cards
+          .map(
+            (card) => `
+          <article class="overview-skill-card project-control-card">
+            <div class="overview-section-heading">
+              <h4>${escapeHtml(card.display_name || card.project_id || "Local project")}</h4>
+              <span class="overview-badge ${card.status === "observed" ? "read-only" : ""}">${card.status === "observed" ? "Observed" : "Attention"}</span>
+            </div>
+            <dl class="overview-facts compact-facts">
+              <div><dt>Branch</dt><dd>${escapeHtml(card.branch || "unknown")}</dd></div>
+              <div><dt>Live HEAD</dt><dd><code>${escapeHtml(card.live_head || "unknown")}</code></dd></div>
+              <div><dt>Verified implementation</dt><dd><code>${escapeHtml(card.verified_implementation_head || "unknown")}</code></dd></div>
+              <div><dt>Last verified</dt><dd>${escapeHtml(card.last_verified || "unknown")}</dd></div>
+            </dl>
+            <section class="codex-review-summary">
+              <h4>Why this work exists</h4>
+              <p><strong>Goal:</strong> ${escapeHtml(card.current_goal || "Not supplied")}</p>
+              <p><strong>Current workstream:</strong> ${escapeHtml(card.current_workstream || "Not supplied")}</p>
+              <p><strong>Current milestone:</strong> ${escapeHtml(card.current_milestone || "Not supplied")}</p>
+              <p><strong>Next user-visible result:</strong> ${escapeHtml(card.next_user_visible_milestone || "Not supplied")}</p>
+              <p><strong>Recommended next step:</strong> ${escapeHtml(card.recommended_next_step || "Not supplied")}</p>
+              <p><strong>Working tree:</strong> <code class="codex-review-status">${escapeHtml(card.working_tree_status || "clean")}</code></p>
+            </section>
+            <div class="overview-rule-grid">
+              <div><strong>Known protected / untracked</strong>${listMarkup(card.known_protected_untracked, "None declared.")}</div>
+              <div><strong>Validation commands</strong>${listMarkup(card.validation_commands, "None declared.")}</div>
+              <div><strong>Forbidden actions</strong>${listMarkup(card.forbidden_actions, "None declared.")}</div>
+              <div><strong>Attention</strong>${listMarkup(card.attention_reasons, "No master-plan branch mismatch detected.")}</div>
+            </div>
+          </article>
+        `,
+          )
+          .join("")}
+      </div>
+      ${listMarkup(projectControl.notes, "No Project Control notes registered.")}
+    </section>
+  `;
+}
+
 function renderRepoStatus(repo) {
   const workingTree = repo?.working_tree_status || "unknown";
   return `
@@ -1132,6 +1195,7 @@ function renderOverview(data) {
     return;
   }
   tasksDetails.innerHTML = `
+    ${renderProjectControl(data.project_control)}
     ${renderRepoStatus(data.repo)}
     <section class="overview-card">
       <h3>Skill Status</h3>
@@ -1247,7 +1311,7 @@ async function loadOverview() {
       throw new Error(data.error || `Request failed: ${response.status}`);
     }
     renderOverview(data);
-    statusText.textContent = "Read-only Tasks / Reports overview refreshed.";
+    statusText.textContent = "Read-only Project Control overview refreshed.";
   } catch (error) {
     tasksDetails.innerHTML = `<p class="safety-note">Overview failed: ${escapeHtml(error.message)}</p>`;
     statusText.textContent = `Overview failed: ${error.message}`;

@@ -31,7 +31,7 @@
       <button class="tab-button" type="button" data-tab="codex-review">Codex Review</button>
       <button class="tab-button" type="button" data-tab="research">Research Council</button>
       <button class="tab-button" type="button" data-tab="radar">Daily AI Radar</button>
-      <button class="tab-button" type="button" data-tab="tasks">Tasks / Reports</button>
+      <button class="tab-button" type="button" data-tab="tasks">Project Control</button>
       <button class="tab-button" type="button" data-tab="history">Checkpoints / History</button>
       <button class="tab-button" type="button" data-tab="memory">Memory / Skills</button>
       <button class="tab-button" type="button" data-tab="settings">Settings</button>
@@ -149,15 +149,15 @@
 
       <section class="tab-panel hidden" id="tab-tasks">
         <div class="panel-heading">
-          <p class="eyebrow">Tasks / Reports</p>
-          <h2 id="tasksTitle">Read-only operations dashboard</h2>
-          <p id="tasksDescription">Review current repo status, skill status, recent reports, and checkpoint candidates without creating or changing anything.</p>
+          <p class="eyebrow">Project Control</p>
+          <h2 id="tasksTitle">Owner-facing local project dashboard</h2>
+          <p id="tasksDescription">See the master-plan goal, current milestone, live repository state, and next user-visible result before browsing detailed local reports.</p>
         </div>
-        <button id="refreshOverviewButton" class="secondary-action overview-refresh" type="button">Refresh Overview</button>
+        <button id="refreshOverviewButton" class="secondary-action overview-refresh" type="button">Refresh Project Control</button>
         <div id="tasksDetails" class="overview-panel">
           <p class="muted">Overview has not been loaded yet.</p>
         </div>
-        <p class="safety-note">Read-only dashboard: Jarvis Console does not create tasks, generate reports, run skills, commit, or push.</p>
+        <p class="safety-note">Read-only dashboard: Jarvis Console does not create tasks or approvals, generate reports, run skills, commit, push, or contact another app.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-history">
