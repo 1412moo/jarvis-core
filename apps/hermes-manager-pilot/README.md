@@ -499,21 +499,22 @@ gated.
 
 ### C0C-6 Fresh Review Handoff
 
-Status: C0C-6a is implemented as internal/tests-only. C0C-6b remains
-design-only; no session or renderer connection is implemented.
+Status: C0C-6a and C0C-6b are implemented as internal/tests-only. The session
+adapter is not connected to a renderer, route, UI, or persistence.
 
 C0C-6 is split into two separately gated units. C0C-6a validates a C0C-5
 wrapper, rejects blocked or later-stage metadata before I/O, recollects one fresh
 C0C-2 bundle from the explicitly trusted local root, and returns a handoff
 preview only when digest, branch, HEAD, and complete status still match exactly.
-C0C-6b could later map only that exact preview through
-`build_hermes_session()` after checking the review-only renderer conditions.
+C0C-6b accepts only that exact preview, recomputes its queue evaluation, maps it
+through `build_hermes_session()`, and rejects any session that does not preserve
+the exact review data and review-only safety conditions.
 
 The fresh decision is still a repeated local sample, not an atomic
 snapshot or authority to execute. No preview may be treated as commit approval,
-and a mutation after the final collection sample remains possible. Session
-construction, prompt rendering, route/UI/persistence, command execution, and
-external communication remain unimplemented and separately gated.
+and a mutation after the final collection sample remains possible. Prompt
+rendering or display, route/UI/persistence, command execution, approval creation,
+and external communication remain unimplemented and separately gated.
 
 ## Contract
 

@@ -510,8 +510,8 @@ composite bundle/verifier are implemented as internal/tests-only primitives.
 The v0.1C-0C-3 pure handoff decision and v0.1C-0C-4 review-observation adapter
 are also implemented internal/tests-only. C0C-5 adds the internal/tests-only
 pure queue observation evaluator described in Section 18.12. C0C-6 fresh review
-revalidation is implemented internal/tests-only as C0C-6a; C0C-6b
-session-handoff integration remains design-only in Section 18.13.
+revalidation and review-session adaptation are implemented internal/tests-only
+as C0C-6a and C0C-6b in Section 18.13.
 
 ### 18.1 Problem
 
@@ -639,9 +639,9 @@ v0.1C-0C does not design or authorize:
 Implementation remains split into separately reviewable internal/tests-only
 units: bounded whole-status collection, composite-bundle verification, pure
 handoff decision, review-observation adaptation, and pure queue observation
-evaluation, followed by fresh review revalidation. All six units are
-implemented. They do not authorize durable queue state, route, UI, persistence,
-execution, or other user-facing behavior.
+evaluation, fresh review revalidation, and review-session adaptation. All seven
+units are implemented. They do not authorize durable queue state, route, UI,
+persistence, execution, or other user-facing behavior.
 
 ### 18.8 v0.1C-0C-1 Implementation Boundary
 
@@ -862,8 +862,9 @@ route, UI, persistence, or any execution/approval flow is a separate scope gate.
 ### 18.13 v0.1C-0C-6 Fresh Review Handoff
 
 Status: the C0C-6a fresh blocked-or-preview decision is implemented as
-internal/tests-only. C0C-6b remains design-only. No session adapter, renderer
-connection, route, UI, or persistence is implemented.
+internal/tests-only. The C0C-6b review-session adapter is also implemented as
+internal/tests-only. No renderer connection, prompt display, route, UI, or
+persistence is implemented.
 
 #### 18.13.1 Problem
 
@@ -881,12 +882,13 @@ C0C-6 is divided into two separately reviewable units:
 1. C0C-6a fresh review decision: validates the complete C0C-5 wrapper, recollects
    current evidence, and returns either blocking reasons or an immutable handoff
    preview. It does not call `build_hermes_session()` or any renderer.
-2. C0C-6b session adapter: if separately approved later, accept only a valid
-   C0C-6a preview and map its exact queue/item through `build_hermes_session()`.
-   It still would not render, execute, persist, or communicate externally.
+2. C0C-6b session adapter: accepts only a valid C0C-6a preview and maps its exact
+   queue/item through `build_hermes_session()`. It does not render, execute,
+   persist, or communicate externally.
 
-This split keeps the implemented Git/filesystem revalidation boundary separate
-from future session and renderer integration.
+This split keeps the Git/filesystem revalidation boundary separate from session
+adaptation, and keeps both internal units separate from future renderer or UI
+integration.
 
 #### 18.13.3 Implemented C0C-6a Interface
 
@@ -973,12 +975,21 @@ successful preview carries the exact immutable C0C-5 queue, selected item,
 recomputed evaluation, and fresh bundle digest. It does not carry a session,
 rendered prompt, approval, command, or execution flag.
 
-#### 18.13.6 Renderer Handoff Conditions For Future C0C-6b
+#### 18.13.6 Implemented C0C-6b Review Session Adapter
 
 C0C-6b must not accept an arbitrary queue or C0C-5 wrapper. It may accept only
 the exact queue and item carried by a non-blocked C0C-6a preview. Before
 returning a local `SessionState`, it must recompute the queue evaluation and
 require the preview fields and evaluation to remain unchanged.
+
+The implemented entry point is:
+
+```python
+def build_review_session_from_fresh_preview(
+    preview: FreshReviewHandoffPreview,
+) -> SessionState:
+    ...
+```
 
 The resulting session must satisfy all of these review-only conditions:
 
@@ -989,7 +1000,7 @@ The resulting session must satisfy all of these review-only conditions:
 - Existing protected-path filtering and validation-command boundaries remain
   unchanged.
 
-C0C-6b would construct and validate a session only. Calling a renderer,
+C0C-6b constructs and validates a session only. Calling a renderer,
 displaying or persisting a prompt, invoking Codex/ChatGPT/Hermes, or executing a
 command remains a later scope gate.
 
@@ -1006,7 +1017,7 @@ The bundle digest remains unkeyed. Matching it proves deterministic equality of
 the bounded manifests, not collector provenance, human identity, authenticity,
 or permission to act.
 
-#### 18.13.8 Implemented C0C-6a Tests
+#### 18.13.8 Implemented C0C-6a And C0C-6b Tests
 
 Deterministic tests cover:
 
@@ -1021,24 +1032,30 @@ Deterministic tests cover:
 - Target content, whole status, branch, or HEAD changes producing no preview.
 - Collector validation errors, unsafe paths, staged state, bounds, and
   collection races remaining fail-closed.
-- No queue mutation, session construction, renderer/pipeline call, approval
-  creation, route, UI, persistence, command execution, network, API, or LLM
-  behavior.
+- C0C-6a performing no queue mutation or session construction, and neither unit
+  calling a renderer/pipeline, creating approval, or adding route, UI,
+  persistence, command execution, network, API, or LLM behavior.
+- A valid fresh preview producing an exact deterministic review-only
+  `SessionState` through one call to the existing session builder.
+- Adapter input, queue/item/evaluation, fresh digest, commit-stage metadata, and
+  blocked-review inconsistencies failing before session construction.
+- The adapter performing no Git read and rejecting an unsafe session returned by
+  the existing builder.
 
 #### 18.13.9 Non-Goals And Approval Boundary
 
-C0C-6a does not authorize C0C-6b implementation, prompt rendering,
-durable queue or evidence storage, background monitoring, filesystem watching,
-route/API/UI/mobile integration, automated Codex/ChatGPT/Hermes invocation,
-review or commit approval creation, staging, commit, push, pull request,
-destructive operations, credentials, external communication, Memory/Skills
-save, UI Save/Confirm, or Voice Inbox auto-save.
+C0C-6 does not authorize prompt rendering or display, durable queue or evidence
+storage, background monitoring, filesystem watching, route/API/UI/mobile
+integration, automated Codex/ChatGPT/Hermes invocation, review or commit
+approval creation, staging, commit, push, pull request, destructive operations,
+credentials, external communication, Memory/Skills save, UI Save/Confirm, or
+Voice Inbox auto-save.
 
-C0C-6a remains internal/tests-only and limited to the fresh blocked-or-preview
-decision plus deterministic tests. `build_fresh_review_handoff_decision()`
-validates the C0C-5 wrapper before I/O, preserves evaluator blocks without
-collection, recollects and verifies one fresh C0C-2 bundle for actionable review,
-and returns a preview only for exact digest/branch/HEAD/status agreement.
+C0C-6a and C0C-6b remain internal/tests-only. The first validates the C0C-5
+wrapper before I/O, preserves evaluator blocks without collection, recollects
+and verifies one fresh C0C-2 bundle for actionable review, and returns a preview
+only for exact digest/branch/HEAD/status agreement. The second accepts only that
+validated preview and returns an exact review-only `SessionState`.
 
-Implementing C0C-6b or any renderer/session consumer requires a new explicit
-scope approval.
+Connecting the C0C-6b result to any renderer, route, UI, persistence, or session
+consumer requires a new explicit scope approval.
