@@ -457,10 +457,10 @@ v0.1C-0A remains an internal/tests-only evidence primitive:
   performs no prompt execution, staging, commit, push, pull request, external
   API, LLM, or explicit network-client call.
 
-Before integration, a future design/review step must define the exact mapping
-from a current evidence snapshot to one queue transition, stale-evidence
-invalidation, and a separate human approval authority. Route, UI, persistence,
-and unattended execution remain out of scope until separately approved.
+The later C0C design now binds repeated evidence into a fail-closed review
+observation. It does not insert that observation into queue state or provide a
+human approval authority. Route, UI, persistence, and unattended execution
+remain out of scope until separately approved.
 
 ## 17. Prompt Queue v0.1C-0B Evidence Integrity Boundary
 
@@ -499,15 +499,16 @@ network access, prompt execution, staging, commit, push, or pull request.
 
 The status in v0.1C-0B evidence remains deliberately scoped. It is not a
 complete working-tree observation and must not be mapped directly to the queue
-item's `observed_git_status`. Before integration, a separate design decision
-must define fail-closed whole-repository coverage or an equivalent safety model,
-plus stale-evidence handling and human approval authority.
+item's `observed_git_status`. C0C-1 through C0C-4 add separate whole-repository
+coverage, repeated stale-state checks, and fail-closed observation mapping;
+human approval authority and actual queue integration remain separate.
 
 ## 18. Prompt Queue v0.1C-0C Whole-Worktree Evidence
 
 Status: the v0.1C-0C-1 bounded whole-status collector/verifier and v0.1C-0C-2
 composite bundle/verifier are implemented as internal/tests-only primitives.
-The v0.1C-0C-3 pure handoff decision is also implemented internal/tests-only.
+The v0.1C-0C-3 pure handoff decision and v0.1C-0C-4 review-observation adapter
+are also implemented internal/tests-only.
 
 ### 18.1 Problem
 
@@ -521,8 +522,8 @@ protected-path and out-of-scope checks.
 ### 18.2 Decision
 
 Retain scoped target-content evidence and add a separate whole-worktree status
-artifact. A future composite review-evidence bundle must bind the two artifacts
-to one repeated collection window.
+artifact. A composite review-evidence bundle binds the two artifacts to one
+repeated collection window.
 
 The design has three layers:
 
@@ -534,9 +535,9 @@ The design has three layers:
    branch, HEAD, target-evidence digest, whole-status evidence, collection
    bounds/version, and a domain-separated composite digest.
 
-The composite digest—not the scoped target digest—would be the only future
-candidate for `change_evidence_digest`. The whole-worktree status—not scoped
-status—would be the only future candidate for `observed_git_status`.
+The composite digest—not the scoped target digest—is the only value C0C-4 may
+apply as `change_evidence_digest`. The whole-worktree status—not scoped
+status—is the only value it may apply as `observed_git_status`.
 
 ### 18.3 Rejected Alternatives
 
@@ -592,7 +593,7 @@ Whole-status evidence creation fails for:
 - Staged or conflicted changes.
 - Missing declared known-untracked paths.
 
-Future composite evidence creation must additionally fail for target/status
+Composite evidence creation additionally fails for target/status
 disagreement, a protected target, symlink/reparse traversal in content targets,
 directory or unsupported submodule targets, and content-size violations.
 
@@ -614,9 +615,10 @@ either:
   `observed_git_status`, and the composite `change_evidence_digest`.
 
 The preview must not mutate a `QueueItem`, set approval booleans, construct a
-review/commit approval digest, or call the evaluator automatically. Connecting
-that preview to queue normalization remains a separate implementation and
-approval step.
+review/commit approval digest, or call the evaluator automatically. C0C-4 may
+apply a safe preview only by returning a new review-stage item; connecting that
+item to queue normalization, storage, or evaluator flow remains a separate
+implementation and approval step.
 
 ### 18.7 Safety And Non-Goals
 
@@ -632,9 +634,10 @@ v0.1C-0C does not design or authorize:
 - Memory/Skills save, UI Save/Confirm, or Voice Inbox auto-save behavior.
 
 Implementation remains split into separately reviewable internal/tests-only
-units: bounded whole-status collection, composite-bundle verification, and pure
-handoff decision. All three units are implemented. They do not authorize queue,
-route, UI, persistence, execution, or other user-facing integration.
+units: bounded whole-status collection, composite-bundle verification, pure
+handoff decision, and review-observation adaptation. All four units are
+implemented. They do not authorize queue-state integration, route, UI,
+persistence, execution, or other user-facing behavior.
 
 ### 18.8 v0.1C-0C-1 Implementation Boundary
 
@@ -712,6 +715,33 @@ changes, and target/known-untracked overlap. The test Git fixture now pins
 `core.autocrlf=false` so results do not depend on user-global Git configuration.
 
 C0C-3 does not update queue state, call `evaluate_queue_item()`, build scope,
-review, or commit approval bindings, or expose any route/UI/persistence. Mapping
-the preview into a newly normalized queue item remains a separate design and
-approval step.
+review, or commit approval bindings, or expose any route/UI/persistence. C0C-4
+may apply its safe preview to a new in-memory review item, but actual queue-flow
+integration remains a separate design and approval step.
+
+### 18.11 v0.1C-0C-4 Implementation Boundary
+
+`apply_review_evidence_observation()` accepts a normalized project, a
+review-stage `QueueItem`, and a C0C-2 bundle. It recomputes the C0C-3 fail-closed
+decision and raises `ValidationError` unless a safe preview is available. It
+also rejects an item that already has a change-evidence digest, a passed review
+or review-approval digest, or commit-approval metadata, so it cannot silently
+replace evidence or carry a new observation across a later approval boundary.
+
+For a safe input, the adapter returns a new immutable item with exactly four
+replaced fields: `observed_branch`, `observed_head`, complete
+`observed_git_status`, and the composite `change_evidence_digest`. The input
+item remains unchanged. Scope approval fields and every other queue-item field
+are preserved rather than created, cleared, or reinterpreted.
+
+The adapter is deterministic and performs no Git/filesystem read. Tests cover
+exact-field replacement, input immutability, approval-field preservation, pure
+repeatability, wrong-stage and pre-existing-metadata rejection, tampered bundle
+rejection, and unsafe whole-status rejection.
+
+C0C-4 does not normalize, insert, replace, or persist an item in
+`PromptQueueState`; call `evaluate_queue_item()`; create or validate a
+scope/review/commit approval binding; grant human approval; or expose route, UI,
+command execution, staging, commit, push, pull request, network, API, or LLM
+behavior. Queue-flow and approval-flow integration remain unimplemented and
+separately gated.

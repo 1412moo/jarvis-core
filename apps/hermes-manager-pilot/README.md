@@ -5,7 +5,8 @@ manager in the Jarvis-Core development workflow. It started as a v0.1
 design-only contract and now includes local-only v0.2-v0.4 helper tools plus
 internal Prompt Queue v0.1A, approval-binding v0.1B-1, and evaluator-enforcement
 v0.1B-2 primitives, plus internal local change-evidence collection v0.1C-0A
-and integrity verification v0.1C-0B.
+and integrity verification v0.1C-0B, followed by bounded whole-worktree evidence
+and review-observation helpers through v0.1C-0C-4.
 
 Hermes is not a coding worker. Hermes does not replace Codex. Hermes helps
 manage Codex work by preserving context, waiting for responses, summarizing
@@ -394,10 +395,10 @@ committing, pushing, or pull-request creation. It performs no external API,
 LLM, or explicit network-client call and does not write evidence or application
 state.
 
-A future design/review step must define how current collector output could be
-bound to a queue transition and invalidated when state changes. Human approval
-authority and any route, UI, persistence, or unattended workflow remain
-separate and out of scope.
+The later C0C design now binds repeated collector output into a review-evidence
+bundle and a fail-closed observation adapter. It still does not update queue
+state or supply human approval authority. Route, UI, persistence, and unattended
+workflow remain separate and out of scope.
 
 ## Prompt Queue v0.1C-0B Evidence Integrity Verification
 
@@ -419,20 +420,21 @@ disconnected from the queue evaluator and approval-binding chain.
 
 The collected Git status is still explicitly scoped to target files and known
 untracked paths. It must not be copied into `observed_git_status` as though it
-were a complete working-tree observation. A future design decision must define
-safe whole-repository coverage or another fail-closed mapping before any queue
-integration is implemented.
+were a complete working-tree observation. C0C-1 through C0C-4 provide separate
+whole-worktree coverage and fail-closed mapping; actual queue integration is
+still not implemented.
 
 ## Prompt Queue v0.1C-0C Whole-Worktree Evidence
 
-Status: v0.1C-0C-1 bounded collector, v0.1C-0C-2 composite bundle, and
-v0.1C-0C-3 pure handoff decision implemented as internal/tests-only.
+Status: v0.1C-0C-1 bounded collector, v0.1C-0C-2 composite bundle,
+v0.1C-0C-3 pure handoff decision, and v0.1C-0C-4 queue observation adapter
+implemented as internal/tests-only.
 
-v0.1C-0C keeps v0.1C-0B target-content evidence and proposes a separate,
+v0.1C-0C keeps v0.1C-0B target-content evidence and adds a separate,
 bounded observation of the complete Git-visible working tree. A composite
-review-evidence bundle would bind both artifacts to the same project, item,
-resolved root, branch, HEAD, and repeated collection window. Only the complete
-status—not scoped status—could later populate a queue observation preview.
+review-evidence bundle binds both artifacts to the same project, item, resolved
+root, branch, HEAD, and repeated collection window. Only the complete
+status—not scoped status—can populate a queue observation preview.
 
 The selected design rejects two shortcuts: treating scoped status as complete,
 and replacing explainable status with a clean/dirty boolean. Whole-worktree
@@ -464,7 +466,17 @@ no preview, or an immutable preview containing complete status and the composite
 digest. Protected and out-of-scope paths, missing target changes, malformed
 evidence, and target/expected-untracked overlap fail closed. The decision does
 not mutate a QueueItem, set approvals, build approval bindings, or call the
-evaluator. Queue integration remains unimplemented and separately gated.
+evaluator.
+
+C0C-4 applies only a safe C0C-3 preview to a new review-stage `QueueItem`. It
+replaces exactly `observed_branch`, `observed_head`, complete
+`observed_git_status`, and `change_evidence_digest`; the original item and all
+scope, review, commit, prompt, and result metadata remain unchanged. Existing
+evidence, passed-review metadata, commit-approval metadata, unsafe status, and
+tampered bundles fail closed. The adapter performs no Git/filesystem read and
+does not normalize or mutate queue state, call the evaluator, create an approval
+binding, or expose route/UI/persistence/execution behavior. Actual queue-flow
+integration remains unimplemented and separately gated.
 
 ## Contract
 
