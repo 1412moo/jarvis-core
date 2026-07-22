@@ -23,6 +23,7 @@ from hermes_manager_pilot.change_evidence import (
     MAX_FILE_BYTES,
     MAX_GIT_OUTPUT_BYTES,
     WHOLE_STATUS_COVERAGE,
+    build_review_evidence_handoff_decision,
     collect_local_change_evidence,
     collect_review_evidence_bundle,
     collect_whole_worktree_status_evidence,
@@ -196,6 +197,7 @@ def _create_change_evidence_fixture(temp_dir: str) -> tuple[Path, object, object
     _run_fixture_git(repo, "init", "-b", "main")
     _run_fixture_git(repo, "config", "user.email", "hermes-smoke@example.invalid")
     _run_fixture_git(repo, "config", "user.name", "Hermes Smoke")
+    _run_fixture_git(repo, "config", "core.autocrlf", "false")
 
     source_dir = repo / "src"
     source_dir.mkdir()
@@ -1574,6 +1576,111 @@ def _test_review_evidence_bundle_rejects_tampering_and_collection_races() -> Non
             change_evidence_module.collect_local_change_evidence = original_collect
 
 
+def _test_review_evidence_handoff_returns_only_verified_safe_preview() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-evidence-handoff-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        original_item = item
+        bundle = collect_review_evidence_bundle(repo, project, item)
+
+        first = build_review_evidence_handoff_decision(project, item, bundle)
+        second = build_review_evidence_handoff_decision(project, item, bundle)
+        _assert(first == second, "evidence handoff decision should be deterministic")
+        _assert(not first.is_blocked, "safe evidence handoff should not be blocked")
+        _assert(first.preview is not None, "safe evidence handoff preview is missing")
+        preview = first.preview
+        _assert(preview.version == "0.1C-0C-3", "handoff preview version is wrong")
+        _assert(preview.observed_branch == bundle.branch, "handoff branch is wrong")
+        _assert(preview.observed_head == bundle.head, "handoff HEAD is wrong")
+        _assert(
+            preview.observed_git_status == bundle.whole_status_evidence.whole_git_status,
+            "handoff did not use complete whole status",
+        )
+        _assert(
+            preview.change_evidence_digest == bundle.bundle_digest,
+            "handoff did not use composite evidence digest",
+        )
+        _assert(not hasattr(preview, "scope_approved"), "preview must not carry scope approval")
+        _assert(not hasattr(preview, "commit_approved"), "preview must not carry commit approval")
+        _assert(item == original_item, "handoff decision mutated the queue item")
+
+        original_run_git = change_evidence_module._run_git_bytes
+
+        def forbidden_git_read(*args: object, **kwargs: object) -> bytes:
+            raise AssertionError("handoff decision must not read Git")
+
+        change_evidence_module._run_git_bytes = forbidden_git_read
+        try:
+            pure = build_review_evidence_handoff_decision(project, item, bundle)
+            _assert(pure == first, "pure handoff verification changed the decision")
+        finally:
+            change_evidence_module._run_git_bytes = original_run_git
+
+
+def _test_review_evidence_handoff_blocks_unsafe_incomplete_or_tampered_evidence() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-evidence-handoff-blocked-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        (repo / "outside.txt").write_text("unexpected\n", encoding="utf-8")
+        protected_dir = repo / "protected-dir"
+        protected_dir.mkdir()
+        (protected_dir / "child.txt").write_text("protected\n", encoding="utf-8")
+        protected_project = replace(
+            project,
+            protected_paths=("known.local", "protected-dir"),
+        )
+        bundle = collect_review_evidence_bundle(repo, protected_project, item)
+        blocked = build_review_evidence_handoff_decision(
+            protected_project,
+            item,
+            bundle,
+        )
+        _assert(blocked.is_blocked, "unsafe evidence handoff should block")
+        _assert(blocked.preview is None, "blocked handoff must not expose a preview")
+        _assert(
+            "unexpected untracked path: outside.txt" in blocked.blocking_reasons,
+            "unexpected path blocking reason missing",
+        )
+        _assert(
+            "protected path is unexpectedly untracked: protected-dir/child.txt"
+            in blocked.blocking_reasons,
+            "protected descendant blocking reason missing",
+        )
+
+        tampered = build_review_evidence_handoff_decision(
+            protected_project,
+            item,
+            replace(bundle, bundle_digest="0" * 64),
+        )
+        _assert(tampered.is_blocked, "tampered evidence handoff should block")
+        _assert(tampered.preview is None, "tampered handoff must not expose a preview")
+        _assert(
+            tampered.blocking_reasons[0].startswith("review evidence validation failed:"),
+            "tampered evidence validation reason missing",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-evidence-handoff-empty-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        _run_fixture_git(repo, "restore", "--worktree", "src/tracked.txt")
+        unchanged_item = replace(item, target_files=("src/tracked.txt",))
+        bundle = collect_review_evidence_bundle(repo, project, unchanged_item)
+        blocked = build_review_evidence_handoff_decision(project, unchanged_item, bundle)
+        _assert(blocked.is_blocked, "handoff without target changes should block")
+        _assert(
+            "review handoff requires observed target changes" in blocked.blocking_reasons,
+            "missing target-change reason missing",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="hermes-evidence-overlap-") as temp_dir:
+        repo, project, item = _create_change_evidence_fixture(temp_dir)
+        _assert_validation_error(
+            lambda: collect_local_change_evidence(
+                repo,
+                replace(project, protected_paths=("protected.never",)),
+                replace(item, target_files=("known.local",)),
+            ),
+            "target path overlaps expected untracked exclusion",
+        )
+
+
 def _test_local_change_evidence_rejects_scope_root_stage_and_size_violations() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-change-evidence-safety-") as temp_dir:
         repo, project, item = _create_change_evidence_fixture(temp_dir)
@@ -1788,6 +1895,8 @@ def main() -> None:
         _test_whole_worktree_status_evidence_rejects_unstable_and_excessive_state,
         _test_review_evidence_bundle_is_deterministic_complete_and_purely_verifiable,
         _test_review_evidence_bundle_rejects_tampering_and_collection_races,
+        _test_review_evidence_handoff_returns_only_verified_safe_preview,
+        _test_review_evidence_handoff_blocks_unsafe_incomplete_or_tampered_evidence,
         _test_local_change_evidence_rejects_scope_root_stage_and_size_violations,
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,

@@ -30,6 +30,7 @@ WHOLE_STATUS_EVIDENCE_TYPE = "hermes_whole_worktree_status_evidence"
 WHOLE_STATUS_COVERAGE = "git-visible-whole-worktree"
 REVIEW_BUNDLE_VERSION = "0.1C-0C-2"
 REVIEW_BUNDLE_EVIDENCE_TYPE = "hermes_review_evidence_bundle"
+HANDOFF_DECISION_VERSION = "0.1C-0C-3"
 
 MAX_FILE_BYTES = 4 * 1024 * 1024
 MAX_TOTAL_FILE_BYTES = 16 * 1024 * 1024
@@ -156,6 +157,35 @@ class ReviewEvidenceBundle:
         if not isinstance(value, dict):
             raise ValidationError("review evidence bundle snapshot must be an object")
         return value
+
+
+@dataclass(frozen=True)
+class QueueObservationPreview:
+    """Immutable queue-observation fields derived from verified evidence."""
+
+    project_id: str
+    item_id: str
+    observed_branch: str
+    observed_head: str
+    observed_git_status: tuple[str, ...]
+    change_evidence_digest: str
+    coverage: str = WHOLE_STATUS_COVERAGE
+    version: str = HANDOFF_DECISION_VERSION
+
+
+@dataclass(frozen=True)
+class EvidenceHandoffDecision:
+    """Fail-closed pure decision that never mutates a queue item."""
+
+    project_id: str
+    item_id: str
+    blocking_reasons: tuple[str, ...]
+    preview: QueueObservationPreview | None
+    version: str = HANDOFF_DECISION_VERSION
+
+    @property
+    def is_blocked(self) -> bool:
+        return bool(self.blocking_reasons)
 
 
 @dataclass(frozen=True)
@@ -501,6 +531,77 @@ def verify_review_evidence_bundle(
     ).hexdigest()
     if not hmac.compare_digest(bundle.bundle_digest, expected_digest):
         raise ValidationError("review evidence bundle digest is inconsistent")
+
+
+def build_review_evidence_handoff_decision(
+    project: ProjectCard,
+    item: QueueItem,
+    bundle: ReviewEvidenceBundle,
+) -> EvidenceHandoffDecision:
+    """Return blocking reasons or an immutable observation preview."""
+
+    project_id = project.project_id if isinstance(project, ProjectCard) else ""
+    item_id = item.item_id if isinstance(item, QueueItem) else ""
+    try:
+        verify_review_evidence_bundle(bundle, project, item)
+    except ValidationError as exc:
+        return EvidenceHandoffDecision(
+            project_id=project_id,
+            item_id=item_id,
+            blocking_reasons=(f"review evidence validation failed: {exc}",),
+            preview=None,
+        )
+
+    entries = _parse_evidence_status_lines(
+        bundle.whole_status_evidence.whole_git_status
+    )
+    target_keys = {_path_key(path) for path in item.target_files}
+    expected_untracked_keys = {
+        _path_key(path) for path in project.expected_untracked
+    }
+    reasons: list[str] = []
+    changed_target_keys: set[str] = set()
+    for code, path in entries:
+        path_key = _path_key(path)
+        if code == "??" and path_key in expected_untracked_keys:
+            continue
+        if path_key in target_keys:
+            changed_target_keys.add(path_key)
+        if _path_is_protected(path, project.protected_paths):
+            if code == "??":
+                reasons.append(f"protected path is unexpectedly untracked: {path}")
+            else:
+                reasons.append(f"protected path has tracked changes: {path}")
+        elif path_key not in target_keys:
+            if code == "??":
+                reasons.append(f"unexpected untracked path: {path}")
+            else:
+                reasons.append(f"tracked change is outside target files: {path}")
+    if not changed_target_keys:
+        reasons.append("review handoff requires observed target changes")
+
+    blocking_reasons = _deduplicate_text(reasons)
+    if blocking_reasons:
+        return EvidenceHandoffDecision(
+            project_id=project.project_id,
+            item_id=item.item_id,
+            blocking_reasons=blocking_reasons,
+            preview=None,
+        )
+    preview = QueueObservationPreview(
+        project_id=project.project_id,
+        item_id=item.item_id,
+        observed_branch=bundle.branch,
+        observed_head=bundle.head,
+        observed_git_status=bundle.whole_status_evidence.whole_git_status,
+        change_evidence_digest=bundle.bundle_digest,
+    )
+    return EvidenceHandoffDecision(
+        project_id=project.project_id,
+        item_id=item.item_id,
+        blocking_reasons=(),
+        preview=preview,
+    )
 
 
 def _validate_project_item(project: ProjectCard, item: QueueItem) -> None:
@@ -849,12 +950,17 @@ def _validate_target_scope(root: Path, project: ProjectCard, item: QueueItem) ->
 
 
 def _validate_declared_scope(project: ProjectCard, item: QueueItem) -> None:
+    for relative_path in project.expected_untracked:
+        _validate_relative_path(relative_path)
+    expected_untracked_keys = {_path_key(path) for path in project.expected_untracked}
     for relative_path in item.target_files:
         _validate_relative_path(relative_path)
         if _path_is_protected(relative_path, project.protected_paths):
             raise ValidationError(f"target path is protected: {relative_path}")
-    for relative_path in project.expected_untracked:
-        _validate_relative_path(relative_path)
+        if _path_key(relative_path) in expected_untracked_keys:
+            raise ValidationError(
+                f"target path overlaps expected untracked exclusion: {relative_path}"
+            )
 
 
 def _validated_target_path(root: Path, relative_path: str, allow_missing: bool) -> Path:
@@ -1388,6 +1494,10 @@ def _is_within(root: Path, candidate: Path) -> bool:
 
 def _path_key(value: str) -> str:
     return value.replace("\\", "/").casefold()
+
+
+def _deduplicate_text(values: list[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(values))
 
 
 def _path_is_protected(value: str, protected_paths: tuple[str, ...]) -> bool:
