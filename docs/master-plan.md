@@ -14,17 +14,19 @@
 
 ### 현재 만드는 것
 
-안전 검증을 통과한 Codex review session을 Jarvis Console의 읽기 전용 화면에서
-확인하는 첫 vertical slice를 실제 Codex 작업으로 완료했다. Hermes가 정확한
-handoff JSON을 만들고, 사용자가 복사하면 Jarvis가 fresh evidence를 다시 확인한다.
+Memory / Skills의 user-facing local save를 다시 열기 전에 필요한 신뢰 경계와
+재오픈 조건을 검토했다. Phase 2C-3c 설계 결과는 `keep locked`이며, 실제 HTTP
+route, UI, Voice Inbox, persistence에는 아무 권한도 추가하지 않았다.
 
 ### 이 작업 축이 끝나면 가능한 것
 
-- 오래됐거나 다시 변경된 Codex 작업을 검토 전에 차단한다.
-- 승인 범위 밖 파일과 보호 파일 변경을 차단한다.
-- 검토 가능한 작업만 읽기 전용 화면에 표시한다.
-- 사용자가 모든 파일을 처음부터 일일이 확인해야 하는 부담을 줄인다.
-- 검토 결과가 다음 승인이나 실행 권한으로 자동 승격되는 일은 없다.
+- preview, privacy review, token preparation, final confirmation, file write를
+  서로 다른 권한 단계로 유지한다.
+- client가 다시 보낸 candidate나 경로가 아니라 server-held canonical snapshot만
+  저장 권한으로 사용할 수 있다.
+- 실패, 재시도, restart, 중복 header, cross-session token을 fail closed로 다룬다.
+- 저장 후보가 skill 승인이나 실행으로 자동 승격되는 일을 막는다.
+- 조건이 모두 충족되기 전에는 현재 write-free preview만 계속 제공한다.
 
 ### 전체 성숙도
 
@@ -35,7 +37,7 @@ handoff JSON을 만들고, 사용자가 복사하면 Jarvis가 fresh evidence를
 운영 기반       ████░  사용자 기능
 역할별 앱       ████░  사용자 기능
 안전 작업 운영  ████░  사용자 기능 — 실제 작업 1건 검증
-Memory / Skills ██░░░  내부 구현 — 저장 잠금
+Memory / Skills ██░░░  내부 구현·재오픈 설계 — 저장 잠금
 통합 Console    █░░░░  설계·기반
 홈서버 / 모바일 █░░░░  장기 설계
 ```
@@ -52,12 +54,13 @@ Memory / Skills ██░░░  내부 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Hermes → Jarvis copy-only handoff와 실제 작업 검증**
-- 현재 다음 작업: **소유자가 다음 제품 작업 축을 선택**
-- 다음 사용자 체감 milestone: **작업 축 선택 후 확정**
-- vertical slice 완료 기준: 실제 Codex 작업 하나가 수집, 범위 검사, 최신성
-  재확인, 검토 화면 표시까지 로컬에서 end-to-end로 통과함
-- 현재 결정 필요: **Memory 2C-3c 설계** 또는 **read-only review 반복 실사용 개선**
+- 최근 완료: **Memory / Skills Phase 2C-3c 재오픈 조건 검토**
+- 현재 다음 작업: **persisted `original_text_preview` 개인정보 기본값 결정**
+- 다음 사용자 체감 milestone: **모든 재오픈 조건을 통과한 명시적 local-save
+  확인 흐름** — 아직 승인되지 않음
+- vertical slice 완료 기준: 정확한 snapshot을 사람이 확인한 뒤 한 번만 저장하고,
+  실패·restart·재시도에서도 자동 저장이나 실행 권한이 생기지 않음
+- 현재 결정 필요: **원문 미리보기 기본 미저장(권장)** 또는 **별도 명시 동의 후 저장**
 
 ### 언제부터 실제로 편해지는가
 
@@ -102,15 +105,16 @@ flowchart LR
 - Verified implementation HEAD: `2a63b4e6911738feb154be83b5e00a2a4010e7f8`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
-- Current workstream: Hermes Manager의 안전한 Codex 작업 운영
-- Current milestone: copy-only handoff와 실제 작업 1건의 fresh review 완료
-- Recommended next implementation: 소유자 작업 축 선택 전 없음
-- Next user-visible milestone: 선택한 작업 축에서 별도 정의
+- Current workstream: Memory / Skills approval-gated local-save safety
+- Current milestone: Phase 2C-3c design/reopen review 완료, live save 잠금 유지
+- Recommended next implementation: privacy-field 결정 전 없음
+- Next user-visible milestone: 모든 조건을 통과한 명시적 local-save 확인 흐름
 
-Hermes는 확인된 scope와 현재 read-only Git metadata로 정확한 `queue + item_id`
-envelope를 만들고, 사용자가 이를 Jarvis에 직접 복사한다. 실제 현재 작업 1건이
-Jarvis의 fresh evidence chain과 read-only 성공 화면까지 통과했다. 자동 호출,
-저장, review/commit 승인, 실행 권한은 추가되지 않았다.
+Phase 2C-3c는 기존 internal/tests-only storage, request-guard, session, canonical
+snapshot, preview-token primitive를 실제 HTTP에 연결하기 전에 필요한 조건을
+확정했다. 현재 preview는 계속 write-free/token-free이고 save endpoint는
+disabled/non-success다. UI Save/Confirm, Voice Inbox auto-save, saved candidates
+dashboard도 없다.
 
 ## 3. 전체 단계
 
@@ -119,83 +123,72 @@ Jarvis의 fresh evidence chain과 read-only 성공 화면까지 통과했다. �
 | 0. 운영 기반 | 작업·승인·결과를 같은 규칙으로 지시하고 보고받음 | task, 승인, 상태 전이, 보고 계약 | 사용자 기능 | 반복 실사용 검증 |
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
 | 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff, read-only 검토 화면 | **사용자 기능 — 실제 작업 1건 검증** | 반복 사용 피드백 또는 다음 축 선택 |
-| 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 내부 구현, 저장 잠금 | Phase 2C-3c reopen 조건 |
+| 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 내부 구현·재오픈 설계, 저장 잠금 | 개인정보 필드 결정과 route-free coordinator 승인 |
 | 4. 통합 Jarvis Console | 여러 프로젝트의 검토·승인·보고를 한 화면에서 관리함 | read-only부터 확장하는 local control panel | 설계·기반 | 2·3단계 안전 계약 안정화 |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
 
 단계 번호는 방향을 설명한다. 모든 작업 축이 완전히 직렬로 진행된다는 뜻은 아니며, 안전 경계를 넘지 않는 작은 기반 작업은 병행할 수 있다.
 
-## 4. 현재 위치: 안전한 Codex 작업 검토
+## 4. 현재 위치: Memory / Skills 저장 재오픈 안전 결정
 
 ```mermaid
 flowchart LR
-    A["대상 변경 증거<br/>C0A/B"] --> B["전체 작업 상태 확인<br/>C0C-1"]
-    B --> C["증거 묶음<br/>C0C-2"]
-    C --> D["안전한 관찰값<br/>C0C-3/4"]
-    D --> E["검토 가능 여부 분류<br/>C0C-5"]
-    E --> F["작업 최신성 재확인<br/>C0C-6a"]
-    F --> G["검토 세션 연결<br/>C0C-6b"]
-    G --> H["읽기 전용 검토 화면<br/>구현·통합 검증"]
-    H --> I["copy-only Hermes handoff<br/>실제 작업 검증"]
-    I --> J["다음 제품 작업 축<br/>소유자 결정"]
+    A["write-free preview<br/>Phase 2B"] --> B["path·dry-run·writer<br/>2C-0/1/2"]
+    B --> C["storage hardening<br/>2C-3a"]
+    C --> D["request guard·token<br/>2C-3b"]
+    D --> E["재오픈 조건 검토<br/>2C-3c"]
+    E --> F["개인정보 필드 기본값<br/>소유자 결정"]
+    F --> G["route-free save coordinator<br/>별도 승인"]
+    G --> H["실제 HTTP·UI 통합<br/>모든 조건 충족 후"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I done;
-    class J current;
+    class A,B,C,D,E done;
+    class F current;
+    class G,H future;
 ```
 
 ### 구현된 기반
 
-- Prompt Queue schema와 보수적 evaluator
-- scope/review/commit approval digest binding
-- 정확한 target 파일의 bounded content evidence
-- 전체 Git-visible worktree status evidence
-- target evidence와 whole-status evidence의 composite bundle
-- protected/out-of-scope 변경을 차단하는 handoff decision
-- verified observation을 새 immutable queue item에 적용하는 adapter
-- observation queue를 기존 evaluator로 분류하는 C0C-5 pure bridge
-- 실제 working tree를 다시 수집해 stale observation을 차단하는 C0C-6a
-- fresh preview만 exact review-only `SessionState`로 변환하는 C0C-6b
-- approved queue를 다시 검증해 bounded session fields만 표시하는 Jarvis Console
-  read-only 화면과 임시 저장소 통합 검증
-- confirmed scope를 정확한 `queue + item_id` envelope로 만드는 Hermes copy-only
-  handoff와 실제 Codex 작업 1건의 fresh read-only 검증
+- write-free/token-free candidate preview
+- repo-external local-state path validation과 save dry-run validation
+- internal/tests-only hardened no-overwrite candidate writer
+- bounded process-local `SessionRegistry`와 strict loopback `LocalRequestGuard`
+- server-held canonical snapshot/digest와 one-time `PreviewTokenRegistry`
+- live-save trust model, proposed approval sequence, mandatory reopen checklist
 
-### 최근 완료: copy-only handoff와 실제 작업 검증
+### 최근 완료: Phase 2C-3c 재오픈 조건 검토
 
-C0C-6a는 Codex 보고 이후 실제 working tree가 달라졌는지 다시 확인하고,
-C0C-6b는 그 검증을 통과한 preview만 기존 로컬 review `SessionState`로
-안전하게 변환한다. 두 단위는 internal/tests-only로 완료됐다.
+설계 검토는 preview, session/bootstrap, save preparation, exact confirmation,
+token claim, writer를 서로 다른 단계로 정의했다. client payload나 digest는 저장
+권한이 아니며 server-held canonical snapshot만 미래 저장 후보가 될 수 있다.
 
-Jarvis Console의 write-free POST preview와 `Codex Review` 탭에 이어, Hermes
-Step 5가 exact `queue + item_id` envelope를 생성하는 copy-only handoff를 제공한다.
-실제 현재 Codex 작업 1건이 Hermes scope 확인, JSON copy, Jarvis item-ID 인식,
-fresh evidence, read-only 성공 화면까지 통과했다. review는 승인되지 않았고
-commit/push와 prompt/command 실행은 비활성으로 유지됐다.
+검토 결과 실제 HTTP metadata adapter, bootstrap lifecycle, save coordinator,
+privacy-field policy, recovery UX, deterministic HTTP/browser tests가 아직 없으므로
+live save는 재오픈하지 않는다. 문서 변경 외 애플리케이션 동작은 추가되지 않았다.
 
-### 현재 결정: 다음 제품 작업 축
+### 현재 결정: 저장할 개인정보 필드
 
-첫 안전 작업 vertical slice의 완료 기준을 충족했다. 다음 구현은 자동으로
-이어가지 않고 소유자가 아래 두 방향 중 하나를 선택한다.
+현재 내부 writer는 bounded `original_text_preview`를 저장할 수 있다. live save를
+연결하기 전에 소유자가 아래 기본값 중 하나를 선택해야 한다.
 
 ```text
-1. Memory / Skills Phase 2C-3c design/reopen 조건 검토만 수행
-2. read-only Codex Review를 실제 작업에 반복 사용하고 UX finding만 수집·수정
+1. 권장: original_text_preview는 화면에서만 확인하고 저장 JSON에서는 기본 제외
+2. 대안: 별도 명시 동의를 받은 후보에만 bounded original_text_preview 저장
 ```
 
-어느 방향도 save endpoint, 자동 handoff, persistence, 승인 생성, prompt 실행,
-자동 commit/push를 허용하지 않는다. 작업 축 선택은 제품 방향 결정이므로
-소유자 승인 전 새 구현을 시작하지 않는다.
+이 결정 전에는 app code를 바꾸지 않는다. 결정 후에도 첫 구현 후보는
+TemporaryDirectory에서만 검증하는 route-free internal/tests-only coordinator다.
+save endpoint, UI Save/Confirm, Voice Inbox, runtime persistence는 계속 별도 승인이다.
 
 ## 5. 작업 축별 상태
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
 | Hermes Manager | copy-only Jarvis handoff와 실제 작업 검증 완료 | prompt drafting과 수동 review handoff | 반복 실사용 피드백 대기 |
-| Memory / Skills | Phase 2B preview와 2C-0/1/2/3a/3b 내부 primitive 구현 | write-free preview | Phase 2C-3c reopen 조건 설계 |
-| Jarvis Console | Codex Review 실제 작업 성공 화면 검증 완료 | fresh read-only work review | 다음 제품 축 선택 |
+| Memory / Skills | Phase 2C-3c 재오픈 검토 완료, `keep locked` | write-free preview | persisted 원문 미리보기 정책 결정 |
+| Jarvis Console | Codex Review 실제 작업 성공 화면 검증 완료 | fresh read-only work review | 반복 실사용 피드백 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |

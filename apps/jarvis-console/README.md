@@ -199,13 +199,17 @@ without turning proposals into automatic memory or executable skills.
 Status: Phase 2B provides a read-only sample inbox and write-free candidate
 preview. Phase 2C-0/1/2/3a/3b adds internal/tests-only path, validation,
 hardened writer, request-guard, session, canonical snapshot/digest, and preview
-token primitives. The save endpoint remains disabled/non-success; no live token
-issuance, UI Save/Confirm, Voice Inbox save, or saved candidates dashboard is
-enabled.
+token primitives. Phase 2C-3c completed the design/reopen-conditions review
+with a `keep locked` verdict. The save endpoint remains disabled/non-success;
+no live token issuance, UI Save/Confirm, Voice Inbox save, or saved candidates
+dashboard is enabled.
 
-Next: Phase 2C-3c is a design and reopen-conditions review only. It does not
-authorize connecting the request guard/token subsystem, enabling the save
-endpoint, adding UI Save/Confirm, or adding Voice Inbox persistence.
+Next: before any live integration, decide whether persisted candidates omit
+`original_text_preview` by default or retain it only after a separate explicit
+disclosure. A later, separately approved implementation may start with a
+route-free internal/tests-only guarded save coordinator. Phase 2C-3c itself
+does not authorize connecting the request guard/token subsystem, enabling the
+save endpoint, adding UI Save/Confirm, or adding Voice Inbox persistence.
 
 ## Safety Boundary
 

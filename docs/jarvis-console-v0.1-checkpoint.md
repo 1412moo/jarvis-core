@@ -213,6 +213,8 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
 - Phase 2C-0/1/2/3a/3b provides internal/tests-only storage path, validation,
   hardened writer, request-guard, session, canonical snapshot/digest, and
   preview-token primitives.
+- Phase 2C-3c completed the live-save design/reopen-conditions review with a
+  `keep locked` verdict; it added no application behavior.
 - `POST /api/memory-skills/candidates` remains disabled/non-success.
 - The live preview endpoint remains write-free and token-free.
 - No UI Save/Confirm, Voice Inbox token/save, or saved candidates dashboard is
@@ -454,7 +456,8 @@ During QA, `jarvis.bat` remained untracked and untouched.
 ## Current Known Backlog
 
 - Memory / Skills remains a proposal surface; any live save route or UI action
-  requires a separate explicit decision.
+  requires the Phase 2C-3c checklist, privacy-field decision, local validation,
+  and a separate explicit approval.
 - Codex Review remains deliberately copy/paste-only and has no durable review
   history; further UX changes should come from repeated local-use feedback.
 - Template vs report item type separation: sample reports, generated reports, and report templates may deserve separate item types.
@@ -470,13 +473,13 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Owner Workstream Decision
+### A. Memory Privacy-field Decision
 
 Priority: P1
 
-Choose the next product axis before implementation: either Phase 2C-3c
-Memory/Skills reopen-conditions design or bounded read-only review UX refinement
-based on repeated use. Do not add authority while making this decision.
+Decide whether a future persisted candidate omits `original_text_preview` by
+default or retains it only after a separate explicit disclosure. The safer
+default is omission. Keep live save locked until the decision is recorded.
 
 ### B. Planned Skill UX Polish
 
@@ -506,11 +509,11 @@ Improve source-area and item-type inference as real task, report, and checkpoint
 
 Priority: P2
 
-Proceed to Phase 2C-3c as a design/reopen-conditions review only. Define the
-session/bootstrap, request-guard integration, preview-token lifecycle,
-privacy/redaction, confirmation, recovery, and HTTP-test conditions required
-before reconsidering a live approval-gated save route. Keep the current request
-guard/token primitives route-free until separately approved.
+Phase 2C-3c design/reopen review is complete and the live-save verdict is `keep
+locked`. After the privacy-field decision, the smallest separately approved
+implementation candidate is a route-free internal/tests-only guarded save
+coordinator with TemporaryDirectory tests. Keep the current request guard/token
+primitives disconnected from HTTP, UI, and Voice Inbox.
 
 ### G. Skill Detail Visual Polish
 

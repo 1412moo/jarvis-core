@@ -42,10 +42,11 @@ Inbox and Chat / Command can route repeated workflow requests to
 
 There is still no user-facing memory persistence, live save endpoint, saved
 candidates dashboard, approval queue, or skill creation workflow. Phase 2B
-preview-only capture and the Phase 2C-0/1/2/3a/3b internal helpers exist. The
-candidate writer, request guard, session registry, and preview token registry
-remain internal/tests-only and are not connected to live HTTP routes, UI, or
-Voice Inbox.
+preview-only capture and the Phase 2C-0/1/2/3a/3b internal helpers exist. Phase
+2C-3c completed the design/reopen-conditions review but did not reopen anything.
+The candidate writer, request guard, session registry, and preview token
+registry remain internal/tests-only and are not connected to live HTTP routes,
+UI, or Voice Inbox.
 
 ## 3. v0.1 Scope
 
@@ -106,7 +107,7 @@ Phase 2 is not automatic memory. A saved candidate, if a later user-facing
 phase adds one, is still not a skill, not an approved skill, not a Skill
 Registry entry, and not an execution target.
 
-After Phase 2C-3b, hardened candidate-write and guarded-request/token primitives
+After Phase 2C-3c, hardened candidate-write and guarded-request/token primitives
 exist, but user-facing local save is not enabled. `POST
 /api/memory-skills/candidates` remains disabled/non-success, and there is no UI
 `Save` / `Confirm Local Save` flow, Voice Inbox token/save path, or saved
@@ -200,6 +201,9 @@ Recommended path:
   preview snapshot/digest, and one-time `PreviewTokenRegistry` primitives are
   implemented for internal tests only. They issue no live cookie or token and
   are not connected to HTTP dispatch, UI, or Voice Inbox.
+- Phase 2C-3c: the live-save trust boundary, proposed approval sequence, and
+  mandatory reopen checklist are documented. The review verdict is `keep
+  locked`; no app code, route, UI, or persistence behavior was added.
 - A later explicitly approved phase may connect to these helpers instead of
   duplicating validation, storage, or request-guard logic.
 - Avoid tracked repo paths such as `memory/tasks/`, `memory/skills/`, or
@@ -292,7 +296,7 @@ are listed here as future candidates, not as Phase 1 scope.
 | `GET /api/memory-skills` | Return Memory / Skills status, notes, and sample overview. | Read | No | Phase 1 | Low | Include if implementing the panel. |
 | `GET /api/memory-skills/candidates` | Return sample or saved read-only candidate metadata. | Read | No | Phase 2D or later | Low | Not implemented; keep saved-candidate listing deferred. |
 | `POST /api/memory-skills/candidates/preview` | Normalize input and return the payload that would be saved, plus privacy warnings. | Read-like, no write | No | Phase 2B | Low-medium | Implemented; write-free. |
-| `POST /api/memory-skills/candidates` | Save a candidate locally. | Write | Yes | Later explicit phase | Medium | Disabled/non-success through Phase 2C-3b; internal save composition remains tests-only. |
+| `POST /api/memory-skills/candidates` | Save a candidate locally. | Write | Yes | Later explicit phase | Medium | Disabled/non-success after Phase 2C-3c; internal save composition remains tests-only. |
 | `POST /api/memory-skills/candidates/{id}/approve` | Mark a candidate approved. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/reject` | Mark a candidate rejected. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
 | `POST /api/memory-skills/candidates/{id}/archive` | Archive a candidate. | Write | Yes | Phase 2 | Medium | Exclude from Phase 1. |
@@ -404,7 +408,7 @@ Memory / Skills must preserve these boundaries:
 - no background agents;
 - human-approved only;
 - local-first only;
-- user-facing save is still not enabled after Phase 2C-3b.
+- user-facing save is still not enabled after Phase 2C-3c.
 
 ## 11. Phase 2 Write Safety
 
@@ -425,7 +429,7 @@ persistence, the write design should follow these rules:
 - do not run git commands as part of save;
 - do not let app runtime write to arbitrary paths.
 
-Current helper status through Phase 2C-3b:
+Current helper status and design decision through Phase 2C-3c:
 
 - Phase 2C-0 implemented a storage path helper. It calculates and validates
   paths only. It rejects repo-internal paths, relative overrides, and
@@ -454,6 +458,10 @@ Current helper status through Phase 2C-3b:
   snapshots, expire deterministically, use digest keys, and are claimed once
   under a lock. These primitives perform no filesystem write and remain
   route-free/internal-tests-only.
+- Phase 2C-3c reviewed how those primitives could be composed safely and kept
+  live save locked. No HTTP metadata adapter, live session/bootstrap lifecycle,
+  token-issuance route, save coordinator, confirmation UI, or recovery flow is
+  implemented.
 - Saved JSON uses `status: saved`, but a saved candidate is still only a local
   candidate, not an approved skill and not executable.
 - The write helper is not connected to API, UI, or Voice Inbox. There is still
@@ -510,18 +518,19 @@ Current helper status through Phase 2C-3b:
   no unexpected git status files.
 - Do not: store raw transcripts long term, write user memory into tracked repo
   paths, save without preview, or save without explicit confirmation.
-- Current status through Phase 2C-3b: storage path, dry-run validation, hardened
+- Current status through Phase 2C-3c: storage path, dry-run validation, hardened
   candidate writer, request guard, session registry, canonical snapshot/digest,
-  and preview token helpers exist. They remain internal/tests-only; user-facing
-  save is disabled and none is connected to live HTTP routes, UI, or Voice
-  Inbox.
+  and preview token helpers exist through 2C-3b. They remain
+  internal/tests-only. The 2C-3c review kept user-facing save disabled and
+  connected none of them to live HTTP routes, UI, or Voice Inbox.
 
 ### Phase 2C-3: Approval-gated Local Save Safety Decision
 
 - Goal: determine whether the safety and product prerequisites are sufficient
   before any decision to expose approval-gated local save.
-- Phase 2C-3a/3b does not expose local save, and Phase 2C-3c is design/review
-  only. Any later implementation still requires separate explicit approval.
+- Phase 2C-3a/3b does not expose local save, and Phase 2C-3c was completed as a
+  design/review-only step. Any later implementation still requires separate
+  explicit approval.
 - Any future save must not be automatic.
 - It should require preview, explicit confirmation, privacy review, and
   `local_only` scope.
@@ -549,19 +558,139 @@ Current helper status through Phase 2C-3b:
 
 #### Phase 2C-3c: Live Save Design and Reopen Conditions Review
 
-- Status: next design/review step; not implemented.
-- Goal: define the complete safety and product conditions that would have to be
-  satisfied before reconsidering a live approval-gated save route.
-- Required review areas: session/bootstrap lifecycle, actual-port request-guard
-  integration, explicit preview-token issuance and one-time claim, canonical
-  server-held snapshot authority, privacy/redaction policy, error recovery,
-  restart behavior, UI confirmation semantics, and deterministic HTTP tests.
-- Reopen condition: separate explicit human approval after the design and test
-  plan are reviewed. Phase 2C-3c documentation alone does not authorize route,
-  UI, Voice Inbox, or persistence changes.
+- Status: design/review completed on 2026-07-22; no application behavior was
+  implemented.
+- Reopen verdict: **keep locked**. The internal 2C-3a/3b primitives are useful
+  prerequisites, but they are not a complete live-save security or product
+  flow.
 - Boundary: `POST /api/memory-skills/candidates` remains disabled/non-success;
   the preview endpoint remains write-free/token-free; request guard/token
   primitives remain internal/tests-only.
+
+##### Trust and authority model
+
+- Loopback binding is not authentication. The future guard is intended to
+  reduce browser cross-origin and confused-request risk; it does not protect
+  against a malicious process or another OS user that can act as the current
+  user. If that stronger threat model becomes required, live save must remain
+  locked until OS-backed authentication or an equivalent control is designed.
+- The current write-free preview is informational only. It must never issue a
+  session, preview token, save authority, or persistent identifier.
+- A future save-preparation action must be separate from preview, guarded by the
+  actual bound `127.0.0.1:<port>`, and initiated by an explicit user action.
+- The server-held canonical snapshot is the only candidate content authority
+  after token issuance. A final request must not supply candidate text, a file
+  path, storage root, candidate digest, or approval timestamp as authority.
+- A token proves only that one guarded session prepared one exact snapshot. It
+  is not proof of identity, privacy review, skill approval, or execution
+  approval.
+- A saved record remains a local candidate. It is not an approved skill, Skill
+  Registry entry, command, prompt execution request, or Voice Inbox action.
+
+##### Proposed future flow, not implemented
+
+1. The user creates a normalized candidate through the existing write-free,
+   token-free preview endpoint.
+2. A future explicit `Review Local Save` action requests a process-local
+   session/bootstrap if needed. Bootstrap must validate loopback client, exact
+   Host, and exact Origin before issuing an `HttpOnly`, `SameSite=Strict`
+   session cookie and a separate CSRF value.
+3. A distinct guarded save-preparation request submits the reviewed preview and
+   an explicit privacy acknowledgement. The server revalidates and canonicalizes
+   it, stores the canonical bytes only in the bounded process-local token
+   registry, and returns a short-lived one-time token plus non-secret display
+   metadata.
+4. The UI displays the exact canonical fields, storage scope, retention note,
+   and the statements `candidate only`, `not a skill`, and `will not run`.
+5. A separate final action sends only the one-time preview token and an exact
+   confirmation literal. Generic booleans, candidate payloads, client paths,
+   client timestamps, or a digest alone are insufficient.
+6. The server re-runs the actual-port request guard, atomically consumes the
+   session-bound token, reconstructs the existing dry-run contract from the
+   server-held snapshot, and calls the hardened no-overwrite writer.
+7. Success returns bounded receipt fields such as candidate ID and title. It
+   does not return raw content, token material, stack traces, or a private
+   filesystem path.
+
+The exact bootstrap and save-preparation route names are deliberately not
+reserved by this design. Choosing names does not authorize registering them in
+the HTTP handler.
+
+##### Mandatory reopen checklist
+
+Every item below must be implemented in approved work packages, locally
+validated, self-reviewed, and approved before a live save route can be exposed:
+
+1. **Session bootstrap:** one bounded process-local bootstrap lifecycle with
+   exact loopback Host/Origin checks, no token in URLs or logs, `Cache-Control:
+   no-store`, expiry, capacity behavior, and restart invalidation.
+2. **Raw HTTP metadata adapter:** preserve or reject duplicate security headers
+   rather than silently merging them; validate exact Host, Origin,
+   `Content-Type`, cookie, and CSRF values before JSON use; reject missing,
+   negative, conflicting, or oversized lengths before reading the body.
+3. **Route allowlist:** bootstrap, save preparation, and final save must each be
+   explicit allowlist entries. Unknown methods and paths fail closed. The
+   preview route remains unchanged and token-free.
+4. **Canonical authority:** save preparation must bind a one-time token to the
+   server-held bytes produced by `canonicalize_memory_candidate_snapshot`.
+   Final save accepts no replacement candidate, path, or client-supplied
+   digest.
+5. **Confirmation semantics:** the final action requires a dedicated UI step
+   and an exact confirmation literal tied to the displayed snapshot. Session,
+   token, privacy acknowledgement, and confirmation are independent checks.
+6. **Privacy contract:** approve the stored-field allowlist before code is
+   connected. Full transcripts and arbitrary path fields stay prohibited. A
+   product decision is still required on whether the bounded
+   `original_text_preview` is omitted by default or retained only after a
+   separate, explicit disclosure. Until that decision is recorded, reopen is
+   blocked.
+7. **One-claim failure behavior:** each token can authorize at most one write
+   attempt, and token claim occurs before that attempt. If validation or writing
+   then fails, that token is dead and the user must preview and confirm again;
+   the system must never retry a write automatically. The UI must explain
+   ambiguous response recovery so the user does not unknowingly create
+   duplicates.
+8. **Restart and recovery:** restart invalidates all sessions and outstanding
+   tokens without deleting saved files. Partial temporary files are cleaned up;
+   an already published candidate is never overwritten. Retention and manual
+   recovery instructions must be visible before the first live save.
+9. **Bounded responses and logs:** credentials, canonical bytes, raw text,
+   private paths, stack traces, and security-header values are absent from
+   responses and logs. Errors use fixed categories and do not reveal whether a
+   session or token existed.
+10. **Deterministic integration tests:** use an ephemeral loopback port and
+    isolated temporary state to cover valid flow, duplicate/missing headers,
+    wrong Host/Origin, media-type variants, malformed/oversized bodies, expired
+    and cross-session tokens, replay and concurrent claims, restart, capacity,
+    collision, reparse/path attacks, writer failure after claim, response
+    bounds, and disabled routes.
+11. **Browser safety tests:** prove that no Save/Confirm control exists until a
+    separately approved UI package, the exact snapshot is escaped and visible
+    before confirmation, double-click/retry cannot submit twice, and Voice
+    Inbox never requests a session or token and never saves.
+12. **Repository and operational checks:** tests leave no candidate JSON,
+    storage directory, runtime state, cache, log, listener, or tracked/untracked
+    artifact in the repo. `jarvis.bat` remains untouched and untracked.
+
+##### Explicit non-goals of any first reopened slice
+
+- no automatic or Voice Inbox save;
+- no saved-candidates dashboard, archive, discard, approve, or promote action;
+- no Skill Registry mutation or skill execution;
+- no external API, LLM, credential store, background worker, or scheduler;
+- no repo-internal user state, git write, push, or PR;
+- no durable browser session or token across process restart.
+
+##### Decision and next safe unit
+
+Phase 2C-3c documentation does not satisfy the checklist by itself and grants
+no implementation authority. The smallest implementation candidate is a
+separately approved, internal/tests-only guarded save coordinator that composes
+an already verified session, one-time canonical snapshot claim, dry-run
+validation, and the hardened writer inside `TemporaryDirectory` tests. It must
+remain route-free, UI-free, Voice-Inbox-free, and runtime-state-free. Live HTTP
+integration stays locked until all checklist items and the privacy-field
+decision are complete.
 
 ### Phase 2D: Saved Candidates Read-only List
 
@@ -620,10 +749,11 @@ The safest first implementation for the original v0.1 plan was Phase 1:
 This gives users a clear place to understand the future Memory / Skills flow
 without introducing state mutation or automation risk.
 
-At the current Phase 2C-3b status, Phase 2B preview-only capture and the Phase
-2C-0/1/2/3a/3b internal helpers are implemented. The next step is Phase 2C-3c:
-a design-only review of live-save safety and reopen conditions. It does not
-authorize a live approval-gated save route.
+At the current Phase 2C-3c status, Phase 2B preview-only capture and the Phase
+2C-0/1/2/3a/3b internal helpers are implemented, and the live-save trust model
+and reopen checklist have been reviewed. The verdict is to keep live save
+locked. Phase 2C-3c did not authorize a route, UI action, Voice Inbox path, or
+persistence behavior.
 
 User-facing persistence should still wait for a separate explicit decision.
 It should prefer repo-external user-local app state, should not store raw
@@ -692,6 +822,20 @@ Phase 2C-3b validation should additionally verify:
   dispatch, UI, and Voice Inbox;
 - `POST /api/memory-skills/candidates` remains disabled/non-success.
 
+Phase 2C-3c validation should additionally verify:
+
+- the design distinguishes preview, privacy review, token preparation, final
+  confirmation, writing, and skill approval as separate authorities;
+- the final-save design trusts only a guarded session and server-held canonical
+  snapshot, not client candidate data, paths, timestamps, or digests;
+- the reopen checklist covers raw HTTP metadata, one-claim failure behavior,
+  restart/recovery, privacy, browser semantics, deterministic HTTP tests, and
+  repository cleanliness;
+- the privacy decision for persisted `original_text_preview` remains an
+  explicit blocker rather than an implied default;
+- no route, UI, Voice Inbox, persistence, or dashboard implementation is
+  claimed.
+
 Future live-save validation, if user-facing save is explicitly approved, should
 additionally verify:
 
@@ -735,11 +879,14 @@ Current Phase 2 recommendation:
 
 - Do not expose user-facing persistence without separate explicit approval of
   the approval-gated local save flow.
-- Use Phase 2C-3c to review design and reopen conditions only; do not connect
-  routes, UI, Voice Inbox, or persistence as part of that review.
+- Treat Phase 2C-3c as a completed design/reopen review with a `keep locked`
+  verdict; do not connect routes, UI, Voice Inbox, or persistence from that
+  documentation.
 - Keep the implemented Phase 2B preview-only capture flow write-free.
 - Keep the implemented Phase 2C-0/1/2/3a/3b helpers internal/tests-only, not
   user-facing save.
+- If separately approved, make the next implementation unit a route-free,
+  internal/tests-only guarded save coordinator with temporary-state tests.
 - Avoid tracked repo user-memory storage.
 - Use repo-external user-local app state for any future saved candidates.
 - Do not add persistence without privacy/redaction policy.
