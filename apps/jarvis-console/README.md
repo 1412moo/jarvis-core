@@ -223,10 +223,16 @@ rotation is atomic and bounded, full-capacity behavior does not reveal hint
 existence, and private Cookie material is separated from the public CSRF
 payload. It remains absent from HTTP dispatch.
 
-Next decision: Phase 2C-4e may add only a route-free internal/tests-only guarded
-save-preparation coordinator under separate approval. It does not authorize a
-bootstrap/token/save route, handler integration, live session/token issue, UI
-Save/Confirm, or Voice Inbox persistence.
+Phase 2C-4e composes raw-header adaptation, exact body framing, request guard,
+explicit privacy review, server canonicalization, and session-bound preview
+token issue behind one route-free internal/tests-only coordinator. Duplicate
+JSON keys and body-length mismatches fail closed, and its redacted private
+result exposes only bounded token/display metadata when explicitly converted.
+
+Next decision: Phase 2C-4f is a design/review-only live-integration readiness
+checkpoint under separate approval. It does not authorize a bootstrap/token/save
+route, handler integration, live session/token issue, UI Save/Confirm, or Voice
+Inbox persistence.
 
 ## Safety Boundary
 

@@ -212,10 +212,11 @@ temporary guarded-request credential pair. It does not prove:
 - file path or storage authority;
 - skill approval, installation, or execution.
 
-Preview remains public to the local UI and token-free. A later separately
-approved save-preparation request must use both the session cookie and CSRF
-header and must independently prove privacy review. Final save must still
-require the one-time preview token and exact confirmation literal.
+Preview remains public to the local UI and token-free. Phase 2C-4e now proves
+the route-free save-preparation composition can use both the session cookie and
+CSRF header and independently require privacy review. No live request invokes
+it. Final save must still require the one-time preview token and exact
+confirmation literal.
 
 ## 9. Deterministic Validation Contract
 
@@ -263,6 +264,7 @@ Phase 2C-4d implemented:
 The primitive is absent from `JarvisConsoleHandler`, dispatch, UI, Voice Inbox,
 and runtime persistence. The live save and bootstrap routes remain disabled.
 
-The next candidate belongs to the wider Memory / Skills design: a separately
-approved Phase 2C-4e route-free guarded save-preparation coordinator. No live
-HTTP integration is authorized by 2C-4d.
+The wider Memory / Skills Phase 2C-4e route-free guarded save-preparation
+coordinator is also complete. The next candidate is a separately approved
+Phase 2C-4f design/review-only live-integration readiness checkpoint. No live
+HTTP integration is authorized by 2C-4d or 2C-4e.

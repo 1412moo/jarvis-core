@@ -26,8 +26,8 @@ Jarvis Console does not execute skills automatically. It suggests, prepares, and
 
 ## Current HEAD / Status
 
-- Verified implementation HEAD: `9b86f49e6bdb96fd35391aec2f44d6fc156f59b7`
-- Commit: `jarvis-console: add route-free session bootstrap primitive`
+- Verified implementation HEAD: `f1e6b62ec2aa11437d602b7ec23f03f132468245`
+- Commit: `jarvis-console: add memory save preparation coordinator`
 - Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -232,6 +232,10 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
   internal/tests-only code. Coordinator-owned transport validation precedes
   allocation, full capacity is uniform before hint lookup, rotation is atomic,
   and Cookie/public CSRF fields are separated in a redacted private result.
+- Phase 2C-4e implements a route-free internal/tests-only guarded
+  save-preparation coordinator. It owns duplicate-preserving raw-header and
+  strict JSON-body validation, requires explicit privacy review, canonicalizes
+  server-side, and returns a redacted token result with bounded display metadata.
 - `POST /api/memory-skills/candidates` remains disabled/non-success.
 - The live preview endpoint remains write-free and token-free.
 - No live bootstrap route or session/CSRF issuance exists.
@@ -492,15 +496,15 @@ During QA, `jarvis.bat` remained untracked and untouched.
 
 ## Recommended Next Development Candidates
 
-### A. Guarded Save-preparation Coordinator — Phase 2C-4e
+### A. Live-integration Readiness Review — Phase 2C-4f
 
 Priority: P1
 
-If separately approved, compose only the existing request guard, exact
-save-preparation payload, explicit privacy review, server canonicalization, and
-session-bound preview-token issue behind a route-free internal/tests-only
-coordinator. Return only bounded token/display metadata. Do not register a route
-or modify handler, UI, Voice Inbox, save behavior, or persistence.
+If separately approved, perform a design/review-only audit of the remaining
+route allowlist, no-store response, browser confirmation/recovery, ephemeral
+HTTP-test, privacy, and operational conditions. End with an explicit keep-locked
+or scoped vertical-slice recommendation. Do not register a route or modify
+handler, UI, Voice Inbox, save behavior, or persistence.
 
 ### B. Planned Skill UX Polish
 
@@ -533,10 +537,11 @@ Priority: P2
 Phase 2C-4a guarded save coordination, the privacy-default decision, and Phase
 2C-4b raw HTTP metadata adaptation are complete for internal/tests-only
 coverage. Phase 2C-4c session-bootstrap design review and the Phase 2C-4d
-route-free bootstrap primitive are also complete. The next candidate is the
-separately approved route-free Phase 2C-4e guarded save-preparation coordinator
-described above. Keep bootstrap, adapter, request guard, token, and coordinators
-disconnected from HTTP dispatch, UI, and Voice Inbox.
+route-free bootstrap primitive are also complete. Phase 2C-4e route-free
+guarded save preparation is complete. The next candidate is the separately
+approved Phase 2C-4f design/review-only readiness checkpoint described above.
+Keep bootstrap, adapter, request guard, token, and coordinators disconnected
+from HTTP dispatch, UI, and Voice Inbox.
 
 ### G. Skill Detail Visual Polish
 
