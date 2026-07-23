@@ -77,11 +77,13 @@ const elements = {
   taskPromptCommitMessage: document.getElementById("taskPromptCommitMessage"),
   privacyAcknowledged: document.getElementById("privacyAcknowledged"),
   retentionAcknowledged: document.getElementById("retentionAcknowledged"),
+  previewDurableSaveButton: document.getElementById("previewDurableSaveButton"),
   confirmDurableSaveButton: document.getElementById("confirmDurableSaveButton"),
   savedReviewSelect: document.getElementById("savedReviewSelect"),
   reviewIdInput: document.getElementById("reviewIdInput"),
   reopenScopeConfirmed: document.getElementById("reopenScopeConfirmed"),
   copyReopenedHandoffButton: document.getElementById("copyReopenedHandoffButton"),
+  previewDeleteReviewButton: document.getElementById("previewDeleteReviewButton"),
   deleteConfirmationInput: document.getElementById("deleteConfirmationInput"),
   confirmDeleteReviewButton: document.getElementById("confirmDeleteReviewButton"),
   durableReviewDetails: document.getElementById("durableReviewDetails"),
@@ -100,6 +102,21 @@ const sectionIds = [
 
 function setStatus(message) {
   elements.statusBar.textContent = message;
+}
+
+function beginBusyAction(button, message) {
+  if (button.dataset.busy === "true") return false;
+  button.dataset.busy = "true";
+  button.setAttribute("aria-busy", "true");
+  button.disabled = true;
+  setStatus(message);
+  return true;
+}
+
+function endBusyAction(button, options = {}) {
+  delete button.dataset.busy;
+  button.removeAttribute("aria-busy");
+  button.disabled = options.disabled === true;
 }
 
 function updateStep(step) {
@@ -480,7 +497,9 @@ function updateSavedReviewReadiness(options = {}) {
   const showDetails = options.showDetails !== false;
   const record = selectedSavedReview();
   const legacyBlocked = Boolean(record && !record.content_evidence_available);
-  elements.copyReopenedHandoffButton.disabled = legacyBlocked;
+  if (elements.copyReopenedHandoffButton.dataset.busy !== "true") {
+    elements.copyReopenedHandoffButton.disabled = legacyBlocked;
+  }
   elements.reopenScopeConfirmed.disabled = legacyBlocked;
   if (legacyBlocked) elements.reopenScopeConfirmed.checked = false;
   if (!showDetails || !record) return;
@@ -508,6 +527,10 @@ async function previewDurableSave() {
     return;
   }
   updateSessionFromForm();
+  if (!beginBusyAction(
+    elements.previewDurableSaveButton,
+    "Checking current Git and target content before creating a durable Save preview...",
+  )) return;
   try {
     const data = await lifecyclePost("/api/reviews/save-preview", {
       session: state.session,
@@ -526,6 +549,8 @@ async function previewDurableSave() {
     elements.confirmDurableSaveButton.disabled = true;
     setDurableDetails({ operation: "save_preview_blocked", error: error.message });
     setStatus(`Durable Save preview blocked: ${error.message}`);
+  } finally {
+    endBusyAction(elements.previewDurableSaveButton);
   }
 }
 
@@ -534,9 +559,13 @@ async function confirmDurableSave() {
     setStatus("Preview the exact durable Save first.");
     return;
   }
+  if (!beginBusyAction(
+    elements.confirmDurableSaveButton,
+    "Rechecking current Git and target content before writing this exact Review...",
+  )) return;
   const preview = state.savePreview;
   state.savePreview = null;
-  elements.confirmDurableSaveButton.disabled = true;
+  elements.previewDurableSaveButton.disabled = true;
   try {
     const data = await lifecyclePost("/api/reviews/save-confirm", {
       confirmation_token: preview.confirmation_token,
@@ -555,6 +584,9 @@ async function confirmDurableSave() {
       recovery_action: uncertainId ? "Use Inspect Recovery before any new Save attempt." : "Create a new preview.",
     });
     setStatus(`Durable Save did not return success: ${error.message}. Do not retry blindly.`);
+  } finally {
+    endBusyAction(elements.confirmDurableSaveButton, { disabled: true });
+    elements.previewDurableSaveButton.disabled = false;
   }
 }
 
@@ -584,6 +616,10 @@ async function copyReopenedHandoff() {
     setStatus("Reconfirm the saved target files as the current review scope first.");
     return;
   }
+  if (!beginBusyAction(
+    elements.copyReopenedHandoffButton,
+    "Checking current Git and target content before regenerating the handoff...",
+  )) return;
   try {
     const data = await lifecyclePost("/api/reviews/reopen-handoff", {
       review_id: reviewId,
@@ -613,6 +649,9 @@ async function copyReopenedHandoff() {
     });
     const reasonText = blockingReasons.length ? ` ${blockingReasons.join("; ")}` : "";
     setStatus(`Fresh handoff blocked: ${error.message}.${reasonText}`);
+  } finally {
+    endBusyAction(elements.copyReopenedHandoffButton);
+    updateSavedReviewReadiness({ showDetails: false });
   }
 }
 
@@ -638,6 +677,10 @@ async function previewExactDelete() {
     setStatus("Enter or select one exact Review ID first.");
     return;
   }
+  if (!beginBusyAction(
+    elements.previewDeleteReviewButton,
+    "Checking the exact saved Review before preparing Delete...",
+  )) return;
   try {
     const data = await lifecyclePost("/api/reviews/delete-preview", { review_id: reviewId });
     state.deletePreview = Object.freeze(data.preview);
@@ -656,6 +699,8 @@ async function previewExactDelete() {
     elements.confirmDeleteReviewButton.disabled = true;
     setDurableDetails({ operation: "delete_preview_blocked", review_id: reviewId, error: error.message });
     setStatus(`Delete preview blocked: ${error.message}`);
+  } finally {
+    endBusyAction(elements.previewDeleteReviewButton);
   }
 }
 
@@ -664,9 +709,13 @@ async function confirmExactDelete() {
     setStatus("Preview one exact deletion first.");
     return;
   }
+  if (!beginBusyAction(
+    elements.confirmDeleteReviewButton,
+    `Rechecking and deleting exactly ${state.deletePreview.review_id}...`,
+  )) return;
   const preview = state.deletePreview;
   state.deletePreview = null;
-  elements.confirmDeleteReviewButton.disabled = true;
+  elements.previewDeleteReviewButton.disabled = true;
   try {
     const data = await lifecyclePost("/api/reviews/delete-confirm", {
       confirmation_token: preview.confirmation_token,
@@ -680,6 +729,9 @@ async function confirmExactDelete() {
   } catch (error) {
     setDurableDetails({ operation: "delete_blocked", review_id: preview.review_id, error: error.message });
     setStatus(`Exact deletion blocked: ${error.message}. Preview again before another attempt.`);
+  } finally {
+    endBusyAction(elements.confirmDeleteReviewButton, { disabled: true });
+    elements.previewDeleteReviewButton.disabled = false;
   }
 }
 
@@ -697,13 +749,13 @@ document.getElementById("copyOutputButton").addEventListener("click", copyOutput
 document.getElementById("clearOutputButton").addEventListener("click", clearOutput);
 document.getElementById("loadGitStatus").addEventListener("click", loadGitStatus);
 document.getElementById("refreshSavedReviewsButton").addEventListener("click", refreshSavedReviews);
-document.getElementById("previewDurableSaveButton").addEventListener("click", previewDurableSave);
-document.getElementById("confirmDurableSaveButton").addEventListener("click", confirmDurableSave);
+elements.previewDurableSaveButton.addEventListener("click", previewDurableSave);
+elements.confirmDurableSaveButton.addEventListener("click", confirmDurableSave);
 document.getElementById("reopenSavedReviewButton").addEventListener("click", reopenSavedReview);
 elements.copyReopenedHandoffButton.addEventListener("click", copyReopenedHandoff);
 document.getElementById("inspectRecoveryButton").addEventListener("click", inspectRecovery);
-document.getElementById("previewDeleteReviewButton").addEventListener("click", previewExactDelete);
-document.getElementById("confirmDeleteReviewButton").addEventListener("click", confirmExactDelete);
+elements.previewDeleteReviewButton.addEventListener("click", previewExactDelete);
+elements.confirmDeleteReviewButton.addEventListener("click", confirmExactDelete);
 elements.savedReviewSelect.addEventListener("change", () => {
   elements.reviewIdInput.value = elements.savedReviewSelect.value;
   elements.reopenScopeConfirmed.checked = false;

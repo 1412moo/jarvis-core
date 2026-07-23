@@ -787,6 +787,7 @@ def run_self_test() -> None:
     assert "Legacy records without evidence are blocked" in index_html
     assert "content check ready" in index_html
     assert "legacy - fresh handoff blocked" in index_html
+    assert 'id="statusBar" role="status" aria-live="polite"' in index_html
     assert "Generated Output" in index_html
     assert "does not call Codex" in index_html
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
@@ -805,6 +806,14 @@ def run_self_test() -> None:
     assert "function updateSavedReviewReadiness(options = {})" in app_js
     assert "content_evidence_available" in app_js
     assert "live_content_check_required" in app_js
+    assert "function beginBusyAction(button, message)" in app_js
+    assert "function endBusyAction(button, options = {})" in app_js
+    assert 'button.setAttribute("aria-busy", "true")' in app_js
+    assert "Checking current Git and target content before creating a durable Save preview" in app_js
+    assert "Rechecking current Git and target content before writing this exact Review" in app_js
+    assert "Checking current Git and target content before regenerating the handoff" in app_js
+    assert "Checking the exact saved Review before preparing Delete" in app_js
+    assert "Rechecking and deleting exactly" in app_js
     assert "function reviewMatchesSession()" in app_js
     assert "state.review = Object.freeze" in app_js
     assert "navigator.clipboard.readText" not in app_js

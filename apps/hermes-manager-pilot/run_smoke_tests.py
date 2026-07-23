@@ -4370,10 +4370,43 @@ def _test_browser_ui_mentions_manual_jarvis_handoff() -> None:
     _assert("retained locally until exact deletion" in index_html, "Review retention disclosure is missing")
     _assert("not encrypted, cloud-synced" in index_html, "Review privacy disclosure is missing")
     _assert("Memory / Skills save remains separate and disabled" in index_html, "Memory save boundary is missing")
+    _assert(
+        'id="statusBar" role="status" aria-live="polite"' in index_html,
+        "lifecycle progress status is not announced accessibly",
+    )
     _assert("X-Hermes-Local-Session" in app_js, "Review lifecycle session header is missing")
     _assert("/api/reviews/save-preview" in app_js, "Review Save preview UI is missing")
     _assert("/api/reviews/reopen" in app_js, "Review read-only reopen UI is missing")
     _assert("/api/reviews/delete-preview" in app_js, "Review exact delete preview UI is missing")
+    _assert("function beginBusyAction(button, message)" in app_js, "busy action guard is missing")
+    _assert("function endBusyAction(button, options = {})" in app_js, "busy action cleanup is missing")
+    _assert('button.dataset.busy === "true"' in app_js, "duplicate lifecycle actions are not guarded")
+    _assert('button.setAttribute("aria-busy", "true")' in app_js, "busy actions omit ARIA state")
+    for message in (
+        "Checking current Git and target content before creating a durable Save preview",
+        "Rechecking current Git and target content before writing this exact Review",
+        "Checking current Git and target content before regenerating the handoff",
+        "Checking the exact saved Review before preparing Delete",
+        "Rechecking and deleting exactly",
+    ):
+        _assert(message in app_js, f"lifecycle progress message is missing: {message}")
+    recovery_source = app_js.split("async function inspectRecovery()", 1)[1].split(
+        "async function previewExactDelete()",
+        1,
+    )[0]
+    delete_preview_source = app_js.split("async function previewExactDelete()", 1)[1].split(
+        "async function confirmExactDelete()",
+        1,
+    )[0]
+    _assert("beginBusyAction" not in recovery_source, "read-only Recovery incorrectly owns Delete busy state")
+    _assert(
+        "beginBusyAction(\n    elements.previewDeleteReviewButton" in delete_preview_source,
+        "Delete preview busy guard is not scoped to Delete preview",
+    )
+    _assert(
+        "endBusyAction(elements.previewDeleteReviewButton)" in delete_preview_source,
+        "Delete preview busy guard is not released",
+    )
     _assert("/api/memory-skills/candidates" not in app_js, "Hermes UI activated Memory candidate save")
     _assert("setInterval(" not in app_js, "Review lifecycle added background polling")
     _assert("local_host_header_is_valid" in web_source, "local Host validation is missing")
