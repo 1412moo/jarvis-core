@@ -558,7 +558,7 @@ async function copyReopenedHandoff() {
       ...displayHandoff,
     });
     const copyError = await copyText(artifact);
-    const message = `Git-metadata-matched handoff ${data.handoff.item_id} regenerated from ${reviewId}. Content evidence and approval were not restored.`;
+    const message = `Content-verified handoff ${data.handoff.item_id} regenerated from ${reviewId}. Review, commit, and push approval were not restored.`;
     setStatus(copyError ? `${message} Clipboard copy failed: ${copyError}` : `${message} Copied to clipboard.`);
   } catch (error) {
     const blockingReasons = error.payload && Array.isArray(error.payload.blocking_reasons)

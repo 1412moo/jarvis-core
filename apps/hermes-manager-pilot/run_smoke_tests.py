@@ -3613,6 +3613,20 @@ def _review_lifecycle_snapshot() -> dict[str, object]:
     }
 
 
+def _review_lifecycle_content_binding(
+    _record: ReviewRecord,
+    _snapshot: object,
+) -> ReviewContentEvidenceBinding:
+    return normalize_review_content_evidence_binding(
+        {
+            **_content_evidence_binding_payload(),
+            "manifest_target_count": 1,
+            "manifest_total_bytes": 1,
+            "change_evidence_digest": "d" * 64,
+        }
+    )
+
+
 def _test_review_lifecycle_is_confirmed_recoverable_and_fail_closed() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-review-lifecycle-") as temp_dir:
         repo, state_root, env = _review_store_fixture(temp_dir)
@@ -3635,6 +3649,7 @@ def _test_review_lifecycle_is_confirmed_recoverable_and_fail_closed() -> None:
             record_clock=lambda: datetime(2026, 7, 23, 1, 2, 3, tzinfo=timezone.utc),
             token_generator=lambda: next(tokens),
             monotonic_clock=lambda: now[0],
+            content_evidence_loader=_review_lifecycle_content_binding,
         )
         _assert_review_lifecycle_error(
             lambda: service.prepare_save(
@@ -3742,6 +3757,7 @@ def _test_review_lifecycle_is_confirmed_recoverable_and_fail_closed() -> None:
             record_clock=lambda: datetime(2026, 7, 23, 1, 2, 4, tzinfo=timezone.utc),
             token_generator=lambda: "save_confirmation_000000000021",
             monotonic_clock=lambda: clock[0],
+            content_evidence_loader=_review_lifecycle_content_binding,
         )
         preview = service.prepare_save(
             _review_lifecycle_session(repo),
@@ -3804,6 +3820,7 @@ def _test_reopen_to_handoff_is_fresh_read_only_and_stale_blocking() -> None:
             record_clock=lambda: datetime(2026, 7, 23, 1, 2, 6, tzinfo=timezone.utc),
             token_generator=lambda: "reopen_handoff_save_0000000023",
             monotonic_clock=lambda: 20.0,
+            content_evidence_loader=_review_lifecycle_content_binding,
         )
         session_id = "local_session_0000000000000023"
         directory_session = _review_lifecycle_session(repo)
@@ -3855,13 +3872,13 @@ def _test_reopen_to_handoff_is_fresh_read_only_and_stale_blocking() -> None:
             },
             "Reopen-to-Handoff transport fields changed",
         )
-        _assert(mapping["version"] == "0.1D", "Reopen-to-Handoff version mismatch")
+        _assert(mapping["version"] == "0.1E", "Reopen-to-Handoff version mismatch")
         _assert(
             mapping["git_metadata_matches"] is True
-            and mapping["freshness_basis"] == "branch_head_status_only"
-            and mapping["content_evidence_verified"] is False
+            and mapping["freshness_basis"] == "branch_head_status_content_sha256"
+            and mapping["content_evidence_verified"] is True
             and mapping["blocking_reasons"] == (),
-            "Git metadata freshness decision is inconsistent or overclaims content evidence",
+            "content freshness decision is incomplete or inconsistent",
         )
         _assert(mapping["copy_only"] is True and mapping["read_only_source"] is True, "handoff is not copy-only/read-only")
         _assert(
@@ -3965,6 +3982,174 @@ def _test_reopen_to_handoff_is_fresh_read_only_and_stale_blocking() -> None:
         )
 
 
+def _test_content_evidence_save_and_reopen_handoff_end_to_end() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-content-evidence-lifecycle-") as temp_dir:
+        root = Path(temp_dir)
+        repo = root / "repo"
+        repo.mkdir()
+        _run_fixture_git(repo, "init", "-b", "main")
+        _run_fixture_git(repo, "config", "user.email", "hermes-smoke@example.invalid")
+        _run_fixture_git(repo, "config", "user.name", "Hermes Smoke")
+        _run_fixture_git(repo, "config", "core.autocrlf", "false")
+
+        app_dir = repo / "apps" / "hermes-manager-pilot"
+        app_dir.mkdir(parents=True)
+        readme = app_dir / "README.md"
+        web_app = app_dir / "run_web_app.py"
+        readme.write_text("baseline readme\n", encoding="utf-8")
+        web_app.write_text("baseline app\n", encoding="utf-8")
+        _run_fixture_git(
+            repo,
+            "add",
+            "apps/hermes-manager-pilot/README.md",
+            "apps/hermes-manager-pilot/run_web_app.py",
+        )
+        _run_fixture_git(repo, "commit", "-m", "baseline")
+        (repo / "jarvis.bat").write_text("@echo off\n", encoding="utf-8")
+        saved_readme = "saved review content\n"
+        readme.write_text(saved_readme, encoding="utf-8")
+        web_app.write_text("saved web app content\n", encoding="utf-8")
+
+        def load_snapshot() -> dict[str, object]:
+            completed = subprocess.run(
+                ("git", "status", "--short", "--untracked-files=all"),
+                cwd=repo,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if completed.returncode != 0:
+                raise AssertionError("fixture Git status failed")
+            return {
+                "branch": _run_fixture_git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+                "head": _run_fixture_git(repo, "rev-parse", "HEAD"),
+                "status": completed.stdout.splitlines(),
+            }
+
+        state_root = root / "local-state"
+        env = {REVIEW_STORE_STATE_DIR_ENV: str(state_root)}
+        tokens = iter(
+            (
+                "content_save_confirmation_000001",
+                "content_save_confirmation_000002",
+            )
+        )
+        service = ReviewLifecycleService(
+            trusted_repo_root=repo,
+            git_snapshot_loader=load_snapshot,
+            store_kwargs={"env": env, "repo_root": repo},
+            record_id_generator=lambda: "review_000000000000000000000024",
+            record_clock=lambda: datetime(2026, 7, 23, 1, 2, 7, tzinfo=timezone.utc),
+            token_generator=lambda: next(tokens),
+            monotonic_clock=lambda: 30.0,
+        )
+        session_id = "local_session_0000000000000024"
+        session = _review_lifecycle_session(repo)
+        session["head"] = load_snapshot()["head"]
+        session["files_touched"] = ["apps/hermes-manager-pilot/"]
+        session["target_files"] = ["apps/hermes-manager-pilot/"]
+
+        first_preview = service.prepare_save(
+            session,
+            "Bound exact target content to the durable Review.",
+            scope_confirmed=True,
+            privacy_acknowledged=True,
+            retention_acknowledged=True,
+            session_id=session_id,
+        )
+        first_binding = first_preview.record.content_evidence_binding
+        _assert(first_preview.record.version == "0.1B", "Save preview did not use v0.1B")
+        _assert(first_binding is not None, "Save preview omitted content evidence")
+        _assert(first_binding.manifest_target_count == 2, "directory scope evidence target count mismatch")
+        _assert(not state_root.exists(), "content-evidence Save preview wrote local state")
+
+        readme.write_text("different bytes, same short status\n", encoding="utf-8")
+        _assert(
+            tuple(load_snapshot()["status"]) == first_preview.record.git_snapshot.status,
+            "fixture content drift unexpectedly changed short status",
+        )
+        _assert_review_lifecycle_error(
+            lambda: service.confirm_save(
+                first_preview.confirmation_token,
+                session_id=session_id,
+            ),
+            "review_save_content_evidence_stale",
+        )
+        _assert(not state_root.exists(), "content-stale Save confirmation wrote local state")
+
+        readme.write_text(saved_readme, encoding="utf-8")
+        preview = service.prepare_save(
+            session,
+            "Bound exact target content to the durable Review.",
+            scope_confirmed=True,
+            privacy_acknowledged=True,
+            retention_acknowledged=True,
+            session_id=session_id,
+        )
+        receipt = service.confirm_save(preview.confirmation_token, session_id=session_id)
+        review_id = receipt["review_id"]
+        stored = service.reopen(review_id)
+        stored_digest = review_record_digest(stored)
+        _assert(stored.content_evidence_binding is not None, "stored Review lost evidence binding")
+        serialized = serialize_review_record(stored)
+        _assert(saved_readme.strip() not in serialized, "Review record stored raw file content")
+        _assert(str(repo) not in serialized, "Review record stored the absolute evidence path")
+
+        verified = service.prepare_reopen_handoff(review_id, scope_confirmed=True)
+        verified_mapping = reopen_handoff_to_dict(verified)
+        _assert(
+            verified_mapping["content_evidence_verified"] is True
+            and verified_mapping["freshness_basis"]
+            == "branch_head_status_content_sha256",
+            "matching content did not produce a content-verified handoff",
+        )
+
+        readme.write_text("drift after durable Save\n", encoding="utf-8")
+        _assert(
+            tuple(load_snapshot()["status"]) == stored.git_snapshot.status,
+            "post-Save content drift unexpectedly changed Git metadata",
+        )
+        blocked_status, blocked = hermes_web_app.handle_api_request(
+            "/api/reviews/reopen-handoff",
+            {"review_id": review_id, "scope_confirmed": True},
+            lifecycle=service,
+            local_session_id=session_id,
+        )
+        _assert(blocked_status == 409, "content-stale handoff did not return conflict")
+        _assert(
+            blocked["error"] == "review_reopen_handoff_content_evidence_stale",
+            "content-stale handoff error code mismatch",
+        )
+        _assert("handoff" not in blocked, "content-stale handoff exposed an artifact")
+        _assert(
+            blocked["blocking_reasons"]
+            == ["current target-file content differs from the saved Review evidence"],
+            "content-stale handoff reason is not bounded or deterministic",
+        )
+        _assert(review_record_digest(service.reopen(review_id)) == stored_digest, "content check mutated the stored Review")
+
+        readme.write_text(saved_readme, encoding="utf-8")
+        verified_again = service.prepare_reopen_handoff(review_id, scope_confirmed=True)
+        _assert(verified_again.artifact == verified.artifact, "restored content changed deterministic handoff output")
+
+        legacy = _review_store_record(25)
+        write_review_record(legacy, env=env, repo_root=repo)
+        legacy_status, legacy_response = hermes_web_app.handle_api_request(
+            "/api/reviews/reopen-handoff",
+            {"review_id": legacy.review_id, "scope_confirmed": True},
+            lifecycle=service,
+            local_session_id=session_id,
+        )
+        _assert(legacy_status == 409, "legacy handoff did not fail closed")
+        _assert(
+            legacy_response["error"]
+            == "review_reopen_handoff_content_evidence_unavailable",
+            "legacy handoff error code mismatch",
+        )
+        _assert("handoff" not in legacy_response, "legacy Review produced a fresh handoff")
+        _assert(read_review_record(legacy.review_id, env=env, repo_root=repo) == legacy, "legacy v0.1A record stopped reading")
+
+
 def _test_review_lifecycle_routes_are_exact_and_session_bound() -> None:
     with tempfile.TemporaryDirectory(prefix="hermes-review-lifecycle-routes-") as temp_dir:
         repo, _state_root, env = _review_store_fixture(temp_dir)
@@ -3976,6 +4161,7 @@ def _test_review_lifecycle_routes_are_exact_and_session_bound() -> None:
             record_clock=lambda: datetime(2026, 7, 23, 1, 2, 5, tzinfo=timezone.utc),
             token_generator=lambda: "route_confirmation_000000000022",
             monotonic_clock=lambda: 10.0,
+            content_evidence_loader=_review_lifecycle_content_binding,
         )
         session_id = "local_session_0000000000000022"
         preview_payload = {
@@ -4031,6 +4217,7 @@ def _test_review_lifecycle_http_guard_is_same_origin_and_clickjacking_safe() -> 
             trusted_repo_root=repo,
             git_snapshot_loader=_review_lifecycle_snapshot,
             store_kwargs={"env": env, "repo_root": repo},
+            content_evidence_loader=_review_lifecycle_content_binding,
         )
         original_lifecycle = hermes_web_app.REVIEW_LIFECYCLE
         original_session = hermes_web_app.LOCAL_SESSION_ID
@@ -4411,6 +4598,7 @@ def main() -> None:
         _test_review_store_exact_delete_is_digest_bound_and_single_record_only,
         _test_review_lifecycle_is_confirmed_recoverable_and_fail_closed,
         _test_reopen_to_handoff_is_fresh_read_only_and_stale_blocking,
+        _test_content_evidence_save_and_reopen_handoff_end_to_end,
         _test_review_lifecycle_routes_are_exact_and_session_bound,
         _test_review_lifecycle_http_guard_is_same_origin_and_clickjacking_safe,
         _test_review_store_remains_route_and_external_free,

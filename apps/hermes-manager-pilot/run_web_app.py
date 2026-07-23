@@ -496,7 +496,10 @@ def _review_lifecycle_error_status(code: str) -> int:
         "review_record_exists",
         "review_save_outcome_uncertain",
         "review_save_snapshot_stale",
+        "review_save_content_evidence_stale",
         "review_reopen_handoff_stale",
+        "review_reopen_handoff_content_evidence_stale",
+        "review_reopen_handoff_content_evidence_unavailable",
         "review_delete_target_changed",
         "review_record_delete_outcome_uncertain",
         "review_store_recovery_required",
@@ -779,8 +782,9 @@ def run_self_test() -> None:
     assert "Save Review Object and Continue" in index_html
     assert "Clipboard is output only." in index_html
     assert "Copy Jarvis Review Handoff" in index_html
-    assert "Copy Fresh Handoff" in index_html
-    assert "It does not verify file-content hashes" in index_html
+    assert "Copy Content-Verified Handoff" in index_html
+    assert "target-file SHA-256 evidence" in index_html
+    assert "Legacy records without evidence are blocked" in index_html
     assert "Generated Output" in index_html
     assert "does not call Codex" in index_html
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
@@ -794,6 +798,7 @@ def run_self_test() -> None:
     assert "function copyReopenedHandoff()" in app_js
     assert 'lifecyclePost("/api/reviews/reopen-handoff"' in app_js
     assert 'setOutput("Fresh Handoff Blocked", "")' in app_js
+    assert "Content-verified handoff" in app_js
     assert "function reviewMatchesSession()" in app_js
     assert "state.review = Object.freeze" in app_js
     assert "navigator.clipboard.readText" not in app_js

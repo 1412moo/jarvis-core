@@ -1,4 +1,4 @@
-"""Local-only Durable Review Save/Reopen/Delete lifecycle v0.1C.
+"""Local-only Durable Review lifecycle with v0.1E content verification.
 
 The service binds short-lived, single-use confirmations to one browser session
 and one immutable Review record. It does not expose HTTP routes itself, call
@@ -23,10 +23,18 @@ from .review_handoff import (
     build_copy_only_review_handoff_from_record,
     render_copy_only_review_handoff,
 )
+from .review_content_evidence import (
+    ReviewContentEvidenceError,
+    collect_review_content_evidence_binding,
+    content_evidence_bindings_match,
+)
 from .review_record import (
     PROJECT_ID,
+    ReviewContentEvidenceBinding,
+    ReviewGitSnapshot,
     ReviewRecord,
     ReviewRecordError,
+    bind_review_record_content_evidence,
     create_review_record,
     evaluate_review_record_freshness,
     normalize_review_git_snapshot,
@@ -45,8 +53,8 @@ from .review_store import (
 from .schemas import ValidationError, normalize_session_state
 
 
-VERSION = "0.1C"
-REOPEN_HANDOFF_VERSION = "0.1D"
+VERSION = "0.1E"
+REOPEN_HANDOFF_VERSION = "0.1E"
 CONFIRMATION_TTL_SECONDS = 5 * 60
 MAX_PENDING_CONFIRMATIONS = 64
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
@@ -152,6 +160,10 @@ class ReviewLifecycleService:
         record_clock: Callable[[], datetime] | None = None,
         token_generator: Callable[[], str] | None = None,
         monotonic_clock: Callable[[], float] | None = None,
+        content_evidence_loader: Callable[
+            [ReviewRecord, ReviewGitSnapshot], ReviewContentEvidenceBinding
+        ]
+        | None = None,
     ) -> None:
         self._trusted_repo_root = Path(trusted_repo_root).resolve(strict=False)
         self._git_snapshot_loader = git_snapshot_loader
@@ -160,6 +172,13 @@ class ReviewLifecycleService:
         self._record_clock = record_clock
         self._token_generator = token_generator or (lambda: secrets.token_urlsafe(32))
         self._monotonic_clock = monotonic_clock or time.monotonic
+        self._content_evidence_loader = content_evidence_loader or (
+            lambda record, snapshot: collect_review_content_evidence_binding(
+                self._trusted_repo_root,
+                record,
+                snapshot,
+            )
+        )
         self._pending: dict[str, _PendingConfirmation] = {}
         self._lock = threading.RLock()
 
@@ -210,12 +229,18 @@ class ReviewLifecycleService:
                     "privacy_reviewed": True,
                 }
             )
-            record = create_review_record(
+            draft = create_review_record(
                 candidate,
                 id_generator=self._record_id_generator,
                 clock=self._record_clock,
             )
-        except (ReviewRecordError, TypeError):
+            binding = self._content_evidence_loader(draft, snapshot)
+            record = bind_review_record_content_evidence(draft, binding)
+        except ReviewContentEvidenceError:
+            raise ReviewLifecycleError(
+                "review_save_content_evidence_unavailable"
+            ) from None
+        except (ReviewRecordError, ValidationError, OSError, RuntimeError, TypeError):
             raise ReviewLifecycleError("review_save_candidate_invalid") from None
         digest = review_record_digest(record)
         token = self._issue_confirmation("save", session_id, record, digest)
@@ -245,6 +270,16 @@ class ReviewLifecycleService:
             raise ReviewLifecycleError("review_save_snapshot_invalid") from None
         if not freshness.matches:
             raise ReviewLifecycleError("review_save_snapshot_stale")
+        try:
+            current_binding = self._content_evidence_loader(pending.record, current)
+        except (ReviewContentEvidenceError, ReviewRecordError, ValidationError, OSError, RuntimeError, TypeError):
+            raise ReviewLifecycleError("review_save_content_evidence_stale") from None
+        stored_binding = pending.record.content_evidence_binding
+        if stored_binding is None or not content_evidence_bindings_match(
+            stored_binding,
+            current_binding,
+        ):
+            raise ReviewLifecycleError("review_save_content_evidence_stale")
         try:
             receipt = write_review_record(pending.record, **self._store_kwargs)
         except ReviewStoreError as exc:
@@ -300,6 +335,14 @@ class ReviewLifecycleService:
         if scope_confirmed is not True:
             raise ReviewLifecycleError("review_reopen_handoff_scope_not_confirmed")
         record = self.reopen(review_id)
+        if record.content_evidence_binding is None:
+            raise ReviewLifecycleError(
+                "review_reopen_handoff_content_evidence_unavailable",
+                review_id=record.review_id,
+                blocking_reasons=(
+                    "the saved Review predates content evidence binding",
+                ),
+            )
         try:
             current = normalize_review_git_snapshot(
                 self._git_snapshot_loader(),
@@ -316,6 +359,27 @@ class ReviewLifecycleService:
                 "review_reopen_handoff_stale",
                 review_id=record.review_id,
                 blocking_reasons=freshness.blocking_reasons,
+            )
+        try:
+            current_binding = self._content_evidence_loader(record, current)
+        except (ReviewContentEvidenceError, ReviewRecordError, ValidationError, OSError, RuntimeError, TypeError):
+            raise ReviewLifecycleError(
+                "review_reopen_handoff_content_evidence_stale",
+                review_id=record.review_id,
+                blocking_reasons=(
+                    "current target-file content could not be verified",
+                ),
+            ) from None
+        if not content_evidence_bindings_match(
+            record.content_evidence_binding,
+            current_binding,
+        ):
+            raise ReviewLifecycleError(
+                "review_reopen_handoff_content_evidence_stale",
+                review_id=record.review_id,
+                blocking_reasons=(
+                    "current target-file content differs from the saved Review evidence",
+                ),
             )
         try:
             handoff = build_copy_only_review_handoff_from_record(
@@ -336,8 +400,8 @@ class ReviewLifecycleService:
             item_id=handoff["item_id"],
             artifact=artifact,
             git_metadata_matches=True,
-            freshness_basis="branch_head_status_only",
-            content_evidence_verified=False,
+            freshness_basis="branch_head_status_content_sha256",
+            content_evidence_verified=True,
             blocking_reasons=(),
             copy_only=True,
             read_only_source=True,
