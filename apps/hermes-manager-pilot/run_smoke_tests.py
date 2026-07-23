@@ -68,16 +68,26 @@ from hermes_manager_pilot.review_lifecycle import (
 import hermes_manager_pilot.review_record as review_record_module
 from hermes_manager_pilot.review_record import (
     AUTHORITY_BOUNDARY as REVIEW_RECORD_AUTHORITY_BOUNDARY,
+    CONTENT_EVIDENCE_BINDING_TYPE,
+    CONTENT_EVIDENCE_BINDING_VERSION,
+    CONTENT_EVIDENCE_COVERAGE,
+    CONTENT_EVIDENCE_RECORD_VERSION,
+    CONTENT_EVIDENCE_SOURCE_TYPE,
+    CONTENT_EVIDENCE_SOURCE_VERSION,
     CONTRACT_TYPE as REVIEW_RECORD_CONTRACT_TYPE,
     VERSION as REVIEW_RECORD_VERSION,
+    ReviewContentEvidenceBinding,
     ReviewRecord,
     ReviewRecordCandidate,
     ReviewRecordError,
+    bind_review_record_content_evidence,
     create_review_record,
     evaluate_review_record_freshness,
+    normalize_review_content_evidence_binding,
     normalize_review_record,
     normalize_review_record_candidate,
     parse_review_record_json,
+    review_content_evidence_binding_to_dict,
     review_record_digest,
     review_record_to_dict,
     serialize_review_record,
@@ -2895,6 +2905,110 @@ def _test_review_record_contract_is_immutable_canonical_and_authority_free() -> 
     )
 
 
+def _content_evidence_binding_payload() -> dict[str, object]:
+    return {
+        "binding_type": CONTENT_EVIDENCE_BINDING_TYPE,
+        "version": CONTENT_EVIDENCE_BINDING_VERSION,
+        "source_evidence_type": CONTENT_EVIDENCE_SOURCE_TYPE,
+        "source_evidence_version": CONTENT_EVIDENCE_SOURCE_VERSION,
+        "coverage": CONTENT_EVIDENCE_COVERAGE,
+        "manifest_target_count": 2,
+        "manifest_total_bytes": 1234,
+        "change_evidence_digest": "c" * 64,
+    }
+
+
+def _test_review_record_v01b_content_binding_is_strict_and_legacy_compatible() -> None:
+    candidate = normalize_review_record_candidate(_review_record_candidate_payload())
+    legacy = create_review_record(
+        candidate,
+        id_generator=lambda: "review_0123456789abcdef01234567",
+        clock=lambda: datetime(2026, 7, 22, 3, 4, 5, tzinfo=timezone.utc),
+    )
+    legacy_text = serialize_review_record(legacy)
+    _assert(legacy.version == REVIEW_RECORD_VERSION, "legacy Review version changed")
+    _assert(
+        "content_evidence_binding" not in legacy_text,
+        "legacy v0.1A serialization gained an optional field",
+    )
+    _assert(parse_review_record_json(legacy_text) == legacy, "legacy v0.1A stopped parsing")
+
+    binding = normalize_review_content_evidence_binding(
+        _content_evidence_binding_payload()
+    )
+    _assert(isinstance(binding, ReviewContentEvidenceBinding), "binding type mismatch")
+    try:
+        binding.manifest_target_count = 3  # type: ignore[misc]
+    except (AttributeError, TypeError):
+        pass
+    else:
+        raise AssertionError("ReviewContentEvidenceBinding must be immutable")
+
+    bound = bind_review_record_content_evidence(legacy, binding)
+    _assert(bound.version == CONTENT_EVIDENCE_RECORD_VERSION, "bound Review version mismatch")
+    _assert(bound.review_id == legacy.review_id, "binding changed Review identity")
+    _assert(bound.created_at == legacy.created_at, "binding changed Review timestamp")
+    _assert(bound.content_evidence_binding == binding, "bound Review lost evidence")
+    _assert(
+        bound.review_passed is False
+        and bound.commit_approved is False
+        and bound.push_allowed is False,
+        "content binding granted workflow authority",
+    )
+    bound_text = serialize_review_record(bound)
+    _assert(parse_review_record_json(bound_text) == bound, "v0.1B did not round-trip")
+    _assert(
+        review_record_digest(parse_review_record_json(bound_text))
+        == review_record_digest(bound),
+        "v0.1B digest changed across canonical round-trip",
+    )
+    binding_transport = review_content_evidence_binding_to_dict(binding)
+    binding_transport["manifest_target_count"] = 1
+    _assert(
+        bound.content_evidence_binding.manifest_target_count == 2,
+        "binding transport mapping mutated the immutable record",
+    )
+    _assert_review_record_error(
+        lambda: bind_review_record_content_evidence(bound, binding),
+        "only one v0.1A Review record",
+    )
+
+    legacy_with_binding = review_record_to_dict(legacy)
+    legacy_with_binding["content_evidence_binding"] = _content_evidence_binding_payload()
+    _assert_review_record_error(
+        lambda: normalize_review_record(legacy_with_binding),
+        "unknown fields",
+    )
+    missing_binding = review_record_to_dict(bound)
+    del missing_binding["content_evidence_binding"]
+    _assert_review_record_error(
+        lambda: normalize_review_record(missing_binding),
+        "must be an object",
+    )
+
+    for field, unsafe, expected in (
+        ("manifest_target_count", 0, "from 1 to"),
+        ("manifest_target_count", True, "from 1 to"),
+        ("manifest_target_count", 65, "from 1 to"),
+        ("manifest_total_bytes", -1, "from 0 to"),
+        ("manifest_total_bytes", False, "from 0 to"),
+        ("manifest_total_bytes", 16 * 1024 * 1024 + 1, "from 0 to"),
+        ("change_evidence_digest", "C" * 64, "lowercase SHA-256"),
+    ):
+        malformed = _content_evidence_binding_payload()
+        malformed[field] = unsafe
+        _assert_review_record_error(
+            lambda value=malformed: normalize_review_content_evidence_binding(value),
+            expected,
+        )
+    unknown = _content_evidence_binding_payload()
+    unknown["raw_file_content"] = "forbidden"
+    _assert_review_record_error(
+        lambda: normalize_review_content_evidence_binding(unknown),
+        "unknown fields",
+    )
+
+
 def _test_review_record_contract_fails_closed_on_unsafe_input() -> None:
     payload = _review_record_candidate_payload()
 
@@ -4286,6 +4400,7 @@ def main() -> None:
         _test_local_change_evidence_rejects_reparse_and_unstable_reads,
         _test_local_change_evidence_status_parser_is_bounded_and_fail_closed,
         _test_review_record_contract_is_immutable_canonical_and_authority_free,
+        _test_review_record_v01b_content_binding_is_strict_and_legacy_compatible,
         _test_review_record_contract_fails_closed_on_unsafe_input,
         _test_review_record_freshness_is_exact_and_fail_closed,
         _test_review_record_core_has_no_io_route_or_clipboard_dependency,

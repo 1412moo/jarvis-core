@@ -1,4 +1,4 @@
-"""Transport-neutral Durable Review Record v0.1A core contract.
+"""Transport-neutral Durable Review Record v0.1A/v0.1B core contracts.
 
 This module normalizes in-memory data only. It does not read a repository,
 persist state, expose routes, use the clipboard, call external services, or
@@ -20,6 +20,12 @@ import uuid
 
 CONTRACT_TYPE = "hermes_review_record"
 VERSION = "0.1A"
+CONTENT_EVIDENCE_RECORD_VERSION = "0.1B"
+CONTENT_EVIDENCE_BINDING_TYPE = "hermes_review_content_evidence_binding"
+CONTENT_EVIDENCE_BINDING_VERSION = "0.1E"
+CONTENT_EVIDENCE_SOURCE_TYPE = "hermes_local_change_evidence"
+CONTENT_EVIDENCE_SOURCE_VERSION = "0.1C-0B"
+CONTENT_EVIDENCE_COVERAGE = "git-visible-review-target-content"
 PROJECT_ID = "jarvis-core"
 AUTHORITY_BOUNDARY = "review_input_only"
 PROTECTED_UNTRACKED_PATH = "jarvis.bat"
@@ -32,9 +38,12 @@ MAX_PATH_CHARS = 512
 MAX_TARGET_FILES = 64
 MAX_VALIDATION_COMMANDS = 32
 MAX_STATUS_LINES = 128
+MAX_CONTENT_EVIDENCE_TARGETS = 64
+MAX_CONTENT_EVIDENCE_TOTAL_BYTES = 16 * 1024 * 1024
 
 _REVIEW_ID_PATTERN = re.compile(r"^review_[0-9a-f]{24}$")
 _GIT_HEAD_PATTERN = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _BRANCH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$")
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
 _UTC_TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -54,7 +63,7 @@ _CANDIDATE_FIELDS = frozenset(
         "privacy_reviewed",
     }
 )
-_RECORD_FIELDS = _CANDIDATE_FIELDS | frozenset(
+_RECORD_FIELDS_V01A = _CANDIDATE_FIELDS | frozenset(
     {
         "contract_type",
         "version",
@@ -65,6 +74,21 @@ _RECORD_FIELDS = _CANDIDATE_FIELDS | frozenset(
         "review_passed",
         "commit_approved",
         "push_allowed",
+    }
+)
+_RECORD_FIELDS_V01B = _RECORD_FIELDS_V01A | frozenset(
+    {"content_evidence_binding"}
+)
+_CONTENT_EVIDENCE_BINDING_FIELDS = frozenset(
+    {
+        "binding_type",
+        "version",
+        "source_evidence_type",
+        "source_evidence_version",
+        "coverage",
+        "manifest_target_count",
+        "manifest_total_bytes",
+        "change_evidence_digest",
     }
 )
 
@@ -98,6 +122,20 @@ class ReviewRecordCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewContentEvidenceBinding:
+    """Bounded digest metadata with no raw file content or approval authority."""
+
+    binding_type: str
+    version: str
+    source_evidence_type: str
+    source_evidence_version: str
+    coverage: str
+    manifest_target_count: int
+    manifest_total_bytes: int
+    change_evidence_digest: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewRecord:
     """One immutable Review input snapshot without approval authority."""
 
@@ -119,6 +157,7 @@ class ReviewRecord:
     review_passed: bool
     commit_approved: bool
     push_allowed: bool
+    content_evidence_binding: ReviewContentEvidenceBinding | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +274,66 @@ def normalize_review_record_candidate(data: Mapping[str, Any]) -> ReviewRecordCa
     )
 
 
+def normalize_review_content_evidence_binding(
+    data: Mapping[str, Any],
+) -> ReviewContentEvidenceBinding:
+    """Validate one transport-neutral content-evidence binding."""
+
+    if not isinstance(data, Mapping):
+        raise ReviewRecordError("content evidence binding must be an object")
+    path = "content evidence binding"
+    _reject_unknown_fields(data, _CONTENT_EVIDENCE_BINDING_FIELDS, path)
+    expected_text = {
+        "binding_type": CONTENT_EVIDENCE_BINDING_TYPE,
+        "version": CONTENT_EVIDENCE_BINDING_VERSION,
+        "source_evidence_type": CONTENT_EVIDENCE_SOURCE_TYPE,
+        "source_evidence_version": CONTENT_EVIDENCE_SOURCE_VERSION,
+        "coverage": CONTENT_EVIDENCE_COVERAGE,
+    }
+    for field, expected in expected_text.items():
+        if data.get(field) != expected:
+            raise ReviewRecordError(f"{path}.{field} must be {expected}")
+
+    target_count = data.get("manifest_target_count")
+    if (
+        not isinstance(target_count, int)
+        or isinstance(target_count, bool)
+        or target_count < 1
+        or target_count > MAX_CONTENT_EVIDENCE_TARGETS
+    ):
+        raise ReviewRecordError(
+            f"{path}.manifest_target_count must be an integer from 1 to "
+            f"{MAX_CONTENT_EVIDENCE_TARGETS}"
+        )
+    total_bytes = data.get("manifest_total_bytes")
+    if (
+        not isinstance(total_bytes, int)
+        or isinstance(total_bytes, bool)
+        or total_bytes < 0
+        or total_bytes > MAX_CONTENT_EVIDENCE_TOTAL_BYTES
+    ):
+        raise ReviewRecordError(
+            f"{path}.manifest_total_bytes must be an integer from 0 to "
+            f"{MAX_CONTENT_EVIDENCE_TOTAL_BYTES}"
+        )
+    digest = data.get("change_evidence_digest")
+    if not isinstance(digest, str) or not _SHA256_PATTERN.fullmatch(digest):
+        raise ReviewRecordError(
+            f"{path}.change_evidence_digest must be a lowercase SHA-256 digest"
+        )
+
+    return ReviewContentEvidenceBinding(
+        binding_type=CONTENT_EVIDENCE_BINDING_TYPE,
+        version=CONTENT_EVIDENCE_BINDING_VERSION,
+        source_evidence_type=CONTENT_EVIDENCE_SOURCE_TYPE,
+        source_evidence_version=CONTENT_EVIDENCE_SOURCE_VERSION,
+        coverage=CONTENT_EVIDENCE_COVERAGE,
+        manifest_target_count=target_count,
+        manifest_total_bytes=total_bytes,
+        change_evidence_digest=digest,
+    )
+
+
 def create_review_record(
     candidate: ReviewRecordCandidate,
     *,
@@ -275,18 +374,64 @@ def create_review_record(
     )
 
 
+def bind_review_record_content_evidence(
+    record: ReviewRecord,
+    binding: ReviewContentEvidenceBinding | Mapping[str, Any],
+) -> ReviewRecord:
+    """Promote one exact v0.1A record to v0.1B without changing its identity."""
+
+    normalized_record = _validate_record_instance(record)
+    if normalized_record.version != VERSION or normalized_record.content_evidence_binding is not None:
+        raise ReviewRecordError("content evidence can bind only one v0.1A Review record")
+    normalized_binding = (
+        _validate_content_evidence_binding_instance(binding)
+        if isinstance(binding, ReviewContentEvidenceBinding)
+        else normalize_review_content_evidence_binding(binding)
+    )
+    value = _record_mapping(normalized_record)
+    value["version"] = CONTENT_EVIDENCE_RECORD_VERSION
+    value["content_evidence_binding"] = _content_evidence_binding_mapping(
+        normalized_binding
+    )
+    return normalize_review_record(value)
+
+
+def create_evidence_bound_review_record(
+    candidate: ReviewRecordCandidate,
+    binding: ReviewContentEvidenceBinding | Mapping[str, Any],
+    *,
+    id_generator: Callable[[], str] | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> ReviewRecord:
+    """Create one immutable v0.1B record with no IO or transport side effects."""
+
+    return bind_review_record_content_evidence(
+        create_review_record(candidate, id_generator=id_generator, clock=clock),
+        binding,
+    )
+
+
 def normalize_review_record(data: Mapping[str, Any]) -> ReviewRecord:
     """Validate and canonically normalize one complete Review record."""
 
     if not isinstance(data, Mapping):
         raise ReviewRecordError("review record must be an object")
     path = "review record"
-    _reject_unknown_fields(data, _RECORD_FIELDS, path)
-
+    version = data.get("version")
+    if version == VERSION:
+        _reject_unknown_fields(data, _RECORD_FIELDS_V01A, path)
+        binding = None
+    elif version == CONTENT_EVIDENCE_RECORD_VERSION:
+        _reject_unknown_fields(data, _RECORD_FIELDS_V01B, path)
+        binding = normalize_review_content_evidence_binding(
+            data.get("content_evidence_binding")
+        )
+    else:
+        raise ReviewRecordError(
+            f"{path}.version must be {VERSION} or {CONTENT_EVIDENCE_RECORD_VERSION}"
+        )
     if data.get("contract_type") != CONTRACT_TYPE:
         raise ReviewRecordError(f"{path}.contract_type must be {CONTRACT_TYPE}")
-    if data.get("version") != VERSION:
-        raise ReviewRecordError(f"{path}.version must be {VERSION}")
     review_id = data.get("review_id")
     if not isinstance(review_id, str) or not _REVIEW_ID_PATTERN.fullmatch(review_id):
         raise ReviewRecordError(f"{path}.review_id is invalid")
@@ -306,7 +451,7 @@ def normalize_review_record(data: Mapping[str, Any]) -> ReviewRecord:
     )
     return ReviewRecord(
         contract_type=CONTRACT_TYPE,
-        version=VERSION,
+        version=version,
         review_id=review_id,
         created_at=created_at,
         authority_boundary=AUTHORITY_BOUNDARY,
@@ -323,6 +468,7 @@ def normalize_review_record(data: Mapping[str, Any]) -> ReviewRecord:
         review_passed=False,
         commit_approved=False,
         push_allowed=False,
+        content_evidence_binding=binding,
     )
 
 
@@ -357,6 +503,16 @@ def review_record_to_dict(record: ReviewRecord) -> dict[str, Any]:
 
     normalized = _validate_record_instance(record)
     return _record_mapping(normalized)
+
+
+def review_content_evidence_binding_to_dict(
+    binding: ReviewContentEvidenceBinding,
+) -> dict[str, Any]:
+    """Return a fresh mapping after strict immutable-contract validation."""
+
+    return _content_evidence_binding_mapping(
+        _validate_content_evidence_binding_instance(binding)
+    )
 
 
 def serialize_review_record(record: ReviewRecord) -> str:
@@ -611,6 +767,23 @@ def _validate_snapshot_instance(snapshot: ReviewGitSnapshot) -> ReviewGitSnapsho
     return normalized
 
 
+def _validate_content_evidence_binding_instance(
+    binding: ReviewContentEvidenceBinding,
+) -> ReviewContentEvidenceBinding:
+    if not isinstance(binding, ReviewContentEvidenceBinding):
+        raise ReviewRecordError(
+            "binding must be a ReviewContentEvidenceBinding"
+        )
+    normalized = normalize_review_content_evidence_binding(
+        _content_evidence_binding_mapping(binding)
+    )
+    if normalized != binding:
+        raise ReviewRecordError(
+            "ReviewContentEvidenceBinding is not canonically normalized"
+        )
+    return normalized
+
+
 def _validate_record_instance(record: ReviewRecord) -> ReviewRecord:
     if not isinstance(record, ReviewRecord):
         raise ReviewRecordError("record must be a ReviewRecord")
@@ -650,6 +823,25 @@ def _candidate_mapping(candidate: ReviewRecordCandidate) -> dict[str, Any]:
     }
 
 
+def _content_evidence_binding_mapping(
+    binding: ReviewContentEvidenceBinding,
+) -> dict[str, Any]:
+    if not isinstance(binding, ReviewContentEvidenceBinding):
+        raise ReviewRecordError(
+            "ReviewContentEvidenceBinding must be an immutable contract"
+        )
+    return {
+        "binding_type": binding.binding_type,
+        "version": binding.version,
+        "source_evidence_type": binding.source_evidence_type,
+        "source_evidence_version": binding.source_evidence_version,
+        "coverage": binding.coverage,
+        "manifest_target_count": binding.manifest_target_count,
+        "manifest_total_bytes": binding.manifest_total_bytes,
+        "change_evidence_digest": binding.change_evidence_digest,
+    }
+
+
 def _record_mapping(record: ReviewRecord) -> dict[str, Any]:
     candidate = ReviewRecordCandidate(
         project_id=record.project_id,
@@ -662,7 +854,7 @@ def _record_mapping(record: ReviewRecord) -> dict[str, Any]:
         result_summary=record.result_summary,
         privacy_reviewed=record.privacy_reviewed,
     )
-    return {
+    value = {
         "contract_type": record.contract_type,
         "version": record.version,
         "review_id": record.review_id,
@@ -674,6 +866,11 @@ def _record_mapping(record: ReviewRecord) -> dict[str, Any]:
         "commit_approved": record.commit_approved,
         "push_allowed": record.push_allowed,
     }
+    if record.version == CONTENT_EVIDENCE_RECORD_VERSION:
+        value["content_evidence_binding"] = _content_evidence_binding_mapping(
+            record.content_evidence_binding
+        )
+    return value
 
 
 def _reject_unknown_fields(
