@@ -577,6 +577,7 @@ save도 계속 잠겨 있다.
 
 ## 11. 관련 기준 문서
 
+- [Codex operating rules](codex-operating-rules.md)
 - [Project North Star](project-north-star.md)
 - [Architecture](architecture.md)
 - [Jarvis development loop](jarvis-dev-loop.md)

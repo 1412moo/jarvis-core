@@ -14,6 +14,10 @@
 7. 메인 저장소와 서브 저장소의 역할을 섞지 않는다.
 8. 확인하지 않은 사항은 완료로 기록하지 않는다.
 
+상세 approval gate, local commit, QA 선택, timeout, background process 및
+protected file 기준은 [`docs/codex-operating-rules.md`](docs/codex-operating-rules.md)를
+따른다.
+
 ## 변경 범위 관리
 - 한 번에 크게 만들지 않는다.
 - 단계별로 생성하고 검증 가능한 산출물만 남긴다.
