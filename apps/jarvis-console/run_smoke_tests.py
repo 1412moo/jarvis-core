@@ -467,6 +467,26 @@ def _test_evaluate_idea_vertical_slice() -> None:
             {"idea": "x" * 2_001, "goal": "goal"},
             "idea_too_long",
         ),
+        (
+            {"idea": "idea\ud800", "goal": "goal"},
+            "invalid_unicode",
+        ),
+        (
+            {"idea": "idea", "goal": "goal\x00"},
+            "invalid_unicode",
+        ),
+        (
+            {"idea": "idea", "goal": "goal", "context": "context\ud800"},
+            "invalid_unicode",
+        ),
+        (
+            {
+                "idea": "idea",
+                "goal": "goal",
+                "provided_evidence": ["evidence\x00"],
+            },
+            "invalid_unicode",
+        ),
     )
     for invalid_payload, expected_error in invalid_cases:
         invalid_status, invalid = run_web_app.evaluate_idea(invalid_payload)
@@ -497,9 +517,12 @@ def _test_evaluate_idea_vertical_slice() -> None:
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     port = int(server.server_address[1])
-    try:
+
+    def post_evaluate_idea(
+        payload: dict[str, Any],
+    ) -> tuple[int, dict[str, Any]]:
         connection = HTTPConnection(run_web_app.DEFAULT_HOST, port, timeout=10)
-        body = json.dumps(optional_payload, ensure_ascii=False).encode("utf-8")
+        body = json.dumps(payload, ensure_ascii=True).encode("ascii")
         connection.request(
             "POST",
             run_web_app.EVALUATE_IDEA_ENDPOINT,
@@ -510,8 +533,31 @@ def _test_evaluate_idea_vertical_slice() -> None:
         response_payload = json.loads(response.read().decode("utf-8"))
         response_status = response.status
         connection.close()
+        return response_status, response_payload
+
+    try:
+        response_status, response_payload = post_evaluate_idea(optional_payload)
         assert response_status == HTTPStatus.OK
         assert response_payload == first
+
+        surrogate_status, surrogate_response = post_evaluate_idea(
+            {
+                "idea": "HTTP surrogate \ud800",
+                "goal": "Reject invalid Unicode.",
+            }
+        )
+        assert surrogate_status == HTTPStatus.BAD_REQUEST
+        assert surrogate_response == {"ok": False, "error": "invalid_unicode"}
+
+        nul_status, nul_response = post_evaluate_idea(
+            {
+                "idea": "HTTP NUL evidence",
+                "goal": "Reject invalid Unicode.",
+                "provided_evidence": ["invalid\x00evidence"],
+            }
+        )
+        assert nul_status == HTTPStatus.BAD_REQUEST
+        assert nul_response == {"ok": False, "error": "invalid_unicode"}
     finally:
         server.shutdown()
         server.server_close()

@@ -4023,6 +4023,14 @@ def _validate_evaluate_idea_payload(
             "ok": False,
             "error": "evaluate_idea_fields_must_be_strings",
         }
+    if not all(
+        memory_string_has_valid_unicode(value)
+        for value in (idea, goal, context)
+    ):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_unicode",
+        }
     if not isinstance(evidence, list):
         return HTTPStatus.BAD_REQUEST, {
             "ok": False,
@@ -4055,6 +4063,11 @@ def _validate_evaluate_idea_payload(
             return HTTPStatus.BAD_REQUEST, {
                 "ok": False,
                 "error": "provided_evidence_entries_must_be_strings",
+            }
+        if not memory_string_has_valid_unicode(entry):
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "invalid_unicode",
             }
         canonical_entry = entry.strip()
         if not canonical_entry:
