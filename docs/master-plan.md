@@ -40,6 +40,9 @@ v0.1G는 Save preview/confirm, content-verified handoff와 exact Delete가 로�
 Project Control v0.1D는 현재 목표와 live Git 상태에 더해 `현재 만드는 이유`,
 `이 단계가 끝나면 사용자가 얻는 것`, 최근 완료, 다음 단계, 내부 workstream,
 잠긴 기능, 승인 필요 여부를 한 개의 read-only Jarvis-Core 카드로 보여준다.
+Project Control v0.1E는 최근 5개 로컬 커밋의 제목·hash·변경 파일과 live HEAD 일치를
+같은 owner card에 표시해 별도 최근 작업 요약 요청을 줄인다. 커밋 제목은 검증이나
+승인이 아니라 bounded read-only 작업 증거다.
 v0.1B design과 v0.1C internal/tests-only registry primitive는 연결하지 않은
 기반으로 보존하며 현재 방향은 multi-project 연결이 아니다. 두 번째 repo
 등록·경로 입력·route·persistence는 추가하지 않는다. Memory / Skills live
@@ -59,6 +62,7 @@ save도 readiness review의 `keep locked` 판정을 유지한다.
 - 저장된 Review가 현재 Git metadata와 target content에 모두 일치하면 scope 재확인 후
   같은 copy-only handoff를 다시 만들고, drift가 있으면 이유를 보여주고 출력을 차단한다.
 - 오래 걸리는 Save/handoff/Delete 검증은 즉시 진행 상태를 보여주고 완료 전 중복 입력을 막는다.
+- Project Control에서 최근 5개 로컬 커밋, 변경 파일과 현재 HEAD 일치를 바로 확인한다.
 - 저장·재열기·삭제는 review/commit/push 권한이나 자동 실행을 복원하지 않는다.
 - 자동 실행, push/PR, 외부 호출, Memory save는 계속 잠긴다.
 
@@ -88,12 +92,12 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Hermes lifecycle 검증의 즉시 진행 상태와 중복 클릭 차단**
-- 현재 다음 작업: **다음 사용자 체감 workstream을 소유자가 선택**
-- 현재 사용자 체감 결과: **Save/handoff/Delete 검증이 시작됐음을 즉시 확인하고 완료 전 중복 실행 방지**
-- 다음 사용자 체감 milestone: **소유자가 선택한 workstream의 bounded vertical slice**
-- 최근 검증 결과: 실제 browser에서 Save/handoff busy state, exact Delete/Recovery와 zero warning/error 확인
-- 현재 결정 필요: **있음** — 다음 사용자 체감 workstream 선택
+- 최근 완료: **Project Control Recent Milestone Evidence v0.1**
+- 현재 다음 작업: **실제 milestone 보고에서 최근 작업 증거 카드를 반복 사용한 뒤 다음 workstream 선택**
+- 현재 사용자 체감 결과: **최근 5개 커밋과 변경 파일, 현재 HEAD 일치를 한 화면에서 확인**
+- 다음 사용자 체감 milestone: **반복 사용 피드백 또는 소유자가 선택한 다음 bounded vertical slice**
+- 최근 검증 결과: 실제 browser에서 5개 commit card, HEAD verified, action button 0건, warning/error 0건
+- 현재 결정 필요: **있음** — 반복 사용 후 다음 사용자 체감 workstream 선택
 
 ### 언제부터 실제로 편해지는가
 
@@ -137,20 +141,20 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-23
-- Verified implementation HEAD: `d312413`
+- Verified implementation HEAD: `e25ba92`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
-- Current workstream: Hermes Manager — guided review handoff
-- Current milestone: Hermes lifecycle operation progress v0.1G completed
-- Recommended next step: Select the next bounded user-visible Jarvis-Core workstream
-- Next user-visible milestone: 소유자가 선택한 workstream의 complete vertical slice
-- Current reason: Hermes의 실제 Review 흐름과 긴 로컬 검증 피드백이 완성되어 다음 사용자 가치 축을 선택할 시점이다
-- Owner outcome: Save/handoff/Delete가 시작됐음을 즉시 보고 중복 실행을 막으며 기존 fail-closed 검증을 유지한다
-- Recent completed: lifecycle progress feedback, duplicate-click guard, accessible live status, browser and cross-app validation
+- Current workstream: Jarvis Console — owner milestone reporting
+- Current milestone: Project Control Recent Milestone Evidence v0.1 completed
+- Recommended next step: Validate the recent evidence card during normal milestone reporting, then select the next workstream
+- Next user-visible milestone: 반복 사용 피드백 또는 소유자가 선택한 다음 complete vertical slice
+- Current reason: 소유자가 최근 완료 작업을 알기 위해 별도 요약을 요청하지 않고 로컬 증거를 한눈에 확인해야 한다
+- Owner outcome: 최근 5개 커밋의 제목, 변경 파일과 현재 HEAD 일치를 Project Control에서 읽기 전용으로 확인한다
+- Recent completed: immutable evidence contract, bounded local Git collection, Project Control v0.1E UI, browser and cross-app validation
 - Approval state: required
-- Approval note: 다음 product workstream 선택 전에는 새 구현을 시작하지 않는다
+- Approval note: 반복 사용 피드백 또는 다음 product workstream 선택 전에는 새 구현을 시작하지 않는다
 - Owner decision status: selection_required
-- Owner decision recommendation: hermes-manager
+- Owner decision recommendation: jarvis-console
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
@@ -208,13 +212,15 @@ flowchart LR
     W --> X["Saved Review readiness<br/>v0.1F 완료"]
     X --> Y["실제 Review 반복 사용<br/>다음 운영 검증"]
     Y --> Z["Hermes busy-state UX<br/>v0.1G 완료"]
-    Z --> AA["다음 사용자 체감 workstream<br/>소유자 선택 필요"]
+    Z --> AA["다음 사용자 체감 workstream<br/>Jarvis Console 선택"]
+    AA --> AB["Recent Milestone Evidence<br/>v0.1 완료"]
+    AB --> AC["실제 milestone 보고에서<br/>반복 사용 검증"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z done;
-    class AA current;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,AA,AB done;
+    class AC current;
 ```
 
 ### 구현된 기반
@@ -225,8 +231,23 @@ flowchart LR
 - master-plan Owner Dashboard와 milestone 갱신 규칙
 - bounded master-plan snapshot parser: trusted-root regular file, UTF-8, 128KB,
   required field, duplicate field validation
-- 기존 `/api/overview` 안의 single-repo `project_control.v0.1D` payload
+- 기존 `/api/overview` 안의 single-repo `project_control.v0.1E` payload
 - Jarvis-Core 목표·milestone·live Git·보호 경계를 보여주는 read-only owner card
+
+### 최근 완료: Project Control Recent Milestone Evidence v0.1
+
+transport-neutral immutable contract는 caller-supplied separator-based Git log text만
+정규화하고 Git·filesystem·route·persistence를 직접 사용하지 않는다. Console adapter는
+trusted Jarvis-Core root에서 allowlisted `git log -n 5`만 실행해 기존
+`GET /api/overview`의 `project_control.v0.1E` payload에 넣는다. 최대 5 commits, raw
+256KB, commit당 visible path 20개 경계를 적용하고 malformed hash, traversal, duplicate,
+control character와 oversized input을 fail closed로 차단한다.
+
+Owner Dashboard는 최근 commit 제목·short hash·bounded changed files와 live HEAD 일치를
+보여준다. mismatch 또는 최근 commit의 protected `jarvis.bat` 포함은 Attention이다.
+커밋 제목은 검증·승인 근거가 아니며 section에는 action button이 없다. 실제 browser에서
+5개 card, `HEAD verified`, implementation commit의 5개 변경 파일, zero action button과
+zero warning/error를 확인했다. 새 route, persistence, second repo, 실행 권한은 없다.
 
 ### 최근 완료: Durable Review Reopen-to-Handoff v0.1D
 
@@ -463,7 +484,7 @@ save도 계속 잠겨 있다.
 | --- | --- | --- | --- |
 | Hermes Manager | 실제 Review owner flow와 lifecycle progress v0.1G 검증 완료 | prompt drafting, local Save/list/Reopen/recovery/Delete, content-ready/legacy 표시, content-verified handoff Copy, 즉시 progress와 중복 실행 차단 | 다음 owner workstream 선택 전 안정 상태 유지 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1D와 Owner Decision v0.1A/v0.1B 완료, Hermes 선택 1회 사용 | owner project card, 내부 workstream 상태, fresh read-only work review, 동일 Decision 객체의 CLI/Console 표시 | 다음 product selection 전 현재 handoff 실사용 피드백 대기 |
+| Jarvis Console | Project Control v0.1E Recent Milestone Evidence와 Owner Decision 완료 | owner project card, 최근 5개 commit/변경 파일/HEAD 일치, 내부 workstream 상태, fresh read-only work review | 실제 milestone 보고에서 반복 사용 후 다음 bounded slice 선택 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |

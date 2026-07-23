@@ -76,7 +76,7 @@ Included:
   repository root.
 - A `Project Control` tab that combines bounded master-plan fields with fixed
   read-only Git metadata for one trusted Jarvis-Core owner card.
-- A single-repo `project_control.v0.1D` payload inside the existing
+- A single-repo `project_control.v0.1E` payload inside the existing
   `GET /api/overview` response; no new action route or persistence.
 - Read-only skill registry validation.
 - Local-only safety banner.
@@ -221,6 +221,21 @@ runtime state.
 Product workstream selection remains separate from work-package approval,
 Prompt Queue metadata, task `/approve`, and Memory confirmation. See
 [`../../docs/project-control-owner-decision-workflow-v0.1-design.md`](../../docs/project-control-owner-decision-workflow-v0.1-design.md).
+
+Project Control v0.1E adds Recent Milestone Evidence as a complete read-only
+vertical slice. An immutable transport-neutral core parses one bounded,
+separator-based local Git log observation, validates full hashes and relative
+display paths, and serializes stable JSON without performing IO. The Console
+adapter runs one fixed allowlisted `git log -n 5` command and adds the evidence
+to the existing `GET /api/overview` payload.
+
+The owner card shows five recent commit subjects, short hashes, bounded changed
+file names, and whether the first item matches the live HEAD. A mismatch or a
+recent commit containing protected `jarvis.bat` raises Attention. Commit titles
+remain evidence summaries, not validation or approval. The section has no action
+button and adds no route, persistence, second repository, execution, stage,
+commit, push, PR, external call, or Memory Save authority. See
+[`../../docs/project-control-recent-milestone-evidence-v0.1.md`](../../docs/project-control-recent-milestone-evidence-v0.1.md).
 
 ### Research Council
 

@@ -1,6 +1,6 @@
 # Jarvis Console v0.1 Checkpoint
 
-Last updated: 2026-07-22
+Last updated: 2026-07-23
 
 ## Summary
 
@@ -17,8 +17,8 @@ It provides:
 - Open Skill Details sync from a suggestion into the Skills tab.
 - Skill Detail usage cards with commands, docs, safety notes, and non-goals.
 - Project Control dashboard with one master-plan-driven Jarvis-Core owner card
-  plus a read-only Owner Decision, repo, skill, report, checkpoint, docs, and
-  example metadata.
+  plus Recent Milestone Evidence, a read-only Owner Decision, repo, skill,
+  report, checkpoint, docs, and example metadata.
 - Recent item grouping for tasks, reports, checkpoints, docs, examples, configs, and related metadata.
 - Checkpoints / History view with recent commits, checkpoint docs, related reports/examples, and read-only history discovery rules.
 - Voice Inbox v0.1 for turning pasted voice-like transcripts or rough thoughts into task candidates and manual skill handoffs.
@@ -29,9 +29,9 @@ Jarvis Console does not execute skills automatically. It suggests, prepares, and
 
 ## Current HEAD / Status
 
-- Verified implementation HEAD: `e6ef70b15a9c3d7f15369b7baf1b5008ea0ab10f`
-- Commits: `jarvis-console: render owner decision read-only` and
-  `jarvis-console: align owner decision recommendation`
+- Verified implementation HEAD: `e25ba92`
+- Commits: `jarvis-console: show recent milestone evidence` and
+  `test: follow project control recommendation contract`
 - Expected working tree after the documentation commit: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
@@ -124,6 +124,8 @@ The Project Control tab shows:
 - Recent completion, approval need, locked capabilities, and six ordered
   Jarvis-Core internal workstream status cards
 - Live branch, HEAD, and working-tree status from fixed read-only Git commands
+- Five recent commit subjects, short hashes, bounded changed-file names, and an
+  explicit live-HEAD match result from Recent Milestone Evidence v0.1
 - Known protected/untracked paths, validation commands, forbidden Jarvis Console
   actions, and attention reasons
 - Current Repo Status
@@ -164,6 +166,20 @@ Project Control v0.1D implements and locally verifies the complete source,
 payload, UI, and validation contract for that single-repo view. It reuses
 `GET /api/overview`, exposes one Jarvis-Core card, and adds no action route,
 persistence, second repository, or dormant-registry connection.
+
+Project Control v0.1E adds an immutable Recent Milestone Evidence contract and
+one fixed allowlisted local Git log observation to the existing overview. The
+owner can see the five most recent commits and their bounded changed-file names
+without opening History or requesting a separate summary. The first record is
+bound to the observed HEAD; mismatch and protected `jarvis.bat` history raise
+Attention. The section is read-only and has no action button, new route,
+persistence, approval, execution, stage, commit, push, or PR authority.
+
+Deterministic tests cover immutability, stable serialization, malformed and
+oversized input, traversal, duplicate records, HEAD drift, truncation, and
+protected-path visibility. Full Jarvis and cross-app smoke suites passed. Actual
+browser QA showed five cards, `HEAD verified`, the implementation commit with
+five changed files, zero section action buttons, and zero warnings or errors.
 
 The first real-use validation read the latest milestone from a clean tracked
 working tree with only protected `jarvis.bat` untracked. The owner reason,
@@ -500,6 +516,7 @@ Allowed read-only git commands:
 - `git rev-parse HEAD`
 - `git status --short`
 - `git log --oneline -n 10`
+- bounded `git log -n 5 --name-only` with fixed record/field separators
 
 ## Baseline QA Results
 
@@ -507,7 +524,8 @@ Server and API checks passed:
 
 - `/` returned 200 OK.
 - `/api/status` returned OK.
-- `/api/overview` returned `project_control.v0.1D` plus grouped read-only
+- `/api/overview` returned `project_control.v0.1E` plus Recent Milestone Evidence
+  and grouped read-only
   overview metadata.
 - `/api/history` returned grouped read-only history metadata.
 - `/api/suggest-skill` returned the expected routing matrix.
