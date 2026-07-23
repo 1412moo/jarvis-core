@@ -1,4 +1,4 @@
-# Hermes Durable Review Local Lifecycle v0.1C/v0.1D/v0.1E
+# Hermes Durable Review Local Lifecycle v0.1C/v0.1D/v0.1E/v0.1F
 
 Status: implemented and locally verified on 2026-07-23.
 
@@ -8,6 +8,7 @@ Implementation commits:
 - v0.1D: `e1ea7e4c664153276eb55dfde3dbdfea0da05ab4`
 - v0.1E record core: `a02605750f7cbd889e6c6ac6e3ac98719b5c89e6`
 - v0.1E content verification: `701a77e58a8fa4af0c1bbfef80aee364eadd3143`
+- v0.1F evidence readiness visibility: `a0ff282149a8ccd2e50744b8e61a1a1c4f843f11`
 
 ## User value
 
@@ -18,6 +19,8 @@ When the saved Git metadata still matches, the owner can also regenerate the
 same copy-only Jarvis Review handoff after explicitly reconfirming its scope.
 New Saves also bind bounded target-content evidence, so the handoff is produced
 only when current target bytes still match the saved evidence.
+The Saved Reviews list shows whether that live content check is available or a
+legacy record is known to be blocked before the owner attempts a handoff.
 
 ## Flow
 
@@ -53,7 +56,8 @@ Frozen in-memory Review + confirmed scope
 
 ## Reopen and recovery contract
 
-- List returns bounded metadata only and omits result text and local paths.
+- List returns bounded metadata only and omits result text and local paths. It
+  includes the record version and a boolean content-evidence availability flag.
 - Reopen reads one exact canonical record and displays it read-only.
 - Recovery inspection returns one of `present_valid`, `absent`,
   `present_corrupt`, or `store_unavailable`.
@@ -102,6 +106,22 @@ Frozen in-memory Review + confirmed scope
   migrated or backfilled automatically.
 - Content equality is evidence, not approval. Review, commit, push, execution,
   external calls, and clipboard input remain absent.
+
+## Saved Review Evidence Readiness v0.1F contract
+
+- The existing list response derives `record_version` and
+  `content_evidence_available` from each validated immutable record. It does not
+  add or rewrite persisted data.
+- The browser labels content-bound records `content check ready`; this means a
+  live check can run, not that current Git or target bytes already match.
+- The browser labels legacy records `legacy - fresh handoff blocked` and
+  disables the known-impossible handoff controls when that list item is
+  selected. Read-only Reopen, recovery inspection, and exact Delete remain.
+- Manual or stale client input still reaches the authoritative server guard,
+  which fails closed. UI readiness never grants review, commit, push, or
+  execution authority.
+- No new route, migration, persistence, background work, external call, or
+  clipboard dependency is introduced.
 
 ## Delete contract
 
@@ -172,10 +192,12 @@ and the saved candidates dashboard remain disabled or absent.
   success, same-short-status byte-drift blocking for Save and handoff, restored
   content, directory materialization, and legacy v0.1A blocking. Hermes UI
   self-test and JavaScript syntax checks passed.
-- Interactive v0.1E click QA was not run because no controllable browser was
-  available in the desktop session. The temporary QA server and state were
-  removed; this remains the next real-work validation, not an implementation
-  blocker.
+- v0.1F deterministic tests confirmed bounded v0.1A/v0.1B listing metadata.
+  Interactive local browser QA confirmed the two labels, enabled live-check
+  controls for v0.1B, disabled them for v0.1A, and reported zero console
+  warnings or errors. The isolated QA server and state were removed.
+- A complete owner real-work Save/Reopen/content-drift browser exercise remains
+  the next operating validation; it is not an implementation blocker.
 - Browser QA used an external temporary state override, which was deleted after
   validation. The default Review store and repository-local state were not
   created.
@@ -183,8 +205,8 @@ and the saved candidates dashboard remain disabled or absent.
 ## Next candidate
 
 [Durable Review Content Evidence Binding v0.1E](hermes-durable-review-content-evidence-v0.1-design.md)
-is implemented end to end. The next action is owner-visible real-work feedback,
-not another evidence primitive. Repeat one Save/Reopen/content-drift browser
-exercise when an interactive browser is available, then choose the next product
-workstream without expanding execution, external-call, push/PR, or Memory Save
-authority.
+and v0.1F list readiness visibility are implemented end to end. The next action
+is owner-visible real-work feedback, not another evidence primitive. Repeat one
+Save/Reopen/content-drift browser exercise with an actual Review, then choose
+the next product workstream without expanding execution, external-call,
+push/PR, or Memory Save authority.

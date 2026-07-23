@@ -721,6 +721,24 @@ remain outside the product flow.
 
 See [Durable Review Content Evidence Binding v0.1E design](../../docs/hermes-durable-review-content-evidence-v0.1-design.md).
 
+## Saved Review Evidence Readiness Visibility v0.1F
+
+Status: implemented and locally verified in commit
+`a0ff282149a8ccd2e50744b8e61a1a1c4f843f11`.
+
+The existing bounded Saved Reviews listing now reports only the record version
+and whether a historical content-evidence binding is available. The browser
+labels v0.1B records `content check ready` and legacy v0.1A records
+`legacy - fresh handoff blocked` before the owner selects an action. Selecting
+a known legacy record disables the scope checkbox and handoff button while
+leaving read-only Reopen, recovery, and exact Delete available.
+
+`content check ready` does not claim that current bytes already match. It means
+the existing live Git and target-content verification can run after explicit
+scope reconfirmation. The server-side handoff check remains authoritative and
+fail closed. v0.1F adds no route, storage field, migration, execution, external
+call, or approval authority.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).

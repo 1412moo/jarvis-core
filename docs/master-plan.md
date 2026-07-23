@@ -29,6 +29,9 @@ branch·HEAD·exact `git status --short`가 일치할 때만 copy-only handoff�
 v0.1E는 기존 bounded evidence collector를 재사용하고 새 Review Record v0.1B에
 content digest binding을 저장한다. Save 확인과 Reopen은 evidence를 다시 수집하며,
 branch·HEAD·short status가 같아도 target bytes가 다르면 write/output을 차단한다.
+v0.1F는 저장 목록에서 v0.1B의 live content check 가능 여부와 legacy v0.1A의
+handoff 차단 상태를 행동 전에 보여준다. `content check ready`는 현재 일치 판정이
+아니며, 실제 handoff 시 서버가 Git과 target bytes를 다시 검증한다.
 legacy v0.1A는 읽기·복구·exact Delete만 유지하고 자동 migration하지 않는다. 화면은
 review·commit 또는 잠긴 기능의 권한을 만들지 않는다.
 
@@ -49,9 +52,10 @@ save도 readiness review의 `keep locked` 판정을 유지한다.
   preview하고 확인한 경우에만 repository 밖 local state에 저장된다.
 - 저장 전에 exact immutable Review Record와 retention/privacy disclosure를 확인한다.
 - 저장된 Review를 bounded list에서 선택해 read-only로 다시 열고 exact ID recovery를 조회한다.
+- 목록에서 v0.1B는 live content check 가능, legacy v0.1A는 handoff 차단임을 클릭 전에 구분한다.
 - exact result-free Delete preview와 `DELETE <review_id>` 입력 후 그 한 건만 삭제한다.
-- 저장된 Review가 현재 Git metadata와 일치하면 scope 재확인 후 같은 copy-only
-  handoff를 다시 만들고, metadata drift가 있으면 이유를 보여주고 출력을 차단한다.
+- 저장된 Review가 현재 Git metadata와 target content에 모두 일치하면 scope 재확인 후
+  같은 copy-only handoff를 다시 만들고, drift가 있으면 이유를 보여주고 출력을 차단한다.
 - 저장·재열기·삭제는 review/commit/push 권한이나 자동 실행을 복원하지 않는다.
 - 자동 실행, push/PR, 외부 호출, Memory save는 계속 잠긴다.
 
@@ -81,13 +85,13 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Durable Review Content Evidence Binding v0.1E end-to-end**
+- 최근 완료: **Saved Review Evidence Readiness Visibility v0.1F**
 - 현재 다음 작업: **owner-visible real Review Save/Reopen/content-drift 실사용 검증**
-- 현재 사용자 체감 결과: **저장 당시 파일 내용과 현재 파일 내용까지 같을 때만 handoff 재생성**
-- 다음 사용자 체감 milestone: **interactive browser에서 동일 흐름을 실제 Review 1건으로 반복 검증**
-- 최근 검증 결과: 동일 short status의 byte drift Save/handoff 차단, matching content
-  handoff 성공, legacy v0.1A 차단, 전체 local regression 통과
-- 현재 결정 필요: **없음** — interactive browser가 가능할 때 실사용 검증 후 다음 workstream 선택
+- 현재 사용자 체감 결과: **목록에서 content-check 가능/legacy 차단을 먼저 구분하고, 실제 일치할 때만 handoff 재생성**
+- 다음 사용자 체감 milestone: **동일 흐름을 실제 Review 1건으로 반복 검증**
+- 최근 검증 결과: v0.1B/legacy 목록 표시와 control enable/disable 실제 브라우저 확인,
+  동일 short status의 byte drift 차단, 전체 local regression 통과
+- 현재 결정 필요: **없음** — 실제 Review 반복 검증 후 다음 workstream 선택
 
 ### 언제부터 실제로 편해지는가
 
@@ -131,18 +135,18 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-23
-- Verified implementation HEAD: `701a77e58a8fa4af0c1bbfef80aee364eadd3143`
+- Verified implementation HEAD: `a0ff282149a8ccd2e50744b8e61a1a1c4f843f11`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Hermes Manager — guided review handoff
-- Current milestone: Durable Review Content Evidence Binding v0.1E end-to-end complete
-- Recommended next step: Run one owner-visible real Review Save/Reopen/content-drift exercise when an interactive browser is available
-- Next user-visible milestone: interactive browser에서 실제 Review 1건의 Save/Reopen/content-drift 흐름 반복 검증
-- Current reason: content freshness vertical slice가 완료됐으므로 새 primitive보다 실제 owner flow의 반복 사용 피드백이 더 중요하다
-- Owner outcome: exact saved Review의 metadata와 target bytes가 모두 같을 때만 content-verified handoff를 재생성하며 stale output은 남기지 않는다
-- Recent completed: v0.1B compatibility, bounded content binding, Save-time recollection, content-verified handoff, same-status byte-drift blocking
+- Current milestone: Saved Review Evidence Readiness Visibility v0.1F complete
+- Recommended next step: Run one owner-visible real Review Save/Reopen/content-drift exercise
+- Next user-visible milestone: 실제 Review 1건의 Save/Reopen/content-drift 흐름 반복 검증
+- Current reason: content freshness를 구현한 뒤, 사용자가 legacy 차단을 실패 후가 아니라 행동 전에 알 수 있어야 한다
+- Owner outcome: Saved Reviews 목록에서 live content check 가능/legacy 차단을 구분하고, exact saved Review의 metadata와 target bytes가 모두 같을 때만 handoff를 재생성한다
+- Recent completed: v0.1B/legacy readiness labels, known-legacy handoff control blocking, 실제 브라우저 검증
 - Approval state: none
-- Approval note: v0.1E 구현은 완료됐고 다음 코드 방향을 고르기 전 실사용 검증만 남았다
+- Approval note: v0.1F까지 구현됐고 다음 코드 방향을 고르기 전 실제 Review 반복 검증만 남았다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
 
@@ -199,12 +203,14 @@ flowchart LR
     T --> U["Content Evidence Binding<br/>v0.1E 설계 완료"]
     U --> V["Review Record v0.1B<br/>compatibility core"]
     V --> W["content-verified Save/Reopen<br/>v0.1E E2E 완료"]
+    W --> X["Saved Review readiness<br/>v0.1F 완료"]
+    X --> Y["실제 Review 반복 사용<br/>다음 운영 검증"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V done;
-    class W current;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X done;
+    class Y current;
 ```
 
 ### 구현된 기반
@@ -407,7 +413,7 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 최근 완료: Durable Review Content Evidence Binding v0.1E
+### 최근 완료: Durable Review Content Evidence Binding v0.1E / Readiness Visibility v0.1F
 
 v0.1D는 branch·HEAD·exact short-status revalidation까지만 수행했다. v0.1E는 기존
 bounded `LocalChangeEvidence` collector를 재사용하고 새 Review Record v0.1B에
@@ -424,6 +430,13 @@ short status의 byte drift를 실제 차단하고 matching content를 허용함�
 evidence는 approval이 아니며 자동 app call, prompt execution, commit/push도 추가하지
 않는다.
 
+v0.1F는 existing bounded list에 validated record의 version과 content-evidence
+availability만 추가한다. UI는 v0.1B를 `content check ready`, v0.1A를
+`legacy - fresh handoff blocked`로 표시하고 known legacy를 선택하면 handoff control을
+비활성화한다. ready 표시는 현재 content 일치를 주장하지 않으며, 실제 서버 검증이
+계속 authoritative하다. 실제 브라우저에서 두 상태와 zero warning/error를 확인했다.
+route, persisted record, migration, 권한은 추가하지 않았다.
+
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
 persistence는 하지 않는다. Memory save endpoint, UI Save/Confirm, Voice Inbox
@@ -433,7 +446,7 @@ save도 계속 잠겨 있다.
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
-| Hermes Manager | Durable Review Content Evidence Binding v0.1E end-to-end 완료 | prompt drafting, local Save/list/Reopen/recovery/Delete, content-verified handoff Copy | interactive browser에서 owner-visible 실사용 검증 후 다음 방향 선택 |
+| Hermes Manager | Saved Review Evidence Readiness Visibility v0.1F 완료 | prompt drafting, local Save/list/Reopen/recovery/Delete, content-ready/legacy 표시, content-verified handoff Copy | 실제 Review 1건으로 Save/Reopen/content-drift 반복 검증 후 다음 방향 선택 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
 | Jarvis Console | Project Control v0.1D와 Owner Decision v0.1A/v0.1B 완료, Hermes 선택 1회 사용 | owner project card, 내부 workstream 상태, fresh read-only work review, 동일 Decision 객체의 CLI/Console 표시 | 다음 product selection 전 현재 handoff 실사용 피드백 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
