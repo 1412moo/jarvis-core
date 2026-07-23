@@ -1,7 +1,7 @@
 # Manager Reporting Workflow v0.1
 
-Status: v0.1A transport-neutral Contract + Data implemented; v0.1B-v0.1D
-remain inside the approved milestone boundary.
+Status: v0.1A transport-neutral contracts and v0.1B pure existing-evidence
+adapters implemented; v0.1C-v0.1D remain inside the approved milestone boundary.
 
 ## User value
 
@@ -109,12 +109,24 @@ background execution, timeout, cleanup, and final PID/port confirmation.
 
 ## v0.1B-v0.1D plan
 
-1. v0.1B builds pure adapters from the bounded Master Plan snapshot, existing
-   SessionState, Prompt Queue evaluation, Review Record, and caller-supplied Git
-   evidence. It adds no I/O authority.
-2. v0.1C adds the Manager Report as a read-only consumer of the existing
+v0.1B is implemented in `manager_reporting_data.py`. The Worker adapter
+cross-checks normalized SessionState, Prompt Queue item/evaluation, project
+boundary, and optional Review Record before it derives a Worker Report. The
+Manager adapter cross-checks the bounded Master Plan snapshot, normalized
+Worker Reports, and caller-supplied live Git/recent-commit evidence. A branch,
+milestone, validation, protected-path, verified-HEAD, or package-commit mismatch
+produces only a blocked Manager Report with one Owner decision request.
+
+The adapter performs no Git or filesystem read, process start, persistence,
+network access, route, or UI action. `manager_report_projection` only adds
+`read_only=true` and `authority_boundary=derived_reporting_only` to a detached
+presentation mapping.
+
+Remaining plan:
+
+1. v0.1C adds the Manager Report as a read-only consumer of the existing
    `/api/overview` Project Control payload. It adds no route, action, or
    persistence.
-3. v0.1D validates one actual milestone from Worker Report through Manager
+2. v0.1D validates one actual milestone from Worker Report through Manager
    review to the Project Control Owner view. Browser QA is allowed only for
    that changed UI and must follow the bounded process policy.

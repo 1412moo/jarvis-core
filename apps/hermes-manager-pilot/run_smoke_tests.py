@@ -47,6 +47,7 @@ from hermes_manager_pilot.manager_reporting import (
     VERSION as MANAGER_REPORTING_VERSION,
     WORKER_CONTRACT_TYPE,
     ManagerReportingError,
+    manager_report_to_dict,
     normalize_manager_report,
     normalize_worker_report,
     parse_manager_report_json,
@@ -56,6 +57,12 @@ from hermes_manager_pilot.manager_reporting import (
     serialize_manager_report,
     serialize_worker_report,
     worker_report_to_dict,
+)
+from hermes_manager_pilot.manager_reporting_data import (
+    ManagerReportingDataError,
+    build_manager_report_from_sources,
+    build_worker_report_from_sources,
+    manager_report_projection,
 )
 from hermes_manager_pilot.pipeline import run_hermes_manager_pilot
 from hermes_manager_pilot.prompt_queue import (
@@ -167,6 +174,18 @@ def _assert_manager_reporting_error(fn: object, expected_text: str) -> None:
     else:
         raise AssertionError(
             f"expected ManagerReportingError containing: {expected_text}"
+        )
+
+
+def _assert_manager_reporting_data_error(fn: object, expected_text: str) -> None:
+    assert callable(fn)
+    try:
+        fn()
+    except ManagerReportingDataError as exc:
+        _assert(expected_text in str(exc), f"unexpected reporting data error: {exc}")
+    else:
+        raise AssertionError(
+            f"expected ManagerReportingDataError containing: {expected_text}"
         )
 
 
@@ -4900,6 +4919,301 @@ def _test_manager_reporting_json_is_bounded_and_core_is_side_effect_free() -> No
         )
 
 
+def _manager_reporting_source_fixture() -> tuple[
+    object,
+    PromptQueueState,
+    object,
+    ReviewRecord,
+]:
+    queue_payload = _sample_queue_payload("implementation")
+    projects = queue_payload["projects"]
+    items = queue_payload["items"]
+    assert isinstance(projects, list) and isinstance(projects[0], dict)
+    assert isinstance(items, list) and isinstance(items[0], dict)
+    projects[0]["expected_head"] = "a" * 40
+    items[0]["observed_head"] = "a" * 40
+    items[0]["scope_approval_digest"] = ""
+    provisional = normalize_prompt_queue(queue_payload)
+    scope_binding = build_scope_approval_binding(
+        provisional.projects[0],
+        provisional.items[0],
+    )
+    items[0]["scope_approval_digest"] = scope_binding.digest
+    queue = normalize_prompt_queue(queue_payload)
+    session = build_hermes_session(queue, "queue-001")
+    item = queue.items[0]
+    project = queue.projects[0]
+    candidate = normalize_review_record_candidate(
+        {
+            "project_id": "jarvis-core",
+            "git_snapshot": {
+                "branch": item.observed_branch,
+                "head": item.observed_head,
+                "status": list(item.observed_git_status),
+            },
+            "current_goal": item.current_goal,
+            "active_task": item.current_task,
+            "target_files": list(item.target_files),
+            "validation_commands": list(project.validation_commands),
+            "last_codex_prompt_summary": item.last_prompt_summary,
+            "result_summary": "The bounded implementation result was supplied.",
+            "privacy_reviewed": True,
+        }
+    )
+    record = create_review_record(
+        candidate,
+        id_generator=lambda: "review_aaaaaaaaaaaaaaaaaaaaaaaa",
+        clock=lambda: datetime(2026, 7, 23, 4, 5, 6, tzinfo=timezone.utc),
+    )
+    return session, queue, item, record
+
+
+def _build_source_worker_report(
+    *,
+    session: object | None = None,
+    queue: PromptQueueState | None = None,
+    record: ReviewRecord | None = None,
+) -> object:
+    default_session, default_queue, _, default_record = (
+        _manager_reporting_source_fixture()
+    )
+    return build_worker_report_from_sources(
+        work_package_id="manager-reporting-v0.1b",
+        milestone_id="manager-reporting-v0.1",
+        session=session if session is not None else default_session,  # type: ignore[arg-type]
+        queue=queue if queue is not None else default_queue,
+        item_id="queue-001",
+        validation_results=[
+            {
+                "name": "Targeted manager reporting adapter tests",
+                "status": "passed",
+                "evidence": "All adapter contract cases passed.",
+            }
+        ],
+        qa_strategy={
+            "level": "unit_deterministic",
+            "reason": "The adapter is pure and adds no route or UI.",
+            "server_started": False,
+            "cleanup_status": "not_required",
+        },
+        self_review_findings=[],
+        commit_hash="b" * 40,
+        commit_subject="hermes-manager: adapt reporting evidence",
+        final_git_status=["?? jarvis.bat"],
+        execution_safety={
+            "external_calls_made": False,
+            "push_or_pr_created": False,
+            "destructive_change_made": False,
+            "clipboard_output_only": True,
+        },
+        review_record=record if record is not None else default_record,
+    )
+
+
+def _manager_reporting_master_snapshot() -> dict[str, object]:
+    return {
+        "source": "docs/master-plan.md",
+        "current_goal": (
+            "Develop Jarvis-Core as a local-first, human-approved personal assistant."
+        ),
+        "manager_reporting_milestone_id": "manager-reporting-v0.1",
+        "manager_reporting_status": "in_progress",
+        "current_reason": (
+            "Hermes should review Worker evidence before the Owner sees a report."
+        ),
+        "owner_outcome": (
+            "The Owner receives milestone meaning, results, risks, and decisions."
+        ),
+        "current_milestone": "Manager Reporting Workflow v0.1B",
+        "recommended_next_step": "Connect the report to read-only Project Control.",
+        "approval_state": "none",
+        "approval_note": "No Owner decision is needed inside the approved boundary.",
+        "branch": "main",
+        "verified_implementation_head": "b" * 7,
+        "known_protected_untracked_file": "jarvis.bat",
+        "workstreams": [],
+    }
+
+
+def _manager_reporting_live_git() -> dict[str, object]:
+    return {
+        "branch": "main",
+        "head": "b" * 40,
+        "status": ["?? jarvis.bat"],
+        "recent_commit_hashes": ["b" * 40, "a" * 40],
+    }
+
+
+def _test_manager_reporting_data_adapts_existing_evidence_without_authority() -> None:
+    worker = _build_source_worker_report()
+    assert hasattr(worker, "work_package")
+    _assert(
+        worker.work_package.work_package_id == "manager-reporting-v0.1b",
+        "adapter changed the work package ID",
+    )
+    _assert(
+        worker.changed_files
+        == (
+            "apps/hermes-manager-pilot/run_smoke_tests.py",
+            "apps/hermes-manager-pilot/hermes_manager_pilot/prompt_queue.py",
+        ),
+        "adapter changed observed files",
+    )
+    _assert(worker.commit_hash == "b" * 40, "adapter lost the commit evidence")
+    _assert(
+        worker.safety_boundary.protected_paths_untouched,
+        "adapter marked protected state unsafe",
+    )
+
+    manager = build_manager_report_from_sources(
+        master_plan_snapshot=_manager_reporting_master_snapshot(),
+        worker_reports=[worker],
+        live_git_evidence=_manager_reporting_live_git(),
+        risks=[
+            {
+                "severity": "low",
+                "category": "ui_pending",
+                "summary": "Project Control does not consume the report yet.",
+            }
+        ],
+        next_recommendation={
+            "work_package_id": "manager-reporting-v0.1c",
+            "summary": "Render the derived report in existing Project Control.",
+            "user_value": "The Owner receives one read-only manager summary.",
+        },
+    )
+    _assert(manager.status == "in_progress", "manager status changed")
+    _assert(manager.owner_action == "none", "manager invented an Owner decision")
+    _assert(
+        manager.completed_work_packages[0].commit_hash == "b" * 40,
+        "manager lost Worker commit evidence",
+    )
+    projection = manager_report_projection(manager)
+    _assert(projection["read_only"] is True, "projection is not read-only")
+    _assert(
+        projection["authority_boundary"] == "derived_reporting_only",
+        "projection gained authority",
+    )
+    _assert(
+        "read_only" not in manager_report_to_dict(manager),
+        "projection mutated the core Manager Report",
+    )
+
+
+def _test_manager_reporting_data_fails_closed_on_worker_source_mismatch() -> None:
+    session, queue, _, record = _manager_reporting_source_fixture()
+    mismatched_session = replace(session, current_goal="Another goal.")
+    _assert_manager_reporting_data_error(
+        lambda: _build_source_worker_report(
+            session=mismatched_session,
+            queue=queue,
+            record=record,
+        ),
+        "Session goal differs from Prompt Queue",
+    )
+
+    mismatched_record = replace(record, active_task="Another task.")
+    _assert_manager_reporting_data_error(
+        lambda: _build_source_worker_report(
+            session=session,
+            queue=queue,
+            record=mismatched_record,
+        ),
+        "Review Record task differs from Prompt Queue",
+    )
+
+
+def _test_manager_reporting_data_blocks_master_plan_and_git_conflicts() -> None:
+    worker = _build_source_worker_report()
+    branch_drift = _manager_reporting_live_git()
+    branch_drift["branch"] = "feature"
+    blocked = build_manager_report_from_sources(
+        master_plan_snapshot=_manager_reporting_master_snapshot(),
+        worker_reports=[worker],
+        live_git_evidence=branch_drift,
+        risks=[],
+        next_recommendation={
+            "work_package_id": "manager-reporting-v0.1c",
+            "summary": "Do not render stale evidence.",
+            "user_value": "The Owner sees only matched evidence.",
+        },
+    )
+    _assert(blocked.status == "blocked", "branch drift did not block")
+    _assert(
+        blocked.owner_action == "decision_required",
+        "branch drift did not require an Owner decision",
+    )
+    _assert(blocked.next_recommendation is None, "blocked report kept a recommendation")
+
+    missing_commit = _manager_reporting_live_git()
+    missing_commit["recent_commit_hashes"] = ["a" * 40]
+    missing_commit["head"] = "a" * 40
+    missing = build_manager_report_from_sources(
+        master_plan_snapshot=_manager_reporting_master_snapshot(),
+        worker_reports=[worker],
+        live_git_evidence=missing_commit,
+        risks=[],
+        next_recommendation=None,
+    )
+    _assert(missing.status == "blocked", "missing package commit did not block")
+    _assert(
+        any("commit is absent" in reason for reason in missing.source_conflicts),
+        "missing commit reason is absent",
+    )
+
+
+def _test_manager_reporting_data_core_is_pure_and_bounded() -> None:
+    source = (
+        APP_ROOT / "hermes_manager_pilot" / "manager_reporting_data.py"
+    ).read_text(encoding="utf-8")
+    for forbidden in (
+        "subprocess",
+        "requests",
+        "urlopen",
+        "socket",
+        ".write_text(",
+        ".write_bytes(",
+        "open(",
+        "Path(",
+    ):
+        _assert(
+            forbidden not in source,
+            f"manager reporting adapter contains forbidden side effect: {forbidden}",
+        )
+
+    unknown_safety = {
+        "external_calls_made": False,
+        "push_or_pr_created": False,
+        "destructive_change_made": False,
+        "clipboard_output_only": True,
+        "execute": True,
+    }
+    session, queue, _, record = _manager_reporting_source_fixture()
+    _assert_manager_reporting_data_error(
+        lambda: build_worker_report_from_sources(
+            work_package_id="manager-reporting-v0.1b",
+            milestone_id="manager-reporting-v0.1",
+            session=session,
+            queue=queue,
+            item_id="queue-001",
+            validation_results=[],
+            qa_strategy={
+                "level": "unit_deterministic",
+                "reason": "Pure adapter.",
+                "server_started": False,
+                "cleanup_status": "not_required",
+            },
+            self_review_findings=[],
+            commit_hash="",
+            commit_subject="",
+            final_git_status=["?? jarvis.bat"],
+            execution_safety=unknown_safety,
+            review_record=record,
+        ),
+        "unknown fields",
+    )
+
+
 def _repo_file_set() -> set[str]:
     return {
         str(path.relative_to(REPO_ROOT))
@@ -4993,6 +5307,10 @@ def main() -> None:
         _test_worker_report_fails_closed_on_validation_and_safety_violations,
         _test_manager_report_fails_closed_on_conflict_or_bad_owner_action,
         _test_manager_reporting_json_is_bounded_and_core_is_side_effect_free,
+        _test_manager_reporting_data_adapts_existing_evidence_without_authority,
+        _test_manager_reporting_data_fails_closed_on_worker_source_mismatch,
+        _test_manager_reporting_data_blocks_master_plan_and_git_conflicts,
+        _test_manager_reporting_data_core_is_pure_and_bounded,
     )
     for test in tests:
         test()

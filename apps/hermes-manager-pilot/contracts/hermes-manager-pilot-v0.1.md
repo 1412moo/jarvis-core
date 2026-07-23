@@ -1216,3 +1216,34 @@ Save/Reopen, existing Session Save/Load change, delete action, cross-device or
 mobile access, encryption/key storage, external API/LLM call, clipboard input,
 Git read, background worker, review/commit approval, execution, stage, commit,
 push, or PR.
+
+## 22. Manager Reporting Workflow v0.1A/v0.1B Boundary
+
+Manager Reporting v0.1A defines separate immutable `WorkerReport` and
+`ManagerReport` contracts. The Worker contract preserves bounded work-package,
+changed-file, validation, QA-strategy, self-review, commit, final Git status,
+blocker, and safety-boundary evidence for Hermes. The Manager contract is a
+derived Owner view containing the overall goal, milestone meaning, user outcome,
+completed packages, current position, evidence summary, classified risks, one
+next recommendation, and an explicit Owner action.
+
+The Manager Report source of truth is fixed to `master_plan` and
+`derived_view=true`. Source conflicts and blocking risks require blocked status,
+remove the next recommendation, and require one Owner decision. A non-blocked
+Worker Report cannot contain failed validation, blockers, protected-path
+changes, external calls, push/PR, destructive changes, clipboard-as-state,
+unexpected repository changes, or failed process cleanup.
+
+v0.1B adds pure adapters over existing normalized SessionState, Prompt Queue
+evaluation, optional Review Record, bounded Master Plan snapshot, and
+caller-supplied live Git/recent-commit evidence. The Worker adapter requires
+goal, task, scope, branch, HEAD, validation commands, changed files, and optional
+Review snapshot identity to agree. The Manager adapter requires the Master Plan
+branch, milestone, protected path, verified implementation HEAD, Worker
+validation, and package commits to agree with supplied Git evidence.
+
+The adapters read no repository or file, start no process, persist no state,
+call no network, and grant no approval or execution authority. The read-only
+projection is detached from the core contract. v0.1A/v0.1B add no route, UI
+action, background worker, automatic Codex/ChatGPT call, external API/LLM,
+credential, Memory save, Voice auto-save, stage, commit, push, or PR behavior.

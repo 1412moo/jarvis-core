@@ -141,20 +141,23 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-23
-- Verified implementation HEAD: `e25ba92`
+- Verified implementation HEAD: `325fe50`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
-- Current workstream: Jarvis Console — owner milestone reporting
-- Current milestone: Project Control Recent Milestone Evidence v0.1 completed
-- Recommended next step: Validate the recent evidence card during normal milestone reporting, then select the next workstream
-- Next user-visible milestone: 반복 사용 피드백 또는 소유자가 선택한 다음 complete vertical slice
-- Current reason: 소유자가 최근 완료 작업을 알기 위해 별도 요약을 요청하지 않고 로컬 증거를 한눈에 확인해야 한다
-- Owner outcome: 최근 5개 커밋의 제목, 변경 파일과 현재 HEAD 일치를 Project Control에서 읽기 전용으로 확인한다
-- Recent completed: immutable evidence contract, bounded local Git collection, Project Control v0.1E UI, browser and cross-app validation
-- Approval state: required
-- Approval note: 반복 사용 피드백 또는 다음 product workstream 선택 전에는 새 구현을 시작하지 않는다
+- Current goal: Develop Jarvis-Core as a local-first, human-approved, skill-based personal AI assistant
+- Manager reporting milestone ID: `manager-reporting-v0.1`
+- Manager reporting status: `in_progress`
+- Current workstream: Hermes Manager — Manager Reporting Workflow
+- Current milestone: Manager Reporting v0.1B existing-evidence adapter completed
+- Recommended next step: Connect the derived Manager Report to the existing read-only Project Control overview
+- Next user-visible milestone: Owner가 milestone 의미, 사용자 결과, 위험과 실제 결정만 한 화면에서 확인
+- Current reason: Codex Worker의 상세 결과를 Hermes Manager가 검토해 Owner에게 중요한 milestone 정보만 보고해야 한다
+- Owner outcome: Owner는 파일별 구현 세부사항 대신 milestone 의미, 사용자 결과, 위험, 다음 추천과 필요한 결정만 확인한다
+- Recent completed: Manager Reporting v0.1A immutable contracts and v0.1B pure evidence adapters
+- Approval state: none
+- Approval note: Manager Reporting v0.1D까지 승인된 milestone boundary 안에서 진행하며 escalation gate가 없으면 Owner action은 none이다
 - Owner decision status: selection_required
-- Owner decision recommendation: jarvis-console
+- Owner decision recommendation: hermes-manager
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase

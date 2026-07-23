@@ -769,6 +769,25 @@ v0.1G changes no route, persistence model, token authority, Review content, or
 execution boundary. It adds no polling, background work, external call, automatic
 Save, stage, commit, push, or PR behavior.
 
+## Manager Reporting Workflow v0.1A/v0.1B
+
+Manager Reporting v0.1A separates the detailed immutable Worker Report from the
+Owner-facing immutable Manager Report. Worker reports contain work-package,
+changed-file, validation, QA strategy, self-review, commit, final Git status,
+blocker, and safety-boundary evidence. Manager reports derive milestone meaning,
+user outcome, completed packages, current position, risks, one next
+recommendation, and either `Owner action: none` or one required decision.
+
+v0.1B adds a pure adapter over existing SessionState, Prompt Queue evaluation,
+optional Review Record, bounded Master Plan fields, and caller-supplied Git
+evidence. Source disagreement fails closed. Worker claims do not become proof,
+and the adapter adds no repository read, route, persistence, process, network,
+clipboard input, approval, execution, stage, commit, push, or PR authority.
+
+The next approved package is the v0.1C read-only Project Control consumer using
+the existing `/api/overview` route. See
+[`../../docs/manager-reporting-workflow-v0.1.md`](../../docs/manager-reporting-workflow-v0.1.md).
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).
