@@ -78,6 +78,9 @@ Included:
   scope-approved raw queue and displays a freshly revalidated review session.
 - A write-free `POST /api/codex-review/preview` route fixed to the Jarvis-Core
   repository root.
+- An **Evaluate Idea** form in the Research Council tab that accepts Idea, Goal,
+  optional Context, and bounded Provided Evidence, then shows five deterministic
+  in-memory result sections.
 - A `Project Control` tab that combines bounded master-plan fields with fixed
   read-only Git metadata for one trusted Jarvis-Core owner card.
 - A single-repo `project_control.v0.1E` payload inside the existing
@@ -104,6 +107,20 @@ Out of scope for v0.1:
 - No Discord command.
 - No MCP or A2A integration.
 - No auth or user accounts.
+
+## Evaluate Idea
+
+Evaluate Idea is an explicitly triggered, write-free Research Council evaluation
+inside Jarvis Console. It requires Idea and Goal, accepts optional Context and up
+to eight Provided Evidence entries, and immediately shows Executive summary,
+Evidence gaps, Key critiques / risks, Minimum experiments, and Recommendation.
+
+The Console reuses the existing `ResearchCouncilInput`, deterministic
+`run_research_council` pipeline, and JSON serialization contract with LLM
+augmentation fixed to `off`. The response is bounded to the five visible
+sections and marks `write_free=true`, `local_only=true`, and
+`external_calls=false`. Evaluate Idea creates no report, Task, download, or
+saved state.
 
 ## Create Local Task
 
@@ -283,7 +300,9 @@ PowerShell:
 python -B apps\research-council\run_local_app.py
 ```
 
-Jarvis Console does not run Research Council automatically.
+Jarvis Console does not run Research Council automatically. Evaluate Idea runs
+the deterministic analysis only after the user explicitly selects
+**Evaluate Idea**, and it keeps the result in memory without saving a report.
 
 ### Daily AI Radar
 

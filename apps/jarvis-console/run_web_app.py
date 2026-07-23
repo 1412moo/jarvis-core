@@ -58,8 +58,17 @@ MASTER_PLAN_PATH = REPO_ROOT / "docs" / "master-plan.md"
 DISCORD_INTAKE_ROOT = REPO_ROOT / "orchestrator" / "discord-intake"
 if str(DISCORD_INTAKE_ROOT) not in sys.path:
     sys.path.insert(0, str(DISCORD_INTAKE_ROOT))
+RESEARCH_COUNCIL_ROOT = REPO_ROOT / "apps" / "research-council"
+if str(RESEARCH_COUNCIL_ROOT) not in sys.path:
+    sys.path.insert(0, str(RESEARCH_COUNCIL_ROOT))
 
 from task_file_writer import preview_task_file_write, write_task_file  # noqa: E402
+from research_council import (  # noqa: E402
+    LLMAugmentationMode,
+    ResearchCouncilInput,
+    result_to_json_dict,
+    run_research_council,
+)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8790
@@ -177,6 +186,16 @@ CREATE_LOCAL_TASK_REQUIRED_HEADERS = (
     "content-type",
     "content-length",
 )
+EVALUATE_IDEA_PRODUCT_NAME = "Evaluate Idea"
+EVALUATE_IDEA_ENDPOINT = "/api/evaluate-idea"
+EVALUATE_IDEA_MAX_IDEA_CHARS = 2_000
+EVALUATE_IDEA_MAX_GOAL_CHARS = 500
+EVALUATE_IDEA_MAX_CONTEXT_CHARS = 2_000
+EVALUATE_IDEA_MAX_EVIDENCE_ENTRIES = 8
+EVALUATE_IDEA_MAX_EVIDENCE_CHARS = 500
+EVALUATE_IDEA_MAX_GAPS = 8
+EVALUATE_IDEA_MAX_CRITIQUES = 8
+EVALUATE_IDEA_MAX_EXPERIMENTS = 5
 SECRET_LIKE_NAME_PARTS = ("secret", "token", "credential", "password", ".env")
 VOICE_TERM_CORRECTIONS = (
     ("데일리 AI 레이더", "Daily AI Radar"),
@@ -3966,6 +3985,232 @@ def confirm_create_local_task(
     )
 
 
+def _bounded_evaluate_idea_text(value: Any, max_chars: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)].rstrip() + "..."
+
+
+def _validate_evaluate_idea_payload(
+    payload: dict[str, Any],
+) -> tuple[int, ResearchCouncilInput | dict[str, Any]]:
+    allowed_fields = {"idea", "goal", "context", "provided_evidence"}
+    if not set(payload).issubset(allowed_fields):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_unknown_fields",
+        }
+    if "idea" not in payload or "goal" not in payload:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_requires_idea_and_goal",
+        }
+
+    idea = payload.get("idea")
+    goal = payload.get("goal")
+    context = payload.get("context", "")
+    evidence = payload.get("provided_evidence", [])
+    if not isinstance(idea, str) or not isinstance(goal, str):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_fields_must_be_strings",
+        }
+    if context is None:
+        context = ""
+    if not isinstance(context, str):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_fields_must_be_strings",
+        }
+    if not isinstance(evidence, list):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "provided_evidence_must_be_a_list",
+        }
+
+    canonical_idea = idea.strip()
+    canonical_goal = goal.strip()
+    canonical_context = context.strip()
+    if not canonical_idea or not canonical_goal:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_requires_idea_and_goal",
+        }
+    if len(canonical_idea) > EVALUATE_IDEA_MAX_IDEA_CHARS:
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "idea_too_long"}
+    if len(canonical_goal) > EVALUATE_IDEA_MAX_GOAL_CHARS:
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "goal_too_long"}
+    if len(canonical_context) > EVALUATE_IDEA_MAX_CONTEXT_CHARS:
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "context_too_long"}
+    if len(evidence) > EVALUATE_IDEA_MAX_EVIDENCE_ENTRIES:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "too_many_provided_evidence_entries",
+        }
+
+    canonical_evidence: list[str] = []
+    for entry in evidence:
+        if not isinstance(entry, str):
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "provided_evidence_entries_must_be_strings",
+            }
+        canonical_entry = entry.strip()
+        if not canonical_entry:
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "provided_evidence_entries_must_be_nonempty",
+            }
+        if len(canonical_entry) > EVALUATE_IDEA_MAX_EVIDENCE_CHARS:
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "provided_evidence_entry_too_long",
+            }
+        canonical_evidence.append(canonical_entry)
+
+    return HTTPStatus.OK, ResearchCouncilInput(
+        raw_idea=canonical_idea,
+        goal=canonical_goal,
+        context=canonical_context or None,
+        provided_evidence=tuple(canonical_evidence),
+    )
+
+
+def evaluate_idea(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """Run one bounded, deterministic Research Council projection in memory."""
+
+    validation_status, validated = _validate_evaluate_idea_payload(payload)
+    if validation_status != HTTPStatus.OK:
+        return validation_status, validated  # type: ignore[return-value]
+    assert isinstance(validated, ResearchCouncilInput)
+
+    try:
+        result = run_research_council(
+            validated,
+            llm_advisor_config=LLMAugmentationMode.OFF,
+        )
+        serialized = result_to_json_dict(result)
+    except (TypeError, ValueError):
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {
+            "ok": False,
+            "error": "evaluate_idea_failed",
+        }
+
+    missing_entries = [
+        entry
+        for entry in serialized.get("evidence_ledger", [])
+        if entry.get("evidence_type") == "missing"
+    ][:EVALUATE_IDEA_MAX_GAPS]
+    critiques = serialized.get("reviewer_critiques", [])[
+        :EVALUATE_IDEA_MAX_CRITIQUES
+    ]
+    experiments = serialized.get("experiments", [])[
+        :EVALUATE_IDEA_MAX_EXPERIMENTS
+    ]
+    recommendation = serialized.get("recommendation", {})
+    executive_summary = " ".join(
+        part
+        for part in (
+            _bounded_evaluate_idea_text(serialized.get("input_summary"), 700),
+            _bounded_evaluate_idea_text(recommendation.get("summary"), 700),
+        )
+        if part
+    )
+
+    return HTTPStatus.OK, {
+        "ok": True,
+        "product_name": EVALUATE_IDEA_PRODUCT_NAME,
+        "executive_summary": _bounded_evaluate_idea_text(executive_summary, 1_200),
+        "evidence_gaps": [
+            {
+                "summary": _bounded_evaluate_idea_text(entry.get("summary"), 600),
+                "missing_evidence": _bounded_evaluate_idea_text(
+                    entry.get("missing_evidence"),
+                    600,
+                ),
+                "required_evidence": _bounded_evaluate_idea_text(
+                    entry.get("required_evidence"),
+                    600,
+                ),
+                "validation_experiment": _bounded_evaluate_idea_text(
+                    entry.get("validation_experiment"),
+                    800,
+                ),
+                "confidence_impact": _bounded_evaluate_idea_text(
+                    entry.get("confidence_impact"),
+                    80,
+                ),
+            }
+            for entry in missing_entries
+        ],
+        "key_critiques_risks": [
+            {
+                "reviewer_role": _bounded_evaluate_idea_text(
+                    critique.get("reviewer_role"),
+                    120,
+                ),
+                "finding": _bounded_evaluate_idea_text(
+                    critique.get("finding"),
+                    800,
+                ),
+                "severity": _bounded_evaluate_idea_text(
+                    critique.get("severity"),
+                    20,
+                ),
+                "suggested_action": _bounded_evaluate_idea_text(
+                    critique.get("suggested_action"),
+                    800,
+                ),
+            }
+            for critique in critiques
+        ],
+        "minimum_experiments": [
+            {
+                "title": _bounded_evaluate_idea_text(experiment.get("title"), 200),
+                "method": _bounded_evaluate_idea_text(
+                    experiment.get("method"),
+                    1_200,
+                ),
+                "success_metric": _bounded_evaluate_idea_text(
+                    experiment.get("success_metric"),
+                    600,
+                ),
+                "minimum_sample": _bounded_evaluate_idea_text(
+                    experiment.get("minimum_sample"),
+                    300,
+                ),
+                "risk": _bounded_evaluate_idea_text(
+                    experiment.get("risk"),
+                    600,
+                ),
+            }
+            for experiment in experiments
+        ],
+        "recommendation": {
+            "decision": _bounded_evaluate_idea_text(
+                recommendation.get("decision"),
+                120,
+            ),
+            "summary": _bounded_evaluate_idea_text(
+                recommendation.get("summary"),
+                800,
+            ),
+            "rationale": _bounded_evaluate_idea_text(
+                recommendation.get("rationale"),
+                1_200,
+            ),
+            "next_step": _bounded_evaluate_idea_text(
+                recommendation.get("next_step"),
+                800,
+            ),
+        },
+        "write_free": True,
+        "local_only": True,
+        "external_calls": False,
+    }
+
+
 def prepare_voice_inbox_task(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Prepare a read-only task candidate from a pasted transcript."""
 
@@ -4169,6 +4414,8 @@ def handle_post_api(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
             return HTTPStatus.OK, {"ok": True, **suggestion}
         if path == "/api/voice-inbox/prepare":
             return prepare_voice_inbox_task(payload)
+        if path == EVALUATE_IDEA_ENDPOINT:
+            return evaluate_idea(payload)
         if path == CODEX_REVIEW_PREVIEW_ENDPOINT:
             return build_codex_review_preview(payload, REPO_ROOT)
         if path == MEMORY_PREVIEW_ENDPOINT:
@@ -4230,6 +4477,7 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
         if path not in {
             "/api/suggest-skill",
             "/api/voice-inbox/prepare",
+            EVALUATE_IDEA_ENDPOINT,
             CODEX_REVIEW_PREVIEW_ENDPOINT,
             MEMORY_PREVIEW_ENDPOINT,
         }:

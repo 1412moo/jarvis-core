@@ -22,6 +22,12 @@ const codexReviewItemId = document.getElementById("codexReviewItemId");
 const codexReviewQueueInput = document.getElementById("codexReviewQueueInput");
 const loadCodexReviewButton = document.getElementById("loadCodexReviewButton");
 const codexReviewResult = document.getElementById("codexReviewResult");
+const evaluateIdeaInput = document.getElementById("evaluateIdeaInput");
+const evaluateIdeaGoal = document.getElementById("evaluateIdeaGoal");
+const evaluateIdeaContext = document.getElementById("evaluateIdeaContext");
+const evaluateIdeaEvidence = document.getElementById("evaluateIdeaEvidence");
+const evaluateIdeaButton = document.getElementById("evaluateIdeaButton");
+const researchDetails = document.getElementById("researchDetails");
 
 let registrySkills = [];
 let selectedSkillId = "";
@@ -32,6 +38,7 @@ let lastVoiceCandidateData = null;
 let createLocalTaskToken = "";
 let createLocalTaskConfirmation = "";
 let createLocalTaskBusy = false;
+let evaluateIdeaBusy = false;
 const LOCAL_URL_PREFIX = "http:" + "//127.0.0.1";
 const LOCAL_URL_PROTOCOL = "http:";
 const LOCAL_URL_HOSTNAME = "127.0.0.1";
@@ -212,6 +219,176 @@ async function loadCodexReview() {
     renderCodexReview(data);
   } catch (error) {
     renderCodexReviewFailure({ detail: error.message });
+  }
+}
+
+function evaluateIdeaList(items, renderer, emptyText) {
+  if (!items || !items.length) {
+    return `<p class="muted">${escapeHtml(emptyText)}</p>`;
+  }
+  return `<div class="evaluate-idea-items">${items.map(renderer).join("")}</div>`;
+}
+
+function renderEvaluateIdea(data) {
+  if (!researchDetails) {
+    return;
+  }
+  const recommendation = data.recommendation || {};
+  const evidenceGaps = data.evidence_gaps || [];
+  const critiques = data.key_critiques_risks || [];
+  const experiments = data.minimum_experiments || [];
+  researchDetails.innerHTML = `
+    <article class="evaluate-idea-report">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Evaluate Idea</p>
+          <h3>Deterministic evaluation</h3>
+        </div>
+        <span class="overview-badge read-only">Write-free</span>
+      </div>
+      <section class="evaluate-idea-section">
+        <h4>Executive summary</h4>
+        <p>${escapeHtml(data.executive_summary || "No summary was produced.")}</p>
+      </section>
+      <section class="evaluate-idea-section">
+        <h4>Evidence gaps</h4>
+        ${evaluateIdeaList(
+          evidenceGaps,
+          (gap) => `
+            <article class="evaluate-idea-item">
+              <h5>${escapeHtml(gap.summary || "Missing evidence")}</h5>
+              <p><strong>Missing:</strong> ${escapeHtml(gap.missing_evidence || gap.required_evidence || "Not specified")}</p>
+              <p><strong>Required:</strong> ${escapeHtml(gap.required_evidence || "Not specified")}</p>
+              <p><strong>Validation:</strong> ${escapeHtml(gap.validation_experiment || "Not specified")}</p>
+              <p><strong>Confidence impact:</strong> ${escapeHtml(gap.confidence_impact || "Not specified")}</p>
+            </article>
+          `,
+          "No missing evidence entries were returned.",
+        )}
+      </section>
+      <section class="evaluate-idea-section">
+        <h4>Key critiques / risks</h4>
+        ${evaluateIdeaList(
+          critiques,
+          (critique) => {
+            const severity = ["low", "medium", "high"].includes(critique.severity)
+              ? critique.severity
+              : "unknown";
+            return `
+              <article class="evaluate-idea-item">
+                <div class="evaluate-idea-item-heading">
+                  <h5>${escapeHtml(critique.reviewer_role || "Reviewer")}</h5>
+                  <span class="severity-badge severity-${escapeHtml(severity)}">${escapeHtml(severity)}</span>
+                </div>
+                <p>${escapeHtml(critique.finding || "No finding supplied.")}</p>
+                <p><strong>Suggested action:</strong> ${escapeHtml(critique.suggested_action || "Not specified")}</p>
+              </article>
+            `;
+          },
+          "No critiques were returned.",
+        )}
+      </section>
+      <section class="evaluate-idea-section">
+        <h4>Minimum experiments</h4>
+        ${evaluateIdeaList(
+          experiments,
+          (experiment) => `
+            <article class="evaluate-idea-item">
+              <h5>${escapeHtml(experiment.title || "Minimum experiment")}</h5>
+              <p><strong>Method:</strong> ${escapeHtml(experiment.method || "Not specified")}</p>
+              <p><strong>Success:</strong> ${escapeHtml(experiment.success_metric || "Not specified")}</p>
+              <p><strong>Minimum:</strong> ${escapeHtml(experiment.minimum_sample || "Not specified")}</p>
+              <p><strong>Risk:</strong> ${escapeHtml(experiment.risk || "Not specified")}</p>
+            </article>
+          `,
+          "No experiments were returned.",
+        )}
+      </section>
+      <section class="evaluate-idea-section recommendation">
+        <div class="evaluate-idea-item-heading">
+          <h4>Recommendation</h4>
+          <span class="overview-badge">${escapeHtml(recommendation.decision || "Review")}</span>
+        </div>
+        <p><strong>Summary:</strong> ${escapeHtml(recommendation.summary || "No recommendation summary.")}</p>
+        <p><strong>Rationale:</strong> ${escapeHtml(recommendation.rationale || "Not specified")}</p>
+        <p><strong>Next step:</strong> ${escapeHtml(recommendation.next_step || "Review the evaluation.")}</p>
+      </section>
+      <dl class="evaluate-idea-safety">
+        <div><dt>Write-free</dt><dd>${data.write_free ? "Yes" : "No"}</dd></div>
+        <div><dt>Local-only</dt><dd>${data.local_only ? "Yes" : "No"}</dd></div>
+        <div><dt>External calls</dt><dd>${data.external_calls ? "Yes" : "No"}</dd></div>
+      </dl>
+    </article>
+  `;
+  statusText.textContent = "Evaluate Idea completed in memory. Nothing was saved.";
+  nextActionText.textContent = recommendation.next_step || "Review the minimum experiments.";
+}
+
+function renderEvaluateIdeaFailure(message) {
+  if (researchDetails) {
+    researchDetails.innerHTML = `
+      <article class="evaluate-idea-report blocked">
+        <h3>Evaluate Idea could not complete</h3>
+        <p class="safety-note">${escapeHtml(message)}</p>
+        <p class="muted">Nothing was saved and no external call was made.</p>
+      </article>
+    `;
+  }
+  statusText.textContent = `Evaluate Idea failed: ${message}`;
+}
+
+async function evaluateIdea() {
+  if (evaluateIdeaBusy) {
+    return;
+  }
+  const idea = evaluateIdeaInput?.value.trim() || "";
+  const goal = evaluateIdeaGoal?.value.trim() || "";
+  const context = evaluateIdeaContext?.value.trim() || "";
+  const providedEvidence = (evaluateIdeaEvidence?.value || "")
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (!idea || !goal) {
+    renderEvaluateIdeaFailure("Idea and Goal are required.");
+    return;
+  }
+  if (providedEvidence.length > 8) {
+    renderEvaluateIdeaFailure("Provided Evidence accepts up to 8 non-empty entries.");
+    return;
+  }
+
+  evaluateIdeaBusy = true;
+  if (evaluateIdeaButton) {
+    evaluateIdeaButton.disabled = true;
+    evaluateIdeaButton.textContent = "Evaluating Idea...";
+  }
+  if (researchDetails) {
+    researchDetails.innerHTML = "<p class=\"muted\">Running deterministic local evaluation. Nothing is being saved...</p>";
+  }
+  try {
+    const response = await fetch("/api/evaluate-idea", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        idea,
+        goal,
+        context,
+        provided_evidence: providedEvidence,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderEvaluateIdea(data);
+  } catch (error) {
+    renderEvaluateIdeaFailure(error.message || "Evaluation failed.");
+  } finally {
+    evaluateIdeaBusy = false;
+    if (evaluateIdeaButton) {
+      evaluateIdeaButton.disabled = false;
+      evaluateIdeaButton.textContent = "Evaluate Idea";
+    }
   }
 }
 
@@ -1998,7 +2175,6 @@ function renderRegistry(status) {
     renderSkillDetail(registrySkills[0]);
   }
   renderSkillDetails("hermes_manager", "hermes");
-  renderSkillDetails("research_council", "research");
   renderSkillDetails("daily_ai_radar", "radar");
   renderSkillDetails("memory_skills", "memory");
   renderSkillDetails("settings", "settings");
@@ -2167,6 +2343,10 @@ if (clearVoiceButton) {
 
 if (loadCodexReviewButton) {
   loadCodexReviewButton.addEventListener("click", loadCodexReview);
+}
+
+if (evaluateIdeaButton) {
+  evaluateIdeaButton.addEventListener("click", evaluateIdea);
 }
 
 if (refreshOverviewButton) {

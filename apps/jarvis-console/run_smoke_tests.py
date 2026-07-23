@@ -274,6 +274,252 @@ def _test_codex_review_vertical_slice() -> None:
     assert all(pattern not in adapter_source for pattern in forbidden_adapter_patterns)
 
 
+def _test_evaluate_idea_vertical_slice() -> None:
+    expected_keys = {
+        "ok",
+        "product_name",
+        "executive_summary",
+        "evidence_gaps",
+        "key_critiques_risks",
+        "minimum_experiments",
+        "recommendation",
+        "write_free",
+        "local_only",
+        "external_calls",
+    }
+    optional_payload = {
+        "idea": "  A local workflow assistant for small clinic intake teams.  ",
+        "goal": "  Decide whether a manual pilot is justified.  ",
+        "context": "  Teams currently duplicate intake notes across two tools.  ",
+        "provided_evidence": [
+            "  Three staff interviews identified duplicate entry.  ",
+            "A timed walkthrough took twelve minutes.",
+        ],
+    }
+    watched_roots = (
+        run_web_app.REPO_ROOT / "memory" / "tasks",
+        run_web_app.REPO_ROOT / "reports",
+    )
+
+    def artifact_snapshot() -> tuple[tuple[str, int, int], ...]:
+        snapshot: list[tuple[str, int, int]] = []
+        for root in watched_roots:
+            if not root.is_dir():
+                continue
+            for path in sorted(root.rglob("*")):
+                if not path.is_file():
+                    continue
+                stat_result = path.stat()
+                snapshot.append(
+                    (
+                        path.relative_to(run_web_app.REPO_ROOT).as_posix(),
+                        stat_result.st_size,
+                        stat_result.st_mtime_ns,
+                    )
+                )
+        return tuple(snapshot)
+
+    before_artifacts = artifact_snapshot()
+    first_status, first = run_web_app.evaluate_idea(optional_payload)
+    second_status, second = run_web_app.evaluate_idea(optional_payload)
+    assert first_status == HTTPStatus.OK
+    assert second_status == HTTPStatus.OK
+    assert first == second
+    assert set(first) == expected_keys
+    assert first["product_name"] == "Evaluate Idea"
+    assert first["write_free"] is True
+    assert first["local_only"] is True
+    assert first["external_calls"] is False
+    assert first["executive_summary"]
+    assert len(first["executive_summary"]) <= 1_200
+    assert 0 < len(first["evidence_gaps"]) <= run_web_app.EVALUATE_IDEA_MAX_GAPS
+    assert (
+        0
+        < len(first["key_critiques_risks"])
+        <= run_web_app.EVALUATE_IDEA_MAX_CRITIQUES
+    )
+    assert (
+        0
+        < len(first["minimum_experiments"])
+        <= run_web_app.EVALUATE_IDEA_MAX_EXPERIMENTS
+    )
+    assert set(first["recommendation"]) == {
+        "decision",
+        "summary",
+        "rationale",
+        "next_step",
+    }
+    assert all(first["recommendation"].values())
+    for gap in first["evidence_gaps"]:
+        assert set(gap) == {
+            "summary",
+            "missing_evidence",
+            "required_evidence",
+            "validation_experiment",
+            "confidence_impact",
+        }
+        assert len(gap["summary"]) <= 600
+        assert len(gap["missing_evidence"]) <= 600
+        assert len(gap["required_evidence"]) <= 600
+        assert len(gap["validation_experiment"]) <= 800
+        assert len(gap["confidence_impact"]) <= 80
+    for critique in first["key_critiques_risks"]:
+        assert set(critique) == {
+            "reviewer_role",
+            "finding",
+            "severity",
+            "suggested_action",
+        }
+        assert critique["severity"] in {"low", "medium", "high"}
+        assert len(critique["finding"]) <= 800
+        assert len(critique["suggested_action"]) <= 800
+    for experiment in first["minimum_experiments"]:
+        assert set(experiment) == {
+            "title",
+            "method",
+            "success_metric",
+            "minimum_sample",
+            "risk",
+        }
+        assert all(experiment.values())
+        assert len(experiment["title"]) <= 200
+        assert len(experiment["method"]) <= 1_200
+        assert len(experiment["success_metric"]) <= 600
+        assert len(experiment["minimum_sample"]) <= 300
+        assert len(experiment["risk"]) <= 600
+    assert "markdown_report" not in first
+    assert "optional_llm_augments" not in first
+    assert "file_path" not in first
+    assert "task_id" not in first
+    assert artifact_snapshot() == before_artifacts
+
+    minimal_status, minimal = run_web_app.evaluate_idea(
+        {
+            "idea": "A neighborhood tool-lending directory.",
+            "goal": "Decide the smallest demand test.",
+        }
+    )
+    assert minimal_status == HTTPStatus.OK
+    assert set(minimal) == expected_keys
+
+    known_input = run_web_app.ResearchCouncilInput(
+        raw_idea="CLI tool that groups repeated local test failures.",
+        goal="Decide whether to build a two-day prototype.",
+        context="Developer tool with no external data source.",
+        provided_evidence=("Two developers repeated the same diagnosis steps.",),
+    )
+    known_first = run_web_app.result_to_json_dict(
+        run_web_app.run_research_council(
+            known_input,
+            llm_advisor_config=run_web_app.LLMAugmentationMode.OFF,
+        )
+    )
+    known_second = run_web_app.result_to_json_dict(
+        run_web_app.run_research_council(
+            known_input,
+            llm_advisor_config=run_web_app.LLMAugmentationMode.OFF,
+        )
+    )
+    assert known_first == known_second
+    assert known_first["optional_llm_augments"]["mode"] == "off"
+
+    invalid_cases = (
+        ({}, "evaluate_idea_requires_idea_and_goal"),
+        ({"idea": "idea", "goal": " "}, "evaluate_idea_requires_idea_and_goal"),
+        ({"idea": 7, "goal": "goal"}, "evaluate_idea_fields_must_be_strings"),
+        (
+            {"idea": "idea", "goal": "goal", "context": []},
+            "evaluate_idea_fields_must_be_strings",
+        ),
+        (
+            {"idea": "idea", "goal": "goal", "provided_evidence": "evidence"},
+            "provided_evidence_must_be_a_list",
+        ),
+        (
+            {
+                "idea": "idea",
+                "goal": "goal",
+                "provided_evidence": ["entry"] * 9,
+            },
+            "too_many_provided_evidence_entries",
+        ),
+        (
+            {
+                "idea": "idea",
+                "goal": "goal",
+                "provided_evidence": [7],
+            },
+            "provided_evidence_entries_must_be_strings",
+        ),
+        (
+            {
+                "idea": "idea",
+                "goal": "goal",
+                "provided_evidence": [" "],
+            },
+            "provided_evidence_entries_must_be_nonempty",
+        ),
+        (
+            {"idea": "idea", "goal": "goal", "path": "reports/result.md"},
+            "evaluate_idea_unknown_fields",
+        ),
+        (
+            {"idea": "x" * 2_001, "goal": "goal"},
+            "idea_too_long",
+        ),
+    )
+    for invalid_payload, expected_error in invalid_cases:
+        invalid_status, invalid = run_web_app.evaluate_idea(invalid_payload)
+        assert invalid_status == HTTPStatus.BAD_REQUEST
+        assert invalid == {"ok": False, "error": expected_error}
+    assert artifact_snapshot() == before_artifacts
+
+    html = Path(run_web_app.WEB_ROOT, "index.html").read_text(encoding="utf-8")
+    app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
+    styles = Path(run_web_app.WEB_ROOT, "styles.css").read_text(encoding="utf-8")
+    assert html.count("Evaluate Idea") >= 3
+    for heading in (
+        "Executive summary",
+        "Evidence gaps",
+        "Key critiques / risks",
+        "Minimum experiments",
+        "Recommendation",
+    ):
+        assert heading in app_js
+    assert "/api/evaluate-idea" in app_js
+    assert "renderSkillDetails(\"research_council\", \"research\")" not in app_js
+    assert "evaluate-idea-layout" in styles
+
+    server = run_web_app.ThreadingHTTPServer(
+        (run_web_app.DEFAULT_HOST, 0),
+        run_web_app.JarvisConsoleHandler,
+    )
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    port = int(server.server_address[1])
+    try:
+        connection = HTTPConnection(run_web_app.DEFAULT_HOST, port, timeout=10)
+        body = json.dumps(optional_payload, ensure_ascii=False).encode("utf-8")
+        connection.request(
+            "POST",
+            run_web_app.EVALUATE_IDEA_ENDPOINT,
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        response_payload = json.loads(response.read().decode("utf-8"))
+        response_status = response.status
+        connection.close()
+        assert response_status == HTTPStatus.OK
+        assert response_payload == first
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=5)
+    assert not server_thread.is_alive()
+    assert artifact_snapshot() == before_artifacts
+
+
 def _test_create_local_task_vertical_slice() -> None:
     class FakeClock:
         def __init__(self) -> None:
@@ -1697,6 +1943,7 @@ def main() -> None:
     _test_owner_decision_contract()
     _test_project_control_registry_primitives()
     _test_recent_milestone_evidence_contract()
+    _test_evaluate_idea_vertical_slice()
     run_web_app.run_self_test()
     _test_codex_review_vertical_slice()
     _test_create_local_task_vertical_slice()

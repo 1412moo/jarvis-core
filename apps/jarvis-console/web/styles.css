@@ -1144,6 +1144,132 @@ code {
   margin: 5px 0 0;
 }
 
+.evaluate-idea-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.evaluate-idea-form,
+.evaluate-idea-report,
+.evaluate-idea-section,
+.evaluate-idea-item {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.evaluate-idea-form {
+  display: grid;
+  gap: 8px;
+  background: #fbfcfd;
+}
+
+.evaluate-idea-form label {
+  margin: 4px 0 0;
+}
+
+.evaluate-idea-form textarea {
+  min-height: 90px;
+}
+
+#evaluateIdeaInput,
+#evaluateIdeaEvidence {
+  min-height: 125px;
+}
+
+.evaluate-idea-result {
+  min-width: 0;
+}
+
+.evaluate-idea-report,
+.evaluate-idea-items {
+  display: grid;
+  gap: 12px;
+}
+
+.evaluate-idea-report {
+  border-color: #b7d7c0;
+  background: #f7fcf8;
+}
+
+.evaluate-idea-report.blocked {
+  border-color: #f1d08a;
+  background: #fffaf0;
+}
+
+.evaluate-idea-section h4,
+.evaluate-idea-section h5,
+.evaluate-idea-section p,
+.evaluate-idea-item h5,
+.evaluate-idea-item p {
+  margin: 0;
+}
+
+.evaluate-idea-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: #fbfcfd;
+}
+
+.evaluate-idea-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.severity-badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.severity-low {
+  background: #e6f4ec;
+  color: #256542;
+}
+
+.severity-medium {
+  background: #fff1cc;
+  color: #7a5100;
+}
+
+.severity-high,
+.severity-unknown {
+  background: #fde5e5;
+  color: #8a2c2c;
+}
+
+.evaluate-idea-safety {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.evaluate-idea-safety div {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.evaluate-idea-safety dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.evaluate-idea-safety dd {
+  margin: 4px 0 0;
+}
+
 .settings-list {
   display: grid;
   gap: 12px;
@@ -1227,7 +1353,12 @@ a {
   }
 
   .skill-browser,
-  .detail-grid {
+  .detail-grid,
+  .evaluate-idea-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .evaluate-idea-safety {
     grid-template-columns: 1fr;
   }
 }

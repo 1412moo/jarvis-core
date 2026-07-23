@@ -24,6 +24,8 @@ It provides:
 - Voice Inbox v0.1 for turning pasted voice-like transcripts or rough thoughts into task candidates, manual skill handoffs, and the explicit Create Local Task flow.
 - Codex Review for revalidating one copy-only Hermes envelope or an already
   scope-approved raw queue and displaying a bounded review-only session.
+- Evaluate Idea in the Research Council tab for one explicit deterministic,
+  write-free evaluation with five bounded result sections.
 
 Jarvis Console does not execute skills automatically. It suggests, prepares, and displays handoffs; it is a starting point and operations dashboard, not an autonomous runner.
 
@@ -135,6 +137,21 @@ rough thought
   closed.
 - Create Local Task does not approve, start, run, retry, change status, invoke
   git, save Memory / Skills data, or call an external service.
+
+### Evaluate Idea
+
+- Requires Idea and Goal; Context and up to eight Provided Evidence entries are
+  optional.
+- Reuses `ResearchCouncilInput`, `run_research_council`, and the existing JSON
+  serialization schema with LLM augmentation explicitly `off`.
+- Shows exactly Executive summary, Evidence gaps, Key critiques / risks,
+  Minimum experiments, and Recommendation.
+- Evidence gaps are missing ledger entries. Critiques show severity.
+  Experiments show method, success metric, minimum sample, and risk.
+- The response is deterministic and bounded, with `write_free=true`,
+  `local_only=true`, and `external_calls=false`.
+- No report or Task file, download, saved state, background work, external call,
+  or automatic execution is created.
 
 ### Skill Detail Usage Cards
 
@@ -323,7 +340,8 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
 ### Research Council
 
 - Routes idea, MVP, business viability, market validation, manufacturing simulation idea, and startup review requests.
-- Uses a local launcher flow.
+- Provides Evaluate Idea directly in the Research Council tab and retains the
+  existing manual launcher handoff guidance.
 - Suggested handoff tells the user to paste the idea, click `Idea 구체화`, then run the report.
 - Verified end-to-end from Jarvis Console suggestion to Research Council handoff, detail card, self-test, smoke, and golden cases.
 

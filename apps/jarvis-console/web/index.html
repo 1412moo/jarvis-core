@@ -126,11 +126,27 @@
       <section class="tab-panel hidden" id="tab-research">
         <div class="panel-heading">
           <p class="eyebrow">Research Council</p>
-          <h2 id="researchTitle">Idea validation and experiment planning</h2>
-          <p id="researchDescription">Use Research Council when an idea, MVP, or business assumption needs structured critique.</p>
+          <h2 id="researchTitle">Evaluate Idea</h2>
+          <p id="researchDescription">Run a deterministic local evaluation and review the evidence gaps, risks, minimum experiments, and recommendation immediately.</p>
         </div>
-        <div id="researchDetails"></div>
-        <p class="safety-note">Research Council reports are decision support. They are not final proof or implementation approval.</p>
+        <div class="evaluate-idea-layout">
+          <div class="evaluate-idea-form">
+            <label for="evaluateIdeaInput">Idea <span aria-hidden="true">*</span></label>
+            <textarea id="evaluateIdeaInput" rows="5" maxlength="2000" placeholder="Describe the idea, product, or assumption to evaluate."></textarea>
+            <label for="evaluateIdeaGoal">Goal <span aria-hidden="true">*</span></label>
+            <textarea id="evaluateIdeaGoal" rows="3" maxlength="500" placeholder="What decision or outcome should this evaluation support?"></textarea>
+            <label for="evaluateIdeaContext">Context <span class="muted">(optional)</span></label>
+            <textarea id="evaluateIdeaContext" rows="4" maxlength="2000" placeholder="Add the minimum context needed to understand the idea."></textarea>
+            <label for="evaluateIdeaEvidence">Provided Evidence <span class="muted">(optional, one entry per line, up to 8)</span></label>
+            <textarea id="evaluateIdeaEvidence" rows="5" placeholder="Five users reported the same workflow delay.&#10;A manual pilot reduced review time by 20%."></textarea>
+            <button id="evaluateIdeaButton" class="primary-button" type="button">Evaluate Idea</button>
+            <p class="safety-note">Deterministic and in-memory only. LLM augmentation is off; no report, task, or file is created.</p>
+          </div>
+          <div id="researchDetails" class="evaluate-idea-result" aria-live="polite">
+            <p class="muted">Enter an Idea and Goal, then choose Evaluate Idea.</p>
+          </div>
+        </div>
+        <p class="safety-note">Evaluate Idea is decision support, not final proof or implementation approval.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-radar">
