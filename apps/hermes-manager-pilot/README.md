@@ -683,6 +683,8 @@ The response explicitly reports `freshness_basis=branch_head_status_only` and
 contents are unchanged. Downstream read-only review must collect content
 evidence before any review decision. The regenerated item remains
 `review_passed=false`, `commit_approved=false`, and `push_allowed=false`.
+This describes the v0.1D behavior; new v0.1B Saves use the v0.1E verification
+flow below instead of returning a status-only freshness claim.
 
 The local guarded route neither writes the Review store nor calls another app.
 Clipboard remains output only: Hermes never reads it and the same artifact can
@@ -690,27 +692,32 @@ be regenerated from the stored Review while its Git metadata still matches.
 There is no prompt execution, auto-call, stage, commit, push, PR, external API,
 background worker, or Memory / Skills save change.
 
-## Durable Review Content Evidence Binding v0.1E Design
+## Durable Review Content Evidence Binding v0.1E
 
-Status: designed, not implemented.
+Status: implemented and deterministically verified in commits
+`a02605750f7cbd889e6c6ac6e3ac98719b5c89e6` and
+`701a77e58a8fa4af0c1bbfef80aee364eadd3143`.
 
-v0.1E defines how a future Review Record v0.1B will bind the existing bounded
-`LocalChangeEvidence` digest to the exact Save preview. Save confirmation will
-recollect the evidence before writing, and Reopen-to-Handoff will recollect it
+v0.1E makes each new Review Record v0.1B bind the existing bounded
+`LocalChangeEvidence` digest to the exact Save preview. Save confirmation
+recollects the evidence before writing, and Reopen-to-Handoff recollects it
 again before generating output. This closes the case where branch, HEAD, and
 short-status text match while the bytes of an already-modified target changed.
 
-Existing v0.1A records will remain listable, reopenable read-only, recoverable,
-and exactly deletable. They will not be auto-migrated or allowed to claim
+Existing v0.1A records remain listable, reopenable read-only, recoverable,
+and exactly deletable. They are not auto-migrated or allowed to claim
 content verification, because current bytes cannot prove historical bytes.
-The design stores only bounded binding metadata and a digest, not raw file
+The implementation stores only bounded binding metadata and a digest, not raw file
 content. Directory scopes materialize exact Git-visible changed descendants;
 `jarvis.bat` remains protected, untracked, unopened, and outside evidence.
 
-The next proposed package, v0.1E-A, is transport-neutral record/compatibility
-core and deterministic tests only. Git collection, lifecycle, route, browser,
-new persistence behavior, execution, external calls, stage, commit, push, and
-PR are outside that package.
+Matching metadata and content now produce
+`freshness_basis=branch_head_status_content_sha256` with
+`content_evidence_verified=true`. Same-status byte drift blocks Save or handoff
+without output. Deterministic end-to-end tests cover the complete flow. The
+existing route remains local and guarded, the browser remains read-only during
+handoff generation, and execution, external calls, stage, commit, push, and PR
+remain outside the product flow.
 
 See [Durable Review Content Evidence Binding v0.1E design](../../docs/hermes-durable-review-content-evidence-v0.1-design.md).
 

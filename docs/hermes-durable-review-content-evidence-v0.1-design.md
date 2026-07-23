@@ -1,17 +1,22 @@
 # Hermes Durable Review Content Evidence Binding v0.1E Design
 
-Status: design complete on 2026-07-23; not implemented.
+Status: implemented and deterministically verified on 2026-07-23.
+
+Implementation commits:
+
+- Record v0.1B core: `a02605750f7cbd889e6c6ac6e3ac98719b5c89e6`
+- Save/Reopen content verification: `701a77e58a8fa4af0c1bbfef80aee364eadd3143`
 
 ## User value
 
-After this design is implemented, the owner will be able to regenerate a saved
+The owner can regenerate a saved
 Review handoff only when the current target-file content is the same content
 that was explicitly previewed for the durable Save. A matching branch, HEAD,
 and short-status string alone will no longer be described as content freshness.
 
 ## Decision summary
 
-v0.1E will extend the Durable Review Record with a small, versioned content
+v0.1E extends the Durable Review Record with a small, versioned content
 evidence binding. It will reuse the existing bounded `LocalChangeEvidence`
 collector and its stable SHA-256 digest instead of introducing another file
 hasher. The binding stores no raw file content.
@@ -27,8 +32,24 @@ versioned record contract and compatibility parser
   -> minimal browser wording and end-to-end QA
 ```
 
-No step grants review, commit, push, prompt-execution, or external-call
+No implemented step grants review, commit, push, prompt-execution, or external-call
 authority.
+
+## Implementation result
+
+- Save preview now creates an immutable v0.1B record with bounded content
+  evidence and remains write-free.
+- Save confirmation recollects metadata and content; same-status byte drift
+  consumes the attempt and writes no record.
+- Reopen-to-Handoff recollects the evidence and emits an artifact only when the
+  saved and current bindings match exactly.
+- A successful response reports
+  `freshness_basis=branch_head_status_content_sha256` and
+  `content_evidence_verified=true`.
+- Legacy v0.1A records remain readable, recoverable, and exactly deletable but
+  cannot produce a content-verified handoff and are never auto-migrated.
+- Deterministic end-to-end tests exercise matching content, byte drift with the
+  same short status, restored content, directory scope, and legacy blocking.
 
 ## Current gap
 
@@ -95,8 +116,8 @@ Compatibility is read-only and migration-free:
   exact ID, and manually deletable through the existing exact confirmation.
 - The parser dispatches by the duplicate-safe top-level `version` value and
   applies the strict field set for that version. It does not relax v0.1A.
-- New successful Saves create v0.1B records only after the complete v0.1E
-  implementation is approved and verified.
+- New successful Saves create v0.1B records through the verified v0.1E
+  lifecycle.
 - A v0.1A record is not eligible for a content-verified handoff. The operation
   fails closed with a bounded reason such as
   `review_content_evidence_unavailable_for_record_version` and no artifact.
@@ -155,7 +176,7 @@ requires a new explicit Review Save; it is not silently rebased to a new path.
 
 ## Save binding flow
 
-The future Save flow will be:
+The implemented Save flow is:
 
 1. Require the existing explicit scope, privacy, and retention confirmations.
 2. Read trusted branch, HEAD, and complete short status.
@@ -173,7 +194,7 @@ only the already human-confirmed Save confirmation may write one new record.
 
 ## Reopen-to-Handoff verification flow
 
-The future read-only handoff flow will be:
+The implemented read-only handoff flow is:
 
 1. Require one exact saved Review ID and a fresh explicit scope confirmation.
 2. Read and strictly parse that exact record.
@@ -221,6 +242,8 @@ Clipboard remains output only and is never evidence or workflow state.
 
 ### v0.1E-A — versioned record core and compatibility
 
+Status: completed.
+
 - Immutable binding and Review Record v0.1B contracts
 - Duplicate-safe v0.1A/v0.1B parser dispatch
 - Stable serialization and digest behavior
@@ -229,6 +252,8 @@ Clipboard remains output only and is never evidence or workflow state.
 
 ### v0.1E-B — bounded evidence adapter and Save binding
 
+Status: completed.
+
 - Directory-scope materialization into exact evidence files
 - Existing collector reuse
 - Write-free preview binding and confirmation-time recollection
@@ -236,6 +261,8 @@ Clipboard remains output only and is never evidence or workflow state.
 - No new route or UI surface
 
 ### v0.1E-C — read-only handoff integration
+
+Status: completed.
 
 - Exact-record content verification before artifact generation
 - Legacy-record blocking reason and no-output behavior
@@ -265,8 +292,9 @@ the next one.
 
 ## Final recommendation
 
-Proceed next with v0.1E-A only: the transport-neutral binding, Review Record
-v0.1B discriminated union, strict v0.1A compatibility parser, stable
-serialization, and deterministic tests. Do not connect the collector,
-lifecycle, route, or browser until that contract is reviewed and locally
-verified.
+Treat v0.1E as one completed user vertical slice rather than opening another
+evidence primitive. The next useful action is one owner-visible real Review
+Save/Reopen/content-drift exercise when an interactive browser is available,
+then use that feedback to choose the next product workstream. Do not broaden
+execution, external-call, push/PR, or Memory Save authority as part of that
+validation.

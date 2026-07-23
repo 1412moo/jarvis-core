@@ -1,4 +1,4 @@
-# Hermes Durable Review Local Lifecycle v0.1C/v0.1D
+# Hermes Durable Review Local Lifecycle v0.1C/v0.1D/v0.1E
 
 Status: implemented and locally verified on 2026-07-23.
 
@@ -6,6 +6,8 @@ Implementation commits:
 
 - v0.1C: `2d564e544a32c2ce839364fd3ba8cf76e9f70abb`
 - v0.1D: `e1ea7e4c664153276eb55dfde3dbdfea0da05ab4`
+- v0.1E record core: `a02605750f7cbd889e6c6ac6e3ac98719b5c89e6`
+- v0.1E content verification: `701a77e58a8fa4af0c1bbfef80aee364eadd3143`
 
 ## User value
 
@@ -14,6 +16,8 @@ reopen it read-only, determine whether an uncertain Save produced that exact
 ID, and delete exactly one confirmed record without relying on clipboard state.
 When the saved Git metadata still matches, the owner can also regenerate the
 same copy-only Jarvis Review handoff after explicitly reconfirming its scope.
+New Saves also bind bounded target-content evidence, so the handoff is produced
+only when current target bytes still match the saved evidence.
 
 ## Flow
 
@@ -72,10 +76,32 @@ Frozen in-memory Review + confirmed scope
   `git_metadata_matches=true`, and `content_evidence_verified=false`.
   Already-modified file content can change without changing short-status text,
   so downstream read-only review must collect content evidence.
+- Those fields describe the historical v0.1D path. New v0.1B Saves use the
+  v0.1E contract below and cannot produce a status-only fresh handoff.
 - A blocked browser attempt clears the generated-output area. Hermes never
   reads or trusts the current clipboard value.
 - The route is read-only with respect to the Review store and repository. It
   does not restore review, commit, push, or execution approval.
+
+## Content Evidence Binding v0.1E contract
+
+- Save preview creates a v0.1B record and binds the existing bounded local
+  change-evidence digest without storing raw target content or an absolute
+  evidence path.
+- Directory scopes materialize only exact Git-visible changed descendants;
+  sibling prefixes and protected `jarvis.bat` are excluded.
+- Save confirmation recollects branch, HEAD, complete short status, and target
+  evidence. A same-status byte change blocks the write and consumes the token.
+- Reopen-to-Handoff performs the same recollection before output. A successful
+  response reports `freshness_basis=branch_head_status_content_sha256` and
+  `content_evidence_verified=true`.
+- Evidence failure or mismatch returns bounded reasons, no artifact, and the
+  browser clears any previous generated output.
+- Legacy v0.1A records remain listable, read-only reopenable, recoverable, and
+  exactly deletable. They cannot produce a content-verified handoff and are not
+  migrated or backfilled automatically.
+- Content equality is evidence, not approval. Review, commit, push, execution,
+  external calls, and clipboard input remain absent.
 
 ## Delete contract
 
@@ -142,6 +168,14 @@ and the saved candidates dashboard remain disabled or absent.
 - v0.1D browser QA confirmed the explicit scope gate, successful copy-only
   handoff regeneration, directory scope, status-drift blocking with no output,
   output-only clipboard behavior, and zero browser warnings or errors.
+- v0.1E deterministic HTTP/lifecycle end-to-end tests confirmed matching-byte
+  success, same-short-status byte-drift blocking for Save and handoff, restored
+  content, directory materialization, and legacy v0.1A blocking. Hermes UI
+  self-test and JavaScript syntax checks passed.
+- Interactive v0.1E click QA was not run because no controllable browser was
+  available in the desktop session. The temporary QA server and state were
+  removed; this remains the next real-work validation, not an implementation
+  blocker.
 - Browser QA used an external temporary state override, which was deleted after
   validation. The default Review store and repository-local state were not
   created.
@@ -149,8 +183,8 @@ and the saved candidates dashboard remain disabled or absent.
 ## Next candidate
 
 [Durable Review Content Evidence Binding v0.1E](hermes-durable-review-content-evidence-v0.1-design.md)
-is now designed but not implemented. The next bounded package is v0.1E-A:
-introduce the transport-neutral evidence binding, Review Record v0.1B strict
-contract, v0.1A/v0.1B compatibility parsing, stable serialization, and
-deterministic tests. It must not connect Git collection, lifecycle, routes, UI,
-or new persistence behavior and requires separate implementation approval.
+is implemented end to end. The next action is owner-visible real-work feedback,
+not another evidence primitive. Repeat one Save/Reopen/content-drift browser
+exercise when an interactive browser is available, then choose the next product
+workstream without expanding execution, external-call, push/PR, or Memory Save
+authority.
