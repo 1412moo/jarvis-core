@@ -1038,6 +1038,68 @@ async function loadMemorySkills() {
   }
 }
 
+function renderRecentMilestoneEvidence(evidence) {
+  if (
+    !evidence ||
+    evidence.contract_type !== "jarvis_recent_milestone_evidence" ||
+    evidence.version !== "0.1" ||
+    evidence.read_only !== true ||
+    !Array.isArray(evidence.commits) ||
+    evidence.commits.length < 1 ||
+    evidence.commits.length > 5
+  ) {
+    return `
+      <section class="workstream-status-section safety-card">
+        <div class="overview-section-heading">
+          <h4>최근 로컬 작업 증거</h4>
+          <span class="overview-badge approval-needed">Unavailable</span>
+        </div>
+        <p class="safety-note">Bounded recent milestone evidence is unavailable. No repository action was created.</p>
+      </section>
+    `;
+  }
+
+  const commits = Array.isArray(evidence.commits) ? evidence.commits : [];
+  const headStatus = evidence.head_matches_latest_commit ? "HEAD verified" : "HEAD changed";
+  return `
+    <section class="workstream-status-section recent-milestone-section">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Bounded local Git evidence</p>
+          <h4>최근 로컬 작업 증거</h4>
+        </div>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Read-only</span>
+          <span class="overview-badge ${evidence.head_matches_latest_commit ? "read-only" : "approval-needed"}">${escapeHtml(headStatus)}</span>
+        </div>
+      </div>
+      <p class="muted">현재 HEAD에서 역순으로 수집한 최근 ${escapeHtml(String(commits.length))}개 로컬 커밋입니다. 커밋 제목은 검증 결과가 아니라 작업 증거 요약입니다.</p>
+      <div class="recent-milestone-grid">
+        ${commits
+          .map(
+            (commit) => `
+              <article class="recent-milestone-card">
+                <div class="overview-section-heading">
+                  <h5>${escapeHtml(commit.subject || "(no subject)")}</h5>
+                  <div class="overview-badges">
+                    ${commit.is_head ? '<span class="overview-badge read-only">HEAD</span>' : ""}
+                    <span class="overview-badge read-only">${escapeHtml(commit.short_hash || "unknown")}</span>
+                  </div>
+                </div>
+                <p><strong>변경 파일 ${escapeHtml(String(commit.changed_file_count ?? 0))}개</strong></p>
+                ${listMarkup(commit.changed_files, "No changed files recorded for this commit.")}
+                ${commit.files_truncated ? '<p class="muted">Only the first bounded file names are shown.</p>' : ""}
+                ${commit.protected_path_present ? '<p class="safety-note">Protected path jarvis.bat appears in this commit.</p>' : ""}
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+      <p class="approval-note">이 증거는 읽기 전용 보고 자료입니다. 완료 판정, 승인, 실행, stage, commit, push 또는 PR 권한을 만들지 않습니다.</p>
+    </section>
+  `;
+}
+
 function renderProjectControl(projectControl) {
   const cards = projectControl?.project_cards || [];
   if (!cards.length) {
@@ -1057,7 +1119,7 @@ function renderProjectControl(projectControl) {
         </div>
         <div class="overview-badges">
           <span class="overview-badge read-only">Read-only</span>
-          <span class="overview-badge">${escapeHtml(projectControl.version || "project_control.v0.1D")}</span>
+          <span class="overview-badge">${escapeHtml(projectControl.version || "project_control.v0.1E")}</span>
         </div>
       </div>
       <p class="muted">Current direction comes from ${escapeHtml(projectControl.source || "the tracked master plan")}; live repository facts are refreshed locally.</p>
@@ -1067,6 +1129,7 @@ function renderProjectControl(projectControl) {
             (card) => {
               const ownerSummary = card.owner_summary || {};
               const ownerDecision = card.owner_decision || null;
+              const recentMilestoneEvidence = card.recent_milestone_evidence || null;
               const workstreams = Array.isArray(card.workstreams) ? card.workstreams : [];
               const lockedCapabilities = card.locked_capabilities || card.forbidden_actions || [];
               const approvalState = ownerSummary.approval_state || "blocked";
@@ -1109,6 +1172,8 @@ function renderProjectControl(projectControl) {
                     </dl>
                     <p class="approval-note"><strong>승인 필요 여부:</strong> ${escapeHtml(ownerSummary.approval_note || "Not supplied")}</p>
                   </section>
+
+                  ${renderRecentMilestoneEvidence(recentMilestoneEvidence)}
 
                   ${renderOwnerDecision(ownerDecision)}
 

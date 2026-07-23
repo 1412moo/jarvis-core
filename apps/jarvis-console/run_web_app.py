@@ -31,6 +31,11 @@ import webbrowser
 from codex_review import CODEX_REVIEW_PREVIEW_ENDPOINT, build_codex_review_preview
 from owner_decision import owner_decision_to_dict
 from owner_decision_data import OwnerDecisionDataError, build_owner_decision_from_snapshot
+from recent_milestone_evidence import (
+    RecentMilestoneEvidenceError,
+    parse_recent_milestone_log,
+    recent_milestone_evidence_to_dict,
+)
 
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -84,6 +89,13 @@ PROJECT_CONTROL_FORBIDDEN_ACTIONS = (
 PROJECT_CONTROL_VALIDATION_COMMANDS = (
     "git status --short",
     "git diff --check",
+)
+RECENT_MILESTONE_GIT_COMMAND = (
+    "log",
+    "-n",
+    "5",
+    "--format=%x1e%H%x1f%s",
+    "--name-only",
 )
 OVERVIEW_ALLOWED_EXTENSIONS = {".json", ".md", ".txt"}
 OVERVIEW_SOURCE_AREAS = {
@@ -174,6 +186,7 @@ READ_ONLY_GIT_COMMANDS = {
     ("rev-parse", "HEAD"),
     ("status", "--short"),
     ("log", "--oneline", "-n", "10"),
+    RECENT_MILESTONE_GIT_COMMAND,
 }
 OVERVIEW_DIRECTORIES = (
     {"key": "memory_tasks", "label": "Memory Tasks", "path": "memory/tasks"},
@@ -772,7 +785,11 @@ def validate_read_only_git_args(args: tuple[str, ...]) -> None:
         raise RegistryError("git command is not allowed for read-only overview")
 
 
-def run_read_only_git(args: tuple[str, ...]) -> str:
+def run_read_only_git(
+    args: tuple[str, ...],
+    *,
+    preserve_record_separators: bool = False,
+) -> str:
     """Run a fixed read-only git command without shell expansion."""
 
     validate_read_only_git_args(args)
@@ -789,7 +806,9 @@ def run_read_only_git(args: tuple[str, ...]) -> str:
             timeout=5,
         )
     except (CalledProcessError, TimeoutExpired, OSError) as exc:
-        raise RegistryError(f"read-only git status failed: {exc}") from exc
+        raise RegistryError(f"read-only Git command failed: {exc}") from exc
+    if preserve_record_separators:
+        return result.stdout.rstrip("\r\n")
     return result.stdout.strip()
 
 
@@ -812,6 +831,21 @@ def repo_status_payload() -> dict[str, Any]:
             "git status --short",
         ],
     }
+
+
+def recent_milestone_evidence_payload(repo: Mapping[str, Any]) -> dict[str, object]:
+    """Collect bounded local Git metadata for the read-only owner dashboard."""
+
+    observed_head = str(repo.get("head") or "")
+    raw_log = run_read_only_git(
+        RECENT_MILESTONE_GIT_COMMAND,
+        preserve_record_separators=True,
+    )
+    try:
+        evidence = parse_recent_milestone_log(raw_log, observed_head)
+    except RecentMilestoneEvidenceError as exc:
+        raise RegistryError(f"recent milestone evidence is unavailable: {exc}") from exc
+    return recent_milestone_evidence_to_dict(evidence)
 
 
 def _parse_master_plan_table_row(line: str) -> list[str]:
@@ -958,6 +992,7 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
         owner_decision = build_owner_decision_from_snapshot(snapshot)
     except OwnerDecisionDataError as exc:
         raise RegistryError(f"owner decision is unavailable: {exc}") from exc
+    recent_milestone_evidence = recent_milestone_evidence_payload(repo)
     expected_branch = snapshot["branch"]
     live_branch = str(repo.get("branch") or "unknown")
     attention_reasons = []
@@ -965,8 +1000,20 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
         attention_reasons.append(
             f"Live branch {live_branch!r} does not match master-plan branch {expected_branch!r}."
         )
+    if not recent_milestone_evidence["head_matches_latest_commit"]:
+        attention_reasons.append(
+            "Recent milestone evidence does not match the live repository HEAD."
+        )
+    if any(
+        bool(commit.get("protected_path_present"))
+        for commit in recent_milestone_evidence["commits"]
+        if isinstance(commit, Mapping)
+    ):
+        attention_reasons.append(
+            "A recent commit includes protected path jarvis.bat."
+        )
     return {
-        "version": "project_control.v0.1D",
+        "version": "project_control.v0.1E",
         "mode": "read-only",
         "source": snapshot["source"],
         "project_cards": [
@@ -1000,6 +1047,7 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
                 },
                 "workstreams": snapshot["workstreams"],
                 "owner_decision": owner_decision_to_dict(owner_decision),
+                "recent_milestone_evidence": recent_milestone_evidence,
                 "locked_capabilities": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
                 "validation_commands": list(PROJECT_CONTROL_VALIDATION_COMMANDS),
                 "forbidden_actions": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
@@ -5591,7 +5639,7 @@ def run_self_test() -> None:
     assert overview_code == HTTPStatus.OK
     assert overview["ok"] is True
     assert overview["mode"] == "read-only"
-    assert overview["project_control"]["version"] == "project_control.v0.1D"
+    assert overview["project_control"]["version"] == "project_control.v0.1E"
     assert overview["project_control"]["mode"] == "read-only"
     assert overview["project_control"]["source"] == "docs/master-plan.md"
     assert len(overview["project_control"]["project_cards"]) == 1
@@ -5624,6 +5672,15 @@ def run_self_test() -> None:
     assert owner_decision_payload["selected_workstream_id"] is None
     assert owner_decision_payload["read_only"] is True
     assert len(owner_decision_payload["candidates"]) == 6
+    recent_evidence = owner_card["recent_milestone_evidence"]
+    assert recent_evidence["contract_type"] == "jarvis_recent_milestone_evidence"
+    assert recent_evidence["version"] == "0.1"
+    assert recent_evidence["observed_head"] == overview["repo"]["head"]
+    assert recent_evidence["head_matches_latest_commit"] is True
+    assert 1 <= len(recent_evidence["commits"]) <= 5
+    assert recent_evidence["commits"][0]["is_head"] is True
+    assert all(commit["read_only"] is True for commit in recent_evidence["commits"])
+    assert all(not commit["protected_path_present"] for commit in recent_evidence["commits"])
     assert owner_card["locked_capabilities"] == owner_card["forbidden_actions"]
     assert overview["repo"]["head_short"]
     assert "jarvis.bat" in overview["repo"]["protected_path_note"]
@@ -6467,6 +6524,11 @@ def run_self_test() -> None:
     assert "/api/skill" in app_js
     assert "/api/overview" in app_js
     assert "renderProjectControl" in app_js
+    assert "renderRecentMilestoneEvidence" in app_js
+    assert "jarvis_recent_milestone_evidence" in app_js
+    assert "최근 로컬 작업 증거" in app_js
+    assert "HEAD verified" in app_js
+    assert "작업 증거 요약" in app_js
     assert "현재 만드는 이유" in app_js
     assert "이 단계가 끝나면 사용자가 얻는 것" in app_js
     assert "Jarvis-Core 내부 workstream" in app_js

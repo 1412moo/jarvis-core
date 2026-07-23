@@ -41,6 +41,19 @@ from project_control_registry import (
     evaluate_project_registry,
     normalize_project_registry,
 )
+from recent_milestone_evidence import (
+    CONTRACT_TYPE as RECENT_MILESTONE_CONTRACT_TYPE,
+    MAX_COMMITS as RECENT_MILESTONE_MAX_COMMITS,
+    MAX_FILES_PER_COMMIT,
+    MAX_RAW_LOG_BYTES,
+    RECORD_SEPARATOR,
+    FIELD_SEPARATOR,
+    VERSION as RECENT_MILESTONE_VERSION,
+    RecentMilestoneEvidenceError,
+    parse_recent_milestone_log,
+    recent_milestone_evidence_to_dict,
+    serialize_recent_milestone_evidence,
+)
 from hermes_manager_pilot.approval_binding import build_scope_approval_binding
 from hermes_manager_pilot.prompt_queue import (
     REQUIRED_FORBIDDEN_ACTIONS,
@@ -944,10 +957,113 @@ def _test_project_control_registry_primitives() -> None:
     assert all(pattern not in source for pattern in forbidden_source_patterns)
 
 
+def _test_recent_milestone_evidence_contract() -> None:
+    head = "a" * 40
+    older = "b" * 40
+    raw_log = (
+        f"{RECORD_SEPARATOR}{head}{FIELD_SEPARATOR}jarvis-console: show recent milestone evidence\n\n"
+        "apps/jarvis-console/recent_milestone_evidence.py\n"
+        "apps/jarvis-console/run_web_app.py\n"
+        f"{RECORD_SEPARATOR}{older}{FIELD_SEPARATOR}docs: record prior milestone\n\n"
+        "docs/master-plan.md\n"
+    )
+    first = parse_recent_milestone_log(raw_log, head)
+    second = parse_recent_milestone_log(raw_log, head)
+    assert first == second
+    assert first.contract_type == RECENT_MILESTONE_CONTRACT_TYPE
+    assert first.version == RECENT_MILESTONE_VERSION
+    assert first.repository_id == "jarvis-core"
+    assert first.observed_head == head
+    assert first.head_matches_latest_commit is True
+    assert first.read_only is True
+    assert len(first.commits) == 2
+    assert first.commits[0].is_head is True
+    assert first.commits[0].short_hash == "aaaaaaa"
+    assert first.commits[0].changed_file_count == 2
+    assert first.commits[0].changed_files == (
+        "apps/jarvis-console/recent_milestone_evidence.py",
+        "apps/jarvis-console/run_web_app.py",
+    )
+    assert first.commits[1].is_head is False
+    assert first.commits[1].protected_path_present is False
+    assert serialize_recent_milestone_evidence(first) == serialize_recent_milestone_evidence(second)
+    serialized = recent_milestone_evidence_to_dict(first)
+    assert serialized["head_matches_latest_commit"] is True
+    assert serialized["commits"][0]["read_only"] is True
+
+    try:
+        first.observed_head = older  # type: ignore[misc]
+    except FrozenInstanceError:
+        pass
+    else:
+        raise AssertionError("recent milestone evidence must be immutable")
+
+    stale = parse_recent_milestone_log(raw_log, "c" * 40)
+    assert stale.head_matches_latest_commit is False
+    assert all(commit.is_head is False for commit in stale.commits)
+
+    many_paths = "\n".join(f"docs/file-{index:02d}.md" for index in range(MAX_FILES_PER_COMMIT + 1))
+    truncated = parse_recent_milestone_log(
+        f"{RECORD_SEPARATOR}{head}{FIELD_SEPARATOR}bounded files\n\n{many_paths}\n",
+        head,
+    )
+    assert truncated.commits[0].changed_file_count == MAX_FILES_PER_COMMIT + 1
+    assert len(truncated.commits[0].changed_files) == MAX_FILES_PER_COMMIT
+    assert truncated.commits[0].files_truncated is True
+
+    protected = parse_recent_milestone_log(
+        f"{RECORD_SEPARATOR}{head}{FIELD_SEPARATOR}protected fixture\n\njarvis.bat\n",
+        head,
+    )
+    assert protected.commits[0].protected_path_present is True
+
+    rejected = (
+        (f"unexpected{RECORD_SEPARATOR}{head}{FIELD_SEPARATOR}subject\n", "before its first record"),
+        (f"{RECORD_SEPARATOR}not-a-hash{FIELD_SEPARATOR}subject\n", "full lowercase Git hash"),
+        (f"{RECORD_SEPARATOR}{head} subject\n", "header is malformed"),
+        (f"{RECORD_SEPARATOR}{head}{FIELD_SEPARATOR}subject\n\n../outside.txt\n", "repository-relative"),
+        (
+            f"{RECORD_SEPARATOR}{head}{FIELD_SEPARATOR}one\n"
+            f"{RECORD_SEPARATOR}{head}{FIELD_SEPARATOR}two\n",
+            "duplicate commit",
+        ),
+        (
+            "".join(
+                f"{RECORD_SEPARATOR}{index + 1:040x}{FIELD_SEPARATOR}commit {index}\n"
+                for index in range(RECENT_MILESTONE_MAX_COMMITS + 1)
+            ),
+            "too many commits",
+        ),
+        ("x" * (MAX_RAW_LOG_BYTES + 1), "exceeds the display limit"),
+    )
+    for payload, message in rejected:
+        try:
+            parse_recent_milestone_log(payload, head)
+        except RecentMilestoneEvidenceError as exc:
+            assert message in str(exc), str(exc)
+        else:
+            raise AssertionError(f"recent milestone evidence should fail closed: {message}")
+
+    source = Path(__file__).with_name("recent_milestone_evidence.py").read_text(encoding="utf-8")
+    forbidden_source_patterns = (
+        "subprocess",
+        "requests",
+        "urlopen",
+        ".read_text(",
+        ".read_bytes(",
+        ".write_text(",
+        ".write_bytes(",
+        "open(",
+        "http.server",
+    )
+    assert all(pattern not in source for pattern in forbidden_source_patterns)
+
+
 def main() -> None:
     _test_project_control_snapshot()
     _test_owner_decision_contract()
     _test_project_control_registry_primitives()
+    _test_recent_milestone_evidence_contract()
     run_web_app.run_self_test()
     _test_codex_review_vertical_slice()
 
@@ -991,7 +1107,7 @@ def main() -> None:
     assert overview["ok"] is True
     assert overview["mode"] == "read-only"
     project_control = overview["project_control"]
-    assert project_control["version"] == "project_control.v0.1D"
+    assert project_control["version"] == "project_control.v0.1E"
     assert project_control["mode"] == "read-only"
     assert project_control["source"] == "docs/master-plan.md"
     assert len(project_control["project_cards"]) == 1
@@ -1033,6 +1149,15 @@ def main() -> None:
     assert normalize_owner_decision(owner_decision_payload) == build_owner_decision_from_snapshot(
         run_web_app.read_master_plan_snapshot()
     )
+    recent_evidence = project_card["recent_milestone_evidence"]
+    assert recent_evidence["contract_type"] == RECENT_MILESTONE_CONTRACT_TYPE
+    assert recent_evidence["version"] == RECENT_MILESTONE_VERSION
+    assert recent_evidence["observed_head"] == overview["repo"]["head"]
+    assert recent_evidence["head_matches_latest_commit"] is True
+    assert 1 <= len(recent_evidence["commits"]) <= 5
+    assert recent_evidence["commits"][0]["is_head"] is True
+    assert all(commit["read_only"] is True for commit in recent_evidence["commits"])
+    assert all(not commit["protected_path_present"] for commit in recent_evidence["commits"])
     assert project_card["locked_capabilities"] == project_card["forbidden_actions"]
     assert any("commit" in item.lower() for item in project_card["forbidden_actions"])
     assert overview["repo"]["head_short"]
@@ -2020,6 +2145,11 @@ def main() -> None:
     assert "Fresh Codex work package loaded for read-only review." in app_js
     assert "No approval or action was created." in app_js
     assert "renderOverview" in app_js
+    assert "renderRecentMilestoneEvidence" in app_js
+    assert "jarvis_recent_milestone_evidence" in app_js
+    assert "최근 로컬 작업 증거" in app_js
+    assert "HEAD verified" in app_js
+    assert "작업 증거 요약" in app_js
     assert "renderHistory" in app_js
     assert "renderMemorySkills" in app_js
     assert "loadMemorySkills" in app_js
