@@ -175,14 +175,13 @@ TASK_VIEW_REQUIRED_FIELDS = (
 TASK_VIEW_OPTIONAL_TEXT_FIELDS = frozenset(
     {
         "source_command",
-        "execution_candidate",
         "execution_request",
         "execution_result",
         "execution_summary",
     }
 )
 TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS = frozenset(
-    {"executed", "success", "dry_run"}
+    {"execution_candidate", "executed", "success", "dry_run"}
 )
 TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS = frozenset({"execution_updated_at"})
 TASK_VIEW_ALLOWED_FIELDS = frozenset(TASK_VIEW_REQUIRED_FIELDS).union(
@@ -1753,7 +1752,7 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
         raw_value = metadata[field_name]
         if len(raw_value) > 500:
             return invalid_task_view("field_too_long", field_name)
-        if normalize_task_view_text(raw_value, allow_empty=True) is None:
+        if normalize_task_view_text(raw_value, allow_empty=False) is None:
             return invalid_task_view("invalid_text", field_name)
 
     for field_name in TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS:
@@ -1763,6 +1762,7 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
     for field_name in TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS:
         if (
             field_name in metadata
+            and metadata[field_name]
             and parse_task_view_timestamp(metadata[field_name]) is None
         ):
             return invalid_task_view("invalid_updated_at", field_name)

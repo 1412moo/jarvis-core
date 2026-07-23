@@ -2124,13 +2124,13 @@ def _test_actionable_task_view_vertical_slice() -> None:
 
     optional_lines = (
         "- source_command: `/task`",
-        "- execution_candidate: `candidate`",
+        "- execution_candidate: `true`",
         "- execution_request: `request`",
         "- execution_result: `result`",
         "- executed: `true`",
         "- success: `false`",
         "- dry_run: `true`",
-        "- execution_updated_at: `2026-07-23 10:30 UTC`",
+        "- execution_updated_at: ``",
         "- execution_summary: `summary`",
     )
     optional_view = run_web_app.parse_task_view_text(
@@ -2147,6 +2147,15 @@ def _test_actionable_task_view_vertical_slice() -> None:
     )
     assert optional_view == plain_view
     assert optional_view is not None
+    optional_false_view = run_web_app.parse_task_view_text(
+        "task-0301-optional.md",
+        task_markdown(
+            "task-0301-optional",
+            "TODO",
+            optional_lines=("- execution_candidate: `false`",),
+        ),
+    )
+    assert optional_false_view == plain_view
     assert all(
         field_name not in optional_view
         for field_name in (
@@ -2235,6 +2244,18 @@ def _test_actionable_task_view_vertical_slice() -> None:
             valid_base + "- executed: `True`\n",
             "invalid_text",
             "executed",
+        ),
+        (
+            "task-0401-invalid.md",
+            valid_base + "- execution_candidate: `candidate`\n",
+            "invalid_text",
+            "execution_candidate",
+        ),
+        (
+            "task-0401-invalid.md",
+            valid_base + "- source_command: ``\n",
+            "invalid_text",
+            "source_command",
         ),
         (
             "task-0401-invalid.md",
