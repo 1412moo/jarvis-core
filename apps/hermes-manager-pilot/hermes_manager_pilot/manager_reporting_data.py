@@ -69,6 +69,16 @@ _RISK_FIELDS = frozenset({"severity", "category", "summary"})
 _RECOMMENDATION_FIELDS = frozenset(
     {"work_package_id", "summary", "user_value"}
 )
+_CHECKPOINT_PACKAGE_FIELDS = frozenset(
+    {"work_package_id", "result_type", "summary", "commit_hash"}
+)
+_CHECKPOINT_SNAPSHOT_FIELDS = _MASTER_PLAN_FIELDS | frozenset(
+    {
+        "manager_reporting_work_packages",
+        "manager_reporting_next_package_id",
+        "next_user_visible_milestone",
+    }
+)
 
 
 class ManagerReportingDataError(ValueError):
@@ -328,6 +338,172 @@ def manager_report_projection(report: ManagerReport) -> dict[str, Any]:
     return projected
 
 
+def build_manager_report_from_checkpoint_sources(
+    *,
+    master_plan_snapshot: Mapping[str, Any],
+    live_git_evidence: Mapping[str, Any],
+    risks: Sequence[Mapping[str, Any]],
+) -> ManagerReport:
+    """Build the restart-safe Owner view from tracked checkpoint and Git facts.
+
+    Historical Worker Reports are intentionally not persisted. The Master Plan
+    records only bounded completed-package summaries and commit hashes after
+    Manager review; current Git evidence verifies those references.
+    """
+
+    snapshot = _required_fields(
+        master_plan_snapshot,
+        _CHECKPOINT_SNAPSHOT_FIELDS,
+        "master_plan_snapshot",
+    )
+    live_git = _exact_mapping(
+        live_git_evidence,
+        _LIVE_GIT_FIELDS,
+        "live_git_evidence",
+    )
+    packages_value = snapshot["manager_reporting_work_packages"]
+    if not isinstance(packages_value, (list, tuple)):
+        raise ManagerReportingDataError(
+            "master_plan_snapshot.manager_reporting_work_packages must be a list"
+        )
+    if not packages_value or len(packages_value) > 16:
+        raise ManagerReportingDataError(
+            "master_plan_snapshot.manager_reporting_work_packages is empty or too large"
+        )
+    packages: list[dict[str, Any]] = []
+    package_ids: set[str] = set()
+    for index, value in enumerate(packages_value):
+        item = dict(
+            _exact_mapping(
+                value,
+                _CHECKPOINT_PACKAGE_FIELDS,
+                f"manager_reporting_work_packages[{index}]",
+            )
+        )
+        package_id = _required_text(
+            item,
+            "work_package_id",
+            f"manager_reporting_work_packages[{index}]",
+        )
+        if package_id in package_ids:
+            raise ManagerReportingDataError(
+                "manager_reporting_work_packages contains duplicate package IDs"
+            )
+        package_ids.add(package_id)
+        packages.append(item)
+
+    normalized_risks = [
+        dict(_exact_mapping(risk, _RISK_FIELDS, f"risks[{index}]"))
+        for index, risk in enumerate(risks)
+    ]
+    conflicts = list(_checkpoint_source_conflicts(snapshot, packages, live_git))
+    blocking_risk = any(risk["severity"] == "blocking" for risk in normalized_risks)
+    if blocking_risk:
+        conflicts.append("Project Control has a blocking Manager Report risk")
+
+    if conflicts:
+        status = "blocked"
+        owner_action = "decision_required"
+        owner_decision = (
+            "Resolve reporting source conflicts before continuing: "
+            + "; ".join(_deduplicate(conflicts))
+        )
+        recommendation = None
+    else:
+        status = _required_text(snapshot, "manager_reporting_status", "master plan")
+        approval_state = _required_text(snapshot, "approval_state", "master plan")
+        if approval_state == "none":
+            owner_action = "none"
+            owner_decision = ""
+        elif approval_state in {"required", "blocked"}:
+            owner_action = "decision_required"
+            owner_decision = _required_text(
+                snapshot,
+                "approval_note",
+                "master plan",
+            )
+        else:
+            raise ManagerReportingDataError(
+                "master plan approval_state is not supported"
+            )
+        if status == "milestone_complete":
+            recommendation = None
+        else:
+            recommendation = {
+                "work_package_id": _required_text(
+                    snapshot,
+                    "manager_reporting_next_package_id",
+                    "master plan",
+                ),
+                "summary": _required_text(
+                    snapshot,
+                    "recommended_next_step",
+                    "master plan",
+                ),
+                "user_value": _required_text(
+                    snapshot,
+                    "next_user_visible_milestone",
+                    "master plan",
+                ),
+            }
+
+    live_head = _required_hash(live_git, "head", "live Git")
+    payload = {
+        "contract_type": MANAGER_CONTRACT_TYPE,
+        "version": VERSION,
+        "source_of_truth": SOURCE_OF_TRUTH,
+        "derived_view": True,
+        "current_goal": _required_text(snapshot, "current_goal", "master plan"),
+        "milestone_id": _required_text(
+            snapshot,
+            "manager_reporting_milestone_id",
+            "master plan",
+        ),
+        "milestone_meaning": _required_text(
+            snapshot,
+            "current_reason",
+            "master plan",
+        ),
+        "user_outcome": _required_text(
+            snapshot,
+            "owner_outcome",
+            "master plan",
+        ),
+        "completed_work_packages": packages,
+        "current_position": _required_text(
+            snapshot,
+            "current_milestone",
+            "master plan",
+        ),
+        "status": status,
+        "evidence_summary": [
+            (
+                f"{len(packages)} reviewed package checkpoint(s) were read from "
+                "the tracked Master Plan."
+            ),
+            (
+                "Every checkpoint commit was found in bounded recent local Git "
+                "evidence."
+            ),
+            (
+                f"Live branch and protected status were checked at HEAD "
+                f"{live_head[:7]}."
+            ),
+        ],
+        "source_conflicts": list(_deduplicate(conflicts)),
+        "risks": normalized_risks,
+        "next_recommendation": recommendation,
+        "owner_action": owner_action,
+        "owner_decision": owner_decision,
+    }
+    try:
+        return normalize_manager_report(payload)
+    except ManagerReportingError as exc:
+        raise ManagerReportingDataError(
+            f"derived checkpoint Manager Report is invalid: {exc}"
+        ) from exc
+
+
 def _worker_source_conflicts(
     *,
     session: SessionState,
@@ -422,7 +598,7 @@ def _manager_source_conflicts(
     if not any(commit.startswith(verified_head) for commit in (live_head, *recent_hashes)):
         conflicts.append("Verified implementation HEAD is absent from live Git evidence")
 
-    live_status = tuple(_bounded_text_list(live_git["status"], "live Git status"))
+    live_status = _bounded_git_status_list(live_git["status"], "live Git status")
     if f"?? {PROTECTED_UNTRACKED_PATH}" not in live_status:
         conflicts.append("Live Git status is missing protected untracked jarvis.bat")
     if _protected_path_changed(
@@ -462,6 +638,51 @@ def _manager_source_conflicts(
         elif report.commit_hash not in recent_set:
             conflicts.append(
                 f"Worker Report {report.work_package.work_package_id} commit is absent from Git evidence"
+            )
+    return tuple(_deduplicate(conflicts))
+
+
+def _checkpoint_source_conflicts(
+    snapshot: Mapping[str, Any],
+    packages: Sequence[Mapping[str, Any]],
+    live_git: Mapping[str, Any],
+) -> tuple[str, ...]:
+    conflicts = list(_manager_source_conflicts(snapshot, (), live_git))
+    milestone_id = _required_text(
+        snapshot,
+        "manager_reporting_milestone_id",
+        "master plan",
+    )
+    recent_hashes = tuple(
+        _bounded_text_list(live_git["recent_commit_hashes"], "recent_commit_hashes")
+    )
+    live_head = _required_hash(live_git, "head", "live Git")
+    recent_set = set(recent_hashes) | {live_head}
+    for index, package in enumerate(packages):
+        package_id = _required_text(
+            package,
+            "work_package_id",
+            f"manager_reporting_work_packages[{index}]",
+        )
+        if not package_id.startswith(milestone_id):
+            conflicts.append(
+                f"Checkpoint package {package_id} is outside the current milestone"
+            )
+        result_type = _required_text(
+            package,
+            "result_type",
+            f"manager_reporting_work_packages[{index}]",
+        )
+        if result_type == "blocked":
+            conflicts.append(f"Checkpoint package {package_id} is blocked")
+        commit_hash = _required_hash(
+            package,
+            "commit_hash",
+            f"manager_reporting_work_packages[{index}]",
+        )
+        if commit_hash not in recent_set:
+            conflicts.append(
+                f"Checkpoint package {package_id} commit is absent from Git evidence"
             )
     return tuple(_deduplicate(conflicts))
 
@@ -569,6 +790,31 @@ def _bounded_text_list(value: Any, path: str) -> tuple[str, ...]:
             ord(character) < 32 or ord(character) == 127 for character in item
         ):
             raise ManagerReportingDataError(f"{path}[{index}] is invalid")
+        key = item.casefold()
+        if key in seen:
+            raise ManagerReportingDataError(f"{path} contains duplicate values")
+        seen.add(key)
+        normalized.append(item)
+    return tuple(normalized)
+
+
+def _bounded_git_status_list(value: Any, path: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ManagerReportingDataError(f"{path} must be a list")
+    if len(value) > 128:
+        raise ManagerReportingDataError(f"{path} contains too many items")
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            raise ManagerReportingDataError(
+                f"{path}[{index}] must be a Git status line"
+            )
+        if len(item) > 4000 or any(
+            ord(character) < 32 or ord(character) == 127 for character in item
+        ):
+            raise ManagerReportingDataError(f"{path}[{index}] is invalid")
+        _parse_status_line(item)
         key = item.casefold()
         if key in seen:
             raise ManagerReportingDataError(f"{path} contains duplicate values")

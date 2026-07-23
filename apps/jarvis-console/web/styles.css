@@ -673,7 +673,8 @@ code {
 
 .owner-priority-grid,
 .workstream-status-grid,
-.recent-milestone-grid {
+.recent-milestone-grid,
+.manager-report-package-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 10px;
@@ -746,6 +747,47 @@ code {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #f8fafc;
+}
+
+.manager-report-section {
+  display: grid;
+  gap: 14px;
+  border-color: #a9c5df;
+  background: #f8fbff;
+}
+
+.manager-report-priority,
+.manager-report-facts {
+  margin: 0;
+}
+
+.manager-report-package-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #c7d7f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.manager-report-package-card h5,
+.manager-report-package-card p {
+  margin: 0;
+}
+
+.manager-report-package-card code {
+  overflow-wrap: anywhere;
+}
+
+.manager-report-review-grid > div {
+  min-width: 0;
+}
+
+.manager-owner-action {
+  margin: 0;
+  border: 1px solid #b7d7c0;
+  background: #f4faf6;
 }
 
 .recent-milestone-card h5,

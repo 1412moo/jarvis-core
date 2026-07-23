@@ -60,6 +60,7 @@ from hermes_manager_pilot.manager_reporting import (
 )
 from hermes_manager_pilot.manager_reporting_data import (
     ManagerReportingDataError,
+    build_manager_report_from_checkpoint_sources,
     build_manager_report_from_sources,
     build_worker_report_from_sources,
     manager_report_projection,
@@ -5039,7 +5040,7 @@ def _manager_reporting_live_git() -> dict[str, object]:
     return {
         "branch": "main",
         "head": "b" * 40,
-        "status": ["?? jarvis.bat"],
+        "status": [" M docs/master-plan.md", "?? jarvis.bat"],
         "recent_commit_hashes": ["b" * 40, "a" * 40],
     }
 
@@ -5214,6 +5215,64 @@ def _test_manager_reporting_data_core_is_pure_and_bounded() -> None:
     )
 
 
+def _test_manager_reporting_checkpoint_adapter_is_restart_safe_and_fail_closed() -> None:
+    snapshot = _manager_reporting_master_snapshot()
+    snapshot.update(
+        {
+            "manager_reporting_work_packages": [
+                {
+                    "work_package_id": "manager-reporting-v0.1a",
+                    "result_type": "implementation",
+                    "summary": "Reporting contracts completed.",
+                    "commit_hash": "b" * 40,
+                }
+            ],
+            "manager_reporting_next_package_id": "manager-reporting-v0.1c",
+            "next_user_visible_milestone": "One read-only Owner summary.",
+        }
+    )
+    report = build_manager_report_from_checkpoint_sources(
+        master_plan_snapshot=snapshot,
+        live_git_evidence=_manager_reporting_live_git(),
+        risks=[],
+    )
+    _assert(report.owner_action == "none", "checkpoint invented Owner action")
+    _assert(
+        report.completed_work_packages[0].commit_hash == "b" * 40,
+        "checkpoint lost the package commit",
+    )
+
+    stale_git = _manager_reporting_live_git()
+    stale_git["recent_commit_hashes"] = ["a" * 40]
+    stale_git["head"] = "a" * 40
+    blocked = build_manager_report_from_checkpoint_sources(
+        master_plan_snapshot=snapshot,
+        live_git_evidence=stale_git,
+        risks=[],
+    )
+    _assert(blocked.status == "blocked", "stale checkpoint did not block")
+    _assert(
+        blocked.owner_action == "decision_required",
+        "stale checkpoint did not require Owner action",
+    )
+
+    malformed_git = _manager_reporting_live_git()
+    malformed_git["status"] = ["M docs/master-plan.md", "?? jarvis.bat"]
+    try:
+        build_manager_report_from_checkpoint_sources(
+            master_plan_snapshot=snapshot,
+            live_git_evidence=malformed_git,
+            risks=[],
+        )
+    except ManagerReportingDataError as exc:
+        _assert(
+            "Git status line is malformed" in str(exc),
+            "malformed Git status returned the wrong error",
+        )
+    else:
+        raise AssertionError("malformed Git status must fail closed")
+
+
 def _repo_file_set() -> set[str]:
     return {
         str(path.relative_to(REPO_ROOT))
@@ -5311,6 +5370,7 @@ def main() -> None:
         _test_manager_reporting_data_fails_closed_on_worker_source_mismatch,
         _test_manager_reporting_data_blocks_master_plan_and_git_conflicts,
         _test_manager_reporting_data_core_is_pure_and_bounded,
+        _test_manager_reporting_checkpoint_adapter_is_restart_safe_and_fail_closed,
     )
     for test in tests:
         test()

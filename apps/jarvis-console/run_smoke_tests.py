@@ -55,6 +55,11 @@ from recent_milestone_evidence import (
     serialize_recent_milestone_evidence,
 )
 from hermes_manager_pilot.approval_binding import build_scope_approval_binding
+from hermes_manager_pilot.manager_reporting import (
+    MANAGER_CONTRACT_TYPE,
+    VERSION as MANAGER_REPORTING_VERSION,
+    normalize_manager_report,
+)
 from hermes_manager_pilot.prompt_queue import (
     REQUIRED_FORBIDDEN_ACTIONS,
     normalize_prompt_queue,
@@ -274,6 +279,10 @@ def _test_project_control_snapshot() -> None:
 - Verified implementation HEAD: `0123456789abcdef`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
+- Current goal: Develop Jarvis-Core as a local-first human-approved assistant
+- Manager reporting milestone ID: `manager-reporting-v0.1`
+- Manager reporting status: `in_progress`
+- Manager reporting next package ID: `manager-reporting-v0.1c`
 - Current workstream: Prompt Queue / Project Control Panel
 - Current milestone: Read-only owner project card
 - Recommended next step: Verify the local vertical slice
@@ -285,6 +294,12 @@ def _test_project_control_snapshot() -> None:
 - Approval note: No approval is needed for the bounded read-only slice
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
+
+### Manager Reporting Workflow v0.1 package evidence
+
+| Work package | Result type | Summary | Commit |
+| --- | --- | --- | --- |
+| manager-reporting-v0.1a | implementation | Reporting contracts completed | aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa |
 
 ## 3. Later
 
@@ -308,6 +323,10 @@ def _test_project_control_snapshot() -> None:
             "verified_implementation_head": "0123456789abcdef",
             "branch": "main",
             "known_protected_untracked_file": "jarvis.bat",
+            "current_goal": "Develop Jarvis-Core as a local-first human-approved assistant",
+            "manager_reporting_milestone_id": "manager-reporting-v0.1",
+            "manager_reporting_status": "in_progress",
+            "manager_reporting_next_package_id": "manager-reporting-v0.1c",
             "current_workstream": "Prompt Queue / Project Control Panel",
             "current_milestone": "Read-only owner project card",
             "recommended_next_step": "Verify the local vertical slice",
@@ -319,6 +338,14 @@ def _test_project_control_snapshot() -> None:
             "approval_note": "No approval is needed for the bounded read-only slice",
             "owner_decision_status": "selection_required",
             "owner_decision_recommended_workstream_id": "hermes-manager",
+            "manager_reporting_work_packages": [
+                {
+                    "work_package_id": "manager-reporting-v0.1a",
+                    "result_type": "implementation",
+                    "summary": "Reporting contracts completed",
+                    "commit_hash": "a" * 40,
+                }
+            ],
             "workstreams": [
                 {
                     "workstream_id": "hermes-manager",
@@ -463,6 +490,30 @@ def _test_project_control_snapshot() -> None:
                 "approval state",
             ),
             (
+                baseline.replace(
+                    "- Manager reporting status: `in_progress`",
+                    "- Manager reporting status: `complete-ish`",
+                ),
+                "Manager Reporting status",
+            ),
+            (
+                baseline.replace(
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "short-hash",
+                    1,
+                ),
+                "Manager Reporting commit",
+            ),
+            (
+                baseline.split(
+                    "### Manager Reporting Workflow v0.1 package evidence",
+                    1,
+                )[0]
+                + "\n## 3. Later\n"
+                + baseline.split("## 3. Later\n", 1)[1],
+                "Manager Reporting package section",
+            ),
+            (
                 baseline.split("## 5. 작업 축별 상태", 1)[0],
                 "workstream section",
             ),
@@ -544,6 +595,41 @@ def _project_registry_fixture() -> dict[str, Any]:
             },
         ],
     }
+
+
+def _test_read_only_git_preserves_porcelain_status() -> None:
+    outputs = iter(
+        (
+            " M file\n",
+            "?? file\n",
+            " M file\r\n?? file\r\n",
+            "",
+            " M file\r\n",
+            " M file\n",
+        )
+    )
+
+    class FixtureResult:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    def fixture_run_process(*args: Any, **kwargs: Any) -> FixtureResult:
+        return FixtureResult(next(outputs))
+
+    original_run_process = run_web_app.run_process
+    run_web_app.run_process = fixture_run_process
+    try:
+        assert run_web_app.run_read_only_git(("status", "--short")) == " M file"
+        assert run_web_app.run_read_only_git(("status", "--short")) == "?? file"
+        assert (
+            run_web_app.run_read_only_git(("status", "--short"))
+            == " M file\r\n?? file"
+        )
+        assert run_web_app.run_read_only_git(("status", "--short")) == ""
+        assert run_web_app.run_read_only_git(("status", "--short")) == " M file"
+        assert run_web_app.run_read_only_git(("status", "--short")) == " M file"
+    finally:
+        run_web_app.run_process = original_run_process
 
 
 def _owner_decision_fixture() -> dict[str, Any]:
@@ -1060,6 +1146,7 @@ def _test_recent_milestone_evidence_contract() -> None:
 
 
 def main() -> None:
+    _test_read_only_git_preserves_porcelain_status()
     _test_project_control_snapshot()
     _test_owner_decision_contract()
     _test_project_control_registry_primitives()
@@ -1107,7 +1194,7 @@ def main() -> None:
     assert overview["ok"] is True
     assert overview["mode"] == "read-only"
     project_control = overview["project_control"]
-    assert project_control["version"] == "project_control.v0.1E"
+    assert project_control["version"] == "project_control.v0.1F"
     assert project_control["mode"] == "read-only"
     assert project_control["source"] == "docs/master-plan.md"
     assert len(project_control["project_cards"]) == 1
@@ -1134,6 +1221,24 @@ def main() -> None:
         "task-discord-dashboard",
     ]
     assert all(item["read_only"] is True for item in project_card["workstreams"])
+    manager_report_payload = project_card["manager_report"]
+    assert manager_report_payload["contract_type"] == MANAGER_CONTRACT_TYPE
+    assert manager_report_payload["version"] == MANAGER_REPORTING_VERSION
+    assert manager_report_payload["source_of_truth"] == "master_plan"
+    assert manager_report_payload["derived_view"] is True
+    assert manager_report_payload["read_only"] is True
+    assert manager_report_payload["authority_boundary"] == "derived_reporting_only"
+    assert manager_report_payload["owner_action"] == "none"
+    assert manager_report_payload["owner_decision"] == ""
+    assert manager_report_payload["completed_work_packages"]
+    assert all(
+        item["commit_hash"]
+        for item in manager_report_payload["completed_work_packages"]
+    )
+    normalized_manager_payload = dict(manager_report_payload)
+    normalized_manager_payload.pop("read_only")
+    normalized_manager_payload.pop("authority_boundary")
+    assert normalize_manager_report(normalized_manager_payload)
     owner_decision_payload = project_card["owner_decision"]
     assert owner_decision_payload["contract_type"] == CONTRACT_TYPE
     assert owner_decision_payload["version"] == OWNER_DECISION_VERSION
@@ -2114,6 +2219,27 @@ def main() -> None:
     assert "copyNextActionForHandoff" in app_js
     assert "/api/overview" in app_js
     assert "renderProjectControl" in app_js
+    assert "renderManagerReport" in app_js
+    assert 'managerReport.contract_type !== "hermes_manager_report"' in app_js
+    assert 'managerReport.source_of_truth !== "master_plan"' in app_js
+    assert "managerReport.derived_view !== true" in app_js
+    assert "managerReport.read_only !== true" in app_js
+    assert 'managerReport.authority_boundary !== "derived_reporting_only"' in app_js
+    assert "Hermes Manager Report" in app_js
+    assert "이번 milestone의 의미" in app_js
+    assert "사용자가 얻은 결과" in app_js
+    assert "Owner action:" in app_js
+    assert 'managerReport?.owner_action === "none"' in app_js
+    assert "project_control.v0.1F" in app_js
+    manager_report_renderer = app_js.split("function renderManagerReport", 1)[1].split(
+        "function renderProjectControl",
+        1,
+    )[0]
+    assert "<button" not in manager_report_renderer
+    assert "fetch(" not in manager_report_renderer
+    assert "navigator.clipboard" not in manager_report_renderer
+    assert "/api/manager-report" not in app_js
+    assert "/api/manager-report" not in web_app_source
     assert "renderOwnerDecision" in app_js
     assert 'ownerDecision.contract_type !== "jarvis_owner_decision"' in app_js
     assert "다음 workstream 결정" in app_js

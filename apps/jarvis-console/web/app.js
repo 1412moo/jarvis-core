@@ -1100,6 +1100,128 @@ function renderRecentMilestoneEvidence(evidence) {
   `;
 }
 
+function renderManagerReport(managerReport) {
+  if (
+    !managerReport ||
+    managerReport.contract_type !== "hermes_manager_report" ||
+    managerReport.version !== "0.1A" ||
+    managerReport.source_of_truth !== "master_plan" ||
+    managerReport.derived_view !== true ||
+    managerReport.read_only !== true ||
+    managerReport.authority_boundary !== "derived_reporting_only"
+  ) {
+    return `
+      <section class="workstream-status-section safety-card manager-report-section">
+        <div class="overview-section-heading">
+          <h4>Hermes Manager Report</h4>
+          <span class="overview-badge approval-needed">Unavailable</span>
+        </div>
+        <p class="safety-note">The bounded Manager Report is unavailable. No milestone result, approval, or next action was inferred.</p>
+      </section>
+    `;
+  }
+
+  const packages = Array.isArray(managerReport.completed_work_packages)
+    ? managerReport.completed_work_packages
+    : [];
+  const risks = Array.isArray(managerReport.risks) ? managerReport.risks : [];
+  const conflicts = Array.isArray(managerReport.source_conflicts)
+    ? managerReport.source_conflicts
+    : [];
+  const recommendation = managerReport.next_recommendation || null;
+  const ownerAction = managerReport.owner_action || "decision_required";
+  return `
+    <section class="workstream-status-section manager-report-section" aria-label="Hermes Manager Report">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Manager to Owner</p>
+          <h4>Hermes Manager Report</h4>
+        </div>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Read-only</span>
+          <span class="overview-badge">${escapeHtml(managerReport.status || "blocked")}</span>
+          <span class="overview-badge ${ownerAction === "none" ? "read-only" : "approval-needed"}">Owner action: ${escapeHtml(ownerAction)}</span>
+        </div>
+      </div>
+
+      <div class="owner-priority-grid manager-report-priority">
+        <article class="owner-priority-card reason-card">
+          <p class="eyebrow">Milestone meaning</p>
+          <h4>이번 milestone의 의미</h4>
+          <p>${escapeHtml(managerReport.milestone_meaning || "Not supplied")}</p>
+        </article>
+        <article class="owner-priority-card outcome-card">
+          <p class="eyebrow">User outcome</p>
+          <h4>사용자가 얻은 결과</h4>
+          <p>${escapeHtml(managerReport.user_outcome || "Not supplied")}</p>
+        </article>
+      </div>
+
+      <dl class="overview-facts compact-facts manager-report-facts">
+        <div><dt>전체 목표</dt><dd>${escapeHtml(managerReport.current_goal || "Not supplied")}</dd></div>
+        <div><dt>현재 위치</dt><dd>${escapeHtml(managerReport.current_position || "Not supplied")}</dd></div>
+        <div><dt>Milestone ID</dt><dd><code>${escapeHtml(managerReport.milestone_id || "unknown")}</code></dd></div>
+        <div><dt>Source</dt><dd><code>${escapeHtml(managerReport.source_of_truth)}</code></dd></div>
+      </dl>
+
+      <div>
+        <p class="eyebrow">Completed work packages</p>
+        <div class="manager-report-package-grid">
+          ${
+            packages.length
+              ? packages
+                  .map(
+                    (item) => `
+                      <article class="manager-report-package-card">
+                        <div class="overview-section-heading">
+                          <h5>${escapeHtml(item.work_package_id || "Unknown package")}</h5>
+                          <span class="overview-badge read-only">${escapeHtml(item.result_type || "unknown")}</span>
+                        </div>
+                        <p>${escapeHtml(item.summary || "No summary supplied.")}</p>
+                        <code>${escapeHtml(item.commit_hash || "no commit")}</code>
+                      </article>
+                    `,
+                  )
+                  .join("")
+              : '<p class="placeholder">No completed package checkpoint is recorded.</p>'
+          }
+        </div>
+      </div>
+
+      <div class="overview-rule-grid manager-report-review-grid">
+        <div><strong>검증 근거</strong>${listMarkup(managerReport.evidence_summary, "No evidence supplied.")}</div>
+        <div><strong>Source conflicts</strong>${listMarkup(conflicts, "None.")}</div>
+        <div>
+          <strong>위험</strong>
+          ${
+            risks.length
+              ? `<ul class="metadata-list">${risks
+                  .map(
+                    (risk) => `<li><code>${escapeHtml(risk.severity || "unknown")}</code> ${escapeHtml(risk.category || "risk")} — ${escapeHtml(risk.summary || "")}</li>`,
+                  )
+                  .join("")}</ul>`
+              : '<p class="placeholder">None.</p>'
+          }
+        </div>
+        <div>
+          <strong>다음 추천</strong>
+          ${
+            recommendation
+              ? `<p><code>${escapeHtml(recommendation.work_package_id || "unknown")}</code><br>${escapeHtml(recommendation.summary || "")}<br><span class="muted">${escapeHtml(recommendation.user_value || "")}</span></p>`
+              : '<p class="placeholder">None.</p>'
+          }
+        </div>
+      </div>
+
+      <p class="approval-note manager-owner-action">
+        <strong>Owner action:</strong> ${escapeHtml(ownerAction)}
+        ${managerReport.owner_decision ? `<br>${escapeHtml(managerReport.owner_decision)}` : ""}
+      </p>
+      <p class="muted">이 화면은 Master Plan과 bounded local Git evidence에서 파생된 읽기 전용 요약입니다. 승인, 실행, stage, commit, push 또는 PR 권한을 만들지 않습니다.</p>
+    </section>
+  `;
+}
+
 function renderProjectControl(projectControl) {
   const cards = projectControl?.project_cards || [];
   if (!cards.length) {
@@ -1119,7 +1241,7 @@ function renderProjectControl(projectControl) {
         </div>
         <div class="overview-badges">
           <span class="overview-badge read-only">Read-only</span>
-          <span class="overview-badge">${escapeHtml(projectControl.version || "project_control.v0.1E")}</span>
+          <span class="overview-badge">${escapeHtml(projectControl.version || "project_control.v0.1F")}</span>
         </div>
       </div>
       <p class="muted">Current direction comes from ${escapeHtml(projectControl.source || "the tracked master plan")}; live repository facts are refreshed locally.</p>
@@ -1128,6 +1250,7 @@ function renderProjectControl(projectControl) {
           .map(
             (card) => {
               const ownerSummary = card.owner_summary || {};
+              const managerReport = card.manager_report || null;
               const ownerDecision = card.owner_decision || null;
               const recentMilestoneEvidence = card.recent_milestone_evidence || null;
               const workstreams = Array.isArray(card.workstreams) ? card.workstreams : [];
@@ -1173,9 +1296,11 @@ function renderProjectControl(projectControl) {
                     <p class="approval-note"><strong>승인 필요 여부:</strong> ${escapeHtml(ownerSummary.approval_note || "Not supplied")}</p>
                   </section>
 
+                  ${renderManagerReport(managerReport)}
+
                   ${renderRecentMilestoneEvidence(recentMilestoneEvidence)}
 
-                  ${renderOwnerDecision(ownerDecision)}
+                  ${managerReport?.owner_action === "none" ? "" : renderOwnerDecision(ownerDecision)}
 
                   <section class="workstream-status-section">
                     <div class="overview-section-heading">

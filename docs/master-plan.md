@@ -147,6 +147,7 @@ flowchart LR
 - Current goal: Develop Jarvis-Core as a local-first, human-approved, skill-based personal AI assistant
 - Manager reporting milestone ID: `manager-reporting-v0.1`
 - Manager reporting status: `in_progress`
+- Manager reporting next package ID: `manager-reporting-v0.1c`
 - Current workstream: Hermes Manager — Manager Reporting Workflow
 - Current milestone: Manager Reporting v0.1B existing-evidence adapter completed
 - Recommended next step: Connect the derived Manager Report to the existing read-only Project Control overview
@@ -225,6 +226,13 @@ flowchart LR
     class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,AA,AB done;
     class AC current;
 ```
+
+### Manager Reporting Workflow v0.1 package evidence
+
+| Work package | Result type | Summary | Commit |
+| --- | --- | --- | --- |
+| manager-reporting-v0.1a | implementation | Immutable Worker and Manager reporting contracts | 325fe500a0cf3938eba2a7627fc8d8978cf0e2c3 |
+| manager-reporting-v0.1b | implementation | Pure existing-evidence adapters with fail-closed source checks | a11c95365020fd39d928a75f1970cf59fd0c2b37 |
 
 ### 구현된 기반
 

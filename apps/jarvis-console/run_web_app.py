@@ -36,6 +36,11 @@ from recent_milestone_evidence import (
     parse_recent_milestone_log,
     recent_milestone_evidence_to_dict,
 )
+from hermes_manager_pilot.manager_reporting_data import (  # noqa: E402
+    ManagerReportingDataError,
+    build_manager_report_from_checkpoint_sources,
+    manager_report_projection,
+)
 
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -53,6 +58,10 @@ MASTER_PLAN_FIELDS = {
     "Verified implementation HEAD": "verified_implementation_head",
     "Branch": "branch",
     "Known protected untracked file": "known_protected_untracked_file",
+    "Current goal": "current_goal",
+    "Manager reporting milestone ID": "manager_reporting_milestone_id",
+    "Manager reporting status": "manager_reporting_status",
+    "Manager reporting next package ID": "manager_reporting_next_package_id",
     "Current workstream": "current_workstream",
     "Current milestone": "current_milestone",
     "Recommended next step": "recommended_next_step",
@@ -66,12 +75,25 @@ MASTER_PLAN_FIELDS = {
     "Owner decision recommendation": "owner_decision_recommended_workstream_id",
 }
 MASTER_PLAN_APPROVAL_STATES = frozenset({"none", "required", "blocked"})
+MASTER_PLAN_MANAGER_REPORTING_STATUSES = frozenset(
+    {"in_progress", "milestone_complete", "blocked"}
+)
 MASTER_PLAN_WORKSTREAM_COLUMNS = (
     "작업 축",
     "현재 상태",
     "사용자에게 보이는 기능",
     "다음 안전 단계",
 )
+MASTER_PLAN_MANAGER_PACKAGE_COLUMNS = (
+    "Work package",
+    "Result type",
+    "Summary",
+    "Commit",
+)
+MASTER_PLAN_MANAGER_RESULT_TYPES = frozenset(
+    {"design", "implementation", "review", "commit", "blocked"}
+)
+MASTER_PLAN_MANAGER_PACKAGE_MAX_COUNT = 16
 MASTER_PLAN_WORKSTREAMS = (
     ("hermes-manager", "Hermes Manager"),
     ("memory-skills", "Memory / Skills"),
@@ -809,7 +831,7 @@ def run_read_only_git(
         raise RegistryError(f"read-only Git command failed: {exc}") from exc
     if preserve_record_separators:
         return result.stdout.rstrip("\r\n")
-    return result.stdout.strip()
+    return result.stdout.rstrip("\r\n")
 
 
 def repo_status_payload() -> dict[str, Any]:
@@ -927,6 +949,74 @@ def _parse_master_plan_workstreams(text: str) -> list[dict[str, Any]]:
     return workstreams
 
 
+def _parse_master_plan_manager_packages(text: str) -> list[dict[str, str]]:
+    """Parse the bounded Manager Reporting package checkpoint table."""
+
+    section_match = re.search(
+        (
+            r"(?ms)^### Manager Reporting Workflow v0\.1 package evidence\s*$"
+            r"\n(?P<body>.*?)(?=^###?\s|\Z)"
+        ),
+        text,
+    )
+    if section_match is None:
+        raise RegistryError("master plan Manager Reporting package section is missing")
+    table_lines = [
+        line.strip()
+        for line in section_match.group("body").splitlines()
+        if line.strip().startswith("|")
+    ]
+    if not 3 <= len(table_lines) <= 2 + MASTER_PLAN_MANAGER_PACKAGE_MAX_COUNT:
+        raise RegistryError(
+            "master plan Manager Reporting package table is empty or too large"
+        )
+    if (
+        tuple(_parse_master_plan_table_row(table_lines[0]))
+        != MASTER_PLAN_MANAGER_PACKAGE_COLUMNS
+    ):
+        raise RegistryError("master plan Manager Reporting package header is invalid")
+    separator_cells = table_lines[1][1:-1].split("|")
+    if len(separator_cells) != len(MASTER_PLAN_MANAGER_PACKAGE_COLUMNS) or any(
+        re.fullmatch(r"\s*:?-{3,}:?\s*", cell) is None for cell in separator_cells
+    ):
+        raise RegistryError(
+            "master plan Manager Reporting package separator is invalid"
+        )
+
+    packages = []
+    seen_ids = set()
+    for index, line in enumerate(table_lines[2:]):
+        package_id, result_type, summary, commit_hash = (
+            _parse_master_plan_table_row(line)
+        )
+        if re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", package_id) is None:
+            raise RegistryError(
+                f"master plan Manager Reporting package ID is invalid at row {index}"
+            )
+        if package_id in seen_ids:
+            raise RegistryError(
+                f"master plan Manager Reporting package is duplicated: {package_id}"
+            )
+        seen_ids.add(package_id)
+        if result_type not in MASTER_PLAN_MANAGER_RESULT_TYPES:
+            raise RegistryError(
+                f"master plan Manager Reporting result type is invalid: {result_type}"
+            )
+        if re.fullmatch(r"[0-9a-f]{40}", commit_hash) is None:
+            raise RegistryError(
+                f"master plan Manager Reporting commit is invalid: {package_id}"
+            )
+        packages.append(
+            {
+                "work_package_id": package_id,
+                "result_type": result_type,
+                "summary": summary,
+                "commit_hash": commit_hash,
+            }
+        )
+    return packages
+
+
 def read_master_plan_snapshot(
     path: str | Path = MASTER_PLAN_PATH,
     allowed_root: str | Path = REPO_ROOT,
@@ -979,7 +1069,21 @@ def read_master_plan_snapshot(
         raise RegistryError("master plan fields are missing: " + ", ".join(missing))
     if values["approval_state"] not in MASTER_PLAN_APPROVAL_STATES:
         raise RegistryError("master plan approval state is invalid")
+    if (
+        values["manager_reporting_status"]
+        not in MASTER_PLAN_MANAGER_REPORTING_STATUSES
+    ):
+        raise RegistryError("master plan Manager Reporting status is invalid")
+    for field in (
+        "manager_reporting_milestone_id",
+        "manager_reporting_next_package_id",
+    ):
+        if re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", values[field]) is None:
+            raise RegistryError(f"master plan field is not a normalized ID: {field}")
     values["workstreams"] = _parse_master_plan_workstreams(text)
+    values["manager_reporting_work_packages"] = (
+        _parse_master_plan_manager_packages(text)
+    )
     values["source"] = resolved.relative_to(root).as_posix()
     return values
 
@@ -1012,8 +1116,49 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
         attention_reasons.append(
             "A recent commit includes protected path jarvis.bat."
         )
+    working_tree_status = str(repo.get("working_tree_status") or "clean")
+    live_status_lines = (
+        []
+        if working_tree_status == "clean"
+        else [line for line in working_tree_status.splitlines() if line]
+    )
+    manager_risks = [
+        {
+            "severity": "low",
+            "category": "manual_handoff",
+            "summary": (
+                "Codex handoff remains explicit and copy-only; no automatic "
+                "invocation or background worker exists."
+            ),
+        }
+    ]
+    manager_risks.extend(
+        {
+            "severity": "blocking",
+            "category": "project_control_attention",
+            "summary": reason,
+        }
+        for reason in attention_reasons
+    )
+    try:
+        manager_report = build_manager_report_from_checkpoint_sources(
+            master_plan_snapshot=snapshot,
+            live_git_evidence={
+                "branch": live_branch,
+                "head": str(repo.get("head") or ""),
+                "status": live_status_lines,
+                "recent_commit_hashes": [
+                    str(commit.get("hash") or "")
+                    for commit in recent_milestone_evidence["commits"]
+                    if isinstance(commit, Mapping)
+                ],
+            },
+            risks=manager_risks,
+        )
+    except ManagerReportingDataError as exc:
+        raise RegistryError(f"Manager Report is unavailable: {exc}") from exc
     return {
-        "version": "project_control.v0.1E",
+        "version": "project_control.v0.1F",
         "mode": "read-only",
         "source": snapshot["source"],
         "project_cards": [
@@ -1046,6 +1191,7 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
                     "approval_note": snapshot["approval_note"],
                 },
                 "workstreams": snapshot["workstreams"],
+                "manager_report": manager_report_projection(manager_report),
                 "owner_decision": owner_decision_to_dict(owner_decision),
                 "recent_milestone_evidence": recent_milestone_evidence,
                 "locked_capabilities": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
@@ -1059,6 +1205,7 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
             "It does not create tasks, approvals, prompts, commits, runtime state, or cross-app calls.",
             "Project Control exposes one Jarvis-Core card and treats apps and capabilities as internal workstreams.",
             "The dormant multi-project registry primitive is not connected to this payload, HTTP, UI, or filesystem access.",
+            "The Manager Report is a derived read-only view over tracked Master Plan checkpoints and bounded local Git evidence.",
         ],
     }
 
@@ -5639,7 +5786,7 @@ def run_self_test() -> None:
     assert overview_code == HTTPStatus.OK
     assert overview["ok"] is True
     assert overview["mode"] == "read-only"
-    assert overview["project_control"]["version"] == "project_control.v0.1E"
+    assert overview["project_control"]["version"] == "project_control.v0.1F"
     assert overview["project_control"]["mode"] == "read-only"
     assert overview["project_control"]["source"] == "docs/master-plan.md"
     assert len(overview["project_control"]["project_cards"]) == 1
@@ -5663,6 +5810,15 @@ def run_self_test() -> None:
         "task-discord-dashboard",
     ]
     assert all(item["read_only"] is True for item in owner_card["workstreams"])
+    manager_report_payload = owner_card["manager_report"]
+    assert manager_report_payload["contract_type"] == "hermes_manager_report"
+    assert manager_report_payload["version"] == "0.1A"
+    assert manager_report_payload["source_of_truth"] == "master_plan"
+    assert manager_report_payload["derived_view"] is True
+    assert manager_report_payload["read_only"] is True
+    assert manager_report_payload["authority_boundary"] == "derived_reporting_only"
+    assert manager_report_payload["owner_action"] == "none"
+    assert manager_report_payload["completed_work_packages"]
     owner_decision_payload = owner_card["owner_decision"]
     assert owner_decision_payload["contract_type"] == "jarvis_owner_decision"
     assert owner_decision_payload["version"] == "0.1A"
