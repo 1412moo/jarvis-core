@@ -48,12 +48,13 @@ v0.1B design과 v0.1C internal/tests-only registry primitive는 연결하지 않
 등록·경로 입력·route·persistence는 추가하지 않는다. Memory / Skills live
 save도 readiness review의 `keep locked` 판정을 유지한다.
 
-현재 승인된 방향은 **Jarvis Multi-Agent Organization v0.1A Manual Pilot**이다.
-Jarvis-Core 한 저장소 안에서 Owner → Director → Manager → Workers 순서로
-작업하고, Manager가 Implementer·Reviewer·QA·Docs의 assignment, retry, repair와
-evidence review를 책임진다. Director는 Manager의 계획과 최종 보고만 검토하며
-Worker를 직접 운영하지 않는다. 별도 Dispatcher 역할은 두지 않고, 향후 SDK
-연결이 승인되더라도 thread 생성기는 Manager의 내부 구현으로만 취급한다.
+현재 승인된 방향은 **Jarvis Multi-Agent SOP v0.1B**다. Manual Pilot v0.1A에서
+검증한 Owner → Director → Manager → Workers 운영을 Jarvis-Core의 기본 개발
+방식으로 승격했다. Manager가 Implementer·Reviewer·QA·Docs의 assignment, retry,
+repair와 evidence review를 책임지고, Director는 Manager의 계획과 최종 보고만
+검토하며 Worker를 직접 운영하지 않는다. 별도 Dispatcher 역할은 두지 않는다.
+현재 Codex 표면에서 nested spawning이 불명확하면 Director가 Manager의 확정된
+assignment plan을 기계적으로 실행하지만 orchestration 판단은 Manager에 남는다.
 
 ### 이 단계가 끝나면 사용자가 얻는 것
 
@@ -72,6 +73,8 @@ Worker를 직접 운영하지 않는다. 별도 Dispatcher 역할은 두지 않�
 - Project Control에서 최근 5개 로컬 커밋, 변경 파일과 현재 HEAD 일치를 바로 확인한다.
 - Owner는 기존 Manager Report의 상세 증거보다 먼저 transport-neutral
   Director Summary에서 milestone, 결과, 위험, 결정과 다음 추천을 확인한다.
+- Jarvis-Core 개발은 기본적으로 Manager → Implementer → Reviewer → QA →
+  Manager Report → Director Report의 검증 흐름을 거친다.
 - 저장·재열기·삭제는 review/commit/push 권한이나 자동 실행을 복원하지 않는다.
 - 자동 실행, push/PR, 외부 호출, Memory save는 계속 잠긴다.
 
@@ -101,12 +104,12 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Project Control Recent Milestone Evidence v0.1**
-- 현재 다음 작업: **실제 milestone 보고에서 최근 작업 증거 카드를 반복 사용한 뒤 다음 workstream 선택**
-- 현재 사용자 체감 결과: **최근 5개 커밋과 변경 파일, 현재 HEAD 일치를 한 화면에서 확인**
-- 다음 사용자 체감 milestone: **반복 사용 피드백 또는 소유자가 선택한 다음 bounded vertical slice**
-- 최근 검증 결과: 실제 browser에서 5개 commit card, HEAD verified, action button 0건, warning/error 0건
-- 현재 결정 필요: **있음** — 반복 사용 후 다음 사용자 체감 workstream 선택
+- 최근 완료: **Jarvis Multi-Agent Organization v0.1A Manual Pilot**
+- 현재 다음 작업: **Director Dashboard v0.1B를 별도 bounded package로 진행**
+- 현재 사용자 체감 결과: **검증된 조직 흐름이 Jarvis-Core 기본 SOP와 역할별 agent 설정으로 고정**
+- 다음 사용자 체감 milestone: **Director Dashboard v0.1B**
+- 최근 검증 결과: 첫 candidate P2 finding → repair 1회 → fresh Reviewer/QA pass, final pilot commit `7d4394eed584bc11ee25062a671952b2e4c38b31`
+- 현재 결정 필요: **없음** — SOP 승격 package 안에서 로컬 validation과 commit까지 승인됨
 
 ### 언제부터 실제로 편해지는가
 
@@ -150,22 +153,22 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-23
-- Verified implementation HEAD: `dfa1945`
+- Verified implementation HEAD: `7d4394eed584bc11ee25062a671952b2e4c38b31`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current goal: Develop Jarvis-Core as a local-first, human-approved, skill-based personal AI assistant
 - Manager reporting milestone ID: `manager-reporting-v0.1`
-- Manager reporting status: `in_progress`
-- Manager reporting next package ID: `manager-reporting-v0.1c`
-- Current workstream: Jarvis Multi-Agent Organization v0.1A Manual Pilot
-- Current milestone: Director Report v0.1A implementation candidate under Manager control
-- Recommended next step: Run read-only Reviewer and QA against the exact candidate commit, then submit one Manager Report
-- Next user-visible milestone: Owner가 상세 Manager evidence보다 먼저 30초용 Director Summary를 확인
-- Current reason: Jarvis-Core 한 저장소에서 Manager가 Worker 실행과 evidence를 책임지고 Director는 Owner에게 결과만 보고해야 한다
-- Owner outcome: Owner는 Director Summary에서 milestone, 사용자 결과, 검증 commit 요약, 위험, 결정과 다음 추천만 먼저 확인한다
-- Recent completed: Owner approved the single-repo Multi-Agent Organization Manual Pilot against the dfa1945 baseline
+- Manager reporting status: `milestone_complete`
+- Manager reporting next package ID: `director-dashboard-v0.1b`
+- Current workstream: Jarvis Multi-Agent SOP v0.1B
+- Current milestone: Manual Pilot 운영 모델을 기본 SOP와 project custom-agent 설정으로 승격
+- Recommended next step: Director Dashboard v0.1B를 별도 bounded package로 진행한 뒤 실제 기능 work package 1~2개에서 SOP를 반복 검증
+- Next user-visible milestone: Director Summary를 대표 대시보드의 기본 요약으로 승격하고 Manager Report는 상세 evidence로 유지
+- Current reason: 한 번 성공한 역할 분리와 repair 흐름을 모든 Jarvis-Core 개발에서 반복 가능한 기본 운영 방식으로 고정해야 한다
+- Owner outcome: Owner는 Director하고만 소통하고 budget 안의 Worker 운영과 repair는 Manager가 처리한다
+- Recent completed: Manual Pilot v0.1A가 Implementer, Reviewer P2 finding, repair, fresh Reviewer/QA, Manager, Director 사이클을 완료
 - Approval state: none
-- Approval note: 이번 Manual Pilot의 bounded Director Report 구현·review·QA·local commit은 승인됐고 push, PR, 외부 호출과 jarvis.bat는 계속 금지된다
+- Approval note: SOP v0.1B 승격은 승인됐고 Dashboard, 자동 runtime, push, PR, 외부 호출과 jarvis.bat는 범위 밖이다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
 
@@ -243,7 +246,7 @@ flowchart LR
 | manager-reporting-v0.1a | implementation | Immutable Worker and Manager reporting contracts | 325fe500a0cf3938eba2a7627fc8d8978cf0e2c3 |
 | manager-reporting-v0.1b | implementation | Pure existing-evidence adapters with fail-closed source checks | a11c95365020fd39d928a75f1970cf59fd0c2b37 |
 
-### 현재 진행: Jarvis Multi-Agent Organization v0.1A Manual Pilot
+### 최근 완료 및 현재 표준: Jarvis Multi-Agent SOP v0.1B
 
 ```text
 Owner
@@ -258,18 +261,27 @@ Manager / PM
 ```
 
 - Director는 Owner와 소통하고 Manager의 계획·최종 결과만 검토한다.
-- Manager는 work package, dependency, file ownership, Worker 순서, retry,
-  repair, local commit과 evidence review를 책임진다.
+- Manager만 work package, dependency, file ownership, Worker 순서, retry,
+  repair와 evidence review를 책임진다.
 - source writer는 기본 한 명이며 Reviewer와 QA는 정확한 candidate commit에
   고정된 read-only 역할이다.
+- 기본 `retry_budget=1`, `repair_budget=1`, `repair_count=0`이며 source 변경 없는
+  재실행과 source-changing repair를 구분한다.
+- candidate commit이 바뀌면 기존 Reviewer/QA evidence는 전부 무효이며 새
+  candidate에 fresh Reviewer와 QA를 순서대로 다시 실행한다.
 - 별도 Dispatcher는 조직 역할로 두지 않는다. SDK/app-server, 자동 thread 생성,
-  background worker와 runtime persistence는 이번 pilot 범위 밖이다.
-- 첫 vertical slice는 기존 Manager Report에서 Owner에게 필요한 정보만 추린
-  pure `DirectorReport`, 기존 `/api/overview`의 additive read-only projection,
-  Director Summary 우선 표시다.
-- 이 문서는 candidate commit, Reviewer pass, QA pass 또는 final commit hash를
-  미리 완료로 기록하지 않는다. 검증 결과는 pilot의 Manager/Director 최종 보고에서
-  실제 Git evidence와 함께 확정한다.
+  background worker와 runtime persistence는 현재 범위 밖이다.
+
+Manual Pilot v0.1A의 첫 candidate에서 Reviewer가 실제 P2 finding 1건을 발견했다.
+Manager는 Owner 개입 없이 repair 1회를 운영했고, 새 candidate에 fresh Reviewer와 QA를
+다시 실행한 뒤 Director Report까지 완료했다. 최종 pilot commit은
+`7d4394eed584bc11ee25062a671952b2e4c38b31`이다.
+
+SOP v0.1B는 이 흐름을 top-level `AGENTS.md`, 역할별 project custom-agent 설정과
+결정론적 validator로 승격한다. 채택은 완료됐지만 운영 성숙도는 아직 반복 검증
+중이다. 다음은 **Director Dashboard v0.1B**를 별도 package로 진행하고, 이후
+실제 기능 work package 1~2개에서 SOP를 반복 성공시킨다. 그 결과를 확인한 뒤에만
+Hermes 자동 runtime을 검토한다.
 
 ### 구현된 기반
 
