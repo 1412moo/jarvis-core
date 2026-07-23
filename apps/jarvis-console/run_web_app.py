@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import hashlib
 import hmac
 import inspect
@@ -62,7 +62,11 @@ RESEARCH_COUNCIL_ROOT = REPO_ROOT / "apps" / "research-council"
 if str(RESEARCH_COUNCIL_ROOT) not in sys.path:
     sys.path.insert(0, str(RESEARCH_COUNCIL_ROOT))
 
-from task_file_writer import preview_task_file_write, write_task_file  # noqa: E402
+from task_file_writer import (  # noqa: E402
+    TASK_FILE_PATTERN,
+    preview_task_file_write,
+    write_task_file,
+)
 from research_council import (  # noqa: E402
     LLMAugmentationMode,
     ResearchCouncilInput,
@@ -159,6 +163,96 @@ OVERVIEW_MAX_TOTAL_ITEMS = 50
 OVERVIEW_SNIPPET_BYTES = 4096
 OVERVIEW_TITLE_MAX_CHARS = 140
 OVERVIEW_SUMMARY_MAX_CHARS = 220
+TASK_VIEW_REQUIRED_FIELDS = (
+    "id",
+    "title",
+    "status",
+    "repo",
+    "created_at",
+    "updated_at",
+    "summary",
+)
+TASK_VIEW_OPTIONAL_TEXT_FIELDS = frozenset(
+    {
+        "source_command",
+        "execution_candidate",
+        "execution_request",
+        "execution_result",
+        "execution_summary",
+    }
+)
+TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS = frozenset(
+    {"executed", "success", "dry_run"}
+)
+TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS = frozenset({"execution_updated_at"})
+TASK_VIEW_ALLOWED_FIELDS = frozenset(TASK_VIEW_REQUIRED_FIELDS).union(
+    TASK_VIEW_OPTIONAL_TEXT_FIELDS,
+    TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS,
+    TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS,
+)
+TASK_VIEW_METADATA_PATTERN = re.compile(
+    r"^- (?P<field>[a-z][a-z0-9_]*): `(?P<value>[^`\r\n]*)`$"
+)
+TASK_VIEW_ID_PATTERN = re.compile(
+    r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+)
+TASK_VIEW_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M UTC"
+TASK_VIEW_GROUPS = (
+    ("metadata_review", "Needs metadata review"),
+    ("needs_attention", "Needs attention"),
+    ("in_progress", "In progress"),
+    ("ready", "Ready"),
+    ("completed", "Completed"),
+)
+TASK_VIEW_STATUS_RULES = {
+    "NEEDS_APPROVAL": (
+        "needs_attention",
+        10,
+        "Review the summary and make the required decision outside Jarvis Console.",
+    ),
+    "BLOCKED": (
+        "needs_attention",
+        20,
+        "Review the summary and clear the blocker outside Jarvis Console.",
+    ),
+    "FAILED": (
+        "needs_attention",
+        30,
+        "Review the summary and decide the recovery outside Jarvis Console.",
+    ),
+    "DOING": (
+        "in_progress",
+        40,
+        "Continue the work described in the summary outside Jarvis Console.",
+    ),
+    "TODO": (
+        "ready",
+        50,
+        "Decide whether to start this task outside Jarvis Console.",
+    ),
+    "DONE": (
+        "completed",
+        60,
+        "No next action is required.",
+    ),
+}
+TASK_VIEW_REASON_CODES = frozenset(
+    {
+        "missing_field",
+        "duplicate_field",
+        "unsupported_field",
+        "invalid_id",
+        "id_path_mismatch",
+        "invalid_status",
+        "invalid_updated_at",
+        "invalid_text",
+        "field_too_long",
+    }
+)
+TASK_VIEW_DISCLOSURE = (
+    "Shows up to 10 files selected by existing Recent Tasks discovery before "
+    "task validation; this is not the full backlog."
+)
 HISTORY_MAX_COMMITS = 10
 HISTORY_DIRECTORY_KEYS = ("docs", "jarvis_console", "hermes_examples", "daily_ai_radar_examples")
 HISTORY_NAME_MARKERS = ("checkpoint", "summary", "report")
@@ -1545,6 +1639,202 @@ def assert_overview_item_safety(item: dict[str, Any]) -> None:
     assert Path(repo_path).suffix in OVERVIEW_ALLOWED_EXTENSIONS
 
 
+def invalid_task_view(
+    reason_code: str,
+    reason_field: str | None = None,
+) -> dict[str, Any]:
+    """Return one bounded fail-closed task projection without raw file content."""
+
+    assert reason_code in TASK_VIEW_REASON_CODES
+    payload: dict[str, Any] = {
+        "parse_state": "invalid",
+        "group_id": "metadata_review",
+        "display_rank": 0,
+        "next_action": (
+            "Review this task file's metadata outside Jarvis Console."
+        ),
+        "reason_code": reason_code,
+        "read_only": True,
+    }
+    if (
+        reason_field
+        and len(reason_field) <= 80
+        and re.fullmatch(r"[a-z][a-z0-9_]*", reason_field)
+    ):
+        payload["reason_field"] = reason_field
+    return payload
+
+
+def normalize_task_view_text(value: str, *, allow_empty: bool) -> str | None:
+    """Normalize safe one-line display text deterministically."""
+
+    for character in value:
+        if unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}:
+            return None
+    normalized = " ".join(unicodedata.normalize("NFC", value).split())
+    if not allow_empty and not normalized:
+        return None
+    return normalized
+
+
+def parse_task_view_timestamp(value: str) -> datetime | None:
+    """Parse one exact minute-resolution UTC task timestamp."""
+
+    try:
+        parsed = datetime.strptime(value, TASK_VIEW_TIMESTAMP_FORMAT)
+    except ValueError:
+        return None
+    if parsed.strftime(TASK_VIEW_TIMESTAMP_FORMAT) != value:
+        return None
+    return parsed.replace(tzinfo=timezone.utc)
+
+
+def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
+    """Parse one matching Task Markdown file into a bounded read-only view."""
+
+    if file_name == "task-template.md" or not TASK_FILE_PATTERN.fullmatch(file_name):
+        return None
+
+    metadata: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.lstrip().startswith("- "):
+            continue
+        match = TASK_VIEW_METADATA_PATTERN.fullmatch(line)
+        if match is None:
+            field_match = re.match(r"^\s*- ([a-z][a-z0-9_]*):", line)
+            return invalid_task_view(
+                "invalid_text",
+                field_match.group(1) if field_match else None,
+            )
+        field_name = match.group("field")
+        if field_name not in TASK_VIEW_ALLOWED_FIELDS:
+            return invalid_task_view("unsupported_field", field_name)
+        if field_name in metadata:
+            return invalid_task_view("duplicate_field", field_name)
+        metadata[field_name] = match.group("value")
+
+    for field_name in TASK_VIEW_REQUIRED_FIELDS:
+        if field_name not in metadata:
+            return invalid_task_view("missing_field", field_name)
+
+    task_id = metadata["id"]
+    if not TASK_VIEW_ID_PATTERN.fullmatch(task_id):
+        return invalid_task_view("invalid_id", "id")
+    if task_id != PurePosixPath(file_name).stem:
+        return invalid_task_view("id_path_mismatch", "id")
+
+    status = metadata["status"]
+    status_rule = TASK_VIEW_STATUS_RULES.get(status)
+    if status_rule is None:
+        return invalid_task_view("invalid_status", "status")
+
+    for field_name in ("created_at", "updated_at"):
+        if parse_task_view_timestamp(metadata[field_name]) is None:
+            return invalid_task_view("invalid_updated_at", field_name)
+
+    text_limits = {
+        "repo": 80,
+        "title": 120,
+        "summary": 500,
+    }
+    normalized_text: dict[str, str] = {}
+    for field_name, max_chars in text_limits.items():
+        raw_value = metadata[field_name]
+        if len(raw_value) > max_chars:
+            return invalid_task_view("field_too_long", field_name)
+        normalized = normalize_task_view_text(raw_value, allow_empty=False)
+        if normalized is None:
+            return invalid_task_view("invalid_text", field_name)
+        normalized_text[field_name] = normalized
+
+    for field_name in TASK_VIEW_OPTIONAL_TEXT_FIELDS:
+        if field_name not in metadata:
+            continue
+        raw_value = metadata[field_name]
+        if len(raw_value) > 500:
+            return invalid_task_view("field_too_long", field_name)
+        if normalize_task_view_text(raw_value, allow_empty=True) is None:
+            return invalid_task_view("invalid_text", field_name)
+
+    for field_name in TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS:
+        if field_name in metadata and metadata[field_name] not in {"true", "false"}:
+            return invalid_task_view("invalid_text", field_name)
+
+    for field_name in TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS:
+        if (
+            field_name in metadata
+            and parse_task_view_timestamp(metadata[field_name]) is None
+        ):
+            return invalid_task_view("invalid_updated_at", field_name)
+
+    group_id, display_rank, next_action = status_rule
+    return {
+        "parse_state": "valid",
+        "id": task_id,
+        "title": normalized_text["title"],
+        "status": status,
+        "updated_at": metadata["updated_at"],
+        "summary": normalized_text["summary"],
+        "group_id": group_id,
+        "display_rank": display_rank,
+        "next_action": next_action,
+        "read_only": True,
+    }
+
+
+def read_task_view_text(path: Path) -> str:
+    """Read one bounded Task file as strict UTF-8 without writing state."""
+
+    with path.open("rb") as file:
+        raw = file.read(OVERVIEW_SNIPPET_BYTES + 1)
+    if len(raw) > OVERVIEW_SNIPPET_BYTES:
+        raise ValueError("task metadata exceeds bounded read")
+    return raw.decode("utf-8", errors="strict")
+
+
+def task_view_sort_key(item: Mapping[str, Any]) -> tuple[int, float, str]:
+    """Return the frozen display-order key for one projected Task item."""
+
+    task_view = item["task_view"]
+    updated_timestamp = 0.0
+    if task_view["parse_state"] == "valid":
+        parsed = parse_task_view_timestamp(task_view["updated_at"])
+        assert parsed is not None
+        updated_timestamp = parsed.timestamp()
+    return (
+        task_view["display_rank"],
+        -updated_timestamp,
+        item["path"],
+    )
+
+
+def project_task_view_items(
+    discovered_items: list[dict[str, Any]],
+    *,
+    text_reader: Callable[[Path], str] = read_task_view_text,
+) -> list[dict[str, Any]]:
+    """Project only matching files after existing Recent Tasks selection."""
+
+    projected: list[dict[str, Any]] = []
+    for item in discovered_items:
+        file_name = PurePosixPath(item["path"]).name
+        if file_name == "task-template.md" or not TASK_FILE_PATTERN.fullmatch(
+            file_name
+        ):
+            continue
+        try:
+            text = text_reader(REPO_ROOT / item["path"])
+            task_view = parse_task_view_text(file_name, text)
+        except (OSError, UnicodeError, ValueError):
+            task_view = invalid_task_view("invalid_text")
+        assert task_view is not None
+        projected_item = dict(item)
+        projected_item["task_view"] = task_view
+        projected.append(projected_item)
+    projected.sort(key=task_view_sort_key)
+    return projected
+
+
 def overview_skills_payload(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return core skill status cards with recent read-only artifacts."""
 
@@ -1572,7 +1862,8 @@ def overview_payload() -> dict[str, Any]:
 
     registry = load_registry()
     repo = repo_status_payload()
-    tasks = discover_recent_items(("memory_tasks",))
+    discovered_tasks = discover_recent_items(("memory_tasks",))
+    tasks = project_task_view_items(discovered_tasks)
     reports = filter_overview_items(
         discover_recent_items(("reports", "research_examples", "daily_ai_radar_examples")),
         {"report"},
@@ -1582,7 +1873,12 @@ def overview_payload() -> dict[str, Any]:
         ("docs", "research_examples", "daily_ai_radar_examples", "hermes_examples", "jarvis_console")
     )
     recent_groups = [
-        recent_group("tasks", "Recent Tasks", "No task index found yet.", tasks),
+        recent_group(
+            "tasks",
+            "Recent Tasks",
+            "No task index found yet.",
+            discovered_tasks,
+        ),
         recent_group("reports", "Recent Reports", "No generated reports found yet.", reports),
         recent_group("checkpoints", "Recent Checkpoints", "No checkpoint index found yet.", checkpoints),
         recent_group("docs_examples", "Recent Docs / Examples", "No docs or examples found yet.", docs_examples),

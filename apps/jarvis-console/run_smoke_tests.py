@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, replace
 from http.client import HTTPConnection
 from io import StringIO
+import inspect
 import json
 from http import HTTPStatus
 from pathlib import Path
@@ -1982,7 +1983,492 @@ for (const [index, payload] of malformed.entries()) {
     )
 
 
+def _test_actionable_task_view_vertical_slice() -> None:
+    watched_roots = (
+        run_web_app.REPO_ROOT / "memory" / "tasks",
+        run_web_app.REPO_ROOT / "reports",
+    )
+
+    def artifact_snapshot() -> tuple[tuple[str, int, int], ...]:
+        snapshot: list[tuple[str, int, int]] = []
+        for root in watched_roots:
+            if not root.is_dir():
+                continue
+            for path in sorted(root.rglob("*")):
+                if path.is_file():
+                    stat_result = path.stat()
+                    snapshot.append(
+                        (
+                            path.relative_to(run_web_app.REPO_ROOT).as_posix(),
+                            stat_result.st_size,
+                            stat_result.st_mtime_ns,
+                        )
+                    )
+        return tuple(snapshot)
+
+    def task_markdown(
+        task_id: str,
+        status: str,
+        *,
+        title: str = "Task title",
+        summary: str = "Task summary",
+        created_at: str = "2026-07-23 09:00 UTC",
+        updated_at: str = "2026-07-23 10:00 UTC",
+        repo: str = "jarvis-core",
+        optional_lines: tuple[str, ...] = (),
+    ) -> str:
+        return (
+            "\n".join(
+                [
+                    f"# {task_id}",
+                    "",
+                    f"- id: `{task_id}`",
+                    f"- title: `{title}`",
+                    f"- status: `{status}`",
+                    f"- repo: `{repo}`",
+                    f"- created_at: `{created_at}`",
+                    f"- updated_at: `{updated_at}`",
+                    f"- summary: `{summary}`",
+                    *optional_lines,
+                ]
+            )
+            + "\n"
+        )
+
+    before_artifacts = artifact_snapshot()
+    expected_status_rules = {
+        "NEEDS_APPROVAL": (
+            "needs_attention",
+            10,
+            "Review the summary and make the required decision outside Jarvis Console.",
+        ),
+        "BLOCKED": (
+            "needs_attention",
+            20,
+            "Review the summary and clear the blocker outside Jarvis Console.",
+        ),
+        "FAILED": (
+            "needs_attention",
+            30,
+            "Review the summary and decide the recovery outside Jarvis Console.",
+        ),
+        "DOING": (
+            "in_progress",
+            40,
+            "Continue the work described in the summary outside Jarvis Console.",
+        ),
+        "TODO": (
+            "ready",
+            50,
+            "Decide whether to start this task outside Jarvis Console.",
+        ),
+        "DONE": (
+            "completed",
+            60,
+            "No next action is required.",
+        ),
+    }
+    for index, (status, expected_rule) in enumerate(
+        expected_status_rules.items(),
+        start=101,
+    ):
+        task_id = f"task-{index:04d}-{status.lower().replace('_', '-')}"
+        view = run_web_app.parse_task_view_text(
+            f"{task_id}.md",
+            task_markdown(task_id, status),
+        )
+        assert view is not None
+        assert view["parse_state"] == "valid"
+        assert (
+            view["group_id"],
+            view["display_rank"],
+            view["next_action"],
+        ) == expected_rule
+        assert set(view) == {
+            "parse_state",
+            "id",
+            "title",
+            "status",
+            "updated_at",
+            "summary",
+            "group_id",
+            "display_rank",
+            "next_action",
+            "read_only",
+        }
+        assert view["read_only"] is True
+
+    same_status_a = run_web_app.parse_task_view_text(
+        "task-0201-copy-a.md",
+        task_markdown(
+            "task-0201-copy-a",
+            "BLOCKED",
+            title="First unrelated title",
+            summary="First unrelated summary",
+        ),
+    )
+    same_status_b = run_web_app.parse_task_view_text(
+        "task-0202-copy-b.md",
+        task_markdown(
+            "task-0202-copy-b",
+            "BLOCKED",
+            title="Completely different title",
+            summary="Completely different summary",
+        ),
+    )
+    assert same_status_a is not None and same_status_b is not None
+    assert (
+        same_status_a["next_action"].encode("utf-8")
+        == same_status_b["next_action"].encode("utf-8")
+    )
+
+    optional_lines = (
+        "- source_command: `/task`",
+        "- execution_candidate: `candidate`",
+        "- execution_request: `request`",
+        "- execution_result: `result`",
+        "- executed: `true`",
+        "- success: `false`",
+        "- dry_run: `true`",
+        "- execution_updated_at: `2026-07-23 10:30 UTC`",
+        "- execution_summary: `summary`",
+    )
+    optional_view = run_web_app.parse_task_view_text(
+        "task-0301-optional.md",
+        task_markdown(
+            "task-0301-optional",
+            "TODO",
+            optional_lines=optional_lines,
+        ),
+    )
+    plain_view = run_web_app.parse_task_view_text(
+        "task-0301-optional.md",
+        task_markdown("task-0301-optional", "TODO"),
+    )
+    assert optional_view == plain_view
+    assert optional_view is not None
+    assert all(
+        field_name not in optional_view
+        for field_name in (
+            run_web_app.TASK_VIEW_OPTIONAL_TEXT_FIELDS
+            | run_web_app.TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS
+            | run_web_app.TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS
+        )
+    )
+
+    valid_base = task_markdown("task-0401-invalid", "TODO")
+    invalid_cases = (
+        (
+            "task-0401-invalid.md",
+            valid_base.replace("- summary: `Task summary`\n", ""),
+            "missing_field",
+            "summary",
+        ),
+        (
+            "task-0401-invalid.md",
+            valid_base + "- title: `Duplicate`\n",
+            "duplicate_field",
+            "title",
+        ),
+        (
+            "task-0401-invalid.md",
+            valid_base + "- unexpected: `value`\n",
+            "unsupported_field",
+            "unexpected",
+        ),
+        (
+            "task-0401-invalid.md",
+            task_markdown("not-a-task-id", "TODO"),
+            "invalid_id",
+            "id",
+        ),
+        (
+            "task-0402-other.md",
+            valid_base,
+            "id_path_mismatch",
+            "id",
+        ),
+        (
+            "task-0401-invalid.md",
+            task_markdown("task-0401-invalid", "UNKNOWN"),
+            "invalid_status",
+            "status",
+        ),
+        (
+            "task-0401-invalid.md",
+            task_markdown(
+                "task-0401-invalid",
+                "TODO",
+                updated_at="2026-7-23 10:00 UTC",
+            ),
+            "invalid_updated_at",
+            "updated_at",
+        ),
+        (
+            "task-0401-invalid.md",
+            task_markdown(
+                "task-0401-invalid",
+                "TODO",
+                title="Unsafe\x00title",
+            ),
+            "invalid_text",
+            "title",
+        ),
+        (
+            "task-0401-invalid.md",
+            task_markdown(
+                "task-0401-invalid",
+                "TODO",
+                title="x" * 121,
+            ),
+            "field_too_long",
+            "title",
+        ),
+        (
+            "task-0401-invalid.md",
+            valid_base.replace("- title: `Task title`", "- title: Task title"),
+            "invalid_text",
+            "title",
+        ),
+        (
+            "task-0401-invalid.md",
+            valid_base + "- executed: `True`\n",
+            "invalid_text",
+            "executed",
+        ),
+        (
+            "task-0401-invalid.md",
+            valid_base + "- execution_updated_at: `yesterday`\n",
+            "invalid_updated_at",
+            "execution_updated_at",
+        ),
+        (
+            "task-0401-invalid.md",
+            valid_base
+            + "- source_command: `/task`\n"
+            + "- source_command: `/status`\n",
+            "duplicate_field",
+            "source_command",
+        ),
+    )
+    for file_name, text, reason_code, reason_field in invalid_cases:
+        invalid_view = run_web_app.parse_task_view_text(file_name, text)
+        assert invalid_view is not None
+        assert invalid_view == {
+            "parse_state": "invalid",
+            "group_id": "metadata_review",
+            "display_rank": 0,
+            "next_action": (
+                "Review this task file's metadata outside Jarvis Console."
+            ),
+            "reason_code": reason_code,
+            "reason_field": reason_field,
+            "read_only": True,
+        }
+    assert (
+        run_web_app.parse_task_view_text("task-template.md", valid_base) is None
+    )
+    assert run_web_app.parse_task_view_text("notes.md", valid_base) is None
+
+    selected_items = [
+        {"path": "memory/tasks/task-0507-invalid-b.md"},
+        {"path": "memory/tasks/task-0506-invalid-a.md"},
+        {"path": "memory/tasks/task-0501-todo-old.md"},
+        {"path": "memory/tasks/task-0502-todo-new.md"},
+        {"path": "memory/tasks/task-0503-blocked.md"},
+        {"path": "memory/tasks/task-0504-done.md"},
+        {"path": "memory/tasks/task-0505-doing.md"},
+    ]
+    task_texts = {
+        "memory/tasks/task-0507-invalid-b.md": task_markdown(
+            "task-0507-invalid-b",
+            "TODO",
+        ).replace("- summary: `Task summary`\n", ""),
+        "memory/tasks/task-0506-invalid-a.md": task_markdown(
+            "task-0506-invalid-a",
+            "TODO",
+        ).replace("- summary: `Task summary`\n", ""),
+        "memory/tasks/task-0501-todo-old.md": task_markdown(
+            "task-0501-todo-old",
+            "TODO",
+            updated_at="2026-07-22 10:00 UTC",
+        ),
+        "memory/tasks/task-0502-todo-new.md": task_markdown(
+            "task-0502-todo-new",
+            "TODO",
+            updated_at="2026-07-23 10:00 UTC",
+        ),
+        "memory/tasks/task-0503-blocked.md": task_markdown(
+            "task-0503-blocked",
+            "BLOCKED",
+        ),
+        "memory/tasks/task-0504-done.md": task_markdown(
+            "task-0504-done",
+            "DONE",
+        ),
+        "memory/tasks/task-0505-doing.md": task_markdown(
+            "task-0505-doing",
+            "DOING",
+        ),
+    }
+
+    def fixture_reader(path: Path) -> str:
+        relative_path = path.relative_to(run_web_app.REPO_ROOT).as_posix()
+        return task_texts[relative_path]
+
+    first_projection = run_web_app.project_task_view_items(
+        selected_items,
+        text_reader=fixture_reader,
+    )
+    second_projection = run_web_app.project_task_view_items(
+        selected_items,
+        text_reader=fixture_reader,
+    )
+    assert first_projection == second_projection
+    assert [item["path"] for item in first_projection] == [
+        "memory/tasks/task-0506-invalid-a.md",
+        "memory/tasks/task-0507-invalid-b.md",
+        "memory/tasks/task-0503-blocked.md",
+        "memory/tasks/task-0505-doing.md",
+        "memory/tasks/task-0502-todo-new.md",
+        "memory/tasks/task-0501-todo-old.md",
+        "memory/tasks/task-0504-done.md",
+    ]
+    group_counts = {
+        group_id: sum(
+            item["task_view"]["group_id"] == group_id
+            for item in first_projection
+        )
+        for group_id, _title in run_web_app.TASK_VIEW_GROUPS
+    }
+    assert group_counts == {
+        "metadata_review": 2,
+        "needs_attention": 1,
+        "in_progress": 1,
+        "ready": 2,
+        "completed": 1,
+    }
+
+    cap_candidates = [
+        *[
+            {"path": f"memory/tasks/recent-note-{index}.md"}
+            for index in range(9)
+        ],
+        {"path": "memory/tasks/task-0601-selected.md"},
+        {"path": "memory/tasks/task-0602-not-selected.md"},
+    ]
+    cap_texts = {
+        "memory/tasks/task-0601-selected.md": task_markdown(
+            "task-0601-selected",
+            "TODO",
+        ),
+        "memory/tasks/task-0602-not-selected.md": task_markdown(
+            "task-0602-not-selected",
+            "BLOCKED",
+        ),
+    }
+    reader_calls: list[str] = []
+
+    def cap_reader(path: Path) -> str:
+        relative_path = path.relative_to(run_web_app.REPO_ROOT).as_posix()
+        reader_calls.append(relative_path)
+        return cap_texts[relative_path]
+
+    capped_projection = run_web_app.project_task_view_items(
+        cap_candidates[: run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY],
+        text_reader=cap_reader,
+    )
+    assert [item["path"] for item in capped_projection] == [
+        "memory/tasks/task-0601-selected.md"
+    ]
+    assert reader_calls == ["memory/tasks/task-0601-selected.md"]
+
+    direct_status, direct_payload = run_web_app.handle_get_api("/api/overview")
+    repeat_status, repeat_payload = run_web_app.handle_get_api("/api/overview")
+    assert direct_status == repeat_status == HTTPStatus.OK
+    assert direct_payload == repeat_payload
+    assert all("task_view" in item for item in direct_payload["tasks"])
+    assert len(direct_payload["tasks"]) <= (
+        run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
+    )
+    assert (
+        [group["group_id"] for group in direct_payload["recent_groups"]][0]
+        == "tasks"
+    )
+    assert all(
+        "task_view" not in item
+        for item in direct_payload["recent_groups"][0]["items"]
+    )
+
+    server = run_web_app.ThreadingHTTPServer(
+        (run_web_app.DEFAULT_HOST, 0),
+        run_web_app.JarvisConsoleHandler,
+    )
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    port = int(server.server_address[1])
+    try:
+        connection = HTTPConnection(run_web_app.DEFAULT_HOST, port, timeout=10)
+        connection.request("GET", "/api/overview")
+        response = connection.getresponse()
+        http_payload = json.loads(response.read().decode("utf-8"))
+        response_status = response.status
+        connection.close()
+        assert response_status == HTTPStatus.OK
+        assert http_payload == direct_payload
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=5)
+    assert not server_thread.is_alive()
+
+    app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
+    web_app_source = Path(run_web_app.__file__).read_text(encoding="utf-8")
+    for exact_text in (
+        "Read-only Actionable Task View",
+        "Needs metadata review",
+        "Needs attention",
+        "In progress",
+        "Ready",
+        "Completed",
+        "Shows up to 10 files selected by existing Recent Tasks discovery before task validation; this is not the full backlog.",
+        "Display order:",
+        "Displayed total:",
+        "Status",
+        "Title",
+        "Task ID",
+        "Updated",
+        "Summary",
+        "Next action",
+        "Path",
+        "Read-only",
+    ):
+        assert exact_text in app_js
+    for _status, (_group_id, _rank, next_action) in (
+        expected_status_rules.items()
+    ):
+        assert next_action in web_app_source
+    renderer_source = app_js.split(
+        "function actionableTaskItemMarkup",
+        1,
+    )[1].split("function memoryDraftPrompt", 1)[0]
+    assert 'escapeHtml(view.next_action || "")' in renderer_source
+    assert 'escapeHtml(item.path || "")' in renderer_source
+    assert "<button" not in renderer_source
+    assert "<form" not in renderer_source
+    assert "fetch(" not in renderer_source
+    assert "onclick" not in renderer_source
+    parser_projection_source = (
+        inspect.getsource(run_web_app.parse_task_view_text)
+        + inspect.getsource(run_web_app.project_task_view_items)
+    ).lower().replace("fullmatch", "")
+    assert "llm" not in parser_projection_source
+    assert "openai" not in parser_projection_source
+    assert artifact_snapshot() == before_artifacts
+
+
 def main() -> None:
+    _test_actionable_task_view_vertical_slice()
     _test_director_renderer_fails_closed_on_malformed_nested_data()
     _test_read_only_git_preserves_porcelain_status()
     _test_project_control_snapshot()

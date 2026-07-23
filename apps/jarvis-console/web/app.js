@@ -1071,6 +1071,84 @@ function normalizedOverviewItemsMarkup(items, emptyText) {
   `;
 }
 
+function actionableTaskItemMarkup(item) {
+  const view = item?.task_view || {};
+  const valid = view.parse_state === "valid";
+  const status = valid ? view.status : "METADATA_REVIEW";
+  const title = valid ? view.title : "Metadata unavailable";
+  const taskId = valid ? view.id : "Metadata unavailable";
+  const updatedAt = valid ? view.updated_at : "Metadata unavailable";
+  const summary = valid
+    ? view.summary
+    : `Reason code: ${view.reason_code || "invalid_text"}${view.reason_field ? ` (${view.reason_field})` : ""}`;
+  return `
+    <article class="overview-item normalized-overview-item">
+      <div class="overview-item-heading">
+        <strong>${escapeHtml(title)}</strong>
+        <div class="overview-badges">
+          <span class="overview-badge">${escapeHtml(status)}</span>
+          <span class="overview-badge read-only">Read-only</span>
+        </div>
+      </div>
+      <dl class="overview-facts compact-facts">
+        <dt>Status</dt><dd>${escapeHtml(status)}</dd>
+        <dt>Title</dt><dd>${escapeHtml(title)}</dd>
+        <dt>Task ID</dt><dd>${escapeHtml(taskId)}</dd>
+        <dt>Updated</dt><dd>${escapeHtml(updatedAt)}</dd>
+        <dt>Summary</dt><dd>${escapeHtml(summary)}</dd>
+        <dt>Next action</dt><dd>${escapeHtml(view.next_action || "")}</dd>
+        <dt>Path</dt><dd><code>${escapeHtml(item.path || "")}</code></dd>
+      </dl>
+    </article>
+  `;
+}
+
+function renderActionableTaskView(items) {
+  const groups = [
+    ["metadata_review", "Needs metadata review"],
+    ["needs_attention", "Needs attention"],
+    ["in_progress", "In progress"],
+    ["ready", "Ready"],
+    ["completed", "Completed"],
+  ];
+  const displayedItems = (items || []).filter((item) => item?.task_view);
+  return `
+    <section class="overview-card">
+      <div class="overview-section-heading">
+        <h3>Read-only Actionable Task View</h3>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Read-only</span>
+          <span class="overview-badge">Displayed total: ${escapeHtml(String(displayedItems.length))}</span>
+        </div>
+      </div>
+      <p class="muted">Shows up to 10 files selected by existing Recent Tasks discovery before task validation; this is not the full backlog.</p>
+      <p class="muted"><strong>Display order:</strong> metadata review, NEEDS_APPROVAL, BLOCKED, FAILED, DOING, TODO, DONE; then updated time newest first and path.</p>
+      <div class="overview-skill-grid">
+        ${groups
+          .map(([groupId, title]) => {
+            const groupItems = displayedItems.filter(
+              (item) => item.task_view.group_id === groupId,
+            );
+            return `
+              <section class="overview-skill-card">
+                <div class="overview-section-heading">
+                  <h4>${escapeHtml(title)}</h4>
+                  <span class="overview-badge read-only">Count: ${escapeHtml(String(groupItems.length))}</span>
+                </div>
+                ${
+                  groupItems.length
+                    ? `<div class="overview-list">${groupItems.map(actionableTaskItemMarkup).join("")}</div>`
+                    : '<p class="placeholder">No displayed tasks in this group.</p>'
+                }
+              </section>
+            `;
+          })
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
 function memoryDraftPrompt(candidate) {
   const tags = (candidate.tags || []).join(", ") || "none";
   const safetyNotes = (candidate.safety_notes || []).join("; ") || "No candidate safety notes registered.";
@@ -2031,6 +2109,7 @@ function renderOverview(data) {
       <h3>Skill Status</h3>
       ${renderOverviewSkills(data.skills)}
     </section>
+    ${renderActionableTaskView(data.tasks)}
     ${renderRecentGroups(data.recent_groups)}
     <section class="overview-card safety-card">
       <h3>Safety Notes</h3>
