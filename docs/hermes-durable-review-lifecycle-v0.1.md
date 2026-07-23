@@ -148,8 +148,9 @@ and the saved candidates dashboard remain disabled or absent.
 
 ## Next candidate
 
-Design Durable Review Content Evidence Binding v0.1E before claiming exact file
-freshness. The design must define a versioned content-evidence contract,
-compatibility for existing v0.1A records, bounded collection and verification,
-and fail-closed UI wording. It must remain read-only during handoff generation
-and must not restore approval, auto-call another app, or execute work.
+[Durable Review Content Evidence Binding v0.1E](hermes-durable-review-content-evidence-v0.1-design.md)
+is now designed but not implemented. The next bounded package is v0.1E-A:
+introduce the transport-neutral evidence binding, Review Record v0.1B strict
+contract, v0.1A/v0.1B compatibility parsing, stable serialization, and
+deterministic tests. It must not connect Git collection, lifecycle, routes, UI,
+or new persistence behavior and requires separate implementation approval.

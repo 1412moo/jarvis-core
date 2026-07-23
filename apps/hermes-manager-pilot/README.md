@@ -690,6 +690,30 @@ be regenerated from the stored Review while its Git metadata still matches.
 There is no prompt execution, auto-call, stage, commit, push, PR, external API,
 background worker, or Memory / Skills save change.
 
+## Durable Review Content Evidence Binding v0.1E Design
+
+Status: designed, not implemented.
+
+v0.1E defines how a future Review Record v0.1B will bind the existing bounded
+`LocalChangeEvidence` digest to the exact Save preview. Save confirmation will
+recollect the evidence before writing, and Reopen-to-Handoff will recollect it
+again before generating output. This closes the case where branch, HEAD, and
+short-status text match while the bytes of an already-modified target changed.
+
+Existing v0.1A records will remain listable, reopenable read-only, recoverable,
+and exactly deletable. They will not be auto-migrated or allowed to claim
+content verification, because current bytes cannot prove historical bytes.
+The design stores only bounded binding metadata and a digest, not raw file
+content. Directory scopes materialize exact Git-visible changed descendants;
+`jarvis.bat` remains protected, untracked, unopened, and outside evidence.
+
+The next proposed package, v0.1E-A, is transport-neutral record/compatibility
+core and deterministic tests only. Git collection, lifecycle, route, browser,
+new persistence behavior, execution, external calls, stage, commit, push, and
+PR are outside that package.
+
+See [Durable Review Content Evidence Binding v0.1E design](../../docs/hermes-durable-review-content-evidence-v0.1-design.md).
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).

@@ -27,7 +27,10 @@ confirmation을 거쳐 Save/Reopen/exact Delete를 한 개의 local-only 사용�
 연결했다. v0.1D는 저장된 Review의 target scope를 다시 명시적으로 확인하고 현재
 branch·HEAD·exact `git status --short`가 일치할 때만 copy-only handoff를 재생성한다.
 file-content hash 일치는 주장하지 않으며 downstream review가 content evidence를
-수집해야 한다. 화면은 review·commit 또는 잠긴 기능의 권한을 만들지 않는다.
+수집해야 한다. v0.1E 설계는 기존 bounded evidence collector를 재사용하고 새 Review
+Record v0.1B에 content digest binding을 넣는 방법, legacy v0.1A 호환, directory scope
+materialization, Save 확인과 Reopen 시 재수집 규칙을 확정했다. 아직 구현되지 않았고
+화면은 review·commit 또는 잠긴 기능의 권한을 만들지 않는다.
 
 Project Control v0.1D는 현재 목표와 live Git 상태에 더해 `현재 만드는 이유`,
 `이 단계가 끝나면 사용자가 얻는 것`, 최근 완료, 다음 단계, 내부 workstream,
@@ -78,12 +81,12 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Durable Review Reopen-to-Handoff v0.1D**
-- 현재 다음 작업: **status-only freshness 한계를 해소할 Content Evidence Binding v0.1E 설계**
+- 최근 완료: **Durable Review Content Evidence Binding v0.1E 설계**
+- 현재 다음 작업: **v0.1E-A transport-neutral Review Record v0.1B/compatibility core**
 - 다음 사용자 체감 milestone: **저장 당시 파일 내용과 현재 파일 내용까지 같을 때만 handoff 재생성**
-- 최근 검증 결과: isolated browser에서 explicit scope gate, metadata-matched handoff,
-  status drift 차단, blocked output clear, clipboard output-only와 zero browser error 확인
-- 현재 결정 필요: **있음** — Review Record version/compatibility를 다루는 v0.1E 설계는 별도 승인 대상
+- 최근 검증 결과: v0.1D isolated browser 검증 유지, v0.1E version/compatibility·bounded
+  collection·legacy blocking·authority boundary 설계 완료
+- 현재 결정 필요: **있음** — v0.1E-A 구현은 별도 승인 대상
 
 ### 언제부터 실제로 편해지는가
 
@@ -131,14 +134,14 @@ flowchart LR
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Hermes Manager — guided review handoff
-- Current milestone: Durable Review Reopen-to-Handoff v0.1D complete
-- Recommended next step: Design Content Evidence Binding v0.1E with a versioned record contract and existing-record compatibility
+- Current milestone: Durable Review Content Evidence Binding v0.1E design complete
+- Recommended next step: Implement v0.1E-A transport-neutral Review Record v0.1B and strict v0.1A compatibility tests
 - Next user-visible milestone: 저장 당시 target file content와 현재 content까지 검증한 뒤에만 handoff 재생성
-- Current reason: v0.1D가 branch·HEAD·status drift는 차단하지만 이미 수정된 파일의 content hash 일치는 아직 증명하지 않기 때문이다
+- Current reason: content freshness 구현 전에 versioned binding과 legacy record 처리 규칙을 독립 core contract로 고정해야 하기 때문이다
 - Owner outcome: exact saved Review를 선택하고 scope를 다시 확인하면 metadata가 같은 경우에만 copy-only handoff를 재생성하며 stale output은 남기지 않는다
-- Recent completed: explicit scope reconfirmation, branch/HEAD/status revalidation, directory-scope alignment, guarded local route, blocked-output clearing
+- Recent completed: v0.1E record versioning, evidence coverage, legacy compatibility, Save/Reopen recollection, and fail-closed acceptance design
 - Approval state: required
-- Approval note: v0.1D는 완료됐고 Content Evidence Binding record/version 설계는 별도 승인이 필요하다
+- Approval note: v0.1E 설계는 완료됐고 v0.1E-A route-free contract 구현은 별도 승인이 필요하다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
 
@@ -192,12 +195,15 @@ flowchart LR
     Q --> R["clipboard-state bug<br/>실사용 발견"]
     R --> S["Review object authoritative<br/>clipboard output-only 수정"]
     S --> T["반복 save/copy/reset<br/>실사용 검증"]
+    T --> U["Content Evidence Binding<br/>v0.1E 설계 완료"]
+    U --> V["Review Record v0.1B<br/>compatibility core"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S done;
-    class T current;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T done;
+    class U current;
+    class V future;
 ```
 
 ### 구현된 기반
@@ -400,14 +406,21 @@ trailing dot/space, reserved device name을 fail closed로 검증한다. one/two
 fixture와 bounded blocking decision을 smoke test에 추가했다. filesystem, Git,
 HTTP, UI, persistence나 실제 두 번째 repo 연결은 없다.
 
-### 다음 설계 지점: Durable Review Content Evidence Binding v0.1E
+### 설계 완료: Durable Review Content Evidence Binding v0.1E
 
-v0.1D는 branch·HEAD·exact short-status revalidation까지만 수행한다. 다음 설계는
-저장 당시 target content evidence를 versioned Review contract에 어떻게 묶을지,
-기존 v0.1A record를 어떻게 read-only 호환 처리할지, bounded collection과 unstable
-read를 어떻게 차단할지 먼저 결정한다. 설계 전에는 content freshness를 주장하거나
-기존 record를 자동 migration하지 않는다. evidence는 approval이 아니며 자동 app
-call, prompt execution, commit/push도 추가하지 않는다.
+v0.1D는 branch·HEAD·exact short-status revalidation까지만 수행한다. v0.1E 설계는
+기존 bounded `LocalChangeEvidence` collector를 재사용하고 새 Review Record v0.1B에
+type/version/coverage/count/size/digest binding만 저장하기로 정했다. raw content와
+collector의 absolute repo path는 record에 저장하지 않는다. directory scope는 exact
+Git-visible changed descendant로 materialize하며 sibling prefix와 protected
+`jarvis.bat`는 포함하지 않는다.
+
+legacy v0.1A record는 list/read/recovery/exact Delete 호환을 유지하지만 content-verified
+handoff는 차단한다. 현재 bytes를 historical evidence로 자동 backfill하거나 record를
+rewrite하지 않는다. 다음 v0.1E-A는 transport-neutral record union, strict version
+dispatch, stable serialization과 deterministic tests까지만 구현하며 lifecycle, route,
+UI, Git collection과 새 persistence 동작은 연결하지 않는다. evidence는 approval이
+아니며 자동 app call, prompt execution, commit/push도 추가하지 않는다.
 
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
@@ -418,7 +431,7 @@ save도 계속 잠겨 있다.
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
-| Hermes Manager | Durable Review Reopen-to-Handoff v0.1D 완료 | prompt drafting, local Save/list/Reopen/recovery/Delete, scope-confirmed metadata-matched handoff Copy | Content Evidence Binding v0.1E 설계 |
+| Hermes Manager | Durable Review Content Evidence Binding v0.1E 설계 완료, 구현 전 | prompt drafting, local Save/list/Reopen/recovery/Delete, scope-confirmed metadata-matched handoff Copy | v0.1E-A route-free Record v0.1B/legacy compatibility core |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
 | Jarvis Console | Project Control v0.1D와 Owner Decision v0.1A/v0.1B 완료, Hermes 선택 1회 사용 | owner project card, 내부 workstream 상태, fresh read-only work review, 동일 Decision 객체의 CLI/Console 표시 | 다음 product selection 전 현재 handoff 실사용 피드백 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
@@ -520,6 +533,7 @@ save도 계속 잠겨 있다.
 - [Codex review read-only design](codex-review-read-only-v0.1-design.md)
 - [Codex review copy-only handoff design](codex-review-copy-handoff-v0.1-design.md)
 - [Hermes Durable Review Local Lifecycle v0.1C/v0.1D](hermes-durable-review-lifecycle-v0.1.md)
+- [Hermes Durable Review Content Evidence Binding v0.1E design](hermes-durable-review-content-evidence-v0.1-design.md)
 - [Project Control dormant multi-project source design](project-control-multi-project-source-v0.1-design.md)
 - [Project Control single-repo workstream visibility design](project-control-single-repo-workstreams-v0.1-design.md)
 - [Project Control Owner Decision Workflow design](project-control-owner-decision-workflow-v0.1-design.md)
