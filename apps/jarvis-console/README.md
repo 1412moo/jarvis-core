@@ -65,6 +65,10 @@ Included:
 - Local HTTP server bound to `127.0.0.1`.
 - Browser UI with sidebar tabs.
 - Chat / Command input.
+- Voice Inbox rough-thought capture with the explicit **Create Local Task**
+  Preview → Confirm → Receipt flow.
+- One create-only local `TODO` Task under fixed `memory/tasks`; no raw transcript,
+  arbitrary path, status transition, execution, or automatic save.
 - Deterministic keyword-based skill suggestion.
 - Skill cards loaded from `skills.json`.
 - Skill detail usage cards for what it does, when to use it, next action,
@@ -100,6 +104,31 @@ Out of scope for v0.1:
 - No Discord command.
 - No MCP or A2A integration.
 - No auth or user accounts.
+
+## Create Local Task
+
+Create Local Task is the one intentional write capability in this Console
+milestone. The user first prepares a Voice Inbox candidate, then selects Preview.
+The server recomputes and holds the canonical normalized Title and Summary in
+process memory, shows every persisted field with status `TODO` and a provisional
+local destination, and issues a short-lived one-use token. Nothing is created
+until the user selects **Confirm Create Local Task**.
+
+Confirm accepts only the token and exact confirmation literal. It does not
+accept a client path, repo, title, summary, or status. The writer uses the fixed
+trusted `REPO_ROOT/memory/tasks` directory, preserves a Unicode title, uses an
+ASCII `task` fallback slug when needed, creates without overwrite, and returns a
+receipt with Task ID, Title, status, storage location, `created_at`, and the next
+recommended action. Reusing a successfully confirmed token returns the same
+receipt and never creates a second Task.
+
+Create Local Task does not:
+
+- auto-save on Voice Inbox preparation or Preview;
+- save the raw transcript;
+- approve, start, run, retry, or change Task status;
+- write Memory / Skills candidates;
+- run git commands, commit, push, or call an external service.
 
 ## Available Skills
 
@@ -293,7 +322,7 @@ HTTP metadata adapter. It requires duplicate-preserving header pairs, exactly
 one Host, Origin, Content-Type, Cookie, CSRF, and Content-Length value, rejects
 Transfer-Encoding and malformed or oversized lengths, and emits bounded input
 for the existing request guard. The save endpoint remains disabled/non-success;
-no live session/token issuance, UI Save/Confirm, Voice Inbox save, or saved
+no live session/token issuance, UI Save/Confirm, Voice Inbox Memory save, or saved
 candidates dashboard is enabled.
 
 Phase 2C-4c completes the design-only session-bootstrap contract review. It
@@ -333,7 +362,9 @@ Jarvis Console v0.1 is a shell, not an autonomous executor.
 - It does not launch Codex, ChatGPT, Hermes, Research Council, or Daily AI
   Radar.
 - It does not run git write commands.
-- It does not modify repository files.
+- Its only repository write is an explicitly confirmed Create Local Task file
+  under fixed `memory/tasks`; every other Console surface remains read-only or
+  write-free.
 - It does not store secrets, credentials, tokens, private messages, or hidden
   reasoning.
 - It treats Daily AI Radar recommendations as scouting output, not implementation

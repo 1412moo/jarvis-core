@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
+from http.client import HTTPConnection
 from io import StringIO
 import json
 from http import HTTPStatus
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
+import threading
 from typing import Any
 
 import run_web_app
@@ -269,6 +271,337 @@ def _test_codex_review_vertical_slice() -> None:
         "execute_command",
     )
     assert all(pattern not in adapter_source for pattern in forbidden_adapter_patterns)
+
+
+def _test_create_local_task_vertical_slice() -> None:
+    class FakeClock:
+        def __init__(self) -> None:
+            self.value = 1000.0
+
+        def __call__(self) -> float:
+            return self.value
+
+        def advance(self, seconds: float) -> None:
+            self.value += seconds
+
+    class TokenFactory:
+        def __init__(self) -> None:
+            self.counter = 0
+
+        def __call__(self) -> str:
+            self.counter += 1
+            return f"create-local-task-token-{self.counter:08d}"
+
+    assert run_web_app.handle_post_api(
+        run_web_app.CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
+        {"transcript": "must use guarded handler"},
+    )[0] == HTTPStatus.NOT_FOUND
+    assert run_web_app.handle_post_api(
+        run_web_app.CREATE_LOCAL_TASK_CONFIRM_ENDPOINT,
+        {"token": "must-use-guarded-handler", "confirmation": "CREATE LOCAL TASK"},
+    )[0] == HTTPStatus.NOT_FOUND
+
+    with TemporaryDirectory(prefix="jarvis-create-local-task-") as temp_dir:
+        tasks_dir = Path(temp_dir) / "memory" / "tasks"
+        tasks_dir.mkdir(parents=True)
+        clock = FakeClock()
+        registry = run_web_app.CreateLocalTaskRegistry(
+            clock=clock,
+            token_factory=TokenFactory(),
+            ttl_seconds=60,
+            capacity=8,
+        )
+
+        preview_status, preview = run_web_app.preview_create_local_task(
+            {"transcript": "오늘 장보기 목록 정리해줘\n우유와 계란을 확인해줘"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert preview_status == HTTPStatus.OK
+        assert preview["product_name"] == "Create Local Task"
+        assert preview["preview"] == {
+            "title": "오늘 장보기 목록 정리해줘 우유와 계란을 확인해줘",
+            "summary": "오늘 장보기 목록 정리해줘 우유와 계란을 확인해줘",
+            "status": "TODO",
+            "local_destination": "memory/tasks/task-0001-task.md",
+        }
+        assert preview["raw_transcript_saved"] is False
+        assert not list(tasks_dir.iterdir())
+
+        token = preview["token"]
+        wrong_literal_status, wrong_literal = run_web_app.confirm_create_local_task(
+            {"token": token, "confirmation": "confirm"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert wrong_literal_status == HTTPStatus.BAD_REQUEST
+        assert wrong_literal["error"] == "exact_confirmation_required"
+        assert not list(tasks_dir.iterdir())
+
+        clock.advance(59)
+        confirm_status, confirmed = run_web_app.confirm_create_local_task(
+            {
+                "token": token,
+                "confirmation": run_web_app.CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert confirm_status == HTTPStatus.OK
+        assert confirmed["result_type"] == "created"
+        receipt = confirmed["receipt"]
+        assert set(receipt) == {
+            "task_id",
+            "title",
+            "status",
+            "storage_location",
+            "created_at",
+            "next_recommended_action",
+        }
+        assert receipt["task_id"] == "task-0001-task"
+        assert receipt["title"] == preview["preview"]["title"]
+        assert receipt["status"] == "TODO"
+        assert receipt["storage_location"] == "memory/tasks/task-0001-task.md"
+        assert receipt["created_at"]
+        assert receipt["next_recommended_action"]
+        task_path = tasks_dir / "task-0001-task.md"
+        assert task_path.is_file()
+        task_text = task_path.read_text(encoding="utf-8")
+        assert f"- title: `{receipt['title']}`" in task_text
+        assert "- status: `TODO`" in task_text
+        assert "\n우유와" not in task_text
+
+        # Keep an idempotent receipt available for a bounded window after a
+        # late confirmation, even once the original preview TTL has elapsed.
+        clock.advance(2)
+        duplicate_status, duplicate = run_web_app.confirm_create_local_task(
+            {
+                "token": token,
+                "confirmation": run_web_app.CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert duplicate_status == HTTPStatus.OK
+        assert duplicate["result_type"] == "already_created"
+        assert duplicate["receipt"] == receipt
+        assert len(list(tasks_dir.glob("task-*.md"))) == 1
+
+        collision_status, collision_preview = run_web_app.preview_create_local_task(
+            {"transcript": "내일 일정 정리"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert collision_status == HTTPStatus.OK
+        assert collision_preview["preview"]["local_destination"] == (
+            "memory/tasks/task-0002-task.md"
+        )
+        collision_confirm_status, collision_confirmed = (
+            run_web_app.confirm_create_local_task(
+                {
+                    "token": collision_preview["token"],
+                    "confirmation": run_web_app.CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+                },
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+        )
+        assert collision_confirm_status == HTTPStatus.OK
+        assert collision_confirmed["receipt"]["task_id"] == "task-0002-task"
+
+        expired_status, expired_preview = run_web_app.preview_create_local_task(
+            {"transcript": "만료 확인 작업"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert expired_status == HTTPStatus.OK
+        clock.advance(61)
+        expired_confirm_status, expired_confirm = run_web_app.confirm_create_local_task(
+            {
+                "token": expired_preview["token"],
+                "confirmation": run_web_app.CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert expired_confirm_status == HTTPStatus.NOT_FOUND
+        assert expired_confirm["error"] == "invalid_or_expired_create_local_task_token"
+
+        unknown_status, unknown = run_web_app.confirm_create_local_task(
+            {
+                "token": "unknown-create-local-task-token",
+                "confirmation": run_web_app.CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert unknown_status == HTTPStatus.NOT_FOUND
+        assert unknown["error"] == "invalid_or_expired_create_local_task_token"
+
+        unsafe_status, unsafe = run_web_app.preview_create_local_task(
+            {"transcript": "제목에 ` 구분자 넣기"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert unsafe_status == HTTPStatus.CONFLICT
+        assert unsafe["error"] == "unsafe_markdown_delimiter:title"
+        extra_status, extra = run_web_app.preview_create_local_task(
+            {"transcript": "정상", "status": "DONE"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert extra_status == HTTPStatus.BAD_REQUEST
+        assert extra["error"] == "create_local_task_preview_accepts_transcript_only"
+        mutable_confirm_status, mutable_confirm = run_web_app.confirm_create_local_task(
+            {
+                "token": token,
+                "confirmation": run_web_app.CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+                "title": "tampered",
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert mutable_confirm_status == HTTPStatus.BAD_REQUEST
+        assert (
+            mutable_confirm["error"]
+            == "create_local_task_confirm_accepts_token_and_confirmation_only"
+        )
+
+        writer_draft = {
+            "title": "safe-title",
+            "status": "TODO",
+            "repo": "jarvis-core",
+            "summary": "unsafe\nsummary",
+            "source_command": "Voice Inbox",
+        }
+        writer_result = run_web_app.preview_task_file_write(
+            writer_draft,
+            tasks_dir=tasks_dir,
+        )
+        assert writer_result.result_type == "hold"
+        assert writer_result.reason == "unsafe_metadata_newline:summary"
+
+    with TemporaryDirectory(prefix="jarvis-create-local-task-limit-") as limit_dir:
+        tasks_dir = Path(limit_dir)
+        (tasks_dir / "task-9999-limit.md").write_text("fixture\n", encoding="utf-8")
+        limit_result = run_web_app.preview_task_file_write(
+            {
+                "title": "next-task",
+                "status": "TODO",
+                "repo": "jarvis-core",
+                "summary": "Must fail beyond the four-digit task ID boundary.",
+                "source_command": "Voice Inbox",
+            },
+            tasks_dir=tasks_dir,
+        )
+        assert limit_result.result_type == "error"
+        assert limit_result.reason == "task_number_limit_reached"
+
+    valid_headers = [
+        ("Host", "127.0.0.1:43210"),
+        ("Origin", "http://127.0.0.1:43210"),
+        ("Content-Type", "application/json"),
+        ("Content-Length", "2"),
+    ]
+    metadata_status, metadata = run_web_app.validate_create_local_task_http_request(
+        path=run_web_app.CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
+        query="",
+        header_pairs=valid_headers,
+        bound_port=43210,
+    )
+    assert metadata_status == HTTPStatus.OK
+    assert metadata["body_length"] == 2
+    duplicate_header_status, _ = run_web_app.validate_create_local_task_http_request(
+        path=run_web_app.CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
+        query="",
+        header_pairs=[*valid_headers, ("Host", "127.0.0.1:43210")],
+        bound_port=43210,
+    )
+    assert duplicate_header_status == HTTPStatus.BAD_REQUEST
+    transfer_status, _ = run_web_app.validate_create_local_task_http_request(
+        path=run_web_app.CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
+        query="",
+        header_pairs=[*valid_headers, ("Transfer-Encoding", "chunked")],
+        bound_port=43210,
+    )
+    assert transfer_status == HTTPStatus.BAD_REQUEST
+    query_status, _ = run_web_app.validate_create_local_task_http_request(
+        path=run_web_app.CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
+        query="unexpected=1",
+        header_pairs=valid_headers,
+        bound_port=43210,
+    )
+    assert query_status == HTTPStatus.NOT_FOUND
+    assert run_web_app.parse_create_local_task_json_body(
+        b'{"transcript":"one","transcript":"two"}'
+    )[0] == HTTPStatus.BAD_REQUEST
+
+    with TemporaryDirectory(prefix="jarvis-create-local-task-http-") as http_dir:
+        tasks_dir = Path(http_dir) / "tasks"
+        tasks_dir.mkdir()
+        registry = run_web_app.CreateLocalTaskRegistry(
+            token_factory=TokenFactory(),
+            ttl_seconds=60,
+            capacity=8,
+        )
+        server = run_web_app.ThreadingHTTPServer(
+            (run_web_app.DEFAULT_HOST, 0),
+            run_web_app.JarvisConsoleHandler,
+        )
+        server.create_local_task_registry = registry
+        server.create_local_tasks_dir = tasks_dir
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        port = int(server.server_address[1])
+
+        def post_json(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+            connection = HTTPConnection(run_web_app.DEFAULT_HOST, port, timeout=5)
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            connection.request(
+                "POST",
+                path,
+                body=body,
+                headers={
+                    "Origin": f"http://{run_web_app.DEFAULT_HOST}:{port}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response = connection.getresponse()
+            response_payload = json.loads(response.read().decode("utf-8"))
+            status = response.status
+            connection.close()
+            return status, response_payload
+
+        try:
+            route_preview_status, route_preview = post_json(
+                run_web_app.CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
+                {"transcript": "HTTP 경로 작업 생성"},
+            )
+            assert route_preview_status == HTTPStatus.OK
+            route_confirm_status, route_confirm = post_json(
+                run_web_app.CREATE_LOCAL_TASK_CONFIRM_ENDPOINT,
+                {
+                    "token": route_preview["token"],
+                    "confirmation": run_web_app.CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+                },
+            )
+            assert route_confirm_status == HTTPStatus.OK
+            assert route_confirm["receipt"]["status"] == "TODO"
+            route_duplicate_status, route_duplicate = post_json(
+                run_web_app.CREATE_LOCAL_TASK_CONFIRM_ENDPOINT,
+                {
+                    "token": route_preview["token"],
+                    "confirmation": run_web_app.CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+                },
+            )
+            assert route_duplicate_status == HTTPStatus.OK
+            assert route_duplicate["result_type"] == "already_created"
+            assert len(list(tasks_dir.glob("task-*.md"))) == 1
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=5)
+        assert not server_thread.is_alive()
 
 
 def _test_project_control_snapshot() -> None:
@@ -1265,6 +1598,7 @@ def main() -> None:
     _test_recent_milestone_evidence_contract()
     run_web_app.run_self_test()
     _test_codex_review_vertical_slice()
+    _test_create_local_task_vertical_slice()
 
     status_code, status = run_web_app.handle_get_api("/api/status")
     assert status_code == HTTPStatus.OK
@@ -2321,6 +2655,7 @@ def main() -> None:
     assert "Clear Transcript" in html
     assert "v0.1 does not record audio." in html
     assert "Jarvis will not run tools until you choose a handoff." in html
+    assert "Create Local Task never auto-saves" in html
     assert "Refresh Project Control" in html
     assert "Refresh History" in html
     assert "Refresh Memory / Skills" in html
@@ -2419,6 +2754,14 @@ def main() -> None:
     assert "/api/memory-skills/candidates/preview" in app_js
     assert "/api/codex-review/preview" in app_js
     assert "/api/voice-inbox/prepare" in app_js
+    assert "/api/create-local-task/preview" in app_js
+    assert "/api/create-local-task/confirm" in app_js
+    assert "Create Local Task Preview" in app_js
+    assert "Create Local Task Receipt" in app_js
+    assert "Task ID" in app_js
+    assert "Storage location" in app_js
+    assert "Next recommended action" in app_js
+    assert "raw transcript is not saved" in app_js
     assert "renderCodexReview" in app_js
     assert "renderCodexReviewFailure" in app_js
     assert "loadCodexReview" in app_js
@@ -2558,6 +2901,8 @@ def main() -> None:
     assert "codex-review-layout" in styles
     assert "codex-review-card" in styles
     assert "codex-review-safety-grid" in styles
+    assert "create-local-task-card" in styles
+    assert "create-local-task-receipt" in styles
 
     print("Jarvis Console smoke tests passed")
 

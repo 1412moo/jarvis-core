@@ -22,6 +22,7 @@
    - 기존 파일이 없으면 `0001`
 4. slug 생성
    - title 기반 소문자 slug 생성 (영문/숫자/하이픈)
+   - ASCII slug가 비면 `task` fallback을 사용하고 Unicode title은 그대로 보존
 5. id/파일명 확정
    - `id = task-####-slug`
    - `filename = task-####-slug.md`
@@ -34,6 +35,7 @@
 7. 파일 생성
    - 덮어쓰기 금지(`open(..., "x")`)
    - 성공 시 created 결과 반환
+   - `9999` 다음 번호는 생성하지 않고 `task_number_limit_reached`로 fail closed
 
 ## 2) 파일명 생성 규칙
 
@@ -48,6 +50,8 @@
 - 번호는 기존 유효 파일 기준 최대 번호 + 1
 - 번호 충돌이 감지되면 다음 번호를 재시도
 - 최대 재시도 횟수(예: 10회) 초과 시 error 반환
+- 다음 번호가 `10000`이면 4자리 ID 계약을 넓히지 않고
+  `task_number_limit_reached` error를 반환
 
 ## 4) slug 생성 규칙
 
@@ -56,18 +60,27 @@
   - 소문자 변환
   - 영숫자가 아닌 문자는 `-`로 치환
   - 연속/양끝 하이픈 정리
-- 결과가 빈 문자열이면 생성 중단(hold)
+- 결과가 빈 문자열이면 고정 fallback `task` 사용
 
-### 비ASCII(한글 포함) 제목 정책 (이번 단계 선택)
-- **선택 정책: 명시적 hold 처리**
-- 이유:
-  1. 현재 단계는 표준 라이브러리 기반 최소 구현이며, 임의 transliteration/fallback 규칙은 의미 왜곡 위험이 있음
-  2. 잘못된 slug로 파일이 생성되는 것보다, 명확한 hold(`invalid_title_for_slug`)가 운영상 안전함
-  3. 후속 단계에서 팀 합의된 slug 매핑 규칙(예: 로마자 변환 or 안전 fallback)을 도입하기 쉬움
+### 비ASCII(한글 포함) 제목 정책
+- 사람이 읽는 Unicode title은 정규화 결과를 그대로 보존한다.
+- ASCII slug가 비면 고정 fallback `task`를 쓴다.
+- 의미가 달라질 수 있는 자동 transliteration은 하지 않는다.
+- 순번이 ID 고유성을 제공하므로 서로 다른 한국어-only 제목은
+  `task-0004-task`, `task-0005-task`처럼 공존한다.
 
 예시:
 - `Parser Output 검증 규칙 보강` → `parser-output`
-- `보고 시스템 개선` → `hold(reason=invalid_title_for_slug)`
+- `보고 시스템 개선` → `task`
+
+### metadata 안전 경계
+
+- title 최대 120자, repo 최대 80자, summary 최대 500자,
+  source_command 최대 80자다.
+- inline-code metadata 구분자인 backtick, CR/LF newline과 Unicode control/format
+  문자는 거절한다.
+- Voice Inbox의 여러 줄 rough thought는 writer 앞에서 한 줄 Title/Summary로
+  정규화한다. raw transcript는 task 파일에 저장하지 않는다.
 
 ## 5) created_at / updated_at 기록 규칙
 
@@ -81,6 +94,7 @@
 - 2차: 파일 존재 확인(`path.exists()`)
 - 3차: 원자적 생성(`open('x')`)에서 충돌 발생 시 번호 +1 재시도
 - 안전 실패: 반복 충돌 시 `failed_to_allocate_task_number` error 반환
+- 4자리 번호 한계 뒤에는 `task_number_limit_reached` error 반환
 
 ## 7) 파일 생성 중단(hold/error) 조건
 
@@ -89,11 +103,13 @@
 - `repo` 누락
 - `summary` 누락
 - `status`가 TODO 이외 값
-- title로 slug를 만들 수 없음
+- title/repo/summary/source_command의 unsafe newline, backtick 또는 control 문자
+- 허용 길이 초과
 
 ### error
 - `memory/tasks/` 디렉터리 없음
 - 번호 할당 재시도 한도 초과
+- 4자리 번호 한도 초과
 - 기타 파일 시스템 예외(필요 시 상위에서 처리)
 
 ## 8) 로컬 실행 예시

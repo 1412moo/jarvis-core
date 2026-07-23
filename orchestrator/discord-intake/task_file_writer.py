@@ -20,10 +20,17 @@ from pathlib import Path
 from typing import Any
 import json
 import re
+import unicodedata
 
 TASK_FILE_PATTERN = re.compile(r"^task-(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$")
 DEFAULT_TASKS_DIR = Path("memory/tasks")
 DEFAULT_STATUS = "TODO"
+FALLBACK_SLUG = "task"
+MAX_TASK_NUMBER = 9999
+MAX_TITLE_CHARS = 120
+MAX_REPO_CHARS = 80
+MAX_SUMMARY_CHARS = 500
+MAX_SOURCE_COMMAND_CHARS = 80
 
 
 @dataclass
@@ -33,6 +40,7 @@ class TaskFileWriteResult:
     task_id: str | None = None
     summary: str | None = None
     reason: str | None = None
+    created_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +49,7 @@ class TaskFileWriteResult:
             "task_id": self.task_id,
             "summary": self.summary,
             "reason": self.reason,
+            "created_at": self.created_at,
         }
 
 
@@ -56,7 +65,34 @@ def _slugify(title: str) -> str:
     lowered = title.strip().lower()
     slug = re.sub(r"[^a-z0-9]+", "-", lowered)
     slug = slug.strip("-")
-    return slug
+    return slug or FALLBACK_SLUG
+
+
+def _metadata_text_error(
+    field_name: str,
+    value: Any,
+    *,
+    max_chars: int,
+    required: bool = True,
+) -> str | None:
+    if not isinstance(value, str):
+        return f"invalid_field_type:{field_name}"
+    if required and not value.strip():
+        return f"missing_required_field:{field_name}"
+    if not value and not required:
+        return None
+    if "\r" in value or "\n" in value:
+        return f"unsafe_metadata_newline:{field_name}"
+    if "`" in value:
+        return f"unsafe_markdown_delimiter:{field_name}"
+    if any(
+        unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        for character in value
+    ):
+        return f"unsafe_control_character:{field_name}"
+    if len(_normalize_spaces(value)) > max_chars:
+        return f"field_too_long:{field_name}"
+    return None
 
 
 def _existing_task_numbers(tasks_dir: Path) -> list[int]:
@@ -98,23 +134,30 @@ def _render_task_markdown(
 
 
 def _validate_draft(task_draft: dict[str, Any]) -> tuple[bool, str | None]:
+    for field_name, max_chars, required in (
+        ("title", MAX_TITLE_CHARS, True),
+        ("repo", MAX_REPO_CHARS, True),
+        ("summary", MAX_SUMMARY_CHARS, True),
+        ("source_command", MAX_SOURCE_COMMAND_CHARS, False),
+    ):
+        error = _metadata_text_error(
+            field_name,
+            task_draft.get(field_name, ""),
+            max_chars=max_chars,
+            required=required,
+        )
+        if error:
+            return False, error
+
     title = _normalize_spaces(task_draft.get("title", ""))
     repo = _normalize_spaces(task_draft.get("repo", ""))
     summary = _normalize_spaces(task_draft.get("summary", ""))
     status = _normalize_spaces(task_draft.get("status", ""))
 
-    if not title:
-        return False, "missing_required_field:title"
-    if not repo:
-        return False, "missing_required_field:repo"
-    if not summary:
-        return False, "missing_required_field:summary"
+    if not isinstance(task_draft.get("status", ""), str):
+        return False, "invalid_field_type:status"
     if status and status != DEFAULT_STATUS:
         return False, "invalid_status_for_creation:only_TODO_allowed"
-
-    slug = _slugify(title)
-    if not slug:
-        return False, "invalid_title_for_slug"
 
     return True, None
 
@@ -139,10 +182,14 @@ def write_task_file(task_draft: dict[str, Any], tasks_dir: Path = DEFAULT_TASKS_
     slug = _slugify(title)
     existing_numbers = _existing_task_numbers(tasks_dir)
     next_number = (max(existing_numbers) + 1) if existing_numbers else 1
+    if next_number > MAX_TASK_NUMBER:
+        return TaskFileWriteResult(result_type="error", reason="task_number_limit_reached")
 
     # Safe retry for rare filename conflicts (concurrent write, manual file creation, etc.)
     max_retries = 10
     for _ in range(max_retries):
+        if next_number > MAX_TASK_NUMBER:
+            return TaskFileWriteResult(result_type="error", reason="task_number_limit_reached")
         task_id = f"task-{next_number:04d}-{slug}"
         file_name = f"{task_id}.md"
         target_path = tasks_dir / file_name
@@ -174,6 +221,7 @@ def write_task_file(task_draft: dict[str, Any], tasks_dir: Path = DEFAULT_TASKS_
             file_path=str(target_path),
             task_id=task_id,
             summary="task file created",
+            created_at=now_utc,
         )
 
     return TaskFileWriteResult(result_type="error", reason="failed_to_allocate_task_number")
@@ -194,10 +242,14 @@ def preview_task_file_write(
     slug = _slugify(title)
     existing_numbers = _existing_task_numbers(tasks_dir)
     next_number = (max(existing_numbers) + 1) if existing_numbers else 1
+    if next_number > MAX_TASK_NUMBER:
+        return TaskFileWriteResult(result_type="error", reason="task_number_limit_reached")
 
     # Same allocation policy as write_task_file, but no write side effect.
     max_retries = 10
     for _ in range(max_retries):
+        if next_number > MAX_TASK_NUMBER:
+            return TaskFileWriteResult(result_type="error", reason="task_number_limit_reached")
         task_id = f"task-{next_number:04d}-{slug}"
         file_name = f"{task_id}.md"
         target_path = tasks_dir / file_name

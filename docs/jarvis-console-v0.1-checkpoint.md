@@ -21,7 +21,7 @@ It provides:
   report, checkpoint, docs, and example metadata.
 - Recent item grouping for tasks, reports, checkpoints, docs, examples, configs, and related metadata.
 - Checkpoints / History view with recent commits, checkpoint docs, related reports/examples, and read-only history discovery rules.
-- Voice Inbox v0.1 for turning pasted voice-like transcripts or rough thoughts into task candidates and manual skill handoffs.
+- Voice Inbox v0.1 for turning pasted voice-like transcripts or rough thoughts into task candidates, manual skill handoffs, and the explicit Create Local Task flow.
 - Codex Review for revalidating one copy-only Hermes envelope or an already
   scope-approved raw queue and displaying a bounded review-only session.
 
@@ -98,6 +98,42 @@ Recent Voice Inbox UX polish:
   - `프리뷰 화면 확인`
 - Unknown candidates show guidance for expressions that route to Research Council, Hermes Manager, Daily AI Radar, or Memory / Skills.
 - Unknown guidance does not show automatic execution affordances.
+
+### Create Local Task
+
+Create Local Task is a bounded local write flow inside the existing Voice Inbox:
+
+```text
+rough thought
+→ Prepare Task Candidate
+→ Preview Create Local Task
+→ Confirm Create Local Task
+→ exactly one local TODO Task
+→ Create Local Task Receipt
+```
+
+- Preview recomputes the existing Voice candidate and keeps only canonical,
+  normalized Title/Summary, fixed `TODO`, fixed `jarvis-core`, and source metadata
+  in a bounded process-memory record.
+- Preview shows the exact persisted Title, Summary, status, and provisional
+  `memory/tasks` destination. It saves nothing and does not retain the raw
+  transcript.
+- Confirm accepts only a short-lived one-use token and exact confirmation
+  literal. Client-supplied path, repo, title, summary, or status is rejected.
+- The feature-specific HTTP path validates local peer, exact route/query,
+  Host/Origin, JSON media type, duplicate required headers, Content-Length,
+  Transfer-Encoding absence, body bounds, strict UTF-8 JSON, and duplicate keys
+  before write authority is reached.
+- The writer uses fixed trusted `REPO_ROOT/memory/tasks`, creates without
+  overwrite, preserves Unicode titles, and uses fallback slug `task` only when
+  the ASCII slug would be empty.
+- Receipt fields are Task ID, Title, status `TODO`, storage location,
+  `created_at`, and next recommended action.
+- Re-confirming a successfully used token returns the same receipt and creates
+  no second Task. Expired, unknown, restarted, malformed, or failed tokens fail
+  closed.
+- Create Local Task does not approve, start, run, retry, change status, invoke
+  git, save Memory / Skills data, or call an external service.
 
 ### Skill Detail Usage Cards
 
@@ -333,7 +369,7 @@ History rendering escapes commit subjects, file titles, summaries, paths, and me
 - `POST /api/memory-skills/candidates` remains disabled/non-success.
 - The live preview endpoint remains write-free and token-free.
 - No live bootstrap route or session/CSRF issuance exists.
-- No UI Save/Confirm, Voice Inbox token/save, or saved candidates dashboard is
+- No Memory UI Save/Confirm, Voice Inbox Memory token/save, or saved candidates dashboard is
   enabled.
 
 ### Settings
@@ -498,8 +534,9 @@ Jarvis Console v0.1 maintains these boundaries:
 - Read-only git status/log only.
 - No autonomous code modification.
 - No repo write from dashboards.
-- No repo/file write behavior from Voice Inbox.
-- No task mutation.
+- No automatic repo/file write behavior from Voice Inbox; only explicit
+  Create Local Task Confirm can create one fixed local `TODO` Task.
+- No task status mutation, approval, execution, retry, or deletion.
 - No checkpoint generation.
 - No report generation from Jarvis Console.
 - No external network, API, or LLM call.

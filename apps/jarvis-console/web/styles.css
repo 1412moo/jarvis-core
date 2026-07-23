@@ -263,7 +263,10 @@ textarea {
 .voice-preview-grid div,
 .voice-candidate-facts div,
 .voice-candidate-card,
-.voice-handoff-card {
+.voice-handoff-card,
+.create-local-task-card,
+.create-local-task-preview,
+.create-local-task-receipt {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -296,8 +299,62 @@ textarea {
 
 .voice-preview-grid p,
 .voice-candidate-card p,
-.voice-handoff-card p {
+.voice-handoff-card p,
+.create-local-task-card p {
   overflow-wrap: anywhere;
+}
+
+.create-local-task-card {
+  display: grid;
+  gap: 10px;
+  border-color: #a9c7b1;
+  background: #f7fbf8;
+}
+
+.create-local-task-card .primary-button {
+  margin-top: 0;
+}
+
+.create-local-task-result {
+  min-width: 0;
+}
+
+.create-local-task-preview,
+.create-local-task-receipt {
+  display: grid;
+  gap: 10px;
+}
+
+.create-local-task-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.create-local-task-facts div {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  min-width: 0;
+}
+
+.create-local-task-facts dt {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.create-local-task-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .voice-unknown-guidance {

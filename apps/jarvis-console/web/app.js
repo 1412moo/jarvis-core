@@ -29,6 +29,9 @@ let recommendedSkillId = "";
 let registryLoadPromise = null;
 let memorySkillsData = null;
 let lastVoiceCandidateData = null;
+let createLocalTaskToken = "";
+let createLocalTaskConfirmation = "";
+let createLocalTaskBusy = false;
 const LOCAL_URL_PREFIX = "http:" + "//127.0.0.1";
 const LOCAL_URL_PROTOCOL = "http:";
 const LOCAL_URL_HOSTNAME = "127.0.0.1";
@@ -452,6 +455,28 @@ function voiceUnknownGuidance(skillId) {
   `;
 }
 
+function createLocalTaskPanel() {
+  return `
+    <section class="create-local-task-card" aria-label="Create Local Task">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Create Local Task</p>
+          <h4>Create one local TODO Task</h4>
+        </div>
+        <span class="overview-badge approval-needed">Explicit Confirm required</span>
+      </div>
+      <p>Preview the exact normalized Title, Summary, status, and local destination before creating anything.</p>
+      <p class="muted">The raw transcript is not saved. Create Local Task writes only after you click Confirm.</p>
+      <div class="suggestion-actions">
+        <button class="primary-button preview-create-local-task" type="button">Preview Create Local Task</button>
+      </div>
+      <div class="create-local-task-result">
+        <p class="muted">No Create Local Task preview yet.</p>
+      </div>
+    </section>
+  `;
+}
+
 function renderVoiceCandidate(data) {
   if (!voiceResultBox) {
     return;
@@ -464,6 +489,9 @@ function renderVoiceCandidate(data) {
   const jarvisCommand = jarvisCommandFromCleaned(cleaned);
   const matchedKeywords = candidate.matched_keywords || [];
   lastVoiceCandidateData = data;
+  createLocalTaskToken = "";
+  createLocalTaskConfirmation = "";
+  createLocalTaskBusy = false;
   voiceResultBox.innerHTML = `
     <section class="voice-candidate-card" aria-label="Voice Inbox task candidate">
       <div class="overview-section-heading">
@@ -496,6 +524,7 @@ function renderVoiceCandidate(data) {
         <button class="copy-text" type="button" data-copy-text="${escapeHtml(cleaned)}" aria-label="Copy Cleaned Task">Copy Cleaned Task</button>
         <button class="copy-text" type="button" data-copy-text="${escapeHtml(jarvisCommand)}" aria-label="Copy As Jarvis Command">Copy As Jarvis Command</button>
       </div>
+      ${createLocalTaskPanel()}
       ${voiceSkillActions(data, skill)}
       <ul class="safety-list">
         ${(data.safety_notes || []).map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
@@ -506,6 +535,147 @@ function renderVoiceCandidate(data) {
   `;
   statusText.textContent = `Voice Inbox candidate prepared: ${skill?.display_name || data.display_name || skillId}`;
   nextActionText.textContent = candidate.next_action || "Review the task candidate.";
+}
+
+function createLocalTaskResultElement() {
+  return voiceResultBox?.querySelector(".create-local-task-result") || null;
+}
+
+function renderCreateLocalTaskPreview(data) {
+  const target = createLocalTaskResultElement();
+  if (!target) {
+    return;
+  }
+  const preview = data.preview || {};
+  createLocalTaskToken = data.token || "";
+  createLocalTaskConfirmation = data.confirmation_literal || "";
+  target.innerHTML = `
+    <article class="create-local-task-preview">
+      <div class="overview-section-heading">
+        <h4>Create Local Task Preview</h4>
+        <span class="overview-badge approval-needed">Not created</span>
+      </div>
+      <dl class="create-local-task-facts">
+        <div><dt>Title</dt><dd>${escapeHtml(preview.title || "")}</dd></div>
+        <div><dt>Summary</dt><dd>${escapeHtml(preview.summary || "")}</dd></div>
+        <div><dt>Status</dt><dd>${escapeHtml(preview.status || "")}</dd></div>
+        <div><dt>Local destination</dt><dd><code>${escapeHtml(preview.local_destination || "")}</code></dd></div>
+      </dl>
+      <p class="muted">${escapeHtml(data.destination_note || "")}</p>
+      <p class="safety-note">Raw transcript saved: ${data.raw_transcript_saved ? "Yes" : "No"}</p>
+      <div class="suggestion-actions">
+        <button class="primary-button confirm-create-local-task" type="button">Confirm Create Local Task</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderCreateLocalTaskReceipt(data) {
+  const target = createLocalTaskResultElement();
+  if (!target) {
+    return;
+  }
+  const receipt = data.receipt || {};
+  const receiptState = data.result_type === "already_created" ? "Already created" : "Created";
+  target.innerHTML = `
+    <article class="create-local-task-receipt">
+      <div class="overview-section-heading">
+        <h4>Create Local Task Receipt</h4>
+        <span class="overview-badge read-only">${escapeHtml(receiptState)}</span>
+      </div>
+      <dl class="create-local-task-facts">
+        <div><dt>Task ID</dt><dd><code>${escapeHtml(receipt.task_id || "")}</code></dd></div>
+        <div><dt>Title</dt><dd>${escapeHtml(receipt.title || "")}</dd></div>
+        <div><dt>Status</dt><dd>${escapeHtml(receipt.status || "")}</dd></div>
+        <div><dt>Storage location</dt><dd><code>${escapeHtml(receipt.storage_location || "")}</code></dd></div>
+        <div><dt>Created at</dt><dd>${escapeHtml(receipt.created_at || "")}</dd></div>
+        <div><dt>Next recommended action</dt><dd>${escapeHtml(receipt.next_recommended_action || "")}</dd></div>
+      </dl>
+    </article>
+  `;
+  statusText.textContent = `${receiptState}: ${receipt.task_id || "local TODO task"}.`;
+  nextActionText.textContent = receipt.next_recommended_action || "Review the new TODO task.";
+}
+
+async function previewCreateLocalTask() {
+  if (createLocalTaskBusy) {
+    return;
+  }
+  const preparedTranscript = String(lastVoiceCandidateData?.raw_transcript || "").trim();
+  const currentTranscript = voiceTranscriptInput?.value.trim() || "";
+  if (!preparedTranscript || currentTranscript !== preparedTranscript) {
+    statusText.textContent = "Prepare the current Voice Inbox text again before Create Local Task.";
+    return;
+  }
+
+  createLocalTaskBusy = true;
+  const target = createLocalTaskResultElement();
+  if (target) {
+    target.innerHTML = "<p class=\"muted\">Preparing Create Local Task preview...</p>";
+  }
+  try {
+    const response = await fetch("/api/create-local-task/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript: preparedTranscript }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderCreateLocalTaskPreview(data);
+    statusText.textContent = "Create Local Task preview ready. Nothing has been created.";
+    nextActionText.textContent = "Review every persisted field, then Confirm Create Local Task.";
+  } catch (error) {
+    createLocalTaskToken = "";
+    createLocalTaskConfirmation = "";
+    if (target) {
+      target.innerHTML = `<p class="safety-note">Create Local Task preview failed: ${escapeHtml(error.message)}</p>`;
+    }
+    statusText.textContent = `Create Local Task preview failed: ${error.message}`;
+  } finally {
+    createLocalTaskBusy = false;
+  }
+}
+
+async function confirmCreateLocalTask() {
+  if (createLocalTaskBusy || !createLocalTaskToken || !createLocalTaskConfirmation) {
+    return;
+  }
+  createLocalTaskBusy = true;
+  const button = voiceResultBox?.querySelector(".confirm-create-local-task");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Creating local TODO Task...";
+  }
+  try {
+    const response = await fetch("/api/create-local-task/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: createLocalTaskToken,
+        confirmation: createLocalTaskConfirmation,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderCreateLocalTaskReceipt(data);
+  } catch (error) {
+    const target = createLocalTaskResultElement();
+    if (target) {
+      target.innerHTML = `
+        <p class="safety-note">Create Local Task failed: ${escapeHtml(error.message)}</p>
+        <button class="secondary-action preview-create-local-task" type="button">Preview Create Local Task again</button>
+      `;
+    }
+    createLocalTaskToken = "";
+    createLocalTaskConfirmation = "";
+    statusText.textContent = `Create Local Task failed: ${error.message}`;
+  } finally {
+    createLocalTaskBusy = false;
+  }
 }
 
 function renderSkillCards(skills) {
@@ -1922,6 +2092,10 @@ function clearVoiceTranscript() {
   if (voiceResultBox) {
     voiceResultBox.innerHTML = "<p class=\"muted\">No task candidate prepared yet.</p>";
   }
+  lastVoiceCandidateData = null;
+  createLocalTaskToken = "";
+  createLocalTaskConfirmation = "";
+  createLocalTaskBusy = false;
   statusText.textContent = "Voice Inbox cleared. No transcript was saved.";
 }
 
@@ -2028,6 +2202,18 @@ skillGrid.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const createLocalTaskPreviewButton = event.target.closest(".preview-create-local-task");
+  if (createLocalTaskPreviewButton) {
+    previewCreateLocalTask();
+    return;
+  }
+
+  const createLocalTaskConfirmButton = event.target.closest(".confirm-create-local-task");
+  if (createLocalTaskConfirmButton) {
+    confirmCreateLocalTask();
+    return;
+  }
+
   const detailButton = event.target.closest(".open-skill-details");
   if (detailButton) {
     recommendedSkillId = detailButton.dataset.skillId || "";

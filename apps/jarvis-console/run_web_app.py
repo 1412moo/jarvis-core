@@ -14,8 +14,10 @@ import os
 import re
 import secrets
 import stat
+import sys
 import threading
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -53,6 +55,12 @@ REPO_ROOT = APP_ROOT.parents[1]
 WEB_ROOT = APP_ROOT / "web"
 REGISTRY_PATH = APP_ROOT / "skills.json"
 MASTER_PLAN_PATH = REPO_ROOT / "docs" / "master-plan.md"
+DISCORD_INTAKE_ROOT = REPO_ROOT / "orchestrator" / "discord-intake"
+if str(DISCORD_INTAKE_ROOT) not in sys.path:
+    sys.path.insert(0, str(DISCORD_INTAKE_ROOT))
+
+from task_file_writer import preview_task_file_write, write_task_file  # noqa: E402
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8790
 MAX_JSON_BODY_BYTES = 64_000
@@ -148,6 +156,27 @@ HISTORY_NAME_MARKERS = ("checkpoint", "summary", "report")
 VOICE_INBOX_MAX_TRANSCRIPT_CHARS = 8000
 VOICE_INBOX_TITLE_MAX_CHARS = 120
 VOICE_INBOX_SUMMARY_MAX_CHARS = 280
+CREATE_LOCAL_TASK_PRODUCT_NAME = "Create Local Task"
+CREATE_LOCAL_TASK_PREVIEW_ENDPOINT = "/api/create-local-task/preview"
+CREATE_LOCAL_TASK_CONFIRM_ENDPOINT = "/api/create-local-task/confirm"
+CREATE_LOCAL_TASK_CONFIRMATION_LITERAL = "CREATE LOCAL TASK"
+CREATE_LOCAL_TASK_STATUS = "TODO"
+CREATE_LOCAL_TASK_REPO = "jarvis-core"
+CREATE_LOCAL_TASK_STORAGE_ROOT = "memory/tasks"
+CREATE_LOCAL_TASKS_DIR = REPO_ROOT / "memory" / "tasks"
+CREATE_LOCAL_TASK_TOKEN_TTL_SECONDS = 10 * 60
+CREATE_LOCAL_TASK_TOKEN_CAPACITY = 128
+CREATE_LOCAL_TASK_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{24,128}$")
+CREATE_LOCAL_TASK_ALLOWED_CONTENT_TYPES = {
+    "application/json",
+    "application/json; charset=utf-8",
+}
+CREATE_LOCAL_TASK_REQUIRED_HEADERS = (
+    "host",
+    "origin",
+    "content-type",
+    "content-length",
+)
 SECRET_LIKE_NAME_PARTS = ("secret", "token", "credential", "password", ".env")
 VOICE_TERM_CORRECTIONS = (
     ("데일리 AI 레이더", "Daily AI Radar"),
@@ -3678,6 +3707,265 @@ def voice_next_action(suggestion: dict[str, Any]) -> str:
     return f"Review the candidate, then open {display_name} details or copy the handoff command."
 
 
+@dataclass
+class _CreateLocalTaskRecord:
+    candidate: dict[str, str]
+    expires_at: float
+    receipt: dict[str, str] | None = None
+    consumed_without_receipt: bool = False
+
+
+class CreateLocalTaskRegistry:
+    """Feature-local, process-memory authority for one confirmed task write."""
+
+    def __init__(
+        self,
+        *,
+        clock: Any = time.monotonic,
+        token_factory: Any = lambda: secrets.token_urlsafe(32),
+        ttl_seconds: int = CREATE_LOCAL_TASK_TOKEN_TTL_SECONDS,
+        capacity: int = CREATE_LOCAL_TASK_TOKEN_CAPACITY,
+    ) -> None:
+        self._clock = clock
+        self._token_factory = token_factory
+        self._ttl_seconds = ttl_seconds
+        self._capacity = capacity
+        self._records: dict[str, _CreateLocalTaskRecord] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _digest(token: str) -> str:
+        return hashlib.sha256(f"create-local-task:{token}".encode("utf-8")).hexdigest()
+
+    def _purge_expired_locked(self, now: float) -> None:
+        expired = [
+            digest
+            for digest, record in self._records.items()
+            if record.expires_at <= now
+        ]
+        for digest in expired:
+            del self._records[digest]
+
+    def issue(self, candidate: dict[str, str]) -> tuple[int, dict[str, Any]]:
+        now = float(self._clock())
+        with self._lock:
+            self._purge_expired_locked(now)
+            if len(self._records) >= self._capacity:
+                return HTTPStatus.SERVICE_UNAVAILABLE, {
+                    "ok": False,
+                    "error": "create_local_task_temporarily_unavailable",
+                }
+            for _ in range(8):
+                token = str(self._token_factory())
+                if not CREATE_LOCAL_TASK_TOKEN_PATTERN.fullmatch(token):
+                    continue
+                digest = self._digest(token)
+                if digest in self._records:
+                    continue
+                self._records[digest] = _CreateLocalTaskRecord(
+                    candidate=dict(candidate),
+                    expires_at=now + self._ttl_seconds,
+                )
+                return HTTPStatus.OK, {
+                    "ok": True,
+                    "token": token,
+                    "expires_in_seconds": self._ttl_seconds,
+                }
+        return HTTPStatus.SERVICE_UNAVAILABLE, {
+            "ok": False,
+            "error": "create_local_task_temporarily_unavailable",
+        }
+
+    def confirm(
+        self,
+        *,
+        token: str,
+        confirmation: str,
+        tasks_dir: Path,
+    ) -> tuple[int, dict[str, Any]]:
+        if confirmation != CREATE_LOCAL_TASK_CONFIRMATION_LITERAL:
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "exact_confirmation_required",
+            }
+        if not CREATE_LOCAL_TASK_TOKEN_PATTERN.fullmatch(token):
+            return HTTPStatus.NOT_FOUND, {
+                "ok": False,
+                "error": "invalid_or_expired_create_local_task_token",
+            }
+
+        now = float(self._clock())
+        digest = self._digest(token)
+        with self._lock:
+            self._purge_expired_locked(now)
+            record = self._records.get(digest)
+            if record is None:
+                return HTTPStatus.NOT_FOUND, {
+                    "ok": False,
+                    "error": "invalid_or_expired_create_local_task_token",
+                }
+            if record.receipt is not None:
+                return HTTPStatus.OK, {
+                    "ok": True,
+                    "product_name": CREATE_LOCAL_TASK_PRODUCT_NAME,
+                    "result_type": "already_created",
+                    "receipt": dict(record.receipt),
+                }
+            if record.consumed_without_receipt:
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "create_local_task_token_already_consumed",
+                }
+
+            record.consumed_without_receipt = True
+            try:
+                write_result = write_task_file(record.candidate, tasks_dir=tasks_dir)
+            except OSError:
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "create_local_task_storage_unavailable",
+                }
+            if write_result.result_type != "created" or not write_result.task_id:
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": write_result.reason or "create_local_task_failed",
+                }
+
+            receipt = {
+                "task_id": write_result.task_id,
+                "title": record.candidate["title"],
+                "status": CREATE_LOCAL_TASK_STATUS,
+                "storage_location": (
+                    f"{CREATE_LOCAL_TASK_STORAGE_ROOT}/{write_result.task_id}.md"
+                ),
+                "created_at": write_result.created_at or "",
+                "next_recommended_action": (
+                    "Review the new TODO task before any status change or execution."
+                ),
+            }
+            record.receipt = receipt
+            record.expires_at = now + self._ttl_seconds
+            return HTTPStatus.OK, {
+                "ok": True,
+                "product_name": CREATE_LOCAL_TASK_PRODUCT_NAME,
+                "result_type": "created",
+                "receipt": dict(receipt),
+            }
+
+
+CREATE_LOCAL_TASK_REGISTRY = CreateLocalTaskRegistry()
+
+
+def _create_local_task_transcript_error(transcript: str) -> str | None:
+    for character in transcript:
+        category = unicodedata.category(character)
+        if category in {"Cc", "Cf", "Cs", "Zl", "Zp"} and character not in {
+            "\r",
+            "\n",
+            "\t",
+        }:
+            return "unsafe_transcript_control_character"
+    return None
+
+
+def preview_create_local_task(
+    payload: dict[str, Any],
+    *,
+    registry: CreateLocalTaskRegistry = CREATE_LOCAL_TASK_REGISTRY,
+    tasks_dir: Path = CREATE_LOCAL_TASKS_DIR,
+) -> tuple[int, dict[str, Any]]:
+    """Create an exact, in-memory preview from the existing Voice candidate."""
+
+    if set(payload) != {"transcript"}:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "create_local_task_preview_accepts_transcript_only",
+        }
+    transcript = payload.get("transcript")
+    if not isinstance(transcript, str):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "transcript_must_be_string",
+        }
+    transcript_error = _create_local_task_transcript_error(transcript)
+    if transcript_error:
+        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": transcript_error}
+
+    voice_status, voice_result = prepare_voice_inbox_task({"transcript": transcript})
+    if voice_status != HTTPStatus.OK:
+        return voice_status, voice_result
+    task_candidate = voice_result["task_candidate"]
+    canonical_candidate = {
+        "title": task_candidate["title"],
+        "status": CREATE_LOCAL_TASK_STATUS,
+        "repo": CREATE_LOCAL_TASK_REPO,
+        "summary": task_candidate["summary"],
+        "source_command": "Voice Inbox",
+    }
+    try:
+        provisional = preview_task_file_write(canonical_candidate, tasks_dir=tasks_dir)
+    except OSError:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "create_local_task_storage_unavailable",
+        }
+    if provisional.result_type != "would_create" or not provisional.task_id:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": provisional.reason or "create_local_task_preview_failed",
+        }
+
+    issue_status, issued = registry.issue(canonical_candidate)
+    if issue_status != HTTPStatus.OK:
+        return issue_status, issued
+    return HTTPStatus.OK, {
+        "ok": True,
+        "product_name": CREATE_LOCAL_TASK_PRODUCT_NAME,
+        "token": issued["token"],
+        "expires_in_seconds": issued["expires_in_seconds"],
+        "confirmation_literal": CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+        "preview": {
+            "title": canonical_candidate["title"],
+            "summary": canonical_candidate["summary"],
+            "status": CREATE_LOCAL_TASK_STATUS,
+            "local_destination": (
+                f"{CREATE_LOCAL_TASK_STORAGE_ROOT}/{provisional.task_id}.md"
+            ),
+        },
+        "raw_transcript_saved": False,
+        "destination_note": (
+            "This destination is provisional. The receipt after Confirm is authoritative."
+        ),
+    }
+
+
+def confirm_create_local_task(
+    payload: dict[str, Any],
+    *,
+    registry: CreateLocalTaskRegistry = CREATE_LOCAL_TASK_REGISTRY,
+    tasks_dir: Path = CREATE_LOCAL_TASKS_DIR,
+) -> tuple[int, dict[str, Any]]:
+    """Confirm one server-held candidate without accepting mutable task fields."""
+
+    if set(payload) != {"token", "confirmation"}:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "create_local_task_confirm_accepts_token_and_confirmation_only",
+        }
+    token = payload.get("token")
+    confirmation = payload.get("confirmation")
+    if not isinstance(token, str) or not isinstance(confirmation, str):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_create_local_task_confirmation",
+        }
+    return registry.confirm(
+        token=token,
+        confirmation=confirmation,
+        tasks_dir=tasks_dir,
+    )
+
+
 def prepare_voice_inbox_task(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Prepare a read-only task candidate from a pasted transcript."""
 
@@ -3733,6 +4021,117 @@ def parse_json_body(raw_body: bytes) -> tuple[int, dict[str, Any]]:
     if not isinstance(payload, dict):
         return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "json_body_must_be_object"}
     return HTTPStatus.OK, payload
+
+
+class _DuplicateCreateLocalTaskJsonKey(ValueError):
+    pass
+
+
+def parse_create_local_task_json_body(raw_body: bytes) -> tuple[int, dict[str, Any]]:
+    """Parse feature-local JSON while rejecting duplicate keys at every depth."""
+
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in parsed:
+                raise _DuplicateCreateLocalTaskJsonKey
+            parsed[key] = value
+        return parsed
+
+    try:
+        payload = json.loads(
+            raw_body.decode("utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        _DuplicateCreateLocalTaskJsonKey,
+    ):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_create_local_task_json",
+        }
+    if not isinstance(payload, dict):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "create_local_task_json_must_be_object",
+        }
+    return HTTPStatus.OK, payload
+
+
+def validate_create_local_task_http_request(
+    *,
+    path: str,
+    query: str,
+    header_pairs: list[tuple[str, str]],
+    bound_port: int,
+) -> tuple[int, dict[str, Any]]:
+    """Validate the exact write-capable local request before reading its body."""
+
+    if path not in {
+        CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
+        CREATE_LOCAL_TASK_CONFIRM_ENDPOINT,
+    } or query:
+        return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
+    if len(header_pairs) > 32:
+        return HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE, {
+            "ok": False,
+            "error": "invalid_create_local_task_headers",
+        }
+
+    headers: dict[str, list[str]] = {}
+    for raw_name, raw_value in header_pairs:
+        name = str(raw_name).strip().lower()
+        value = str(raw_value).strip()
+        if not name or len(name) > 80 or len(value) > 1024:
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "invalid_create_local_task_headers",
+            }
+        headers.setdefault(name, []).append(value)
+
+    if headers.get("transfer-encoding"):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "transfer_encoding_not_allowed",
+        }
+    if any(len(headers.get(name, [])) != 1 for name in CREATE_LOCAL_TASK_REQUIRED_HEADERS):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_create_local_task_headers",
+        }
+
+    expected_authority = f"{DEFAULT_HOST}:{bound_port}"
+    if headers["host"][0] != expected_authority:
+        return HTTPStatus.FORBIDDEN, {
+            "ok": False,
+            "error": "create_local_task_origin_rejected",
+        }
+    if headers["origin"][0] != f"http://{expected_authority}":
+        return HTTPStatus.FORBIDDEN, {
+            "ok": False,
+            "error": "create_local_task_origin_rejected",
+        }
+    if headers["content-type"][0].lower() not in CREATE_LOCAL_TASK_ALLOWED_CONTENT_TYPES:
+        return HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {
+            "ok": False,
+            "error": "create_local_task_json_required",
+        }
+
+    content_length = headers["content-length"][0]
+    if not re.fullmatch(r"0|[1-9][0-9]*", content_length):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_content_length",
+        }
+    body_length = int(content_length)
+    if body_length <= 0 or body_length > MAX_JSON_BODY_BYTES:
+        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {
+            "ok": False,
+            "error": "create_local_task_body_size_rejected",
+        }
+    return HTTPStatus.OK, {"ok": True, "body_length": body_length}
 
 
 def handle_get_api(path: str, query: str = "") -> tuple[int, dict[str, Any]]:
@@ -3820,7 +4219,14 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "local_clients_only"})
             return
 
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path in {
+            CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
+            CREATE_LOCAL_TASK_CONFIRM_ENDPOINT,
+        }:
+            self._handle_create_local_task_post(parsed.path, parsed.query)
+            return
         if path not in {
             "/api/suggest-skill",
             "/api/voice-inbox/prepare",
@@ -3846,6 +4252,48 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             return
 
         response_status, response_payload = handle_post_api(path, payload)
+        self._send_json(response_status, response_payload)
+
+    def _handle_create_local_task_post(self, path: str, query: str) -> None:
+        header_pairs = list(self.headers.raw_items())
+        metadata_status, metadata = validate_create_local_task_http_request(
+            path=path,
+            query=query,
+            header_pairs=header_pairs,
+            bound_port=int(self.server.server_address[1]),
+        )
+        if metadata_status != HTTPStatus.OK:
+            self._send_json(metadata_status, metadata)
+            return
+
+        raw_body = self.rfile.read(metadata["body_length"])
+        parse_status, payload = parse_create_local_task_json_body(raw_body)
+        if parse_status != HTTPStatus.OK:
+            self._send_json(parse_status, payload)
+            return
+
+        registry = getattr(
+            self.server,
+            "create_local_task_registry",
+            CREATE_LOCAL_TASK_REGISTRY,
+        )
+        tasks_dir = getattr(
+            self.server,
+            "create_local_tasks_dir",
+            CREATE_LOCAL_TASKS_DIR,
+        )
+        if path == CREATE_LOCAL_TASK_PREVIEW_ENDPOINT:
+            response_status, response_payload = preview_create_local_task(
+                payload,
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+        else:
+            response_status, response_payload = confirm_create_local_task(
+                payload,
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
         self._send_json(response_status, response_payload)
 
     def log_message(self, format: str, *args: Any) -> None:
