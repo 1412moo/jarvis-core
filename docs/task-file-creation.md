@@ -33,7 +33,10 @@
    - `title`, `repo`, `summary`, `id` 반영
    - `source_command`가 있으면 선택적으로 하단 메타에 포함 (현재 intake draft 기준 값은 `/task`)
 7. 파일 생성
-   - 덮어쓰기 금지(`open(..., "x")`)
+   - 같은 디렉터리의 attempt 전용 임시 파일에 write/flush/fsync/close
+   - 완성된 임시 파일을 atomic no-overwrite publish
+   - publish 전 실패 시 최종 `task-*.md`를 남기지 않고 이번 attempt의
+     임시 artifact만 정리
    - 성공 시 created 결과 반환
    - `9999` 다음 번호는 생성하지 않고 `task_number_limit_reached`로 fail closed
 

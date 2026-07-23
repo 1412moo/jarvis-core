@@ -8,6 +8,7 @@ from io import StringIO
 import json
 from http import HTTPStatus
 from pathlib import Path
+import socket
 import subprocess
 from tempfile import TemporaryDirectory
 import threading
@@ -292,6 +293,34 @@ def _test_create_local_task_vertical_slice() -> None:
             self.counter += 1
             return f"create-local-task-token-{self.counter:08d}"
 
+    class FailingTextFile:
+        def __init__(self, path: Path, stage: str) -> None:
+            self._file = path.open("x", encoding="utf-8", newline="\n")
+            self._stage = stage
+
+        def write(self, content: str) -> int:
+            if self._stage == "write":
+                raise OSError("injected write failure")
+            return self._file.write(content)
+
+        def flush(self) -> None:
+            if self._stage == "flush":
+                raise OSError("injected flush failure")
+            self._file.flush()
+
+        def fileno(self) -> int:
+            return self._file.fileno()
+
+        def close(self) -> None:
+            self._file.close()
+            if self._stage == "close":
+                raise OSError("injected close failure")
+
+    html = Path(run_web_app.WEB_ROOT, "index.html").read_text(encoding="utf-8")
+    assert (
+        "The only write is one explicitly confirmed Create Local Task TODO."
+        in html
+    )
     assert run_web_app.handle_post_api(
         run_web_app.CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
         {"transcript": "must use guarded handler"},
@@ -481,6 +510,50 @@ def _test_create_local_task_vertical_slice() -> None:
         assert writer_result.result_type == "hold"
         assert writer_result.reason == "unsafe_metadata_newline:summary"
 
+        safe_writer_draft = {
+            "title": "failure atomic task",
+            "status": "TODO",
+            "repo": "jarvis-core",
+            "summary": "No partial final task may survive an I/O failure.",
+            "source_command": "Voice Inbox",
+        }
+        for failure_stage in ("write", "flush", "close", "publish"):
+            failure_dir = tasks_dir / f"failure-{failure_stage}"
+            failure_dir.mkdir()
+
+            def injected_open(
+                path: Path,
+                stage: str = failure_stage,
+            ) -> FailingTextFile:
+                return FailingTextFile(path, stage)
+
+            def injected_publish(_temp_path: Path, _target_path: Path) -> None:
+                raise OSError("injected publish failure")
+
+            failure_kwargs: dict[str, Any] = {
+                "_temp_token_factory": lambda: "f" * 16,
+            }
+            if failure_stage == "publish":
+                failure_kwargs["_publish_temp_file"] = injected_publish
+            else:
+                failure_kwargs["_open_temp_file"] = injected_open
+            failed_write = run_web_app.write_task_file(
+                safe_writer_draft,
+                tasks_dir=failure_dir,
+                **failure_kwargs,
+            )
+            assert failed_write.result_type == "error"
+            assert not list(failure_dir.glob("task-*.md"))
+            assert not list(failure_dir.iterdir())
+
+            recovery = run_web_app.write_task_file(
+                safe_writer_draft,
+                tasks_dir=failure_dir,
+            )
+            assert recovery.result_type == "created"
+            assert recovery.task_id == "task-0001-failure-atomic-task"
+            assert len(list(failure_dir.glob("task-*.md"))) == 1
+
     with TemporaryDirectory(prefix="jarvis-create-local-task-limit-") as limit_dir:
         tasks_dir = Path(limit_dir)
         (tasks_dir / "task-9999-limit.md").write_text("fixture\n", encoding="utf-8")
@@ -573,6 +646,34 @@ def _test_create_local_task_vertical_slice() -> None:
             return status, response_payload
 
         try:
+            truncated_body = b'{"transcript":"truncated request"}'
+            declared_length = len(truncated_body) + 7
+            raw_request = (
+                f"POST {run_web_app.CREATE_LOCAL_TASK_PREVIEW_ENDPOINT} HTTP/1.1\r\n"
+                f"Host: {run_web_app.DEFAULT_HOST}:{port}\r\n"
+                f"Origin: http://{run_web_app.DEFAULT_HOST}:{port}\r\n"
+                "Content-Type: application/json\r\n"
+                f"Content-Length: {declared_length}\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+            ).encode("ascii") + truncated_body
+            with socket.create_connection(
+                (run_web_app.DEFAULT_HOST, port),
+                timeout=5,
+            ) as truncated_socket:
+                truncated_socket.sendall(raw_request)
+                truncated_socket.shutdown(socket.SHUT_WR)
+                response_chunks: list[bytes] = []
+                while True:
+                    chunk = truncated_socket.recv(4096)
+                    if not chunk:
+                        break
+                    response_chunks.append(chunk)
+            truncated_response = b"".join(response_chunks)
+            assert b" 400 " in truncated_response.split(b"\r\n", 1)[0]
+            assert b"create_local_task_body_length_mismatch" in truncated_response
+            assert not list(tasks_dir.iterdir())
+
             route_preview_status, route_preview = post_json(
                 run_web_app.CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
                 {"transcript": "HTTP 경로 작업 생성"},

@@ -27,12 +27,13 @@ It provides:
 
 Jarvis Console does not execute skills automatically. It suggests, prepares, and displays handoffs; it is a starting point and operations dashboard, not an autonomous runner.
 
-## Current HEAD / Status
+## Historical Verification Snapshot
 
-- Verified implementation HEAD: `e25ba92`
-- Commits: `jarvis-console: show recent milestone evidence` and
+- Implementation HEAD verified when this checkpoint section was recorded:
+  `e25ba92`
+- Historical commits: `jarvis-console: show recent milestone evidence` and
   `test: follow project control recommendation contract`
-- Expected working tree after the documentation commit: `?? jarvis.bat`
+- Working tree expected for that historical checkpoint: `?? jarvis.bat`
 - `jarvis.bat` remains untracked and protected
 
 ## Current Capabilities

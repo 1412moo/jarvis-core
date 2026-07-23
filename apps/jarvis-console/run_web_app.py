@@ -4267,6 +4267,15 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             return
 
         raw_body = self.rfile.read(metadata["body_length"])
+        if len(raw_body) != metadata["body_length"]:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "ok": False,
+                    "error": "create_local_task_body_length_mismatch",
+                },
+            )
+            return
         parse_status, payload = parse_create_local_task_json_body(raw_body)
         if parse_status != HTTPStatus.OK:
             self._send_json(parse_status, payload)

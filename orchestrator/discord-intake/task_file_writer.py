@@ -17,9 +17,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TextIO
 import json
+import os
 import re
+import secrets
 import unicodedata
 
 TASK_FILE_PATTERN = re.compile(r"^task-(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$")
@@ -133,6 +135,76 @@ def _render_task_markdown(
     return "\n".join(lines)
 
 
+def _open_attempt_temp_file(path: Path) -> TextIO:
+    return path.open("x", encoding="utf-8", newline="\n")
+
+
+def _publish_attempt_temp_file(temp_path: Path, target_path: Path) -> None:
+    os.link(temp_path, target_path)
+
+
+def _clean_attempt_temp_file(temp_path: Path) -> None:
+    try:
+        temp_path.unlink(missing_ok=True)
+    except OSError:
+        # The final task path is never removed here. A locked temporary file may
+        # remain for manual cleanup, but it cannot be parsed as a task file.
+        pass
+
+
+def _write_failure_atomic(
+    *,
+    target_path: Path,
+    content: str,
+    open_temp_file: Callable[[Path], TextIO],
+    publish_temp_file: Callable[[Path, Path], None],
+    temp_token_factory: Callable[[], str],
+) -> tuple[str, str | None]:
+    """Write, sync, close, then atomically publish without overwriting."""
+
+    temp_path: Path | None = None
+    temp_file: TextIO | None = None
+    for _ in range(8):
+        token = str(temp_token_factory())
+        if not re.fullmatch(r"[a-f0-9]{16,64}", token):
+            continue
+        candidate_path = target_path.parent / f".{target_path.name}.{token}.tmp"
+        try:
+            temp_file = open_temp_file(candidate_path)
+        except FileExistsError:
+            continue
+        except OSError:
+            return "error", "task_file_temp_create_failed"
+        temp_path = candidate_path
+        break
+
+    if temp_path is None or temp_file is None:
+        return "error", "task_file_temp_allocation_failed"
+
+    try:
+        try:
+            temp_file.write(content)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        finally:
+            temp_file.close()
+    except (OSError, UnicodeError):
+        _clean_attempt_temp_file(temp_path)
+        return "error", "task_file_write_failed"
+
+    try:
+        publish_temp_file(temp_path, target_path)
+    except FileExistsError:
+        _clean_attempt_temp_file(temp_path)
+        return "collision", None
+    except OSError:
+        _clean_attempt_temp_file(temp_path)
+        return "error", "task_file_publish_failed"
+
+    _clean_attempt_temp_file(temp_path)
+    return "created", None
+
+
 def _validate_draft(task_draft: dict[str, Any]) -> tuple[bool, str | None]:
     for field_name, max_chars, required in (
         ("title", MAX_TITLE_CHARS, True),
@@ -162,7 +234,14 @@ def _validate_draft(task_draft: dict[str, Any]) -> tuple[bool, str | None]:
     return True, None
 
 
-def write_task_file(task_draft: dict[str, Any], tasks_dir: Path = DEFAULT_TASKS_DIR) -> TaskFileWriteResult:
+def write_task_file(
+    task_draft: dict[str, Any],
+    tasks_dir: Path = DEFAULT_TASKS_DIR,
+    *,
+    _open_temp_file: Callable[[Path], TextIO] = _open_attempt_temp_file,
+    _publish_temp_file: Callable[[Path, Path], None] = _publish_attempt_temp_file,
+    _temp_token_factory: Callable[[], str] = lambda: secrets.token_hex(8),
+) -> TaskFileWriteResult:
     """Create one task markdown file from task draft object.
 
     The function never overwrites an existing file.
@@ -209,12 +288,18 @@ def write_task_file(task_draft: dict[str, Any], tasks_dir: Path = DEFAULT_TASKS_
             source_command=source_command,
         )
 
-        try:
-            with target_path.open("x", encoding="utf-8") as fp:
-                fp.write(content)
-        except FileExistsError:
+        publish_result, publish_reason = _write_failure_atomic(
+            target_path=target_path,
+            content=content,
+            open_temp_file=_open_temp_file,
+            publish_temp_file=_publish_temp_file,
+            temp_token_factory=_temp_token_factory,
+        )
+        if publish_result == "collision":
             next_number += 1
             continue
+        if publish_result != "created":
+            return TaskFileWriteResult(result_type="error", reason=publish_reason)
 
         return TaskFileWriteResult(
             result_type="created",
