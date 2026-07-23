@@ -196,17 +196,22 @@ and the saved candidates dashboard remain disabled or absent.
   Interactive local browser QA confirmed the two labels, enabled live-check
   controls for v0.1B, disabled them for v0.1A, and reported zero console
   warnings or errors. The isolated QA server and state were removed.
-- A complete owner real-work Save/Reopen/content-drift browser exercise remains
-  the next operating validation; it is not an implementation blocker.
+- Owner-visible real-work QA then used the actual Jarvis-Core working tree and
+  a transient scoped document. It completed preview, Save, list, read-only
+  Reopen, same-short-status byte-drift blocking with empty output, exact-byte
+  restoration, deterministic content-verified handoff regeneration, exact
+  Delete, and `absent` recovery with zero browser warnings or errors.
 - Browser QA used an external temporary state override, which was deleted after
-  validation. The default Review store and repository-local state were not
-  created.
+  validation. The transient document and server were also removed; the default
+  Review store and repository-local state were not created.
 
 ## Next candidate
 
 [Durable Review Content Evidence Binding v0.1E](hermes-durable-review-content-evidence-v0.1-design.md)
 and v0.1F list readiness visibility are implemented end to end. The next action
-is owner-visible real-work feedback, not another evidence primitive. Repeat one
-Save/Reopen/content-drift browser exercise with an actual Review, then choose
-the next product workstream without expanding execution, external-call,
-push/PR, or Memory Save authority.
+is an explicit owner selection of the next bounded user-visible workstream, not
+another evidence primitive. Do not expand execution, external-call, push/PR,
+or Memory Save authority while making that choice. If Hermes remains selected,
+the observed next candidate is explicit in-progress feedback and duplicate-click
+prevention while Save, handoff verification, or exact Delete is running; it
+requires no new route, persistence, or authority.

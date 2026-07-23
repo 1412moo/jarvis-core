@@ -739,6 +739,17 @@ scope reconfirmation. The server-side handoff check remains authoritative and
 fail closed. v0.1F adds no route, storage field, migration, execution, external
 call, or approval authority.
 
+Owner-visible real-work validation also completed against the actual
+Jarvis-Core working tree with an isolated Review store and one transient scoped
+document. The browser completed preview, Save, list, read-only Reopen,
+same-short-status byte-drift blocking with empty output, exact-byte restoration,
+deterministic content-verified handoff regeneration, exact Delete, and `absent`
+recovery. The QA record, state, server, and transient document were removed.
+The exercise also exposed one bounded UX risk: while local content verification
+is running, the previous status can remain visible for several seconds. The
+result still fails closed, but explicit in-progress feedback and duplicate-click
+prevention are candidates for a separately approved user-visible package.
+
 ## Contract
 
 See [contracts/hermes-manager-pilot-v0.1.md](contracts/hermes-manager-pilot-v0.1.md).

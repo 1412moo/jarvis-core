@@ -85,13 +85,13 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Saved Review Evidence Readiness Visibility v0.1F**
-- 현재 다음 작업: **owner-visible real Review Save/Reopen/content-drift 실사용 검증**
-- 현재 사용자 체감 결과: **목록에서 content-check 가능/legacy 차단을 먼저 구분하고, 실제 일치할 때만 handoff 재생성**
-- 다음 사용자 체감 milestone: **동일 흐름을 실제 Review 1건으로 반복 검증**
-- 최근 검증 결과: v0.1B/legacy 목록 표시와 control enable/disable 실제 브라우저 확인,
-  동일 short status의 byte drift 차단, 전체 local regression 통과
-- 현재 결정 필요: **없음** — 실제 Review 반복 검증 후 다음 workstream 선택
+- 최근 완료: **Hermes 실제 Review Save/Reopen/content-drift owner flow 검증**
+- 현재 다음 작업: **Hermes 검증 중 busy-state UX를 승인할지 다른 workstream을 선택할지 결정**
+- 현재 사용자 체감 결과: **실제 저장소에서도 content drift는 차단되고 원본 복원 후에만 동일 handoff 재생성**
+- 다음 사용자 체감 milestone: **승인 시 오래 걸리는 로컬 검증에 즉시 진행 상태를 표시하고 중복 클릭 차단**
+- 최근 검증 결과: 실제 working tree에서 preview/Save/list/Reopen, 동일 short status byte
+  drift 차단, 원본 복원, deterministic handoff, exact Delete, `absent` recovery 통과
+- 현재 결정 필요: **있음** — Hermes busy-state UX 또는 다른 workstream을 소유자가 선택
 
 ### 언제부터 실제로 편해지는가
 
@@ -139,14 +139,14 @@ flowchart LR
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current workstream: Hermes Manager — guided review handoff
-- Current milestone: Saved Review Evidence Readiness Visibility v0.1F complete
-- Recommended next step: Run one owner-visible real Review Save/Reopen/content-drift exercise
-- Next user-visible milestone: 실제 Review 1건의 Save/Reopen/content-drift 흐름 반복 검증
-- Current reason: content freshness를 구현한 뒤, 사용자가 legacy 차단을 실패 후가 아니라 행동 전에 알 수 있어야 한다
-- Owner outcome: Saved Reviews 목록에서 live content check 가능/legacy 차단을 구분하고, exact saved Review의 metadata와 target bytes가 모두 같을 때만 handoff를 재생성한다
-- Recent completed: v0.1B/legacy readiness labels, known-legacy handoff control blocking, 실제 브라우저 검증
-- Approval state: none
-- Approval note: v0.1F까지 구현됐고 다음 코드 방향을 고르기 전 실제 Review 반복 검증만 남았다
+- Current milestone: Hermes actual Review owner flow validated end to end
+- Recommended next step: Decide whether to approve the bounded Hermes in-progress feedback slice or select another workstream
+- Next user-visible milestone: 오래 걸리는 Save/handoff/Delete 검증에 즉시 진행 상태를 표시하고 중복 클릭을 차단
+- Current reason: 실제 검증은 통과했지만 로컬 evidence 확인 중 이전 status가 수 초간 남아 사용자가 동작 여부를 오해할 수 있다
+- Owner outcome: 실제 Review의 Save/Reopen, byte-drift 차단, deterministic handoff, exact Delete와 recovery를 한 흐름에서 확인했다
+- Recent completed: actual working-tree preview/Save/list/Reopen, same-status drift block, restore, handoff, exact Delete, absent recovery
+- Approval state: required
+- Approval note: 권한을 늘리지 않는 Hermes busy-state UX를 추천하며, 소유자 선택 전에는 구현하지 않는다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
 
@@ -205,12 +205,13 @@ flowchart LR
     V --> W["content-verified Save/Reopen<br/>v0.1E E2E 완료"]
     W --> X["Saved Review readiness<br/>v0.1F 완료"]
     X --> Y["실제 Review 반복 사용<br/>다음 운영 검증"]
+    Y --> Z["Hermes busy-state UX 추천<br/>소유자 선택 필요"]
 
     classDef done fill:#d8ead8,stroke:#4d7d4d,color:#1f2d1f;
     classDef current fill:#fff0bf,stroke:#9b7412,color:#332600;
     classDef future fill:#e8e8e8,stroke:#777,color:#222;
-    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X done;
-    class Y current;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y done;
+    class Z current;
 ```
 
 ### 구현된 기반
@@ -437,6 +438,15 @@ availability만 추가한다. UI는 v0.1B를 `content check ready`, v0.1A를
 계속 authoritative하다. 실제 브라우저에서 두 상태와 zero warning/error를 확인했다.
 route, persisted record, migration, 권한은 추가하지 않았다.
 
+owner-visible real-work QA는 actual Jarvis-Core working tree의 transient scoped 문서와
+격리 Review store를 사용했다. browser에서 preview/Save/list/read-only Reopen을 수행한
+뒤 Git short status를 유지한 byte drift가 output 없이 차단되는지 확인했다. 원본 bytes를
+복원한 뒤 content-verified handoff가 반복해서 동일하게 생성됐고, exact Delete 후 recovery는
+`absent`였다. QA record, state, server, transient 문서는 모두 제거했고 warning/error는 없었다.
+로컬 evidence 확인이 진행되는 수 초 동안 이전 status가 남는 UX risk도 관찰했다. 결과는
+fail closed였지만, 즉시 in-progress 상태를 표시하고 실행 중 control을 비활성화하는 작은
+user-visible slice를 다음 Hermes 후보로 기록한다.
+
 v0.1B/v0.1C multi-project registry 기반은 route-free internal/tests-only 상태로
 보존한다. 실제 두 번째 repository 등록, 경로 입력, route 연결, UI 노출,
 persistence는 하지 않는다. Memory save endpoint, UI Save/Confirm, Voice Inbox
@@ -446,7 +456,7 @@ save도 계속 잠겨 있다.
 
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
-| Hermes Manager | Saved Review Evidence Readiness Visibility v0.1F 완료 | prompt drafting, local Save/list/Reopen/recovery/Delete, content-ready/legacy 표시, content-verified handoff Copy | 실제 Review 1건으로 Save/Reopen/content-drift 반복 검증 후 다음 방향 선택 |
+| Hermes Manager | 실제 Review owner flow 실사용 검증 완료 | prompt drafting, local Save/list/Reopen/recovery/Delete, content-ready/legacy 표시, content-verified handoff Copy | 권한 추가 없는 in-progress feedback/duplicate-click 차단 slice 승인 대기 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
 | Jarvis Console | Project Control v0.1D와 Owner Decision v0.1A/v0.1B 완료, Hermes 선택 1회 사용 | owner project card, 내부 workstream 상태, fresh read-only work review, 동일 Decision 객체의 CLI/Console 표시 | 다음 product selection 전 현재 handoff 실사용 피드백 대기 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
