@@ -1100,6 +1100,118 @@ function renderRecentMilestoneEvidence(evidence) {
   `;
 }
 
+function renderDirectorReport(directorReport) {
+  if (
+    !directorReport ||
+    directorReport.contract_type !== "jarvis_director_report" ||
+    directorReport.version !== "0.1A" ||
+    directorReport.source_contract_type !== "hermes_manager_report" ||
+    directorReport.derived_view !== true ||
+    directorReport.read_only !== true ||
+    directorReport.authority_boundary !== "derived_owner_summary_only" ||
+    !["in_progress", "milestone_complete", "blocked"].includes(directorReport.status) ||
+    !["none", "decision_required"].includes(directorReport.owner_action) ||
+    typeof directorReport.owner_decision !== "string" ||
+    !Array.isArray(directorReport.completed_packages) ||
+    !Array.isArray(directorReport.risk_summary) ||
+    (directorReport.next_recommendation !== null &&
+      typeof directorReport.next_recommendation !== "object")
+  ) {
+    return `
+      <section class="workstream-status-section safety-card director-report-section">
+        <div class="overview-section-heading">
+          <h4>Director Summary</h4>
+          <span class="overview-badge approval-needed">Unavailable</span>
+        </div>
+        <p class="safety-note">The bounded Director Report is unavailable. No Owner outcome, milestone result, decision, or next recommendation was inferred.</p>
+      </section>
+    `;
+  }
+
+  const packages = Array.isArray(directorReport.completed_packages)
+    ? directorReport.completed_packages
+    : [];
+  const risks = Array.isArray(directorReport.risk_summary)
+    ? directorReport.risk_summary
+    : [];
+  const recommendation = directorReport.next_recommendation || null;
+  const ownerAction = directorReport.owner_action || "decision_required";
+  return `
+    <section class="workstream-status-section director-report-section" aria-label="Director Summary">
+      <div class="overview-section-heading">
+        <div>
+          <p class="eyebrow">Director to Owner</p>
+          <h4>Director Summary</h4>
+        </div>
+        <div class="overview-badges">
+          <span class="overview-badge read-only">Read-only</span>
+          <span class="overview-badge">${escapeHtml(directorReport.status || "blocked")}</span>
+          <span class="overview-badge ${ownerAction === "none" ? "read-only" : "approval-needed"}">Owner action: ${escapeHtml(ownerAction)}</span>
+        </div>
+      </div>
+
+      <div class="owner-priority-grid">
+        <article class="owner-priority-card reason-card">
+          <p class="eyebrow">Milestone</p>
+          <h4>지금 진행 중인 결과</h4>
+          <p>${escapeHtml(directorReport.milestone_summary || "Not supplied")}</p>
+        </article>
+        <article class="owner-priority-card outcome-card">
+          <p class="eyebrow">Owner outcome</p>
+          <h4>Owner가 얻게 된 기능</h4>
+          <p>${escapeHtml(directorReport.owner_outcome || "Not supplied")}</p>
+        </article>
+      </div>
+
+      <dl class="overview-facts compact-facts">
+        <div><dt>Milestone ID</dt><dd><code>${escapeHtml(directorReport.milestone_id || "unknown")}</code></dd></div>
+        <div><dt>Status</dt><dd>${escapeHtml(directorReport.status || "blocked")}</dd></div>
+      </dl>
+
+      <div class="overview-rule-grid">
+        <div>
+          <strong>완료 package / 검증 commit</strong>
+          ${
+            packages.length
+              ? `<ul class="metadata-list">${packages
+                  .map(
+                    (item) => `<li><code>${escapeHtml(item.work_package_id || "unknown")}</code> — ${escapeHtml(item.summary || "No summary supplied.")}<br><span class="muted">${escapeHtml(item.commit_hash || "no verified commit")}</span></li>`,
+                  )
+                  .join("")}</ul>`
+              : '<p class="placeholder">No completed package checkpoint is recorded.</p>'
+          }
+        </div>
+        <div>
+          <strong>남은 위험</strong>
+          ${
+            risks.length
+              ? `<ul class="metadata-list">${risks
+                  .map(
+                    (risk) => `<li><code>${escapeHtml(risk.severity || "unknown")}</code> ${escapeHtml(risk.summary || "")}</li>`,
+                  )
+                  .join("")}</ul>`
+              : '<p class="placeholder">None.</p>'
+          }
+        </div>
+        <div>
+          <strong>다음 추천</strong>
+          ${
+            recommendation
+              ? `<p><code>${escapeHtml(recommendation.work_package_id || "unknown")}</code><br>${escapeHtml(recommendation.summary || "")}<br><span class="muted">${escapeHtml(recommendation.user_value || "")}</span></p>`
+              : '<p class="placeholder">None.</p>'
+          }
+        </div>
+      </div>
+
+      <p class="approval-note">
+        <strong>Owner action:</strong> ${escapeHtml(ownerAction)}
+        ${directorReport.owner_decision ? `<br>${escapeHtml(directorReport.owner_decision)}` : ""}
+      </p>
+      <p class="muted">이 요약은 검증된 Manager Report에서 파생된 읽기 전용 Owner view입니다. Manager의 상세 증거를 복제하거나 승인·실행 권한을 만들지 않습니다.</p>
+    </section>
+  `;
+}
+
 function renderManagerReport(managerReport) {
   if (
     !managerReport ||
@@ -1134,8 +1246,8 @@ function renderManagerReport(managerReport) {
     <section class="workstream-status-section manager-report-section" aria-label="Hermes Manager Report">
       <div class="overview-section-heading">
         <div>
-          <p class="eyebrow">Manager to Owner</p>
-          <h4>Hermes Manager Report</h4>
+          <p class="eyebrow">Manager technical evidence</p>
+          <h4>Hermes Manager Report — Detailed Evidence</h4>
         </div>
         <div class="overview-badges">
           <span class="overview-badge read-only">Read-only</span>
@@ -1250,6 +1362,7 @@ function renderProjectControl(projectControl) {
           .map(
             (card) => {
               const ownerSummary = card.owner_summary || {};
+              const directorReport = card.director_report || null;
               const managerReport = card.manager_report || null;
               const ownerDecision = card.owner_decision || null;
               const recentMilestoneEvidence = card.recent_milestone_evidence || null;
@@ -1295,6 +1408,8 @@ function renderProjectControl(projectControl) {
                     </dl>
                     <p class="approval-note"><strong>승인 필요 여부:</strong> ${escapeHtml(ownerSummary.approval_note || "Not supplied")}</p>
                   </section>
+
+                  ${renderDirectorReport(directorReport)}
 
                   ${renderManagerReport(managerReport)}
 

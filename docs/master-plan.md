@@ -48,6 +48,13 @@ v0.1B design과 v0.1C internal/tests-only registry primitive는 연결하지 않
 등록·경로 입력·route·persistence는 추가하지 않는다. Memory / Skills live
 save도 readiness review의 `keep locked` 판정을 유지한다.
 
+현재 승인된 방향은 **Jarvis Multi-Agent Organization v0.1A Manual Pilot**이다.
+Jarvis-Core 한 저장소 안에서 Owner → Director → Manager → Workers 순서로
+작업하고, Manager가 Implementer·Reviewer·QA·Docs의 assignment, retry, repair와
+evidence review를 책임진다. Director는 Manager의 계획과 최종 보고만 검토하며
+Worker를 직접 운영하지 않는다. 별도 Dispatcher 역할은 두지 않고, 향후 SDK
+연결이 승인되더라도 thread 생성기는 Manager의 내부 구현으로만 취급한다.
+
 ### 이 단계가 끝나면 사용자가 얻는 것
 
 - 명시적으로 저장한 Review 객체가 현재 task와 confirmed target-file scope에 묶인다.
@@ -63,6 +70,8 @@ save도 readiness review의 `keep locked` 판정을 유지한다.
   같은 copy-only handoff를 다시 만들고, drift가 있으면 이유를 보여주고 출력을 차단한다.
 - 오래 걸리는 Save/handoff/Delete 검증은 즉시 진행 상태를 보여주고 완료 전 중복 입력을 막는다.
 - Project Control에서 최근 5개 로컬 커밋, 변경 파일과 현재 HEAD 일치를 바로 확인한다.
+- Owner는 기존 Manager Report의 상세 증거보다 먼저 transport-neutral
+  Director Summary에서 milestone, 결과, 위험, 결정과 다음 추천을 확인한다.
 - 저장·재열기·삭제는 review/commit/push 권한이나 자동 실행을 복원하지 않는다.
 - 자동 실행, push/PR, 외부 호출, Memory save는 계속 잠긴다.
 
@@ -141,22 +150,22 @@ flowchart LR
 ## 2. 현재 기준점
 
 - Last verified: 2026-07-23
-- Verified implementation HEAD: `325fe50`
+- Verified implementation HEAD: `dfa1945`
 - Branch: `main`
 - Known protected untracked file: `jarvis.bat`
 - Current goal: Develop Jarvis-Core as a local-first, human-approved, skill-based personal AI assistant
 - Manager reporting milestone ID: `manager-reporting-v0.1`
 - Manager reporting status: `in_progress`
 - Manager reporting next package ID: `manager-reporting-v0.1c`
-- Current workstream: Hermes Manager — Manager Reporting Workflow
-- Current milestone: Manager Reporting v0.1B existing-evidence adapter completed
-- Recommended next step: Connect the derived Manager Report to the existing read-only Project Control overview
-- Next user-visible milestone: Owner가 milestone 의미, 사용자 결과, 위험과 실제 결정만 한 화면에서 확인
-- Current reason: Codex Worker의 상세 결과를 Hermes Manager가 검토해 Owner에게 중요한 milestone 정보만 보고해야 한다
-- Owner outcome: Owner는 파일별 구현 세부사항 대신 milestone 의미, 사용자 결과, 위험, 다음 추천과 필요한 결정만 확인한다
-- Recent completed: Manager Reporting v0.1A immutable contracts and v0.1B pure evidence adapters
+- Current workstream: Jarvis Multi-Agent Organization v0.1A Manual Pilot
+- Current milestone: Director Report v0.1A implementation candidate under Manager control
+- Recommended next step: Run read-only Reviewer and QA against the exact candidate commit, then submit one Manager Report
+- Next user-visible milestone: Owner가 상세 Manager evidence보다 먼저 30초용 Director Summary를 확인
+- Current reason: Jarvis-Core 한 저장소에서 Manager가 Worker 실행과 evidence를 책임지고 Director는 Owner에게 결과만 보고해야 한다
+- Owner outcome: Owner는 Director Summary에서 milestone, 사용자 결과, 검증 commit 요약, 위험, 결정과 다음 추천만 먼저 확인한다
+- Recent completed: Owner approved the single-repo Multi-Agent Organization Manual Pilot against the dfa1945 baseline
 - Approval state: none
-- Approval note: Manager Reporting v0.1D까지 승인된 milestone boundary 안에서 진행하며 escalation gate가 없으면 Owner action은 none이다
+- Approval note: 이번 Manual Pilot의 bounded Director Report 구현·review·QA·local commit은 승인됐고 push, PR, 외부 호출과 jarvis.bat는 계속 금지된다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
 
@@ -233,6 +242,34 @@ flowchart LR
 | --- | --- | --- | --- |
 | manager-reporting-v0.1a | implementation | Immutable Worker and Manager reporting contracts | 325fe500a0cf3938eba2a7627fc8d8978cf0e2c3 |
 | manager-reporting-v0.1b | implementation | Pure existing-evidence adapters with fail-closed source checks | a11c95365020fd39d928a75f1970cf59fd0c2b37 |
+
+### 현재 진행: Jarvis Multi-Agent Organization v0.1A Manual Pilot
+
+```text
+Owner
+  ↓
+Director / Hermes COO
+  ↓
+Manager / PM
+  ├─ Implementer
+  ├─ Reviewer
+  ├─ QA
+  └─ Docs
+```
+
+- Director는 Owner와 소통하고 Manager의 계획·최종 결과만 검토한다.
+- Manager는 work package, dependency, file ownership, Worker 순서, retry,
+  repair, local commit과 evidence review를 책임진다.
+- source writer는 기본 한 명이며 Reviewer와 QA는 정확한 candidate commit에
+  고정된 read-only 역할이다.
+- 별도 Dispatcher는 조직 역할로 두지 않는다. SDK/app-server, 자동 thread 생성,
+  background worker와 runtime persistence는 이번 pilot 범위 밖이다.
+- 첫 vertical slice는 기존 Manager Report에서 Owner에게 필요한 정보만 추린
+  pure `DirectorReport`, 기존 `/api/overview`의 additive read-only projection,
+  Director Summary 우선 표시다.
+- 이 문서는 candidate commit, Reviewer pass, QA pass 또는 final commit hash를
+  미리 완료로 기록하지 않는다. 검증 결과는 pilot의 Manager/Director 최종 보고에서
+  실제 Git evidence와 함께 확정한다.
 
 ### 구현된 기반
 

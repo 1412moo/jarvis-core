@@ -55,6 +55,12 @@ from recent_milestone_evidence import (
     serialize_recent_milestone_evidence,
 )
 from hermes_manager_pilot.approval_binding import build_scope_approval_binding
+from hermes_manager_pilot.director_reporting import (
+    AUTHORITY_BOUNDARY as DIRECTOR_AUTHORITY_BOUNDARY,
+    CONTRACT_TYPE as DIRECTOR_CONTRACT_TYPE,
+    VERSION as DIRECTOR_VERSION,
+    normalize_director_report,
+)
 from hermes_manager_pilot.manager_reporting import (
     MANAGER_CONTRACT_TYPE,
     VERSION as MANAGER_REPORTING_VERSION,
@@ -1221,6 +1227,21 @@ def main() -> None:
         "task-discord-dashboard",
     ]
     assert all(item["read_only"] is True for item in project_card["workstreams"])
+    director_report_payload = project_card["director_report"]
+    assert director_report_payload["contract_type"] == DIRECTOR_CONTRACT_TYPE
+    assert director_report_payload["version"] == DIRECTOR_VERSION
+    assert director_report_payload["source_contract_type"] == MANAGER_CONTRACT_TYPE
+    assert director_report_payload["derived_view"] is True
+    assert director_report_payload["read_only"] is True
+    assert director_report_payload["authority_boundary"] == DIRECTOR_AUTHORITY_BOUNDARY
+    assert director_report_payload["owner_action"] == "none"
+    assert director_report_payload["owner_decision"] == ""
+    assert director_report_payload["completed_packages"]
+    assert "evidence_summary" not in director_report_payload
+    assert "source_conflicts" not in director_report_payload
+    normalized_director_payload = dict(director_report_payload)
+    normalized_director_payload.pop("read_only")
+    assert normalize_director_report(normalized_director_payload)
     manager_report_payload = project_card["manager_report"]
     assert manager_report_payload["contract_type"] == MANAGER_CONTRACT_TYPE
     assert manager_report_payload["version"] == MANAGER_REPORTING_VERSION
@@ -2219,6 +2240,25 @@ def main() -> None:
     assert "copyNextActionForHandoff" in app_js
     assert "/api/overview" in app_js
     assert "renderProjectControl" in app_js
+    assert "renderDirectorReport" in app_js
+    assert 'directorReport.contract_type !== "jarvis_director_report"' in app_js
+    assert 'directorReport.source_contract_type !== "hermes_manager_report"' in app_js
+    assert "directorReport.derived_view !== true" in app_js
+    assert "directorReport.read_only !== true" in app_js
+    assert (
+        'directorReport.authority_boundary !== "derived_owner_summary_only"'
+        in app_js
+    )
+    assert "Director Summary" in app_js
+    assert "Owner가 얻게 된 기능" in app_js
+    director_report_renderer = app_js.split(
+        "function renderDirectorReport",
+        1,
+    )[1].split("function renderManagerReport", 1)[0]
+    assert "<button" not in director_report_renderer
+    assert "<form" not in director_report_renderer
+    assert "fetch(" not in director_report_renderer
+    assert "navigator.clipboard" not in director_report_renderer
     assert "renderManagerReport" in app_js
     assert 'managerReport.contract_type !== "hermes_manager_report"' in app_js
     assert 'managerReport.source_of_truth !== "master_plan"' in app_js
@@ -2238,7 +2278,16 @@ def main() -> None:
     assert "<button" not in manager_report_renderer
     assert "fetch(" not in manager_report_renderer
     assert "navigator.clipboard" not in manager_report_renderer
+    project_control_renderer = app_js.split("function renderProjectControl", 1)[1].split(
+        "function renderOwnerDecision",
+        1,
+    )[0]
+    assert project_control_renderer.index(
+        "${renderDirectorReport(directorReport)}"
+    ) < project_control_renderer.index("${renderManagerReport(managerReport)}")
+    assert "/api/director-report" not in app_js
     assert "/api/manager-report" not in app_js
+    assert "/api/director-report" not in web_app_source
     assert "/api/manager-report" not in web_app_source
     assert "renderOwnerDecision" in app_js
     assert 'ownerDecision.contract_type !== "jarvis_owner_decision"' in app_js

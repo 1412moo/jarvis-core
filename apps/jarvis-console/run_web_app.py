@@ -36,6 +36,11 @@ from recent_milestone_evidence import (
     parse_recent_milestone_log,
     recent_milestone_evidence_to_dict,
 )
+from hermes_manager_pilot.director_reporting import (  # noqa: E402
+    DirectorReportingError,
+    build_director_report,
+    director_report_projection,
+)
 from hermes_manager_pilot.manager_reporting_data import (  # noqa: E402
     ManagerReportingDataError,
     build_manager_report_from_checkpoint_sources,
@@ -1157,6 +1162,10 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
         )
     except ManagerReportingDataError as exc:
         raise RegistryError(f"Manager Report is unavailable: {exc}") from exc
+    try:
+        director_report = build_director_report(manager_report)
+    except DirectorReportingError as exc:
+        raise RegistryError(f"Director Report is unavailable: {exc}") from exc
     return {
         "version": "project_control.v0.1F",
         "mode": "read-only",
@@ -1191,6 +1200,7 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
                     "approval_note": snapshot["approval_note"],
                 },
                 "workstreams": snapshot["workstreams"],
+                "director_report": director_report_projection(director_report),
                 "manager_report": manager_report_projection(manager_report),
                 "owner_decision": owner_decision_to_dict(owner_decision),
                 "recent_milestone_evidence": recent_milestone_evidence,
@@ -1206,6 +1216,7 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
             "Project Control exposes one Jarvis-Core card and treats apps and capabilities as internal workstreams.",
             "The dormant multi-project registry primitive is not connected to this payload, HTTP, UI, or filesystem access.",
             "The Manager Report is a derived read-only view over tracked Master Plan checkpoints and bounded local Git evidence.",
+            "The Director Report is a smaller read-only Owner summary derived only from the Manager Report.",
         ],
     }
 
@@ -5810,6 +5821,19 @@ def run_self_test() -> None:
         "task-discord-dashboard",
     ]
     assert all(item["read_only"] is True for item in owner_card["workstreams"])
+    director_report_payload = owner_card["director_report"]
+    assert director_report_payload["contract_type"] == "jarvis_director_report"
+    assert director_report_payload["version"] == "0.1A"
+    assert director_report_payload["source_contract_type"] == "hermes_manager_report"
+    assert director_report_payload["derived_view"] is True
+    assert director_report_payload["read_only"] is True
+    assert (
+        director_report_payload["authority_boundary"]
+        == "derived_owner_summary_only"
+    )
+    assert director_report_payload["owner_action"] == "none"
+    assert director_report_payload["completed_packages"]
+    assert "evidence_summary" not in director_report_payload
     manager_report_payload = owner_card["manager_report"]
     assert manager_report_payload["contract_type"] == "hermes_manager_report"
     assert manager_report_payload["version"] == "0.1A"

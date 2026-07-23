@@ -41,6 +41,18 @@ from hermes_manager_pilot.change_evidence import (
     verify_review_evidence_bundle,
     verify_whole_worktree_status_evidence,
 )
+from hermes_manager_pilot.director_reporting import (
+    AUTHORITY_BOUNDARY as DIRECTOR_AUTHORITY_BOUNDARY,
+    CONTRACT_TYPE as DIRECTOR_CONTRACT_TYPE,
+    VERSION as DIRECTOR_VERSION,
+    DirectorReportingError,
+    build_director_report,
+    director_report_projection,
+    director_report_to_dict,
+    normalize_director_report,
+    parse_director_report_json,
+    serialize_director_report,
+)
 from hermes_manager_pilot.manager_reporting import (
     MANAGER_CONTRACT_TYPE,
     SOURCE_OF_TRUTH,
@@ -187,6 +199,18 @@ def _assert_manager_reporting_data_error(fn: object, expected_text: str) -> None
     else:
         raise AssertionError(
             f"expected ManagerReportingDataError containing: {expected_text}"
+        )
+
+
+def _assert_director_reporting_error(fn: object, expected_text: str) -> None:
+    assert callable(fn)
+    try:
+        fn()
+    except DirectorReportingError as exc:
+        _assert(expected_text in str(exc), f"unexpected DirectorReportingError: {exc}")
+    else:
+        raise AssertionError(
+            f"expected DirectorReportingError containing: {expected_text}"
         )
 
 
@@ -4724,6 +4748,145 @@ def _sample_manager_report() -> dict[str, object]:
     }
 
 
+def _test_director_report_is_a_bounded_deterministic_manager_projection() -> None:
+    manager = normalize_manager_report(_sample_manager_report())
+    first = build_director_report(manager)
+    second = build_director_report(manager)
+    _assert(first == second, "Director Report conversion is unstable")
+    _assert(first.contract_type == DIRECTOR_CONTRACT_TYPE, "Director contract mismatch")
+    _assert(first.version == DIRECTOR_VERSION, "Director version mismatch")
+    _assert(
+        first.authority_boundary == DIRECTOR_AUTHORITY_BOUNDARY,
+        "Director authority boundary mismatch",
+    )
+    _assert(first.derived_view is True, "Director Report must be derived")
+    _assert(
+        first.source_contract_type == MANAGER_CONTRACT_TYPE,
+        "Director source contract mismatch",
+    )
+    _assert(first.milestone_id == manager.milestone_id, "milestone was not preserved")
+    _assert(first.owner_outcome == manager.user_outcome, "outcome was not preserved")
+    _assert(
+        first.completed_packages[0].commit_hash
+        == manager.completed_work_packages[0].commit_hash,
+        "completed commit summary was not preserved",
+    )
+    _assert(
+        first.next_recommendation is not None
+        and first.next_recommendation.work_package_id
+        == manager.next_recommendation.work_package_id,  # type: ignore[union-attr]
+        "next recommendation was not preserved",
+    )
+
+    canonical = serialize_director_report(first)
+    _assert(
+        canonical == serialize_director_report(second),
+        "Director Report serialization is unstable",
+    )
+    _assert(
+        parse_director_report_json(canonical) == first,
+        "Director Report JSON round trip changed the contract",
+    )
+    detached = director_report_to_dict(first)
+    _assert("evidence_summary" not in detached, "Director copied Manager evidence detail")
+    _assert("current_position" not in detached, "Director copied Manager position detail")
+    detached["completed_packages"].append({"untrusted": True})
+    _assert(
+        len(first.completed_packages) == 1,
+        "detached mapping mutated the Director Report",
+    )
+    projected = director_report_projection(first)
+    _assert(projected["read_only"] is True, "Director projection is not read-only")
+    _assert(
+        projected["authority_boundary"] == DIRECTOR_AUTHORITY_BOUNDARY,
+        "Director projection changed its authority boundary",
+    )
+    _assert(
+        "read_only" not in director_report_to_dict(first),
+        "presentation metadata mutated the core Director Report",
+    )
+    try:
+        first.status = "blocked"  # type: ignore[misc]
+    except (AttributeError, TypeError):
+        pass
+    else:
+        raise AssertionError("Director Report must be immutable")
+
+
+def _test_director_report_fails_closed_and_core_has_no_side_effects() -> None:
+    report = build_director_report(
+        normalize_manager_report(_sample_manager_report())
+    )
+    unknown = director_report_to_dict(report)
+    unknown["execute"] = True
+    _assert_director_reporting_error(
+        lambda: normalize_director_report(unknown),
+        "unknown fields",
+    )
+    wrong_boundary = director_report_to_dict(report)
+    wrong_boundary["authority_boundary"] = "execution_allowed"
+    _assert_director_reporting_error(
+        lambda: normalize_director_report(wrong_boundary),
+        "authority_boundary",
+    )
+    duplicate = serialize_director_report(report).replace(
+        '"version": "0.1A"',
+        '"version": "0.1A",\n  "version": "0.1A"',
+        1,
+    )
+    _assert_director_reporting_error(
+        lambda: parse_director_report_json(duplicate),
+        "duplicate key",
+    )
+    _assert_director_reporting_error(
+        lambda: parse_director_report_json("{"),
+        "malformed",
+    )
+    _assert_director_reporting_error(
+        lambda: build_director_report({}),  # type: ignore[arg-type]
+        "source Manager Report is invalid",
+    )
+
+    blocked_payload = _sample_manager_report()
+    blocked_payload.update(
+        {
+            "status": "blocked",
+            "source_conflicts": ["Live Git evidence conflicts with the checkpoint."],
+            "owner_action": "decision_required",
+            "owner_decision": "Resolve the checkpoint conflict.",
+            "next_recommendation": None,
+        }
+    )
+    blocked = build_director_report(normalize_manager_report(blocked_payload))
+    _assert(blocked.status == "blocked", "blocked status was not preserved")
+    _assert(
+        any(
+            risk.severity == "blocking"
+            and risk.summary == "Live Git evidence conflicts with the checkpoint."
+            for risk in blocked.risk_summary
+        ),
+        "source conflict was not retained as a bounded blocking risk",
+    )
+
+    source = (
+        APP_ROOT / "hermes_manager_pilot" / "director_reporting.py"
+    ).read_text(encoding="utf-8")
+    for forbidden in (
+        "subprocess",
+        "requests",
+        "urlopen",
+        "socket",
+        ".write_text(",
+        ".write_bytes(",
+        "open(",
+        "Path(",
+    ):
+        _assert(
+            forbidden not in source,
+            f"Director reporting core contains forbidden side effect: {forbidden}",
+        )
+
+
 def _test_manager_reporting_contracts_are_immutable_and_stable() -> None:
     worker_payload = _sample_worker_report()
     first_worker = normalize_worker_report(worker_payload)
@@ -5361,6 +5524,8 @@ def main() -> None:
         _test_browser_ui_mentions_manual_jarvis_handoff,
         _test_copy_only_jarvis_review_handoff_is_deterministic_and_bounded,
         _test_copy_only_review_handoff_route_fixes_repository_authority,
+        _test_director_report_is_a_bounded_deterministic_manager_projection,
+        _test_director_report_fails_closed_and_core_has_no_side_effects,
         _test_manager_reporting_contracts_are_immutable_and_stable,
         _test_manager_reporting_markdown_separates_worker_and_owner_views,
         _test_worker_report_fails_closed_on_validation_and_safety_violations,
