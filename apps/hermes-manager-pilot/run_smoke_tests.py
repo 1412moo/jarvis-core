@@ -3297,7 +3297,10 @@ def _test_review_store_append_read_and_bounded_list() -> None:
         _assert(not state_root.exists(), "empty list created local state")
 
         first = _review_store_record(1)
-        second = _review_store_record(2)
+        second = bind_review_record_content_evidence(
+            _review_store_record(2),
+            normalize_review_content_evidence_binding(_content_evidence_binding_payload()),
+        )
         first_receipt = write_review_record(first, env=env, repo_root=repo)
         second_receipt = write_review_record(second, env=env, repo_root=repo)
         _assert(first_receipt.stored is True, "first Review record was not stored")
@@ -3326,6 +3329,16 @@ def _test_review_store_append_read_and_bounded_list() -> None:
         )
         _assert(listing.records[0].active_task == second.active_task, "Review listing task mismatch")
         _assert(listing.records[0].target_count == len(second.target_files), "Review target count mismatch")
+        _assert(
+            listing.records[0].record_version == CONTENT_EVIDENCE_RECORD_VERSION
+            and listing.records[0].content_evidence_available is True,
+            "content-bound Review listing readiness mismatch",
+        )
+        _assert(
+            listing.records[1].record_version == REVIEW_RECORD_VERSION
+            and listing.records[1].content_evidence_available is False,
+            "legacy Review listing readiness mismatch",
+        )
         _assert(not hasattr(listing.records[0], "result_summary"), "Review listing exposed result text")
         _assert(not hasattr(listing.records[0], "file_path"), "Review listing exposed a file path")
 
@@ -3691,6 +3704,11 @@ def _test_review_lifecycle_is_confirmed_recoverable_and_fail_closed() -> None:
         listing = service.list_saved()
         _assert(listing["count"] == 1, "saved Review listing count mismatch")
         _assert("result_summary" not in listing["records"][0], "Review listing exposed result text")
+        _assert(
+            listing["records"][0]["record_version"] == CONTENT_EVIDENCE_RECORD_VERSION
+            and listing["records"][0]["content_evidence_available"] is True,
+            "saved Review listing did not expose bounded content-check readiness",
+        )
         reopened = service.reopen(receipt["review_id"])
         _assert(reopened.result_summary == "Implemented and validated the lifecycle.", "read-only reopen lost Review content")
         _assert(reopened.commit_approved is False and reopened.push_allowed is False, "reopen restored authority")
@@ -4134,6 +4152,20 @@ def _test_content_evidence_save_and_reopen_handoff_end_to_end() -> None:
 
         legacy = _review_store_record(25)
         write_review_record(legacy, env=env, repo_root=repo)
+        listed_by_id = {
+            record["review_id"]: record
+            for record in service.list_saved()["records"]
+        }
+        _assert(
+            listed_by_id[review_id]["record_version"] == CONTENT_EVIDENCE_RECORD_VERSION
+            and listed_by_id[review_id]["content_evidence_available"] is True,
+            "content-bound Review was not marked ready for a live content check",
+        )
+        _assert(
+            listed_by_id[legacy.review_id]["record_version"] == REVIEW_RECORD_VERSION
+            and listed_by_id[legacy.review_id]["content_evidence_available"] is False,
+            "legacy Review was not marked unavailable for content verification",
+        )
         legacy_status, legacy_response = hermes_web_app.handle_api_request(
             "/api/reviews/reopen-handoff",
             {"review_id": legacy.review_id, "scope_confirmed": True},

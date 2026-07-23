@@ -154,7 +154,7 @@
         </div>
         <div class="durable-pane">
           <h3>Reopen, create a fresh handoff, or delete one exact Review</h3>
-          <p class="field-help">Fresh Handoff rereads branch, HEAD, exact git status --short, and bounded target-file SHA-256 evidence. Any mismatch blocks output. Legacy records without evidence are blocked and are never auto-migrated.</p>
+          <p class="field-help">Fresh Handoff rereads branch, HEAD, exact git status --short, and bounded target-file SHA-256 evidence. Saved Reviews show content check ready or legacy - fresh handoff blocked before selection. Ready means a live check is available, not that current content already matches. Legacy records without evidence are blocked and are never auto-migrated.</p>
           <label for="savedReviewSelect">Saved Reviews</label>
           <select id="savedReviewSelect"><option value="">No saved Review selected</option></select>
           <label for="reviewIdInput">Exact Review ID</label>

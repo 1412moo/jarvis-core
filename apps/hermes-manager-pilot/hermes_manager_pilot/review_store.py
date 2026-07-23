@@ -91,11 +91,13 @@ class ReviewRecordSummary:
     """Bounded metadata for read-only Review record listing."""
 
     review_id: str
+    record_version: str
     created_at: str
     active_task: str
     branch: str
     head: str
     target_count: int
+    content_evidence_available: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,11 +373,13 @@ def list_review_records(
         summaries = tuple(
             ReviewRecordSummary(
                 review_id=record.review_id,
+                record_version=record.version,
                 created_at=record.created_at,
                 active_task=record.active_task,
                 branch=record.git_snapshot.branch,
                 head=record.git_snapshot.head,
                 target_count=len(record.target_files),
+                content_evidence_available=record.content_evidence_binding is not None,
             )
             for record in sorted(
                 records,

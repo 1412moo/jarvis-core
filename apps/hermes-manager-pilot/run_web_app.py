@@ -785,6 +785,8 @@ def run_self_test() -> None:
     assert "Copy Content-Verified Handoff" in index_html
     assert "target-file SHA-256 evidence" in index_html
     assert "Legacy records without evidence are blocked" in index_html
+    assert "content check ready" in index_html
+    assert "legacy - fresh handoff blocked" in index_html
     assert "Generated Output" in index_html
     assert "does not call Codex" in index_html
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
@@ -799,6 +801,10 @@ def run_self_test() -> None:
     assert 'lifecyclePost("/api/reviews/reopen-handoff"' in app_js
     assert 'setOutput("Fresh Handoff Blocked", "")' in app_js
     assert "Content-verified handoff" in app_js
+    assert "function selectedSavedReview()" in app_js
+    assert "function updateSavedReviewReadiness(options = {})" in app_js
+    assert "content_evidence_available" in app_js
+    assert "live_content_check_required" in app_js
     assert "function reviewMatchesSession()" in app_js
     assert "state.review = Object.freeze" in app_js
     assert "navigator.clipboard.readText" not in app_js

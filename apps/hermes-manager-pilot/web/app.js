@@ -9,6 +9,7 @@ const state = {
   localSessionId: "",
   savePreview: null,
   deletePreview: null,
+  savedReviews: Object.freeze([]),
 };
 
 const stepMeta = {
@@ -80,6 +81,7 @@ const elements = {
   savedReviewSelect: document.getElementById("savedReviewSelect"),
   reviewIdInput: document.getElementById("reviewIdInput"),
   reopenScopeConfirmed: document.getElementById("reopenScopeConfirmed"),
+  copyReopenedHandoffButton: document.getElementById("copyReopenedHandoffButton"),
   deleteConfirmationInput: document.getElementById("deleteConfirmationInput"),
   confirmDeleteReviewButton: document.getElementById("confirmDeleteReviewButton"),
   durableReviewDetails: document.getElementById("durableReviewDetails"),
@@ -429,6 +431,9 @@ async function refreshSavedReviews(options = {}) {
   const preserveDetails = options && options.preserveDetails === true;
   try {
     const data = await lifecyclePost("/api/reviews/list", {});
+    state.savedReviews = Object.freeze(
+      data.listing.records.map((record) => Object.freeze({ ...record })),
+    );
     const previous = requestedReviewId();
     elements.savedReviewSelect.replaceChildren();
     const emptyOption = document.createElement("option");
@@ -437,15 +442,19 @@ async function refreshSavedReviews(options = {}) {
       ? "Select one saved Review"
       : "No saved Reviews";
     elements.savedReviewSelect.appendChild(emptyOption);
-    data.listing.records.forEach((record) => {
+    state.savedReviews.forEach((record) => {
       const option = document.createElement("option");
       option.value = record.review_id;
-      option.textContent = `${record.created_at} — ${record.active_task} (${record.review_id})`;
+      const readiness = record.content_evidence_available
+        ? "content check ready"
+        : "legacy - fresh handoff blocked";
+      option.textContent = `[${readiness}] ${record.created_at} - ${record.active_task} (${record.review_id})`;
       elements.savedReviewSelect.appendChild(option);
     });
-    if (previous && data.listing.records.some((record) => record.review_id === previous)) {
+    if (previous && state.savedReviews.some((record) => record.review_id === previous)) {
       elements.savedReviewSelect.value = previous;
     }
+    updateSavedReviewReadiness({ showDetails: false });
     if (!preserveDetails) {
       setDurableDetails({
         status: "ready",
@@ -455,8 +464,38 @@ async function refreshSavedReviews(options = {}) {
       });
     }
   } catch (error) {
+    state.savedReviews = Object.freeze([]);
+    updateSavedReviewReadiness({ showDetails: false });
     setDurableDetails({ status: "recovery_required", error: error.message });
   }
+}
+
+function selectedSavedReview() {
+  const reviewId = requestedReviewId();
+  if (!reviewId || elements.savedReviewSelect.value !== reviewId) return null;
+  return state.savedReviews.find((record) => record.review_id === reviewId) || null;
+}
+
+function updateSavedReviewReadiness(options = {}) {
+  const showDetails = options.showDetails !== false;
+  const record = selectedSavedReview();
+  const legacyBlocked = Boolean(record && !record.content_evidence_available);
+  elements.copyReopenedHandoffButton.disabled = legacyBlocked;
+  elements.reopenScopeConfirmed.disabled = legacyBlocked;
+  if (legacyBlocked) elements.reopenScopeConfirmed.checked = false;
+  if (!showDetails || !record) return;
+  setDurableDetails({
+    operation: "saved_review_handoff_readiness",
+    review_id: record.review_id,
+    record_version: record.record_version,
+    content_evidence_available: record.content_evidence_available,
+    fresh_handoff_status: legacyBlocked
+      ? "blocked_legacy_content_evidence_unavailable"
+      : "live_content_check_required",
+    note: legacyBlocked
+      ? "This legacy Review remains available for read-only reopen or exact delete."
+      : "Fresh handoff still requires current Git and target-content verification.",
+  });
 }
 
 async function previewDurableSave() {
@@ -661,7 +700,7 @@ document.getElementById("refreshSavedReviewsButton").addEventListener("click", r
 document.getElementById("previewDurableSaveButton").addEventListener("click", previewDurableSave);
 document.getElementById("confirmDurableSaveButton").addEventListener("click", confirmDurableSave);
 document.getElementById("reopenSavedReviewButton").addEventListener("click", reopenSavedReview);
-document.getElementById("copyReopenedHandoffButton").addEventListener("click", copyReopenedHandoff);
+elements.copyReopenedHandoffButton.addEventListener("click", copyReopenedHandoff);
 document.getElementById("inspectRecoveryButton").addEventListener("click", inspectRecovery);
 document.getElementById("previewDeleteReviewButton").addEventListener("click", previewExactDelete);
 document.getElementById("confirmDeleteReviewButton").addEventListener("click", confirmExactDelete);
@@ -671,12 +710,14 @@ elements.savedReviewSelect.addEventListener("change", () => {
   state.deletePreview = null;
   elements.confirmDeleteReviewButton.disabled = true;
   elements.deleteConfirmationInput.value = "";
+  updateSavedReviewReadiness();
 });
 elements.reviewIdInput.addEventListener("input", () => {
   elements.reopenScopeConfirmed.checked = false;
   state.deletePreview = null;
   elements.confirmDeleteReviewButton.disabled = true;
   elements.deleteConfirmationInput.value = "";
+  updateSavedReviewReadiness({ showDetails: false });
 });
 elements.privacyAcknowledged.addEventListener("change", () => {
   state.savePreview = null;
