@@ -63,10 +63,16 @@ Optional session state fields:
 Rules:
 
 - Session state is a management record, not proof of execution.
-- `commit_allowed=false` and `push_allowed=false` are the default safe values.
-- `human_approval_required=true` is the default when implementation, commit,
-  push, destructive action, permission expansion, or self-improvement is
-  involved.
+- `commit_allowed=false` and `push_allowed=false` remain safe defaults for the
+  Hermes application and its rendered prompt state.
+- `human_approval_required=true` is the default before a bounded milestone or
+  work-package boundary exists, and whenever push, destructive action,
+  permission expansion, product direction, a locked capability, or
+  self-improvement is involved.
+- A separately approved milestone boundary may allow Codex Worker to implement,
+  validate, self-review, make a minimal safe fix, synchronize documentation,
+  and create a local commit without a new approval at every internal step.
+  This does not grant the Hermes application commit or execution authority.
 - Local secrets, tokens, credentials, and private raw messages must not be stored.
 
 ## 4. Input Contract
@@ -118,7 +124,10 @@ Required output fields:
 Rules:
 
 - A `PROMPT_FOR_CODEX` is a draft, not an automatic Codex call.
-- A `COMMIT_REQUEST` is allowed only after explicit user approval.
+- A `COMMIT_REQUEST` is an explicit prompt-flow artifact and is allowed only
+  after the matching approval. A completed Codex Worker local commit made under
+  a separately approved milestone boundary is reported as evidence instead of
+  retroactively creating a `COMMIT_REQUEST`.
 - `STATUS_SUMMARY` must not claim tests passed unless validation evidence is
   present.
 - Handoffs are recommendations, not automatic execution.
@@ -144,11 +153,17 @@ Hermes should move to `BLOCKED_NEEDS_USER`.
 
 Hermes should explicitly wait for:
 
-- User approval before sending an implementation prompt.
+- Owner direction or approval before the first bounded milestone/work package.
 - Codex result before generating a review prompt.
 - Review result before generating a commit prompt.
 - User commit approval before asking Codex to commit.
 - Commit result before generating a checkpoint summary.
+
+The per-step review and commit waits above apply to the legacy explicit prompt
+lifecycle. Under an approved milestone boundary, Hermes instead waits for one
+Codex Worker Report, verifies its validation and Git evidence, and either
+prepares the next bounded package or produces a Manager Report. It must not ask
+the Owner again unless an escalation gate is reached.
 
 Hermes must not silently continue when:
 
@@ -199,7 +214,11 @@ should say so and still identify residual risks or skipped tests.
 
 ## 10. Commit Lifecycle
 
-Commit is allowed only when the user explicitly approves it.
+The Hermes application never commits. In the legacy explicit prompt lifecycle,
+a commit prompt is allowed only when the user explicitly approves it. In the
+Manager Reporting workflow, Codex Worker may create a safe local commit when the
+Owner-approved milestone boundary and work package explicitly allow that policy
+and all validation, self-review, scope, staging, and safety conditions pass.
 
 Commit checklist:
 

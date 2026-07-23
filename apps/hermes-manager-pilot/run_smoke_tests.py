@@ -41,6 +41,22 @@ from hermes_manager_pilot.change_evidence import (
     verify_review_evidence_bundle,
     verify_whole_worktree_status_evidence,
 )
+from hermes_manager_pilot.manager_reporting import (
+    MANAGER_CONTRACT_TYPE,
+    SOURCE_OF_TRUTH,
+    VERSION as MANAGER_REPORTING_VERSION,
+    WORKER_CONTRACT_TYPE,
+    ManagerReportingError,
+    normalize_manager_report,
+    normalize_worker_report,
+    parse_manager_report_json,
+    parse_worker_report_json,
+    render_manager_report_markdown,
+    render_worker_report_markdown,
+    serialize_manager_report,
+    serialize_worker_report,
+    worker_report_to_dict,
+)
 from hermes_manager_pilot.pipeline import run_hermes_manager_pilot
 from hermes_manager_pilot.prompt_queue import (
     PromptQueueState,
@@ -140,6 +156,18 @@ def _assert_review_record_error(fn: object, expected_text: str) -> None:
         _assert(expected_text in str(exc), f"unexpected ReviewRecordError: {exc}")
     else:
         raise AssertionError(f"expected ReviewRecordError containing: {expected_text}")
+
+
+def _assert_manager_reporting_error(fn: object, expected_text: str) -> None:
+    assert callable(fn)
+    try:
+        fn()
+    except ManagerReportingError as exc:
+        _assert(expected_text in str(exc), f"unexpected ManagerReportingError: {exc}")
+    else:
+        raise AssertionError(
+            f"expected ManagerReportingError containing: {expected_text}"
+        )
 
 
 def _assert_review_store_error(fn: object, expected_code: str) -> None:
@@ -4582,6 +4610,296 @@ def _test_copy_only_review_handoff_route_fixes_repository_authority() -> None:
         _assert(forbidden not in source, f"handoff helper contains forbidden operation: {forbidden}")
 
 
+def _sample_worker_report() -> dict[str, object]:
+    return {
+        "contract_type": WORKER_CONTRACT_TYPE,
+        "version": MANAGER_REPORTING_VERSION,
+        "work_package": {
+            "work_package_id": "manager-reporting-v0.1a",
+            "milestone_id": "manager-reporting-v0.1",
+            "summary": "Add transport-neutral Worker and Manager report contracts.",
+        },
+        "result_type": "implementation",
+        "changed_files": [
+            "apps/hermes-manager-pilot/hermes_manager_pilot/manager_reporting.py",
+            "apps/hermes-manager-pilot/run_smoke_tests.py",
+        ],
+        "validation_results": [
+            {
+                "name": "Hermes deterministic smoke tests",
+                "status": "passed",
+                "evidence": "Hermes Manager Pilot smoke tests passed.",
+            },
+            {
+                "name": "Diff validation",
+                "status": "passed",
+                "evidence": "git diff --check exited 0.",
+            },
+        ],
+        "qa_strategy": {
+            "level": "unit_deterministic",
+            "reason": "The package changes transport-neutral contracts and no UI.",
+            "server_started": False,
+            "cleanup_status": "not_required",
+        },
+        "self_review_findings": [],
+        "commit_hash": "a" * 40,
+        "commit_subject": "hermes-manager: add reporting contracts",
+        "final_git_status": ["?? jarvis.bat"],
+        "blockers": [],
+        "safety_boundary": {
+            "protected_paths_untouched": True,
+            "external_calls_made": False,
+            "push_or_pr_created": False,
+            "destructive_change_made": False,
+            "clipboard_output_only": True,
+            "unexpected_repository_changes": [],
+        },
+    }
+
+
+def _sample_manager_report() -> dict[str, object]:
+    return {
+        "contract_type": MANAGER_CONTRACT_TYPE,
+        "version": MANAGER_REPORTING_VERSION,
+        "source_of_truth": SOURCE_OF_TRUTH,
+        "derived_view": True,
+        "current_goal": "Complete Manager Reporting Workflow v0.1.",
+        "milestone_id": "manager-reporting-v0.1",
+        "milestone_meaning": (
+            "Hermes reviews detailed Worker evidence before reporting milestones."
+        ),
+        "user_outcome": (
+            "The Owner receives milestone meaning, user outcome, risks, and decisions."
+        ),
+        "completed_work_packages": [
+            {
+                "work_package_id": "manager-reporting-v0.1a",
+                "result_type": "implementation",
+                "summary": "Transport-neutral reporting contracts completed.",
+                "commit_hash": "a" * 40,
+            }
+        ],
+        "current_position": "v0.1A complete; v0.1B adapter is next.",
+        "status": "in_progress",
+        "evidence_summary": [
+            "The Worker Report normalized and rendered deterministically.",
+            "The current Git status contains only protected untracked jarvis.bat.",
+        ],
+        "source_conflicts": [],
+        "risks": [
+            {
+                "severity": "low",
+                "category": "integration_pending",
+                "summary": "The contracts are not connected to Project Control yet.",
+            }
+        ],
+        "next_recommendation": {
+            "work_package_id": "manager-reporting-v0.1b",
+            "summary": "Build pure adapters from existing evidence.",
+            "user_value": "Hermes can derive reports without duplicating source state.",
+        },
+        "owner_action": "none",
+        "owner_decision": "",
+    }
+
+
+def _test_manager_reporting_contracts_are_immutable_and_stable() -> None:
+    worker_payload = _sample_worker_report()
+    first_worker = normalize_worker_report(worker_payload)
+    second_worker = normalize_worker_report(copy.deepcopy(worker_payload))
+    _assert(first_worker == second_worker, "Worker Report normalization is unstable")
+    _assert(
+        serialize_worker_report(first_worker) == serialize_worker_report(second_worker),
+        "Worker Report serialization is unstable",
+    )
+    _assert(
+        parse_worker_report_json(serialize_worker_report(first_worker)) == first_worker,
+        "Worker Report JSON round trip changed the contract",
+    )
+    detached = worker_report_to_dict(first_worker)
+    detached["changed_files"].append("untrusted.txt")
+    _assert(
+        "untrusted.txt" not in first_worker.changed_files,
+        "Worker Report mapping mutated the immutable contract",
+    )
+    try:
+        first_worker.result_type = "blocked"  # type: ignore[misc]
+    except (AttributeError, TypeError):
+        pass
+    else:
+        raise AssertionError("Worker Report must be immutable")
+
+    manager_payload = _sample_manager_report()
+    first_manager = normalize_manager_report(manager_payload)
+    second_manager = normalize_manager_report(copy.deepcopy(manager_payload))
+    _assert(first_manager == second_manager, "Manager Report normalization is unstable")
+    _assert(
+        serialize_manager_report(first_manager)
+        == serialize_manager_report(second_manager),
+        "Manager Report serialization is unstable",
+    )
+    _assert(
+        parse_manager_report_json(serialize_manager_report(first_manager))
+        == first_manager,
+        "Manager Report JSON round trip changed the contract",
+    )
+    try:
+        first_manager.owner_action = "decision_required"  # type: ignore[misc]
+    except (AttributeError, TypeError):
+        pass
+    else:
+        raise AssertionError("Manager Report must be immutable")
+
+
+def _test_manager_reporting_markdown_separates_worker_and_owner_views() -> None:
+    worker = normalize_worker_report(_sample_worker_report())
+    worker_before = serialize_worker_report(worker)
+    worker_markdown = render_worker_report_markdown(worker)
+    _assert(worker_markdown.startswith("# Worker Report\n"), "Worker heading missing")
+    _assert("## Changed Files" in worker_markdown, "Worker files missing")
+    _assert("## Validation" in worker_markdown, "Worker validation missing")
+    _assert("## Safety Boundary" in worker_markdown, "Worker safety missing")
+    _assert(
+        serialize_worker_report(worker) == worker_before,
+        "Worker renderer mutated its input",
+    )
+
+    manager = normalize_manager_report(_sample_manager_report())
+    manager_before = serialize_manager_report(manager)
+    manager_markdown = render_manager_report_markdown(manager)
+    _assert(manager_markdown.startswith("# Manager Report\n"), "Manager heading missing")
+    _assert("## Milestone Meaning" in manager_markdown, "milestone meaning missing")
+    _assert("## User Outcome" in manager_markdown, "user outcome missing")
+    _assert("Owner action: none" in manager_markdown, "owner action missing")
+    _assert(
+        "apps/hermes-manager-pilot/run_smoke_tests.py" not in manager_markdown,
+        "Manager Report leaked Worker file detail",
+    )
+    _assert(
+        serialize_manager_report(manager) == manager_before,
+        "Manager renderer mutated its input",
+    )
+
+
+def _test_worker_report_fails_closed_on_validation_and_safety_violations() -> None:
+    failed = _sample_worker_report()
+    failed["validation_results"][0]["status"] = "failed"  # type: ignore[index]
+    _assert_manager_reporting_error(
+        lambda: normalize_worker_report(failed),
+        "contains failed validation",
+    )
+
+    unsafe = _sample_worker_report()
+    unsafe["safety_boundary"]["protected_paths_untouched"] = False  # type: ignore[index]
+    _assert_manager_reporting_error(
+        lambda: normalize_worker_report(unsafe),
+        "violates its safety boundary",
+    )
+
+    unclean = _sample_worker_report()
+    unclean["qa_strategy"].update(  # type: ignore[union-attr]
+        {"server_started": True, "cleanup_status": "failed"}
+    )
+    _assert_manager_reporting_error(
+        lambda: normalize_worker_report(unclean),
+        "process_cleanup",
+    )
+
+    invalid_cleanup = _sample_worker_report()
+    invalid_cleanup["qa_strategy"].update(  # type: ignore[union-attr]
+        {"server_started": True, "cleanup_status": "not_required"}
+    )
+    _assert_manager_reporting_error(
+        lambda: normalize_worker_report(invalid_cleanup),
+        "must record server cleanup",
+    )
+
+    blocked_without_reason = _sample_worker_report()
+    blocked_without_reason["result_type"] = "blocked"
+    _assert_manager_reporting_error(
+        lambda: normalize_worker_report(blocked_without_reason),
+        "requires a blocker",
+    )
+
+
+def _test_manager_report_fails_closed_on_conflict_or_bad_owner_action() -> None:
+    conflict = _sample_manager_report()
+    conflict["source_conflicts"] = ["Master Plan milestone differs from Worker Report."]
+    _assert_manager_reporting_error(
+        lambda: normalize_manager_report(conflict),
+        "require blocked status and owner decision",
+    )
+
+    missing_decision = _sample_manager_report()
+    missing_decision["owner_action"] = "decision_required"
+    _assert_manager_reporting_error(
+        lambda: normalize_manager_report(missing_decision),
+        "owner_decision is required",
+    )
+
+    false_decision = _sample_manager_report()
+    false_decision["owner_decision"] = "Choose a new product direction."
+    _assert_manager_reporting_error(
+        lambda: normalize_manager_report(false_decision),
+        "must be empty",
+    )
+
+    wrong_source = _sample_manager_report()
+    wrong_source["source_of_truth"] = "worker_report"
+    _assert_manager_reporting_error(
+        lambda: normalize_manager_report(wrong_source),
+        "must be master_plan",
+    )
+
+    blocking_risk = _sample_manager_report()
+    blocking_risk["risks"][0]["severity"] = "blocking"  # type: ignore[index]
+    _assert_manager_reporting_error(
+        lambda: normalize_manager_report(blocking_risk),
+        "require blocked status and owner decision",
+    )
+
+
+def _test_manager_reporting_json_is_bounded_and_core_is_side_effect_free() -> None:
+    worker_json = serialize_worker_report(
+        normalize_worker_report(_sample_worker_report())
+    )
+    duplicate = worker_json.replace(
+        '"version": "0.1A"',
+        '"version": "0.1A",\n  "version": "0.1A"',
+        1,
+    )
+    _assert_manager_reporting_error(
+        lambda: parse_worker_report_json(duplicate),
+        "duplicate key",
+    )
+
+    unknown = _sample_manager_report()
+    unknown["authority"] = "execute"
+    _assert_manager_reporting_error(
+        lambda: normalize_manager_report(unknown),
+        "unknown fields",
+    )
+
+    source = (
+        APP_ROOT / "hermes_manager_pilot" / "manager_reporting.py"
+    ).read_text(encoding="utf-8")
+    for forbidden in (
+        "subprocess",
+        "requests",
+        "urlopen",
+        "socket",
+        ".write_text(",
+        ".write_bytes(",
+        "open(",
+        "Path(",
+    ):
+        _assert(
+            forbidden not in source,
+            f"manager reporting core contains forbidden side effect: {forbidden}",
+        )
+
+
 def _repo_file_set() -> set[str]:
     return {
         str(path.relative_to(REPO_ROOT))
@@ -4670,6 +4988,11 @@ def main() -> None:
         _test_browser_ui_mentions_manual_jarvis_handoff,
         _test_copy_only_jarvis_review_handoff_is_deterministic_and_bounded,
         _test_copy_only_review_handoff_route_fixes_repository_authority,
+        _test_manager_reporting_contracts_are_immutable_and_stable,
+        _test_manager_reporting_markdown_separates_worker_and_owner_views,
+        _test_worker_report_fails_closed_on_validation_and_safety_violations,
+        _test_manager_report_fails_closed_on_conflict_or_bad_owner_action,
+        _test_manager_reporting_json_is_bounded_and_core_is_side_effect_free,
     )
     for test in tests:
         test()

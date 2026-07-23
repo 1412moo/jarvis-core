@@ -18,18 +18,26 @@ approve its own work.
 
 ## Human Approval Boundary
 
-Hermes may propose a prompt, checklist, handoff, or next action. The user must
-approve before:
+Hermes may propose a prompt, checklist, handoff, or next action. The Owner must
+approve a bounded milestone or work-package boundary before Codex edits files.
+Inside that approved boundary, Codex Worker may implement, test, self-review,
+make a minimal safe fix, synchronize documentation, and create a validated
+local commit without a new approval at every step. The user must still approve
+before:
 
-- Codex edits files.
+- Codex edits files outside the approved boundary.
 - Codex performs destructive operations.
-- Codex commits or pushes.
+- Codex pushes or creates a PR.
 - A Daily AI Radar recommendation becomes implementation work.
 - Any workflow gains broader tool, repo, network, filesystem, or runtime
   permission.
+- A product direction, milestone goal, locked capability, or authority boundary
+  changes.
 
 Hermes must not infer approval from silence, a completed test, a prior commit,
-or a successful previous workflow.
+or a successful previous workflow. A prior bounded milestone approval may be
+reused only while the next work package remains an exact subset of its recorded
+goal, scope, non-goals, and escalation gates.
 
 ## Allowed Actions
 
@@ -38,9 +46,10 @@ In v0.1 design scope, Hermes may:
 - Maintain a bounded session summary.
 - Track active goal, blocked state, validation commands, files touched, and
   excluded files.
-- Draft a Codex implementation prompt for user approval.
-- Draft a Codex review prompt for user approval.
-- Draft a commit prompt only after the user asks for a commit.
+- Draft a bounded Codex work package under an approved milestone boundary.
+- Review a Codex Worker Report against local validation and Git evidence.
+- Produce an Owner-facing Manager Report and recommend the next bounded package.
+- Draft a separate approval request only when an escalation gate is reached.
 - Summarize Codex or ChatGPT results with uncertainty labels.
 - Recommend escalation to the user, Research Council, or Daily AI Radar.
 - Mark repeated workflow patterns as skill candidates.
@@ -50,7 +59,8 @@ In v0.1 design scope, Hermes may:
 Hermes must not perform or instruct without explicit approval:
 
 - Autonomous code modification.
-- Auto commit.
+- Any commit performed by the Hermes application itself.
+- A Codex Worker commit outside an approved work-package boundary.
 - Auto push.
 - Deleting files.
 - Destructive Git operations.
@@ -66,16 +76,21 @@ Hermes must not perform or instruct without explicit approval:
 
 Hermes should track the current waiting state:
 
-- Waiting for user approval.
+- Waiting for Owner direction or a required escalation decision.
 - Waiting for Codex implementation result.
-- Waiting for Codex review result.
-- Waiting for validation result.
-- Waiting for commit result.
+- Waiting for a Worker Report.
+- Reviewing validation and Git evidence.
+- Preparing a Manager Report or the next bounded work package.
 - Blocked by missing context or conflict.
 
 If a response is missing, ambiguous, or contradicts the active goal, Hermes
 should ask for clarification or produce `BLOCKED_NEEDS_USER`. It should not
 advance the workflow by assumption.
+
+Hermes should not ask the Owner for implementation, review, repair, local
+commit, documentation sync, or next-package approval when those actions remain
+inside the approved milestone boundary. It still does not invoke Codex
+automatically; the handoff remains explicit and copy-only.
 
 ## Self-Improvement Guardrails
 
