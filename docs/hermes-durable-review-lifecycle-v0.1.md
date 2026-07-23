@@ -1,4 +1,4 @@
-# Hermes Durable Review Local Lifecycle v0.1C/v0.1D/v0.1E/v0.1F
+# Hermes Durable Review Local Lifecycle v0.1C/v0.1D/v0.1E/v0.1F/v0.1G
 
 Status: implemented and locally verified on 2026-07-23.
 
@@ -9,6 +9,7 @@ Implementation commits:
 - v0.1E record core: `a02605750f7cbd889e6c6ac6e3ac98719b5c89e6`
 - v0.1E content verification: `701a77e58a8fa4af0c1bbfef80aee364eadd3143`
 - v0.1F evidence readiness visibility: `a0ff282149a8ccd2e50744b8e61a1a1c4f843f11`
+- v0.1G lifecycle operation progress: `d312413`
 
 ## User value
 
@@ -21,6 +22,8 @@ New Saves also bind bounded target-content evidence, so the handoff is produced
 only when current target bytes still match the saved evidence.
 The Saved Reviews list shows whether that live content check is available or a
 legacy record is known to be blocked before the owner attempts a handoff.
+Longer local lifecycle checks now show immediate progress and prevent duplicate
+activation until each request completes.
 
 ## Flow
 
@@ -123,6 +126,20 @@ Frozen in-memory Review + confirmed scope
 - No new route, migration, persistence, background work, external call, or
   clipboard dependency is introduced.
 
+## Lifecycle Operation Progress v0.1G contract
+
+- Save preview, Save confirmation, content-verified handoff, Delete preview, and
+  Delete confirmation set an operation-specific status before starting local IO.
+- The active trigger is disabled and marked `aria-busy=true` for the request.
+  Confirmation also disables its related preview action until completion.
+- Duplicate activation is rejected while a control owns an in-flight action.
+- Cleanup runs on success and failure. Confirm controls remain disabled after an
+  attempt because a new preview is required; reusable controls are restored.
+- The status footer is a polite accessible live region. Recovery remains a
+  separate read-only action and never owns Delete's busy state.
+- This feedback adds no route, persisted state, polling, background work,
+  external call, execution, approval, or clipboard dependency.
+
 ## Delete contract
 
 - Delete preview accepts one generated Review ID and reopens that exact record.
@@ -204,14 +221,17 @@ and the saved candidates dashboard remain disabled or absent.
 - Browser QA used an external temporary state override, which was deleted after
   validation. The transient document and server were also removed; the default
   Review store and repository-local state were not created.
+- v0.1G deterministic checks cover all five immediate messages, the duplicate
+  guard, ARIA state, cleanup, and Delete/Recovery control ownership. Browser QA
+  directly observed Save and handoff in-flight states, completed exact Delete
+  and Recovery, and reported zero warnings or errors. Cross-app smoke tests
+  remained green and all isolated QA state was removed.
 
 ## Next candidate
 
-[Durable Review Content Evidence Binding v0.1E](hermes-durable-review-content-evidence-v0.1-design.md)
-and v0.1F list readiness visibility are implemented end to end. The next action
-is an explicit owner selection of the next bounded user-visible workstream, not
-another evidence primitive. Do not expand execution, external-call, push/PR,
-or Memory Save authority while making that choice. If Hermes remains selected,
-the observed next candidate is explicit in-progress feedback and duplicate-click
-prevention while Save, handoff verification, or exact Delete is running; it
-requires no new route, persistence, or authority.
+[Durable Review Content Evidence Binding v0.1E](hermes-durable-review-content-evidence-v0.1-design.md),
+v0.1F readiness visibility, and v0.1G lifecycle progress are implemented end to
+end. The next action is an explicit owner selection of the next bounded
+user-visible workstream, not another evidence primitive. Do not expand
+execution, external-call, push/PR, or Memory Save authority while making that
+choice.

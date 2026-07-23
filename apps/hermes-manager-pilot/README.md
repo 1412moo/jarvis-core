@@ -746,9 +746,28 @@ same-short-status byte-drift blocking with empty output, exact-byte restoration,
 deterministic content-verified handoff regeneration, exact Delete, and `absent`
 recovery. The QA record, state, server, and transient document were removed.
 The exercise also exposed one bounded UX risk: while local content verification
-is running, the previous status can remain visible for several seconds. The
-result still fails closed, but explicit in-progress feedback and duplicate-click
-prevention are candidates for a separately approved user-visible package.
+was running, the previous status could remain visible for several seconds.
+
+## Lifecycle Operation Progress v0.1G
+
+Status: implemented and locally verified in commit `d312413`.
+
+Save preview, Save confirmation, content-verified handoff, Delete preview, and
+Delete confirmation now announce an immediate operation-specific progress
+message. The active trigger is disabled and marked `aria-busy=true`; confirmation
+also disables its related preview action until the request finishes. A `finally`
+cleanup restores each control to its correct post-operation state, including the
+intentional requirement for a new preview after confirmation.
+
+The status footer is an accessible polite live region. Deterministic tests guard
+the five lifecycle messages, duplicate-action guard, ARIA state, cleanup, and
+Delete/Recovery control ownership. Local browser QA directly observed the busy
+state for Save and handoff, exercised exact Delete and Recovery, and reported no
+browser warnings or errors.
+
+v0.1G changes no route, persistence model, token authority, Review content, or
+execution boundary. It adds no polling, background work, external call, automatic
+Save, stage, commit, push, or PR behavior.
 
 ## Contract
 
