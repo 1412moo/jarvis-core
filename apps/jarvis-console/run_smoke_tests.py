@@ -1140,7 +1140,9 @@ def main() -> None:
     assert owner_decision_payload["project_id"] == PROJECT_ID
     assert owner_decision_payload["status"] == "selection_required"
     assert owner_decision_payload["authority_boundary"] == AUTHORITY_BOUNDARY
-    assert owner_decision_payload["recommended_workstream_id"] == "hermes-manager"
+    assert owner_decision_payload["recommended_workstream_id"] == run_web_app.read_master_plan_snapshot()[
+        "owner_decision_recommended_workstream_id"
+    ]
     assert owner_decision_payload["selected_workstream_id"] is None
     assert owner_decision_payload["desired_outcome"] is None
     assert owner_decision_payload["response_template"] == RESPONSE_TEMPLATE
