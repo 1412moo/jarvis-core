@@ -1101,6 +1101,47 @@ function renderRecentMilestoneEvidence(evidence) {
 }
 
 function renderDirectorReport(directorReport) {
+  const isRecord = (value) =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+  const isNonEmptyTrimmedText = (value) =>
+    typeof value === "string" && value.length > 0 && value === value.trim();
+  const packageItemsValid =
+    Array.isArray(directorReport?.completed_packages) &&
+    directorReport.completed_packages.every(
+      (item) =>
+        isRecord(item) &&
+        isNonEmptyTrimmedText(item.work_package_id) &&
+        isNonEmptyTrimmedText(item.result_type) &&
+        isNonEmptyTrimmedText(item.summary) &&
+        typeof item.commit_hash === "string",
+    );
+  const riskItemsValid =
+    Array.isArray(directorReport?.risk_summary) &&
+    directorReport.risk_summary.every(
+      (item) =>
+        isRecord(item) &&
+        isNonEmptyTrimmedText(item.severity) &&
+        isNonEmptyTrimmedText(item.summary),
+    );
+  const recommendationValid =
+    directorReport?.next_recommendation === null ||
+    (isRecord(directorReport?.next_recommendation) &&
+      isNonEmptyTrimmedText(directorReport.next_recommendation.work_package_id) &&
+      isNonEmptyTrimmedText(directorReport.next_recommendation.summary) &&
+      isNonEmptyTrimmedText(directorReport.next_recommendation.user_value));
+  const ownerDecisionValid =
+    (directorReport?.owner_action === "none" &&
+      directorReport?.owner_decision === "") ||
+    (directorReport?.owner_action === "decision_required" &&
+      isNonEmptyTrimmedText(directorReport?.owner_decision));
+  const blockedStateValid =
+    directorReport?.status !== "blocked" ||
+    directorReport?.owner_action === "decision_required";
+  const blockingRiskStateValid =
+    !riskItemsValid ||
+    !directorReport.risk_summary.some((item) => item.severity === "blocking") ||
+    (directorReport?.status === "blocked" &&
+      directorReport?.owner_action === "decision_required");
   if (
     !directorReport ||
     directorReport.contract_type !== "jarvis_director_report" ||
@@ -1111,11 +1152,15 @@ function renderDirectorReport(directorReport) {
     directorReport.authority_boundary !== "derived_owner_summary_only" ||
     !["in_progress", "milestone_complete", "blocked"].includes(directorReport.status) ||
     !["none", "decision_required"].includes(directorReport.owner_action) ||
-    typeof directorReport.owner_decision !== "string" ||
-    !Array.isArray(directorReport.completed_packages) ||
-    !Array.isArray(directorReport.risk_summary) ||
-    (directorReport.next_recommendation !== null &&
-      typeof directorReport.next_recommendation !== "object")
+    !isNonEmptyTrimmedText(directorReport.milestone_id) ||
+    !isNonEmptyTrimmedText(directorReport.milestone_summary) ||
+    !isNonEmptyTrimmedText(directorReport.owner_outcome) ||
+    !packageItemsValid ||
+    !riskItemsValid ||
+    !recommendationValid ||
+    !ownerDecisionValid ||
+    !blockedStateValid ||
+    !blockingRiskStateValid
   ) {
     return `
       <section class="workstream-status-section safety-card director-report-section">
@@ -1128,12 +1173,8 @@ function renderDirectorReport(directorReport) {
     `;
   }
 
-  const packages = Array.isArray(directorReport.completed_packages)
-    ? directorReport.completed_packages
-    : [];
-  const risks = Array.isArray(directorReport.risk_summary)
-    ? directorReport.risk_summary
-    : [];
+  const packages = directorReport.completed_packages;
+  const risks = directorReport.risk_summary;
   const recommendation = directorReport.next_recommendation || null;
   const ownerAction = directorReport.owner_action || "decision_required";
   return `

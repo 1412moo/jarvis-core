@@ -1151,7 +1151,113 @@ def _test_recent_milestone_evidence_contract() -> None:
     assert all(pattern not in source for pattern in forbidden_source_patterns)
 
 
+def _test_director_renderer_fails_closed_on_malformed_nested_data() -> None:
+    app_js = Path(__file__).resolve().parent.joinpath("web", "app.js").read_text(
+        encoding="utf-8"
+    )
+    escape_source = "function escapeHtml" + app_js.split(
+        "function escapeHtml",
+        1,
+    )[1].split("function truncateText", 1)[0]
+    director_source = "function renderDirectorReport" + app_js.split(
+        "function renderDirectorReport",
+        1,
+    )[1].split("function renderManagerReport", 1)[0]
+    valid = {
+        "contract_type": DIRECTOR_CONTRACT_TYPE,
+        "version": DIRECTOR_VERSION,
+        "source_contract_type": MANAGER_CONTRACT_TYPE,
+        "derived_view": True,
+        "read_only": True,
+        "authority_boundary": DIRECTOR_AUTHORITY_BOUNDARY,
+        "milestone_id": "manager-reporting-v0.1",
+        "milestone_summary": "Summarize the verified Manager result for the Owner.",
+        "status": "in_progress",
+        "owner_outcome": "The Owner sees one bounded Director Summary.",
+        "completed_packages": [
+            {
+                "work_package_id": "manager-reporting-v0.1a",
+                "result_type": "implementation",
+                "summary": "Reporting contract completed.",
+                "commit_hash": "a" * 40,
+            }
+        ],
+        "risk_summary": [
+            {"severity": "low", "summary": "Manual handoff remains required."}
+        ],
+        "owner_action": "none",
+        "owner_decision": "",
+        "next_recommendation": {
+            "work_package_id": "manager-reporting-v0.1c",
+            "summary": "Verify the Director projection.",
+            "user_value": "The Owner gets a concise read-only summary.",
+        },
+    }
+    malformed: list[dict[str, Any]] = []
+    for field, value in (
+        ("completed_packages", [None]),
+        ("completed_packages", [7]),
+        ("risk_summary", [None]),
+        ("risk_summary", ["low"]),
+        ("next_recommendation", []),
+    ):
+        item = json.loads(json.dumps(valid))
+        item[field] = value
+        malformed.append(item)
+    missing_nested = json.loads(json.dumps(valid))
+    missing_nested["completed_packages"][0].pop("commit_hash")
+    malformed.append(missing_nested)
+    wrong_nested_type = json.loads(json.dumps(valid))
+    wrong_nested_type["completed_packages"][0]["summary"] = 7
+    malformed.append(wrong_nested_type)
+    missing_risk_field = json.loads(json.dumps(valid))
+    missing_risk_field["risk_summary"][0].pop("summary")
+    malformed.append(missing_risk_field)
+    inconsistent_owner = json.loads(json.dumps(valid))
+    inconsistent_owner.update({"status": "blocked", "owner_action": "none"})
+    malformed.append(inconsistent_owner)
+
+    harness = (
+        f"{escape_source}\n{director_source}\n"
+        f"const valid = {json.dumps(valid, ensure_ascii=False)};\n"
+        f"const malformed = {json.dumps(malformed, ensure_ascii=False)};\n"
+        """
+const validHtml = renderDirectorReport(valid);
+if (!validHtml.includes('aria-label="Director Summary"') ||
+    validHtml.includes('Unavailable')) {
+  throw new Error("valid Director payload did not render");
+}
+for (const [index, payload] of malformed.entries()) {
+  let html;
+  try {
+    html = renderDirectorReport(payload);
+  } catch (error) {
+    throw new Error(`malformed payload ${index} threw: ${error}`);
+  }
+  if (!html.includes("Unavailable")) {
+    throw new Error(`malformed payload ${index} did not fail closed`);
+  }
+}
+"""
+    )
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, (
+        "Director renderer harness failed: "
+        f"{completed.stdout}\n{completed.stderr}"
+    )
+
+
 def main() -> None:
+    _test_director_renderer_fails_closed_on_malformed_nested_data()
     _test_read_only_git_preserves_porcelain_status()
     _test_project_control_snapshot()
     _test_owner_decision_contract()
