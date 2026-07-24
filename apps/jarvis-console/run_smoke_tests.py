@@ -2156,6 +2156,17 @@ def _test_actionable_task_view_vertical_slice() -> None:
         ),
     )
     assert optional_false_view == plain_view
+    optional_timestamp_view = run_web_app.parse_task_view_text(
+        "task-0301-optional.md",
+        task_markdown(
+            "task-0301-optional",
+            "TODO",
+            optional_lines=(
+                "- execution_updated_at: `2026-07-23 10:30 UTC`",
+            ),
+        ),
+    )
+    assert optional_timestamp_view == plain_view
     assert all(
         field_name not in optional_view
         for field_name in (
