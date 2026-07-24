@@ -63,9 +63,12 @@ if str(RESEARCH_COUNCIL_ROOT) not in sys.path:
     sys.path.insert(0, str(RESEARCH_COUNCIL_ROOT))
 
 from task_file_writer import (  # noqa: E402
+    TASK_ALLOWED_METADATA,
     TASK_FILE_PATTERN,
+    CompletionEvidenceWriteResult,
     TaskStatusTransitionResult,
     preview_task_file_write,
+    record_task_completion_evidence,
     transition_task_file_status,
     write_task_file,
 )
@@ -176,6 +179,7 @@ TASK_VIEW_REQUIRED_FIELDS = (
 )
 TASK_VIEW_OPTIONAL_TEXT_FIELDS = frozenset(
     {
+        "completion_evidence",
         "source_command",
         "execution_request",
         "execution_result",
@@ -299,6 +303,20 @@ TASK_TRANSITION_NOTICE = (
 TASK_TRANSITION_TOKEN_TTL_SECONDS = 10 * 60
 TASK_TRANSITION_TOKEN_CAPACITY = 128
 TASK_TRANSITION_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{24,128}$")
+COMPLETION_EVIDENCE_PRODUCT_NAME = "Record Completion Evidence"
+COMPLETION_EVIDENCE_PREVIEW_ENDPOINT = "/api/completion-evidence/preview"
+COMPLETION_EVIDENCE_CONFIRM_ENDPOINT = "/api/completion-evidence/confirm"
+COMPLETION_EVIDENCE_CONFIRMATION_LITERAL = "RECORD EVIDENCE"
+COMPLETION_EVIDENCE_TOKEN_TTL_SECONDS = 10 * 60
+COMPLETION_EVIDENCE_TOKEN_CAPACITY = 128
+COMPLETION_EVIDENCE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{24,128}$")
+COMPLETION_EVIDENCE_NOTICE = (
+    "This appends completion_evidence once and updates only updated_at. "
+    "It does not validate the evidence, change status, complete, or execute the Task."
+)
+COMPLETION_EVIDENCE_RECOMMENDATION = (
+    "Review the recorded evidence, then use Complete separately when the Task is ready."
+)
 EVALUATE_IDEA_PRODUCT_NAME = "Evaluate Idea"
 EVALUATE_IDEA_ENDPOINT = "/api/evaluate-idea"
 EVALUATE_IDEA_MAX_IDEA_CHARS = 2_000
@@ -955,7 +973,7 @@ def status_payload() -> dict[str, Any]:
         "registry_version": registry["registry_version"],
         "registry_read_only": registry["read_only"],
         "safety": [
-            "Task discovery and basic details are read-only. Create Local Task creates one local TODO only after Preview and explicit Confirm; Start / Complete changes only status and updated_at for TODO → DOING or DOING → DONE after Preview and explicit Confirm. Neither flow executes Task work, automatically or otherwise. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.",
+            "Task discovery and basic details are read-only. Create Local Task creates one local TODO; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.",
             "Local-only",
             "No automatic Codex / ChatGPT / Hermes invocation",
             "No commit or push",
@@ -1784,7 +1802,8 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
         return None
 
     metadata: dict[str, str] = {}
-    for line in text.splitlines():
+    metadata_line_indexes: dict[str, int] = {}
+    for line_index, line in enumerate(text.splitlines()):
         if not line.lstrip().startswith("- "):
             continue
         match = TASK_VIEW_METADATA_PATTERN.fullmatch(line)
@@ -1800,6 +1819,7 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
         if field_name in metadata:
             return invalid_task_view("duplicate_field", field_name)
         metadata[field_name] = match.group("value")
+        metadata_line_indexes[field_name] = line_index
 
     for field_name in TASK_VIEW_REQUIRED_FIELDS:
         if field_name not in metadata:
@@ -1815,6 +1835,12 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
     status_rule = TASK_VIEW_STATUS_RULES.get(status)
     if status_rule is None:
         return invalid_task_view("invalid_status", "status")
+    if (
+        "completion_evidence" in metadata
+        and metadata_line_indexes["completion_evidence"]
+        != metadata_line_indexes["summary"] + 1
+    ):
+        return invalid_task_view("invalid_text", "completion_evidence")
 
     for field_name in ("created_at", "updated_at"):
         if parse_task_view_timestamp(metadata[field_name]) is None:
@@ -1835,14 +1861,17 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
             return invalid_task_view("invalid_text", field_name)
         normalized_text[field_name] = normalized
 
+    normalized_optional_text: dict[str, str] = {}
     for field_name in TASK_VIEW_OPTIONAL_TEXT_FIELDS:
         if field_name not in metadata:
             continue
         raw_value = metadata[field_name]
         if len(raw_value) > 500:
             return invalid_task_view("field_too_long", field_name)
-        if normalize_task_view_text(raw_value, allow_empty=False) is None:
+        normalized = normalize_task_view_text(raw_value, allow_empty=False)
+        if normalized is None:
             return invalid_task_view("invalid_text", field_name)
+        normalized_optional_text[field_name] = normalized
 
     for field_name in TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS:
         if field_name in metadata and metadata[field_name] not in {"true", "false"}:
@@ -1864,6 +1893,10 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
         "status": status,
         "updated_at": metadata["updated_at"],
         "summary": normalized_text["summary"],
+        "completion_evidence": normalized_optional_text.get(
+            "completion_evidence"
+        ),
+        "has_completion_evidence": "completion_evidence" in metadata,
         "group_id": group_id,
         "display_rank": display_rank,
         "next_action": next_action,
@@ -1985,7 +2018,7 @@ def overview_payload() -> dict[str, Any]:
         "recent_groups": recent_groups,
         "notes": [
             "/api/overview discovery and basic details are read-only.",
-            "Only explicit Start / Complete Preview + Confirm may update the selected valid Task's status and updated_at; Jarvis never executes the Task.",
+            "Only explicit Start / Complete Preview + Confirm may update a selected valid Task's status and updated_at. Record Completion Evidence Preview + Confirm may append one completion_evidence value and update only updated_at for an eligible DOING Task; it does not validate evidence, change status, complete, or execute the Task.",
             "Reports and checkpoints are discovered as existing local files only; none are generated here.",
             "Recent items are read-only metadata from allowlisted local paths.",
             "Jarvis Console does not run skills, call Codex/ChatGPT/Hermes, or commit/push.",
@@ -4719,6 +4752,399 @@ def confirm_task_transition(
     )
 
 
+def normalize_completion_evidence(value: Any) -> str | None:
+    """Return one safe canonical evidence value or None."""
+
+    if not isinstance(value, str):
+        return None
+    if "`" in value or "\x00" in value:
+        return None
+    if any(
+        character in {"\r", "\n", "\u0085", "\u2028", "\u2029"}
+        or unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        for character in value
+    ):
+        return None
+    normalized = " ".join(unicodedata.normalize("NFC", value).strip().split())
+    if not 1 <= len(normalized) <= 500:
+        return None
+    return normalized
+
+
+@dataclass
+class _CompletionEvidenceRecord:
+    task_id: str
+    title: str
+    completion_evidence: str
+    storage_location: str
+    observed_updated_at: str
+    planned_updated_at: str
+    expected_digest: str
+    expires_at: float
+    receipt: dict[str, Any] | None = None
+    consumed_without_receipt: bool = False
+
+
+class CompletionEvidenceRegistry:
+    """Feature-local authority for one append-once evidence preview."""
+
+    def __init__(
+        self,
+        *,
+        clock: Any = time.monotonic,
+        token_factory: Any = lambda: secrets.token_urlsafe(32),
+        ttl_seconds: int = COMPLETION_EVIDENCE_TOKEN_TTL_SECONDS,
+        capacity: int = COMPLETION_EVIDENCE_TOKEN_CAPACITY,
+    ) -> None:
+        self._clock = clock
+        self._token_factory = token_factory
+        self._ttl_seconds = ttl_seconds
+        self._capacity = capacity
+        self._records: dict[str, _CompletionEvidenceRecord] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _digest(token: str) -> str:
+        return hashlib.sha256(
+            f"completion-evidence:{token}".encode("utf-8")
+        ).hexdigest()
+
+    def _purge_expired_locked(self, now: float) -> None:
+        for digest in [
+            key
+            for key, record in self._records.items()
+            if record.expires_at <= now
+        ]:
+            del self._records[digest]
+
+    def issue(
+        self,
+        record: _CompletionEvidenceRecord,
+    ) -> tuple[int, dict[str, Any]]:
+        now = float(self._clock())
+        with self._lock:
+            self._purge_expired_locked(now)
+            if len(self._records) >= self._capacity:
+                return HTTPStatus.SERVICE_UNAVAILABLE, {
+                    "ok": False,
+                    "error": "completion_evidence_temporarily_unavailable",
+                }
+            for _ in range(8):
+                token = str(self._token_factory())
+                if not COMPLETION_EVIDENCE_TOKEN_PATTERN.fullmatch(token):
+                    continue
+                digest = self._digest(token)
+                if digest in self._records:
+                    continue
+                record.expires_at = now + self._ttl_seconds
+                self._records[digest] = record
+                return HTTPStatus.OK, {
+                    "token": token,
+                    "expires": self._ttl_seconds,
+                }
+        return HTTPStatus.SERVICE_UNAVAILABLE, {
+            "ok": False,
+            "error": "completion_evidence_temporarily_unavailable",
+        }
+
+    def confirm(
+        self,
+        *,
+        token: str,
+        confirmation: str,
+        tasks_dir: Path,
+        writer: Any = record_task_completion_evidence,
+    ) -> tuple[int, dict[str, Any]]:
+        if not COMPLETION_EVIDENCE_TOKEN_PATTERN.fullmatch(token):
+            return HTTPStatus.NOT_FOUND, {
+                "ok": False,
+                "error": "completion_evidence_invalid_or_expired_token",
+            }
+        now = float(self._clock())
+        digest = self._digest(token)
+        with self._lock:
+            self._purge_expired_locked(now)
+            record = self._records.get(digest)
+            if record is None:
+                return HTTPStatus.NOT_FOUND, {
+                    "ok": False,
+                    "error": "completion_evidence_invalid_or_expired_token",
+                }
+            if confirmation != COMPLETION_EVIDENCE_CONFIRMATION_LITERAL:
+                return HTTPStatus.BAD_REQUEST, {
+                    "ok": False,
+                    "error": "exact_confirmation_required",
+                }
+            if record.receipt is not None:
+                return HTTPStatus.OK, {
+                    "ok": True,
+                    "product_name": COMPLETION_EVIDENCE_PRODUCT_NAME,
+                    "result_type": "already_recorded",
+                    "receipt": dict(record.receipt),
+                }
+            if record.consumed_without_receipt:
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "completion_evidence_token_already_consumed",
+                }
+            record.consumed_without_receipt = True
+
+            resolved_tasks_dir = tasks_dir.resolve()
+            task_path = (tasks_dir / f"{record.task_id}.md").resolve()
+            if (
+                task_path.parent != resolved_tasks_dir
+                or not TASK_FILE_PATTERN.fullmatch(task_path.name)
+            ):
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "completion_evidence_task_path_invalid",
+                }
+            try:
+                raw = task_path.read_bytes()
+                text = raw.decode("utf-8", errors="strict")
+            except (OSError, UnicodeDecodeError):
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "completion_evidence_storage_unavailable",
+                }
+            view = parse_task_view_text(task_path.name, text)
+            if (
+                view is None
+                or view["parse_state"] != "valid"
+                or view["id"] != record.task_id
+            ):
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "completion_evidence_task_changed_since_preview",
+                }
+            if view["status"] != "DOING":
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "completion_evidence_task_not_doing",
+                }
+            if view["has_completion_evidence"]:
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "completion_evidence_already_exists",
+                }
+            if not hmac.compare_digest(
+                hashlib.sha256(raw).hexdigest(),
+                record.expected_digest,
+            ):
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "completion_evidence_task_changed_since_preview",
+                }
+
+            try:
+                result = writer(
+                    tasks_dir=tasks_dir,
+                    task_id=record.task_id,
+                    completion_evidence=record.completion_evidence,
+                    expected_digest=record.expected_digest,
+                    planned_updated_at=record.planned_updated_at,
+                )
+            except OSError:
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "completion_evidence_storage_unavailable",
+                }
+            if result.result_type == "stale":
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "completion_evidence_task_changed_since_preview",
+                }
+            if result.result_type != "recorded":
+                result_reason = result.reason or "record_failed"
+                if not result_reason.startswith("completion_evidence_"):
+                    result_reason = f"completion_evidence_{result_reason}"
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": result_reason,
+                }
+
+            receipt = {
+                "task_id": record.task_id,
+                "title": record.title,
+                "current_status": "DOING",
+                "completion_evidence": record.completion_evidence,
+                "updated_at": record.planned_updated_at,
+                "storage_location": record.storage_location,
+                "evidence_validated": False,
+                "status_changed": False,
+                "no_execution": True,
+                "recommendation": COMPLETION_EVIDENCE_RECOMMENDATION,
+            }
+            record.receipt = receipt
+            record.expires_at = now + self._ttl_seconds
+            return HTTPStatus.OK, {
+                "ok": True,
+                "product_name": COMPLETION_EVIDENCE_PRODUCT_NAME,
+                "result_type": "recorded",
+                "receipt": dict(receipt),
+            }
+
+
+COMPLETION_EVIDENCE_REGISTRY = CompletionEvidenceRegistry()
+
+
+def preview_completion_evidence(
+    payload: dict[str, Any],
+    *,
+    registry: CompletionEvidenceRegistry = COMPLETION_EVIDENCE_REGISTRY,
+    tasks_dir: Path = CREATE_LOCAL_TASKS_DIR,
+    utc_now: Any = lambda: datetime.now(timezone.utc).strftime(
+        TASK_VIEW_TIMESTAMP_FORMAT
+    ),
+    _after_selection: Any = None,
+) -> tuple[int, dict[str, Any]]:
+    """Preview one append-once completion evidence write without mutation."""
+
+    if set(payload) != {"task_id", "completion_evidence"}:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": (
+                "completion_evidence_preview_accepts_task_id_and_"
+                "completion_evidence_only"
+            ),
+        }
+    task_id = payload.get("task_id")
+    raw_evidence = payload.get("completion_evidence")
+    if not isinstance(task_id, str) or not isinstance(raw_evidence, str):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "completion_evidence_invalid_preview",
+        }
+    completion_evidence = normalize_completion_evidence(raw_evidence)
+    if completion_evidence is None:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "completion_evidence_invalid_value",
+        }
+
+    selected_item = next(
+        (
+            item
+            for item in selected_task_transition_items(tasks_dir)
+            if item["task_view"]["parse_state"] == "valid"
+            and PurePosixPath(item["path"]).stem == task_id
+        ),
+        None,
+    )
+    if selected_item is None:
+        return HTTPStatus.NOT_FOUND, {
+            "ok": False,
+            "error": "completion_evidence_task_not_found_in_actionable_view",
+        }
+    task_path = (REPO_ROOT / selected_item["path"]).resolve()
+    expected_path = (tasks_dir / f"{task_id}.md").resolve()
+    if task_path != expected_path or task_path.parent != tasks_dir.resolve():
+        return HTTPStatus.NOT_FOUND, {
+            "ok": False,
+            "error": "completion_evidence_task_not_found_in_actionable_view",
+        }
+    if _after_selection is not None:
+        _after_selection(task_path)
+    try:
+        raw = task_path.read_bytes()
+        text = raw.decode("utf-8", errors="strict")
+    except (OSError, UnicodeDecodeError):
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "completion_evidence_task_changed_since_preview",
+        }
+    view = parse_task_view_text(task_path.name, text)
+    if (
+        view is None
+        or view["parse_state"] != "valid"
+        or view["id"] != task_id
+    ):
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "completion_evidence_task_changed_since_preview",
+        }
+    if view["status"] != "DOING":
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "completion_evidence_task_not_doing",
+        }
+    if view["has_completion_evidence"]:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "completion_evidence_already_exists",
+        }
+    planned_updated_at = str(utc_now())
+    if parse_task_view_timestamp(planned_updated_at) is None:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "completion_evidence_invalid_planned_updated_at",
+        }
+
+    record = _CompletionEvidenceRecord(
+        task_id=task_id,
+        title=view["title"],
+        completion_evidence=completion_evidence,
+        storage_location=selected_item["path"],
+        observed_updated_at=view["updated_at"],
+        planned_updated_at=planned_updated_at,
+        expected_digest=hashlib.sha256(raw).hexdigest(),
+        expires_at=0.0,
+    )
+    issue_status, issued = registry.issue(record)
+    if issue_status != HTTPStatus.OK:
+        return issue_status, issued
+    return HTTPStatus.OK, {
+        "ok": True,
+        "product_name": COMPLETION_EVIDENCE_PRODUCT_NAME,
+        "token": issued["token"],
+        "expires": issued["expires"],
+        "confirmation_literal": COMPLETION_EVIDENCE_CONFIRMATION_LITERAL,
+        "preview": {
+            "task_id": task_id,
+            "title": view["title"],
+            "current_status": "DOING",
+            "existing_evidence": None,
+            "proposed_evidence": completion_evidence,
+            "observed_updated_at": view["updated_at"],
+            "planned_updated_at": planned_updated_at,
+            "storage_location": selected_item["path"],
+            "evidence_validated": False,
+            "status_changed": False,
+            "no_execution": True,
+            "notice": COMPLETION_EVIDENCE_NOTICE,
+        },
+    }
+
+
+def confirm_completion_evidence(
+    payload: dict[str, Any],
+    *,
+    registry: CompletionEvidenceRegistry = COMPLETION_EVIDENCE_REGISTRY,
+    tasks_dir: Path = CREATE_LOCAL_TASKS_DIR,
+) -> tuple[int, dict[str, Any]]:
+    """Confirm one server-held completion evidence append."""
+
+    if set(payload) != {"token", "confirmation"}:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": (
+                "completion_evidence_confirm_accepts_token_and_confirmation_only"
+            ),
+        }
+    token = payload.get("token")
+    confirmation = payload.get("confirmation")
+    if not isinstance(token, str) or not isinstance(confirmation, str):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "completion_evidence_invalid_confirmation",
+        }
+    return registry.confirm(
+        token=token,
+        confirmation=confirmation,
+        tasks_dir=tasks_dir,
+    )
+
+
 def _bounded_evaluate_idea_text(value: Any, max_chars: int) -> str:
     text = str(value or "").strip()
     if len(text) <= max_chars:
@@ -5237,6 +5663,119 @@ def validate_task_transition_http_request(
     return HTTPStatus.OK, {"ok": True, "body_length": body_length}
 
 
+class _DuplicateCompletionEvidenceJsonKey(ValueError):
+    pass
+
+
+def parse_completion_evidence_json_body(
+    raw_body: bytes,
+) -> tuple[int, dict[str, Any]]:
+    """Parse feature-local evidence JSON and reject duplicate keys."""
+
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in parsed:
+                raise _DuplicateCompletionEvidenceJsonKey
+            parsed[key] = value
+        return parsed
+
+    try:
+        payload = json.loads(
+            raw_body.decode("utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        _DuplicateCompletionEvidenceJsonKey,
+    ):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "completion_evidence_invalid_json",
+        }
+    if not isinstance(payload, dict):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "completion_evidence_json_must_be_object",
+        }
+    return HTTPStatus.OK, payload
+
+
+def validate_completion_evidence_http_request(
+    *,
+    path: str,
+    query: str,
+    header_pairs: list[tuple[str, str]],
+    bound_port: int,
+) -> tuple[int, dict[str, Any]]:
+    """Validate one exact locally guarded completion-evidence request."""
+
+    if path not in {
+        COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+        COMPLETION_EVIDENCE_CONFIRM_ENDPOINT,
+    } or query:
+        return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
+    if len(header_pairs) > 32:
+        return HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE, {
+            "ok": False,
+            "error": "completion_evidence_headers_rejected",
+        }
+    headers: dict[str, list[str]] = {}
+    for raw_name, raw_value in header_pairs:
+        name = str(raw_name).strip().lower()
+        value = str(raw_value).strip()
+        if not name or len(name) > 80 or len(value) > 1024:
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "completion_evidence_headers_rejected",
+            }
+        headers.setdefault(name, []).append(value)
+    if headers.get("transfer-encoding"):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "transfer_encoding_not_allowed",
+        }
+    if any(
+        len(headers.get(name, [])) != 1
+        for name in CREATE_LOCAL_TASK_REQUIRED_HEADERS
+    ):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "completion_evidence_headers_rejected",
+        }
+    expected_authority = f"{DEFAULT_HOST}:{bound_port}"
+    if (
+        headers["host"][0] != expected_authority
+        or headers["origin"][0] != f"http://{expected_authority}"
+    ):
+        return HTTPStatus.FORBIDDEN, {
+            "ok": False,
+            "error": "completion_evidence_origin_rejected",
+        }
+    if (
+        headers["content-type"][0].lower()
+        not in CREATE_LOCAL_TASK_ALLOWED_CONTENT_TYPES
+    ):
+        return HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {
+            "ok": False,
+            "error": "completion_evidence_json_required",
+        }
+    content_length = headers["content-length"][0]
+    if not re.fullmatch(r"[1-9][0-9]*", content_length):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_content_length",
+        }
+    body_length = int(content_length)
+    if body_length > MAX_JSON_BODY_BYTES:
+        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {
+            "ok": False,
+            "error": "completion_evidence_body_size_rejected",
+        }
+    return HTTPStatus.OK, {"ok": True, "body_length": body_length}
+
+
 def handle_get_api(path: str, query: str = "") -> tuple[int, dict[str, Any]]:
     """Handle read-only GET API routes."""
 
@@ -5337,6 +5876,12 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             TASK_TRANSITION_CONFIRM_ENDPOINT,
         }:
             self._handle_task_transition_post(parsed.path, parsed.query)
+            return
+        if path in {
+            COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+            COMPLETION_EVIDENCE_CONFIRM_ENDPOINT,
+        }:
+            self._handle_completion_evidence_post(parsed.path, parsed.query)
             return
         if path not in {
             "/api/suggest-skill",
@@ -5466,6 +6011,61 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             )
         else:
             response_status, response_payload = confirm_task_transition(
+                payload,
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+        self._send_json(response_status, response_payload)
+
+    def _handle_completion_evidence_post(self, path: str, query: str) -> None:
+        metadata_status, metadata = validate_completion_evidence_http_request(
+            path=path,
+            query=query,
+            header_pairs=list(self.headers.raw_items()),
+            bound_port=int(self.server.server_address[1]),
+        )
+        if metadata_status != HTTPStatus.OK:
+            self._send_json(metadata_status, metadata)
+            return
+        raw_body = self.rfile.read(metadata["body_length"])
+        if len(raw_body) != metadata["body_length"]:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "ok": False,
+                    "error": "completion_evidence_body_length_mismatch",
+                },
+            )
+            return
+        parse_status, payload = parse_completion_evidence_json_body(raw_body)
+        if parse_status != HTTPStatus.OK:
+            self._send_json(parse_status, payload)
+            return
+        registry = getattr(
+            self.server,
+            "completion_evidence_registry",
+            COMPLETION_EVIDENCE_REGISTRY,
+        )
+        tasks_dir = getattr(
+            self.server,
+            "completion_evidence_tasks_dir",
+            CREATE_LOCAL_TASKS_DIR,
+        )
+        if path == COMPLETION_EVIDENCE_PREVIEW_ENDPOINT:
+            response_status, response_payload = preview_completion_evidence(
+                payload,
+                registry=registry,
+                tasks_dir=tasks_dir,
+                utc_now=getattr(
+                    self.server,
+                    "completion_evidence_utc_now",
+                    lambda: datetime.now(timezone.utc).strftime(
+                        TASK_VIEW_TIMESTAMP_FORMAT
+                    ),
+                ),
+            )
+        else:
+            response_status, response_payload = confirm_completion_evidence(
                 payload,
                 registry=registry,
                 tasks_dir=tasks_dir,
@@ -7390,11 +7990,13 @@ def run_self_test() -> None:
     assert "jarvis.bat" in status["protected_paths"]
     assert status["safety"][0] == (
         "Task discovery and basic details are read-only. Create Local Task "
-        "creates one local TODO only after Preview and explicit Confirm; Start / "
-        "Complete changes only status and updated_at for TODO → DOING or DOING "
-        "→ DONE after Preview and explicit Confirm. Neither flow executes Task "
-        "work, automatically or otherwise. Jarvis does not create approvals or "
-        "reports, run skills, commit, push, or make external calls."
+        "creates one local TODO; Start / Complete changes only status and "
+        "updated_at; Record Completion Evidence appends one evidence value and "
+        "updates only updated_at for an eligible DOING Task. Every write "
+        "requires Preview and explicit Confirm. Evidence is not validated, "
+        "status stays DOING, and no flow executes or automatically completes "
+        "Task work. Jarvis does not create approvals or reports, run skills, "
+        "commit, push, or make external calls."
     )
     assert all({"docs", "tests", "examples", "action_guide", "when_to_use"}.issubset(skill) for skill in status["skills"])
     hermes_commands = suggest_skill("Codex commit review")["commands"]
@@ -8360,12 +8962,13 @@ def run_self_test() -> None:
     assert "Select a skill to inspect commands" in html
     assert (
         "Safety mode: Task discovery and basic details are read-only. Create "
-        "Local Task creates one local TODO only after Preview and explicit "
-        "Confirm; Start / Complete changes only status and updated_at for TODO "
-        "→ DOING or DOING → DONE after Preview and explicit Confirm. Neither "
-        "flow executes Task work, automatically or otherwise. Jarvis does not "
-        "create approvals or reports, run skills, commit, push, or make external "
-        "calls."
+        "Local Task creates one local TODO; Start / Complete changes only status "
+        "and updated_at; Record Completion Evidence appends one evidence value "
+        "and updates only updated_at for an eligible DOING Task. Every write "
+        "requires Preview and explicit Confirm. Evidence is not validated, "
+        "status stays DOING, and no flow executes or automatically completes "
+        "Task work. Jarvis does not create approvals or reports, run skills, "
+        "commit, push, or make external calls."
     ) in html
     assert "Local-only" in html
     assert "No automatic Codex / ChatGPT / Hermes invocation" in html
@@ -8383,11 +8986,13 @@ def run_self_test() -> None:
     assert "Owner-facing local project dashboard" in html
     assert (
         "Task discovery and basic details are read-only. Create Local Task "
-        "creates one local TODO only after Preview and explicit Confirm; Start / "
-        "Complete changes only status and updated_at for TODO → DOING or DOING "
-        "→ DONE after Preview and explicit Confirm. Neither flow executes Task "
-        "work, automatically or otherwise. Jarvis Console does not create "
-        "approvals or reports, run skills, commit, push, or make external calls."
+        "creates one local TODO; Start / Complete changes only status and "
+        "updated_at; Record Completion Evidence appends one evidence value and "
+        "updates only updated_at for an eligible DOING Task. Every write "
+        "requires Preview and explicit Confirm. Evidence is not validated, "
+        "status stays DOING, and no flow executes or automatically completes "
+        "Task work. Jarvis Console does not create approvals or reports, run "
+        "skills, commit, push, or make external calls."
     ) in html
     assert "does not create commits" in html
     assert "preview-only: sample candidates" in html

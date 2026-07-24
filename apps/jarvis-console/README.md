@@ -68,7 +68,12 @@ Included:
 - Voice Inbox rough-thought capture with the explicit **Create Local Task**
   Preview → Confirm → Receipt flow.
 - One create-only local `TODO` Task under fixed `memory/tasks`; no raw transcript,
-  arbitrary path, status transition, execution, or automatic save.
+  arbitrary path, execution, or automatic save.
+- Explicit Preview + Confirm for `TODO → DOING` Start and `DOING → DONE`
+  Complete, changing only `status` and `updated_at`.
+- Explicit **Record Completion Evidence** Preview + Confirm for a valid `DOING`
+  Task without evidence, appending one `completion_evidence` value and changing
+  only `updated_at`.
 - Deterministic keyword-based skill suggestion.
 - Skill cards loaded from `skills.json`.
 - Skill detail usage cards for what it does, when to use it, next action,
@@ -124,8 +129,8 @@ saved state.
 
 ## Create Local Task
 
-Create Local Task is the one intentional write capability in this Console
-milestone. The user first prepares a Voice Inbox candidate, then selects Preview.
+Create Local Task is one bounded write capability in this Console milestone.
+The user first prepares a Voice Inbox candidate, then selects Preview.
 The server recomputes and holds the canonical normalized Title and Summary in
 process memory, shows every persisted field with status `TODO` and a provisional
 local destination, and issues a short-lived one-use token. Nothing is created
@@ -146,6 +151,38 @@ Create Local Task does not:
 - approve, start, run, retry, or change Task status;
 - write Memory / Skills candidates;
 - run git commands, commit, push, or call an external service.
+
+## Start / Complete Task
+
+Start and Complete are separate, explicitly confirmed status transitions for
+valid direct-child Tasks selected by Actionable Task View. Start permits only
+`TODO → DOING`; Complete permits only `DOING → DONE`. Preview reads one
+authoritative snapshot and issues a short-lived process-local token. Confirm
+rechecks the path, grammar, status, and snapshot digest under a feature-local
+lock, then atomically changes only `status` and `updated_at`.
+
+These transitions do not execute Task work. Complete does not infer or validate
+verification evidence.
+
+## Record Completion Evidence
+
+Record Completion Evidence is a separate append-once flow for a valid
+direct-child `DOING` Task selected by Actionable Task View. Preview accepts only
+`task_id` and `completion_evidence`. The value must be a safe one-line string;
+it is normalized to NFC, trimmed, has remaining whitespace collapsed to ASCII
+spaces, and is limited to 1–500 Unicode code points.
+
+Confirm accepts only the server-held token and exact `RECORD EVIDENCE` literal.
+Under a feature-local lock it rechecks path, Task grammar, `DOING` status,
+evidence absence, and snapshot digest. The atomic writer repeats the digest
+check immediately before replace, inserts exactly one
+``- completion_evidence: `VALUE` `` line after `summary`, and changes only
+`updated_at`. A successful token replay returns the same receipt without another
+write. Tokens and compare-and-swap protection are process-local.
+
+This flow does not validate evidence, overwrite or delete evidence, change
+status, invoke AI or external services, execute Task work, or automatically run
+Complete. Complete remains a separate Preview + Confirm action.
 
 ## Available Skills
 
@@ -381,8 +418,9 @@ Jarvis Console v0.1 is a shell, not an autonomous executor.
 - It does not launch Codex, ChatGPT, Hermes, Research Council, or Daily AI
   Radar.
 - It does not run git write commands.
-- Its only repository write is an explicitly confirmed Create Local Task file
-  under fixed `memory/tasks`; every other Console surface remains read-only or
+- Its only repository writes are explicitly confirmed bounded Task operations
+  under fixed `memory/tasks`: create one Task, transition status, or append
+  completion evidence once. Every other Console surface remains read-only or
   write-free.
 - It does not store secrets, credentials, tokens, private messages, or hidden
   reasoning.

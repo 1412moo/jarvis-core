@@ -1,5 +1,7 @@
 # task-####-slug
 
+<!-- Omit completion_evidence until Record Completion Evidence appends it after summary. Do not add an empty field row. -->
+
 - id: `task-####-slug`
   - 규칙: `task-####-slug` 형식(4자리 숫자 + 소문자 하이픈 slug)만 사용한다.
 - title: `작업 제목`

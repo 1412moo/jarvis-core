@@ -116,8 +116,8 @@ def _test_tasks_reports_registry_copy() -> None:
         (
             "Treat this as a future surface; v0.1 does not mutate tasks or reports.",
             (
-                "Treat this as a planned approval/report surface; Task discovery "
-                "and basic details are read-only."
+                "Review bounded local Task details; all Task writes require "
+                "Preview and explicit Confirm."
             ),
             ("skills", current_index, "primary_next_action_description"),
         ),
@@ -128,6 +128,16 @@ def _test_tasks_reports_registry_copy() -> None:
                 "change status and updated_at for TODO → DOING or DOING → DONE."
             ),
             ("skills", current_index, "action_guide", 1),
+        ),
+        (
+            "Use this as a future placeholder.",
+            (
+                "Record Completion Evidence may append one evidence value and "
+                "update only updated_at for an eligible DOING Task after "
+                "Preview and explicit Confirm; it does not validate evidence, "
+                "change status, complete, or execute the Task."
+            ),
+            ("skills", current_index, "action_guide", 2),
         ),
         (
             "v0.1 does not mutate tasks or write reports from this console.",
@@ -184,7 +194,7 @@ def _test_tasks_reports_registry_copy() -> None:
 
     tasks_reports = current_registry["skills"][current_index]
     assert tasks_reports["status"] == "planned"
-    assert "approval/report surface" in tasks_reports[
+    assert "all Task writes require" in tasks_reports[
         "primary_next_action_description"
     ]
     transition_copy = tasks_reports["action_guide"][1]
@@ -192,6 +202,19 @@ def _test_tasks_reports_registry_copy() -> None:
     assert "TODO → DOING" in transition_copy
     assert "DOING → DONE" in transition_copy
     assert "status and updated_at" in transition_copy
+    evidence_copy = tasks_reports["action_guide"][2]
+    for exact_evidence_boundary in (
+        "Record Completion Evidence",
+        "append one evidence value",
+        "update only updated_at",
+        "eligible DOING Task",
+        "Preview and explicit Confirm",
+        "does not validate evidence",
+        "change status",
+        "complete",
+        "execute the Task",
+    ):
+        assert exact_evidence_boundary in evidence_copy
     prohibition_copy = tasks_reports["safety_notes"][0]
     for exact_prohibition in (
         "No general Task content editing",
@@ -742,12 +765,13 @@ def _test_create_local_task_vertical_slice() -> None:
     html = Path(run_web_app.WEB_ROOT, "index.html").read_text(encoding="utf-8")
     assert (
         "Safety mode: Task discovery and basic details are read-only. Create "
-        "Local Task creates one local TODO only after Preview and explicit "
-        "Confirm; Start / Complete changes only status and updated_at for TODO "
-        "→ DOING or DOING → DONE after Preview and explicit Confirm. Neither "
-        "flow executes Task work, automatically or otherwise. Jarvis does not "
-        "create approvals or reports, run skills, commit, push, or make external "
-        "calls."
+        "Local Task creates one local TODO; Start / Complete changes only status "
+        "and updated_at; Record Completion Evidence appends one evidence value "
+        "and updates only updated_at for an eligible DOING Task. Every write "
+        "requires Preview and explicit Confirm. Evidence is not validated, "
+        "status stays DOING, and no flow executes or automatically completes "
+        "Task work. Jarvis does not create approvals or reports, run skills, "
+        "commit, push, or make external calls."
         in html
     )
     assert run_web_app.handle_post_api(
@@ -3439,8 +3463,652 @@ def _test_task_transition_vertical_slice() -> None:
     assert artifact_snapshot() == before_artifacts
 
 
+def _test_completion_evidence_vertical_slice() -> None:
+    fixture_root = run_web_app.REPO_ROOT / "completion-evidence-test-fixture"
+    tasks_dir = fixture_root / "tasks"
+    production_dir = run_web_app.REPO_ROOT / "memory" / "tasks"
+
+    def production_snapshot() -> dict[str, str]:
+        return {
+            path.relative_to(production_dir).as_posix(): hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+            for path in sorted(production_dir.rglob("*"))
+            if path.is_file()
+        }
+
+    def task_bytes(
+        task_id: str,
+        status: str = "DOING",
+        *,
+        evidence: str | None = None,
+        updated_at: str = "2026-07-24 01:00 UTC",
+        newline: str = "\n",
+    ) -> bytes:
+        lines = [
+            f"# {task_id}",
+            "",
+            f"- id: `{task_id}`",
+            f"- title: `Evidence task`",
+            f"- status: `{status}`",
+            f"- repo: `jarvis-core`",
+            f"- created_at: `2026-07-24 00:00 UTC`",
+            f"- updated_at: `{updated_at}`",
+            f"- summary: `Verify the bounded result`",
+        ]
+        if evidence is not None:
+            lines.append(f"- completion_evidence: `{evidence}`")
+        return (newline.join(lines) + newline).encode("utf-8")
+
+    class TokenFactory:
+        def __init__(self, prefix: str) -> None:
+            self.prefix = prefix
+            self.index = 0
+
+        def __call__(self) -> str:
+            self.index += 1
+            return f"{self.prefix}{self.index:08d}"
+
+    before_production = production_snapshot()
+    assert fixture_root.resolve().parent == run_web_app.REPO_ROOT.resolve()
+    assert run_web_app.TASK_ALLOWED_METADATA == (
+        run_web_app.TASK_VIEW_ALLOWED_FIELDS
+    )
+    shutil.rmtree(fixture_root, ignore_errors=True)
+    tasks_dir.mkdir(parents=True)
+    try:
+        assert run_web_app.normalize_completion_evidence(
+            "  cafe\u0301\u00a0 proof  "
+        ) == "café proof"
+        for rejected in (
+            "",
+            " ",
+            "line\rbreak",
+            "line\nbreak",
+            "line\u0085break",
+            "line\u2028break",
+            "line\u2029break",
+            "bad`value",
+            "bad\x00value",
+            "bad\tvalue",
+            "bad\u200bvalue",
+            "bad\ud800value",
+            "x" * 501,
+        ):
+            assert run_web_app.normalize_completion_evidence(rejected) is None
+        assert run_web_app.normalize_completion_evidence("x" * 500) == "x" * 500
+        assert run_web_app.normalize_completion_evidence(1) is None
+
+        task_id = "task-9001-evidence"
+        task_path = tasks_dir / f"{task_id}.md"
+        original = task_bytes(task_id, newline="\r\n")
+        task_path.write_bytes(original)
+        view = run_web_app.parse_task_view_text(
+            task_path.name,
+            original.decode("utf-8"),
+        )
+        assert view is not None
+        assert view["completion_evidence"] is None
+        assert view["has_completion_evidence"] is False
+        ordered = run_web_app.parse_task_view_text(
+            "task-9010-ordered.md",
+            task_bytes(
+                "task-9010-ordered",
+                evidence="proof",
+            ).decode("utf-8"),
+        )
+        assert ordered is not None
+        assert ordered["parse_state"] == "valid"
+        assert ordered["completion_evidence"] == "proof"
+        assert ordered["has_completion_evidence"] is True
+        misordered_raw = task_bytes(
+            "task-9011-misordered",
+            evidence="proof",
+        ).replace(
+            (
+                b"- summary: `Verify the bounded result`\n"
+                b"- completion_evidence: `proof`\n"
+            ),
+            (
+                b"- completion_evidence: `proof`\n"
+                b"- summary: `Verify the bounded result`\n"
+            ),
+        )
+        misordered = run_web_app.parse_task_view_text(
+            "task-9011-misordered.md",
+            misordered_raw.decode("utf-8"),
+        )
+        assert misordered is not None
+        assert misordered["parse_state"] == "invalid"
+        assert misordered["reason_field"] == "completion_evidence"
+
+        registry = run_web_app.CompletionEvidenceRegistry(
+            token_factory=TokenFactory("evidencepreviewtoken"),
+        )
+        preview_status, preview = run_web_app.preview_completion_evidence(
+            {
+                "task_id": task_id,
+                "completion_evidence": "  build\u00a0 42 passed  ",
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+            utc_now=lambda: "2026-07-24 02:00 UTC",
+        )
+        assert preview_status == HTTPStatus.OK
+        assert task_path.read_bytes() == original
+        assert set(preview) == {
+            "ok",
+            "product_name",
+            "token",
+            "expires",
+            "confirmation_literal",
+            "preview",
+        }
+        assert preview["product_name"] == "Record Completion Evidence"
+        assert preview["confirmation_literal"] == "RECORD EVIDENCE"
+        assert set(preview["preview"]) == {
+            "task_id",
+            "title",
+            "current_status",
+            "existing_evidence",
+            "proposed_evidence",
+            "observed_updated_at",
+            "planned_updated_at",
+            "storage_location",
+            "evidence_validated",
+            "status_changed",
+            "no_execution",
+            "notice",
+        }
+        assert preview["preview"]["proposed_evidence"] == "build 42 passed"
+        assert preview["preview"]["current_status"] == "DOING"
+        assert preview["preview"]["existing_evidence"] is None
+        assert preview["preview"]["evidence_validated"] is False
+        assert preview["preview"]["status_changed"] is False
+        assert preview["preview"]["no_execution"] is True
+
+        wrong_status, wrong = run_web_app.confirm_completion_evidence(
+            {"token": preview["token"], "confirmation": "record evidence"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert wrong_status == HTTPStatus.BAD_REQUEST
+        assert wrong["error"] == "exact_confirmation_required"
+        assert task_path.read_bytes() == original
+
+        confirm_status, confirmed = run_web_app.confirm_completion_evidence(
+            {"token": preview["token"], "confirmation": "RECORD EVIDENCE"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert confirm_status == HTTPStatus.OK
+        assert confirmed["result_type"] == "recorded"
+        assert confirmed["receipt"] == {
+            "task_id": task_id,
+            "title": "Evidence task",
+            "current_status": "DOING",
+            "completion_evidence": "build 42 passed",
+            "updated_at": "2026-07-24 02:00 UTC",
+            "storage_location": (
+                "completion-evidence-test-fixture/tasks/task-9001-evidence.md"
+            ),
+            "evidence_validated": False,
+            "status_changed": False,
+            "no_execution": True,
+            "recommendation": run_web_app.COMPLETION_EVIDENCE_RECOMMENDATION,
+        }
+        expected = original.replace(
+            b"- updated_at: `2026-07-24 01:00 UTC`",
+            b"- updated_at: `2026-07-24 02:00 UTC`",
+        ).replace(
+            b"- summary: `Verify the bounded result`\r\n",
+            (
+                b"- summary: `Verify the bounded result`\r\n"
+                b"- completion_evidence: `build 42 passed`\r\n"
+            ),
+        )
+        assert task_path.read_bytes() == expected
+        recorded_view = run_web_app.parse_task_view_text(
+            task_path.name,
+            expected.decode("utf-8"),
+        )
+        assert recorded_view is not None
+        assert recorded_view["completion_evidence"] == "build 42 passed"
+        assert recorded_view["has_completion_evidence"] is True
+        replay_status, replay = run_web_app.confirm_completion_evidence(
+            {"token": preview["token"], "confirmation": "RECORD EVIDENCE"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert replay_status == HTTPStatus.OK
+        assert replay["result_type"] == "already_recorded"
+        assert replay["receipt"] == confirmed["receipt"]
+        assert task_path.read_bytes() == expected
+
+        existing_status, existing = run_web_app.preview_completion_evidence(
+            {"task_id": task_id, "completion_evidence": "second"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert existing_status == HTTPStatus.CONFLICT
+        assert existing["error"] == "completion_evidence_already_exists"
+
+        complete_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id=task_id,
+            expected_digest=hashlib.sha256(expected).hexdigest(),
+            current_status="DOING",
+            target_status="DONE",
+            planned_updated_at="2026-07-24 03:00 UTC",
+        )
+        assert complete_result.result_type == "updated"
+        completed_bytes = task_path.read_bytes()
+        assert b"- completion_evidence: `build 42 passed`" in completed_bytes
+        assert completed_bytes == expected.replace(
+            b"- status: `DOING`",
+            b"- status: `DONE`",
+        ).replace(
+            b"- updated_at: `2026-07-24 02:00 UTC`",
+            b"- updated_at: `2026-07-24 03:00 UTC`",
+        )
+
+        created = run_web_app.write_task_file(
+            {
+                "title": "Created without evidence",
+                "status": "TODO",
+                "repo": "jarvis-core",
+                "summary": "Creation must omit optional evidence.",
+            },
+            tasks_dir=tasks_dir,
+        )
+        assert created.result_type == "created"
+        created_path = Path(created.file_path or "")
+        created_raw = created_path.read_bytes()
+        assert b"completion_evidence" not in created_raw
+        started = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id=str(created.task_id),
+            expected_digest=hashlib.sha256(created_raw).hexdigest(),
+            current_status="TODO",
+            target_status="DOING",
+            planned_updated_at="2026-07-24 04:00 UTC",
+        )
+        assert started.result_type == "updated"
+        assert b"completion_evidence" not in created_path.read_bytes()
+
+        stale_id = "task-9002-stale"
+        stale_path = tasks_dir / f"{stale_id}.md"
+        stale_path.write_bytes(task_bytes(stale_id))
+        stale_registry = run_web_app.CompletionEvidenceRegistry(
+            token_factory=TokenFactory("evidencestaletoken"),
+        )
+        stale_preview = run_web_app.preview_completion_evidence(
+            {"task_id": stale_id, "completion_evidence": "proof"},
+            registry=stale_registry,
+            tasks_dir=tasks_dir,
+            utc_now=lambda: "2026-07-24 05:00 UTC",
+        )[1]
+        stale_path.write_bytes(
+            stale_path.read_bytes().replace(
+                b"Verify the bounded result",
+                b"Changed after preview",
+            )
+        )
+        stale_before = stale_path.read_bytes()
+        stale_status, stale = run_web_app.confirm_completion_evidence(
+            {
+                "token": stale_preview["token"],
+                "confirmation": "RECORD EVIDENCE",
+            },
+            registry=stale_registry,
+            tasks_dir=tasks_dir,
+        )
+        assert stale_status == HTTPStatus.CONFLICT
+        assert stale["error"] == "completion_evidence_task_changed_since_preview"
+        assert stale_path.read_bytes() == stale_before
+        consumed = run_web_app.confirm_completion_evidence(
+            {
+                "token": stale_preview["token"],
+                "confirmation": "RECORD EVIDENCE",
+            },
+            registry=stale_registry,
+            tasks_dir=tasks_dir,
+        )
+        assert consumed[0] == HTTPStatus.CONFLICT
+        assert consumed[1]["error"] == "completion_evidence_token_already_consumed"
+
+        class Clock:
+            def __init__(self) -> None:
+                self.value = 0.0
+
+            def __call__(self) -> float:
+                return self.value
+
+        expired_id = "task-9003-expired"
+        expired_path = tasks_dir / f"{expired_id}.md"
+        expired_raw = task_bytes(expired_id)
+        expired_path.write_bytes(expired_raw)
+        clock = Clock()
+        expired_registry = run_web_app.CompletionEvidenceRegistry(
+            clock=clock,
+            ttl_seconds=1,
+            token_factory=TokenFactory("evidenceexpiredtoken"),
+        )
+        expired_preview = run_web_app.preview_completion_evidence(
+            {"task_id": expired_id, "completion_evidence": "proof"},
+            registry=expired_registry,
+            tasks_dir=tasks_dir,
+        )[1]
+        clock.value = 2.0
+        expired_confirm = run_web_app.confirm_completion_evidence(
+            {
+                "token": expired_preview["token"],
+                "confirmation": "RECORD EVIDENCE",
+            },
+            registry=expired_registry,
+            tasks_dir=tasks_dir,
+        )
+        assert expired_confirm[0] == HTTPStatus.NOT_FOUND
+        assert expired_path.read_bytes() == expired_raw
+
+        capacity_a_id = "task-9004-capacity-a"
+        capacity_b_id = "task-9005-capacity-b"
+        (tasks_dir / f"{capacity_a_id}.md").write_bytes(task_bytes(capacity_a_id))
+        (tasks_dir / f"{capacity_b_id}.md").write_bytes(task_bytes(capacity_b_id))
+        capacity_registry = run_web_app.CompletionEvidenceRegistry(
+            capacity=1,
+            token_factory=TokenFactory("evidencecapacitytoken"),
+        )
+        assert run_web_app.preview_completion_evidence(
+            {"task_id": capacity_a_id, "completion_evidence": "proof a"},
+            registry=capacity_registry,
+            tasks_dir=tasks_dir,
+        )[0] == HTTPStatus.OK
+        capacity_status, capacity_payload = (
+            run_web_app.preview_completion_evidence(
+                {"task_id": capacity_b_id, "completion_evidence": "proof b"},
+                registry=capacity_registry,
+                tasks_dir=tasks_dir,
+            )
+        )
+        assert capacity_status == HTTPStatus.SERVICE_UNAVAILABLE
+        assert (
+            capacity_payload["error"]
+            == "completion_evidence_temporarily_unavailable"
+        )
+
+        concurrent_id = "task-9006-concurrent"
+        concurrent_path = tasks_dir / f"{concurrent_id}.md"
+        concurrent_path.write_bytes(task_bytes(concurrent_id))
+        concurrent_registry = run_web_app.CompletionEvidenceRegistry(
+            token_factory=TokenFactory("evidenceconcurrenttoken"),
+        )
+        concurrent_preview = run_web_app.preview_completion_evidence(
+            {"task_id": concurrent_id, "completion_evidence": "one proof"},
+            registry=concurrent_registry,
+            tasks_dir=tasks_dir,
+            utc_now=lambda: "2026-07-24 05:30 UTC",
+        )[1]
+        concurrent_results: list[tuple[int, dict[str, Any]]] = []
+
+        def confirm_concurrently() -> None:
+            concurrent_results.append(
+                run_web_app.confirm_completion_evidence(
+                    {
+                        "token": concurrent_preview["token"],
+                        "confirmation": "RECORD EVIDENCE",
+                    },
+                    registry=concurrent_registry,
+                    tasks_dir=tasks_dir,
+                )
+            )
+
+        threads = [
+            threading.Thread(target=confirm_concurrently)
+            for _ in range(2)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+            assert not thread.is_alive()
+        assert sorted(
+            payload["result_type"] for _status, payload in concurrent_results
+        ) == ["already_recorded", "recorded"]
+        assert (
+            concurrent_path.read_text(encoding="utf-8").count(
+                "- completion_evidence:"
+            )
+            == 1
+        )
+
+        todo_id = "task-9007-not-doing"
+        todo_path = tasks_dir / f"{todo_id}.md"
+        todo_raw = task_bytes(todo_id, status="TODO")
+        todo_path.write_bytes(todo_raw)
+        not_doing = run_web_app.preview_completion_evidence(
+            {"task_id": todo_id, "completion_evidence": "proof"},
+            registry=run_web_app.CompletionEvidenceRegistry(
+                token_factory=TokenFactory("evidencenotdoingtoken")
+            ),
+            tasks_dir=tasks_dir,
+        )
+        assert not_doing[0] == HTTPStatus.CONFLICT
+        assert not_doing[1]["error"] == "completion_evidence_task_not_doing"
+        assert todo_path.read_bytes() == todo_raw
+
+        atomic_id = "task-9003-atomic"
+        atomic_path = tasks_dir / f"{atomic_id}.md"
+        atomic_raw = task_bytes(atomic_id)
+        atomic_path.write_bytes(atomic_raw)
+
+        def fail_replace(_temp: Path, _target: Path) -> None:
+            raise OSError("injected replace failure")
+
+        atomic_result = run_web_app.record_task_completion_evidence(
+            tasks_dir=tasks_dir,
+            task_id=atomic_id,
+            completion_evidence="proof",
+            expected_digest=hashlib.sha256(atomic_raw).hexdigest(),
+            planned_updated_at="2026-07-24 06:00 UTC",
+            _replace_file=fail_replace,
+            _temp_token_factory=lambda: "0123456789abcdef",
+        )
+        assert atomic_result == run_web_app.CompletionEvidenceWriteResult(
+            "error",
+            "completion_evidence_replace_failed",
+        )
+        assert atomic_path.read_bytes() == atomic_raw
+        assert not list(tasks_dir.glob(".*.evidence.tmp"))
+
+        header_pairs = [
+            ("Host", "127.0.0.1:8790"),
+            ("Origin", "http://127.0.0.1:8790"),
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Content-Length", "2"),
+        ]
+        assert run_web_app.validate_completion_evidence_http_request(
+            path=run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+            query="",
+            header_pairs=header_pairs,
+            bound_port=8790,
+        ) == (HTTPStatus.OK, {"ok": True, "body_length": 2})
+        for pairs, expected_status in (
+            (header_pairs + [("Host", "127.0.0.1:8790")], HTTPStatus.BAD_REQUEST),
+            (
+                [pair for pair in header_pairs if pair[0] != "Origin"],
+                HTTPStatus.BAD_REQUEST,
+            ),
+            (
+                [
+                    (name, "http://127.0.0.1:9999")
+                    if name == "Origin"
+                    else (name, value)
+                    for name, value in header_pairs
+                ],
+                HTTPStatus.FORBIDDEN,
+            ),
+            (
+                [
+                    (name, "text/plain")
+                    if name == "Content-Type"
+                    else (name, value)
+                    for name, value in header_pairs
+                ],
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+            ),
+            (
+                [
+                    (name, "0")
+                    if name == "Content-Length"
+                    else (name, value)
+                    for name, value in header_pairs
+                ],
+                HTTPStatus.BAD_REQUEST,
+            ),
+            (
+                header_pairs + [("Transfer-Encoding", "chunked")],
+                HTTPStatus.BAD_REQUEST,
+            ),
+        ):
+            assert run_web_app.validate_completion_evidence_http_request(
+                path=run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+                query="",
+                header_pairs=pairs,
+                bound_port=8790,
+            )[0] == expected_status
+        assert run_web_app.validate_completion_evidence_http_request(
+            path=run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+            query="x=1",
+            header_pairs=header_pairs,
+            bound_port=8790,
+        )[0] == HTTPStatus.NOT_FOUND
+        assert run_web_app.validate_completion_evidence_http_request(
+            path=run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+            query="",
+            header_pairs=header_pairs
+            + [(f"X-Test-{index}", "x") for index in range(29)],
+            bound_port=8790,
+        )[0] == HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE
+        assert run_web_app.parse_completion_evidence_json_body(
+            b'{"task_id":"a","task_id":"b"}'
+        )[0] == HTTPStatus.BAD_REQUEST
+        assert run_web_app.parse_completion_evidence_json_body(b"[]")[0] == (
+            HTTPStatus.BAD_REQUEST
+        )
+        assert run_web_app.handle_post_api(
+            run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+            {},
+        )[0] == HTTPStatus.NOT_FOUND
+
+        http_id = "task-9008-http"
+        http_path = tasks_dir / f"{http_id}.md"
+        http_raw = task_bytes(http_id)
+        http_path.write_bytes(http_raw)
+        fixed_http_utc = lambda: "2026-07-24 07:00 UTC"
+        direct_registry = run_web_app.CompletionEvidenceRegistry(
+            token_factory=lambda: "h" * 32,
+        )
+        direct_preview = run_web_app.preview_completion_evidence(
+            {"task_id": http_id, "completion_evidence": "HTTP proof"},
+            registry=direct_registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_http_utc,
+        )
+        assert direct_preview[0] == HTTPStatus.OK
+        assert http_path.read_bytes() == http_raw
+
+        http_registry = run_web_app.CompletionEvidenceRegistry(
+            token_factory=lambda: "h" * 32,
+        )
+        server = run_web_app.ThreadingHTTPServer(
+            (run_web_app.DEFAULT_HOST, 0),
+            run_web_app.JarvisConsoleHandler,
+        )
+        server.completion_evidence_registry = http_registry
+        server.completion_evidence_tasks_dir = tasks_dir
+        server.completion_evidence_utc_now = fixed_http_utc
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        port = int(server.server_address[1])
+
+        def post_evidence(
+            path: str,
+            payload: dict[str, Any],
+            *,
+            origin: str | None = None,
+        ) -> tuple[int, dict[str, Any]]:
+            connection = HTTPConnection(
+                run_web_app.DEFAULT_HOST,
+                port,
+                timeout=10,
+            )
+            body = json.dumps(payload, ensure_ascii=True).encode("ascii")
+            connection.request(
+                "POST",
+                path,
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": (
+                        origin
+                        or f"http://{run_web_app.DEFAULT_HOST}:{port}"
+                    ),
+                },
+            )
+            response = connection.getresponse()
+            response_payload = json.loads(response.read().decode("utf-8"))
+            response_status = response.status
+            connection.close()
+            return response_status, response_payload
+
+        try:
+            rejected_http = post_evidence(
+                run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+                {"task_id": http_id, "completion_evidence": "HTTP proof"},
+                origin="http://127.0.0.1:1",
+            )
+            assert rejected_http[0] == HTTPStatus.FORBIDDEN
+            assert (
+                rejected_http[1]["error"]
+                == "completion_evidence_origin_rejected"
+            )
+            http_preview = post_evidence(
+                run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+                {"task_id": http_id, "completion_evidence": "HTTP proof"},
+            )
+            assert http_preview == direct_preview
+            http_confirm = post_evidence(
+                run_web_app.COMPLETION_EVIDENCE_CONFIRM_ENDPOINT,
+                {
+                    "token": http_preview[1]["token"],
+                    "confirmation": "RECORD EVIDENCE",
+                },
+            )
+            assert http_confirm[0] == HTTPStatus.OK
+            assert http_confirm[1]["result_type"] == "recorded"
+            assert http_confirm[1]["receipt"]["current_status"] == "DOING"
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=5)
+        assert not server_thread.is_alive()
+        assert (
+            http_path.read_text(encoding="utf-8").count(
+                "- completion_evidence: `HTTP proof`"
+            )
+            == 1
+        )
+    finally:
+        shutil.rmtree(fixture_root, ignore_errors=True)
+
+    assert not fixture_root.exists()
+    assert production_snapshot() == before_production
+
+
 def _test_actionable_task_view_vertical_slice() -> None:
     _test_task_transition_vertical_slice()
+    _test_completion_evidence_vertical_slice()
     watched_roots = (
         run_web_app.REPO_ROOT / "memory" / "tasks",
         run_web_app.REPO_ROOT / "reports",
@@ -3548,6 +4216,8 @@ def _test_actionable_task_view_vertical_slice() -> None:
             "status",
             "updated_at",
             "summary",
+            "completion_evidence",
+            "has_completion_evidence",
             "group_id",
             "display_rank",
             "next_action",
@@ -3624,10 +4294,15 @@ def _test_actionable_task_view_vertical_slice() -> None:
         ),
     )
     assert optional_timestamp_view == plain_view
+    assert optional_view["completion_evidence"] is None
+    assert optional_view["has_completion_evidence"] is False
     assert all(
         field_name not in optional_view
         for field_name in (
-            run_web_app.TASK_VIEW_OPTIONAL_TEXT_FIELDS
+            (
+                run_web_app.TASK_VIEW_OPTIONAL_TEXT_FIELDS
+                - {"completion_evidence"}
+            )
             | run_web_app.TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS
             | run_web_app.TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS
         )
@@ -3879,8 +4554,11 @@ def _test_actionable_task_view_vertical_slice() -> None:
     assert direct_payload["notes"][:2] == [
         "/api/overview discovery and basic details are read-only.",
         (
-            "Only explicit Start / Complete Preview + Confirm may update the "
-            "selected valid Task's status and updated_at; Jarvis never executes "
+            "Only explicit Start / Complete Preview + Confirm may update "
+            "a selected valid Task's status and updated_at. Record Completion "
+            "Evidence Preview + Confirm may append one completion_evidence "
+            "value and update only updated_at for an eligible DOING Task; it "
+            "does not validate evidence, change status, complete, or execute "
             "the Task."
         ),
     ]
@@ -3928,9 +4606,9 @@ def _test_actionable_task_view_vertical_slice() -> None:
     for exact_text in (
         "Actionable Task View",
         "Read-only discovery",
-        "Confirmed status transitions only",
+        "Confirmed bounded Task updates only",
         "Preview + Confirm required",
-        "Discovery and basic details are read-only. Start / Complete changes only status and updated_at after Preview + Confirm and never executes the Task.",
+        "Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task.",
         "Needs metadata review",
         "Needs attention",
         "In progress",
@@ -3944,6 +4622,8 @@ def _test_actionable_task_view_vertical_slice() -> None:
         "Task ID",
         "Updated",
         "Summary",
+        "Completion evidence",
+        "Record Completion Evidence",
         "Next action",
         "Path",
         "Read-only",
@@ -3985,7 +4665,13 @@ def _test_actionable_task_view_vertical_slice() -> None:
     assert renderer_source.count(
         'fetch("/api/task-transition/confirm"'
     ) == 1
-    assert renderer_source.count("fetch(") == 2
+    assert renderer_source.count(
+        'fetch("/api/completion-evidence/preview"'
+    ) == 1
+    assert renderer_source.count(
+        'fetch("/api/completion-evidence/confirm"'
+    ) == 1
+    assert renderer_source.count("fetch(") == 4
     assert "onclick" not in renderer_source
 
     escape_source = "function escapeHtml" + app_js.split(
@@ -4002,7 +4688,9 @@ def _test_actionable_task_view_vertical_slice() -> None:
     badge_harness = (
         f"{escape_source}\n"
         "const taskTransitionLastReceipt = null;\n"
+        "const completionEvidenceLastReceipt = null;\n"
         "function taskTransitionReceiptMarkup() { return \"\"; }\n"
+        "function completionEvidenceReceiptMarkup() { return \"\"; }\n"
         f"{item_renderer_source}\n"
         """
 function fixtureItem(status, parseState = "valid") {
@@ -5207,7 +5895,8 @@ def main() -> None:
     assert "queue + item_id envelope" in html
     assert "no queue/session persistence" in html
     assert "Owner-facing local project dashboard" in html
-    assert "does not create tasks" in html
+    assert "Record Completion Evidence appends one evidence value" in html
+    assert "no flow executes or automatically completes Task work" in html
     assert "does not create commits" in html
     assert "preview-only: sample candidates" in html
     assert "no save endpoint" in html

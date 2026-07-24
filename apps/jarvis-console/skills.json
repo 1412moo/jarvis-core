@@ -331,11 +331,11 @@
       "safe_next_action": "Use this as a placeholder for future task and report visibility.",
       "when_to_use": "Use later when Jarvis Console has a local task and report queue.",
       "primary_next_action_label": "Review placeholder",
-      "primary_next_action_description": "Treat this as a planned approval/report surface; Task discovery and basic details are read-only.",
+      "primary_next_action_description": "Review bounded local Task details; all Task writes require Preview and explicit Confirm.",
       "action_guide": [
         "Review planned task/report concepts.",
         "Only after Preview and explicit Confirm may Start / Complete change status and updated_at for TODO → DOING or DOING → DONE.",
-        "Use this as a future placeholder."
+        "Record Completion Evidence may append one evidence value and update only updated_at for an eligible DOING Task after Preview and explicit Confirm; it does not validate evidence, change status, complete, or execute the Task."
       ],
       "commands": {
         "git_bash": "",

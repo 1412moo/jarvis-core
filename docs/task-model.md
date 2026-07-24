@@ -97,3 +97,23 @@ Execution-related fields are optional. They may be appended to a task markdown f
 - `execution_summary`: short output or error summary.
 
 These fields do not replace the required task fields. If no execution result has been recorded, these fields may be absent.
+
+## 11) Optional Completion Evidence
+
+`completion_evidence` is an optional, append-once metadata field for a valid
+`DOING` Task:
+
+```markdown
+- completion_evidence: `VALUE`
+```
+
+- Omit the field until evidence is recorded; never add an empty template row.
+- Record Completion Evidence inserts the line immediately after the unique
+  `summary` metadata line and updates only `updated_at`.
+- The evidence value is normalized to one safe, non-empty line of 1–500 Unicode
+  code points. It cannot contain Markdown backticks, control/format/surrogate
+  characters, or Unicode line/paragraph separators.
+- Evidence recording does not validate the claim, execute work, change status,
+  or automatically complete the Task. `Complete` remains a separate explicit
+  Preview + Confirm action.
+- An existing evidence value cannot be overwritten, deleted, or appended again.

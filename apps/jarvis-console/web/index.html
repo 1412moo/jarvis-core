@@ -11,7 +11,7 @@
     <div>
       <p class="eyebrow">Jarvis Console v0.1</p>
       <h1>Jarvis Console</h1>
-      <p class="safety-summary">Safety mode: Task discovery and basic details are read-only. Create Local Task creates one local TODO only after Preview and explicit Confirm; Start / Complete changes only status and updated_at for TODO → DOING or DOING → DONE after Preview and explicit Confirm. Neither flow executes Task work, automatically or otherwise. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.</p>
+      <p class="safety-summary">Safety mode: Task discovery and basic details are read-only. Create Local Task creates one local TODO; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.</p>
     </div>
     <div class="safety-strip" aria-label="Safety boundary">
       <span>Local-only</span>
@@ -174,7 +174,7 @@
         <div id="tasksDetails" class="overview-panel">
           <p class="muted">Overview has not been loaded yet.</p>
         </div>
-        <p class="safety-note">Task discovery and basic details are read-only. Create Local Task creates one local TODO only after Preview and explicit Confirm; Start / Complete changes only status and updated_at for TODO → DOING or DOING → DONE after Preview and explicit Confirm. Neither flow executes Task work, automatically or otherwise. Jarvis Console does not create approvals or reports, run skills, commit, push, or make external calls.</p>
+        <p class="safety-note">Task discovery and basic details are read-only. Create Local Task creates one local TODO; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis Console does not create approvals or reports, run skills, commit, push, or make external calls.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-history">

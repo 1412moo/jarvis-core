@@ -43,6 +43,11 @@ let taskTransitionConfirmation = "";
 let taskTransitionTaskId = "";
 let taskTransitionBusy = false;
 let taskTransitionLastReceipt = null;
+let completionEvidenceToken = "";
+let completionEvidenceConfirmation = "";
+let completionEvidenceTaskId = "";
+let completionEvidenceBusy = false;
+let completionEvidenceLastReceipt = null;
 let evaluateIdeaBusy = false;
 const LOCAL_URL_PREFIX = "http:" + "//127.0.0.1";
 const LOCAL_URL_PROTOCOL = "http:";
@@ -1092,10 +1097,16 @@ function actionableTaskItemMarkup(item) {
       ? "complete"
       : "";
   const actionLabel = action === "start" ? "Start Task" : "Complete Task";
-  const accessLabel = action ? "Preview + Confirm required" : "Read-only";
-  const accessClass = action ? "approval-needed" : "read-only";
+  const recordEligible = valid
+    && view.status === "DOING"
+    && !view.has_completion_evidence;
+  const accessLabel = action || recordEligible ? "Preview + Confirm required" : "Read-only";
+  const accessClass = action || recordEligible ? "approval-needed" : "read-only";
   const receiptMarkup = taskTransitionLastReceipt?.receipt?.task_id === view.id
     ? taskTransitionReceiptMarkup(taskTransitionLastReceipt)
+    : "";
+  const evidenceReceiptMarkup = completionEvidenceLastReceipt?.receipt?.task_id === view.id
+    ? completionEvidenceReceiptMarkup(completionEvidenceLastReceipt)
     : "";
   return `
     <article class="overview-item normalized-overview-item">
@@ -1112,6 +1123,7 @@ function actionableTaskItemMarkup(item) {
         <dt>Task ID</dt><dd>${escapeHtml(taskId)}</dd>
         <dt>Updated</dt><dd>${escapeHtml(updatedAt)}</dd>
         <dt>Summary</dt><dd>${escapeHtml(summary)}</dd>
+        <dt>Completion evidence</dt><dd>${escapeHtml(view.completion_evidence || "Not recorded")}</dd>
         <dt>Next action</dt><dd>${escapeHtml(view.next_action || "")}</dd>
         <dt>Path</dt><dd><code>${escapeHtml(item.path || "")}</code></dd>
       </dl>
@@ -1124,8 +1136,21 @@ function actionableTaskItemMarkup(item) {
           `
           : ""
       }
+      ${
+        recordEligible
+          ? `
+            <div class="suggestion-actions">
+              <input class="completion-evidence-input" type="text" maxlength="500" aria-label="Completion evidence for ${escapeHtml(view.id)}" placeholder="Artifact, test result, review, or report reference">
+              <button class="primary-button preview-completion-evidence" type="button" data-task-id="${escapeHtml(view.id)}">Record Evidence</button>
+            </div>
+          `
+          : ""
+      }
       <div class="task-transition-result" data-task-transition-result="${escapeHtml(view.id || "")}">
         ${receiptMarkup}
+      </div>
+      <div class="completion-evidence-result" data-completion-evidence-result="${escapeHtml(view.id || "")}">
+        ${evidenceReceiptMarkup}
       </div>
     </article>
   `;
@@ -1157,6 +1182,164 @@ function taskTransitionReceiptMarkup(data) {
 function taskTransitionResultElement(taskId) {
   return [...document.querySelectorAll("[data-task-transition-result]")]
     .find((element) => element.dataset.taskTransitionResult === taskId) || null;
+}
+
+function completionEvidenceReceiptMarkup(data) {
+  const receipt = data?.receipt || {};
+  const receiptState = data?.result_type === "already_recorded"
+    ? "Already recorded"
+    : "Recorded";
+  return `
+    <article class="create-local-task-receipt">
+      <div class="overview-section-heading">
+        <h4>Completion Evidence Receipt</h4>
+        <span class="overview-badge read-only">${escapeHtml(receiptState)}</span>
+      </div>
+      <dl class="create-local-task-facts">
+        <div><dt>Task ID</dt><dd><code>${escapeHtml(receipt.task_id || "")}</code></dd></div>
+        <div><dt>Title</dt><dd>${escapeHtml(receipt.title || "")}</dd></div>
+        <div><dt>Current status</dt><dd>${escapeHtml(receipt.current_status || "")}</dd></div>
+        <div><dt>Completion evidence</dt><dd>${escapeHtml(receipt.completion_evidence || "")}</dd></div>
+        <div><dt>Updated at</dt><dd>${escapeHtml(receipt.updated_at || "")}</dd></div>
+        <div><dt>Storage location</dt><dd><code>${escapeHtml(receipt.storage_location || "")}</code></dd></div>
+        <div><dt>Evidence validated</dt><dd>${receipt.evidence_validated ? "Yes" : "No"}</dd></div>
+        <div><dt>Status changed</dt><dd>${receipt.status_changed ? "Yes" : "No"}</dd></div>
+        <div><dt>Execution</dt><dd>${receipt.no_execution ? "No execution" : "Unavailable"}</dd></div>
+      </dl>
+      <p class="muted">${escapeHtml(receipt.recommendation || "")}</p>
+    </article>
+  `;
+}
+
+function completionEvidenceResultElement(taskId) {
+  return [...document.querySelectorAll("[data-completion-evidence-result]")]
+    .find((element) => element.dataset.completionEvidenceResult === taskId) || null;
+}
+
+function renderCompletionEvidencePreview(data) {
+  const preview = data?.preview || {};
+  const target = completionEvidenceResultElement(preview.task_id || "");
+  if (!target) {
+    return;
+  }
+  completionEvidenceToken = data.token || "";
+  completionEvidenceConfirmation = data.confirmation_literal || "";
+  completionEvidenceTaskId = preview.task_id || "";
+  target.innerHTML = `
+    <article class="create-local-task-preview">
+      <div class="overview-section-heading">
+        <h4>Record Completion Evidence Preview</h4>
+        <span class="overview-badge approval-needed">Not recorded</span>
+      </div>
+      <dl class="create-local-task-facts">
+        <div><dt>Task ID</dt><dd><code>${escapeHtml(preview.task_id || "")}</code></dd></div>
+        <div><dt>Title</dt><dd>${escapeHtml(preview.title || "")}</dd></div>
+        <div><dt>Current status</dt><dd>${escapeHtml(preview.current_status || "")}</dd></div>
+        <div><dt>Existing evidence</dt><dd>${escapeHtml(preview.existing_evidence || "None")}</dd></div>
+        <div><dt>Proposed evidence</dt><dd>${escapeHtml(preview.proposed_evidence || "")}</dd></div>
+        <div><dt>Observed updated_at</dt><dd>${escapeHtml(preview.observed_updated_at || "")}</dd></div>
+        <div><dt>Planned updated_at</dt><dd>${escapeHtml(preview.planned_updated_at || "")}</dd></div>
+        <div><dt>Storage location</dt><dd><code>${escapeHtml(preview.storage_location || "")}</code></dd></div>
+        <div><dt>Evidence validated</dt><dd>${preview.evidence_validated ? "Yes" : "No"}</dd></div>
+        <div><dt>Status changed</dt><dd>${preview.status_changed ? "Yes" : "No"}</dd></div>
+        <div><dt>Execution</dt><dd>${preview.no_execution ? "No execution" : "Unavailable"}</dd></div>
+      </dl>
+      <p class="muted">${escapeHtml(preview.notice || "")}</p>
+      <div class="suggestion-actions">
+        <button class="primary-button confirm-completion-evidence" type="button">Confirm Record Evidence</button>
+      </div>
+    </article>
+  `;
+}
+
+async function previewCompletionEvidence(button) {
+  if (completionEvidenceBusy) {
+    return;
+  }
+  const taskId = button.dataset.taskId || "";
+  const input = button.closest(".suggestion-actions")?.querySelector(".completion-evidence-input");
+  const completionEvidence = input?.value || "";
+  const target = completionEvidenceResultElement(taskId);
+  completionEvidenceBusy = true;
+  completionEvidenceLastReceipt = null;
+  if (target) {
+    target.innerHTML = "<p class=\"muted\">Preparing completion evidence preview...</p>";
+  }
+  try {
+    const response = await fetch("/api/completion-evidence/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        task_id: taskId,
+        completion_evidence: completionEvidence,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderCompletionEvidencePreview(data);
+    statusText.textContent = "Completion evidence preview ready. Nothing has been recorded.";
+  } catch (error) {
+    completionEvidenceToken = "";
+    completionEvidenceConfirmation = "";
+    completionEvidenceTaskId = "";
+    if (target) {
+      target.innerHTML = `<p class="safety-note">Completion evidence preview failed: ${escapeHtml(error.message)}</p>`;
+    }
+    statusText.textContent = `Completion evidence preview failed: ${error.message}`;
+  } finally {
+    completionEvidenceBusy = false;
+  }
+}
+
+async function confirmCompletionEvidence() {
+  if (
+    completionEvidenceBusy
+    || !completionEvidenceToken
+    || !completionEvidenceConfirmation
+    || !completionEvidenceTaskId
+  ) {
+    return;
+  }
+  completionEvidenceBusy = true;
+  const target = completionEvidenceResultElement(completionEvidenceTaskId);
+  const button = target?.querySelector(".confirm-completion-evidence");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Recording evidence...";
+  }
+  try {
+    const response = await fetch("/api/completion-evidence/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: completionEvidenceToken,
+        confirmation: completionEvidenceConfirmation,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    completionEvidenceLastReceipt = data;
+    completionEvidenceToken = "";
+    completionEvidenceConfirmation = "";
+    completionEvidenceTaskId = "";
+    await loadOverview();
+    statusText.textContent = "Completion evidence recorded; Task status remains DOING.";
+    nextActionText.textContent = data.receipt?.recommendation || "Review the recorded evidence.";
+  } catch (error) {
+    if (target) {
+      target.innerHTML = `<p class="safety-note">Completion evidence recording failed: ${escapeHtml(error.message)}</p>`;
+    }
+    completionEvidenceToken = "";
+    completionEvidenceConfirmation = "";
+    completionEvidenceTaskId = "";
+    statusText.textContent = `Completion evidence recording failed: ${error.message}`;
+  } finally {
+    completionEvidenceBusy = false;
+  }
 }
 
 function renderTaskTransitionPreview(data) {
@@ -1297,11 +1480,11 @@ function renderActionableTaskView(items) {
         <h3>Actionable Task View</h3>
         <div class="overview-badges">
           <span class="overview-badge read-only">Read-only discovery</span>
-          <span class="overview-badge approval-needed">Confirmed status transitions only</span>
+          <span class="overview-badge approval-needed">Confirmed bounded Task updates only</span>
           <span class="overview-badge">Displayed total: ${escapeHtml(String(displayedItems.length))}</span>
         </div>
       </div>
-      <p class="muted">Discovery and basic details are read-only. Start / Complete changes only status and updated_at after Preview + Confirm and never executes the Task.</p>
+      <p class="muted">Discovery and basic details are read-only. Start / Complete changes only status and updated_at. Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Each write requires Preview + Confirm and never executes or automatically completes the Task.</p>
       <p class="muted">Shows up to 10 files selected by existing Recent Tasks discovery before task validation; this is not the full backlog.</p>
       <p class="muted"><strong>Display order:</strong> metadata review, NEEDS_APPROVAL, BLOCKED, FAILED, DOING, TODO, DONE; then updated time newest first and path.</p>
       <div class="overview-skill-grid">
@@ -2642,6 +2825,18 @@ skillGrid.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const completionEvidencePreviewButton = event.target.closest(".preview-completion-evidence");
+  if (completionEvidencePreviewButton) {
+    previewCompletionEvidence(completionEvidencePreviewButton);
+    return;
+  }
+
+  const completionEvidenceConfirmButton = event.target.closest(".confirm-completion-evidence");
+  if (completionEvidenceConfirmButton) {
+    confirmCompletionEvidence();
+    return;
+  }
+
   const taskTransitionPreviewButton = event.target.closest(".preview-task-transition");
   if (taskTransitionPreviewButton) {
     previewTaskTransition(taskTransitionPreviewButton);
