@@ -4500,6 +4500,7 @@ def preview_task_transition(
     utc_now: Any = lambda: datetime.now(timezone.utc).strftime(
         TASK_VIEW_TIMESTAMP_FORMAT
     ),
+    _after_selection: Any = None,
 ) -> tuple[int, dict[str, Any]]:
     """Preview one status-only transition without writing the Task file."""
 
@@ -4527,7 +4528,7 @@ def preview_task_transition(
             item
             for item in selected_task_transition_items(tasks_dir)
             if item["task_view"]["parse_state"] == "valid"
-            and item["task_view"]["id"] == task_id
+            and PurePosixPath(item["path"]).stem == task_id
         ),
         None,
     )
@@ -4536,13 +4537,6 @@ def preview_task_transition(
             "ok": False,
             "error": "task_not_found_in_actionable_view",
         }
-    task_view = selected_item["task_view"]
-    if task_view["status"] != current_status:
-        return HTTPStatus.CONFLICT, {
-            "ok": False,
-            "error": "task_status_transition_not_allowed",
-        }
-
     task_path = (REPO_ROOT / selected_item["path"]).resolve()
     expected_path = (tasks_dir / f"{task_id}.md").resolve()
     if task_path != expected_path or task_path.parent != tasks_dir.resolve():
@@ -4550,12 +4544,37 @@ def preview_task_transition(
             "ok": False,
             "error": "task_not_found_in_actionable_view",
         }
+    if _after_selection is not None:
+        _after_selection(task_path)
     try:
         raw = task_path.read_bytes()
     except OSError:
         return HTTPStatus.CONFLICT, {
             "ok": False,
             "error": "task_changed_since_preview",
+        }
+    try:
+        snapshot_text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "task_changed_since_preview",
+        }
+    snapshot_view = parse_task_view_text(task_path.name, snapshot_text)
+    if (
+        snapshot_view is None
+        or snapshot_view["parse_state"] != "valid"
+        or snapshot_view["id"] != task_id
+    ):
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "task_changed_since_preview",
+        }
+    snapshot_status = snapshot_view["status"]
+    if snapshot_status != current_status:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "task_status_transition_not_allowed",
         }
     planned_updated_at = str(utc_now())
     if parse_task_view_timestamp(planned_updated_at) is None:
@@ -4566,12 +4585,12 @@ def preview_task_transition(
     storage_location = selected_item["path"]
     record = _TaskTransitionRecord(
         task_id=task_id,
-        title=task_view["title"],
+        title=snapshot_view["title"],
         storage_location=storage_location,
         action=action,
-        current_status=current_status,
+        current_status=snapshot_status,
         target_status=target_status,
-        observed_updated_at=task_view["updated_at"],
+        observed_updated_at=snapshot_view["updated_at"],
         planned_updated_at=planned_updated_at,
         expected_digest=hashlib.sha256(raw).hexdigest(),
         confirmation_literal=confirmation_literal,
@@ -4588,9 +4607,10 @@ def preview_task_transition(
         "confirmation_literal": confirmation_literal,
         "preview": {
             "task_id": task_id,
-            "title": task_view["title"],
-            "current_status": current_status,
-            "target_status": target_status,
+            "title": snapshot_view["title"],
+            "current_state": snapshot_status,
+            "transition": f"{snapshot_status} \u2192 {target_status}",
+            "proposed_state": target_status,
             "updated_at": planned_updated_at,
             "storage_location": storage_location,
             "no_execution": True,

@@ -2202,6 +2202,316 @@ def _test_task_transition_vertical_slice() -> None:
         assert duplicate_result.reason == "task_file_duplicate_metadata"
         assert duplicate_path.read_bytes() == duplicate_raw
 
+        def assert_transition_grammar_rejected(
+            task_id: str,
+            raw: bytes,
+            expected_reason: str,
+        ) -> None:
+            grammar_path = tasks_dir / f"{task_id}.md"
+            grammar_path.write_bytes(raw)
+            try:
+                parsed = run_web_app.parse_task_view_text(
+                    grammar_path.name,
+                    raw.decode("utf-8", errors="strict"),
+                )
+            except UnicodeDecodeError:
+                assert expected_reason == "task_file_invalid_utf8"
+            else:
+                assert parsed is not None
+                assert parsed["parse_state"] != "valid"
+            grammar_result = run_web_app.transition_task_file_status(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=hashlib.sha256(raw).hexdigest(),
+                current_status="TODO",
+                target_status="DOING",
+                planned_updated_at=planned_start,
+            )
+            assert grammar_result == run_web_app.TaskStatusTransitionResult(
+                "hold",
+                expected_reason,
+            )
+            assert grammar_path.read_bytes() == raw
+
+        grammar_cases: list[tuple[str, bytes, str]] = []
+
+        missing_id = "task-7020-missing"
+        missing_raw = task_bytes(missing_id, "TODO").replace(
+            f"- title: `Fixture Task`\r\n".encode(),
+            b"",
+            1,
+        )
+        grammar_cases.append(
+            (missing_id, missing_raw, "task_file_missing_metadata")
+        )
+
+        malformed_id = "task-7021-malformed"
+        malformed_raw = task_bytes(malformed_id, "TODO").replace(
+            b"- title: `Fixture Task`",
+            b"- title: Fixture Task",
+            1,
+        )
+        grammar_cases.append(
+            (malformed_id, malformed_raw, "task_file_invalid_metadata")
+        )
+
+        unsupported_id = "task-7022-unsupported"
+        unsupported_raw = task_bytes(
+            unsupported_id,
+            "TODO",
+            extra_lines=("- owner: `local`",),
+        )
+        grammar_cases.append(
+            (
+                unsupported_id,
+                unsupported_raw,
+                "task_file_unsupported_metadata",
+            )
+        )
+
+        invalid_id = "task-7023-invalid-id"
+        invalid_id_raw = task_bytes(invalid_id, "TODO").replace(
+            f"- id: `{invalid_id}`".encode(),
+            b"- id: `bad`",
+            1,
+        )
+        grammar_cases.append(
+            (invalid_id, invalid_id_raw, "task_file_invalid_id")
+        )
+
+        path_mismatch_id = "task-7024-path-mismatch"
+        path_mismatch_raw = task_bytes(path_mismatch_id, "TODO").replace(
+            f"- id: `{path_mismatch_id}`".encode(),
+            b"- id: `task-9998-other`",
+            1,
+        )
+        grammar_cases.append(
+            (
+                path_mismatch_id,
+                path_mismatch_raw,
+                "task_id_path_mismatch",
+            )
+        )
+
+        invalid_status_id = "task-7025-invalid-status"
+        invalid_status_raw = task_bytes(
+            invalid_status_id,
+            "UNKNOWN",
+        )
+        grammar_cases.append(
+            (
+                invalid_status_id,
+                invalid_status_raw,
+                "task_file_invalid_status",
+            )
+        )
+
+        invalid_created_id = "task-7026-invalid-created"
+        invalid_created_raw = task_bytes(invalid_created_id, "TODO").replace(
+            b"- created_at: `2026-07-23 09:00 UTC`",
+            b"- created_at: `2026-07-23T09:00:00Z`",
+            1,
+        )
+        grammar_cases.append(
+            (
+                invalid_created_id,
+                invalid_created_raw,
+                "task_file_invalid_updated_at",
+            )
+        )
+
+        invalid_updated_id = "task-7027-invalid-updated"
+        invalid_updated_raw = task_bytes(
+            invalid_updated_id,
+            "TODO",
+            updated_at="2026-07-23 9:00 UTC",
+        )
+        grammar_cases.append(
+            (
+                invalid_updated_id,
+                invalid_updated_raw,
+                "task_file_invalid_updated_at",
+            )
+        )
+
+        for number, field_name, original, oversized in (
+            (7028, "title", "Fixture Task", "T" * 121),
+            (7029, "repo", "jarvis-core", "r" * 81),
+            (7030, "summary", "Fixture summary", "S" * 501),
+        ):
+            task_id = f"task-{number:04d}-{field_name}-limit"
+            oversized_raw = task_bytes(task_id, "TODO").replace(
+                f"- {field_name}: `{original}`".encode(),
+                f"- {field_name}: `{oversized}`".encode(),
+                1,
+            )
+            grammar_cases.append(
+                (task_id, oversized_raw, "task_file_field_too_long")
+            )
+
+        empty_title_id = "task-7031-empty-title"
+        empty_title_raw = task_bytes(
+            empty_title_id,
+            "TODO",
+            title="   ",
+        )
+        grammar_cases.append(
+            (empty_title_id, empty_title_raw, "task_file_invalid_text")
+        )
+
+        control_title_id = "task-7032-control-title"
+        control_title_raw = task_bytes(
+            control_title_id,
+            "TODO",
+            title="Unsafe\x00title",
+        )
+        grammar_cases.append(
+            (control_title_id, control_title_raw, "task_file_invalid_text")
+        )
+
+        empty_optional_id = "task-7033-empty-optional"
+        empty_optional_raw = task_bytes(
+            empty_optional_id,
+            "TODO",
+            extra_lines=("- source_command: ``",),
+        )
+        grammar_cases.append(
+            (empty_optional_id, empty_optional_raw, "task_file_invalid_text")
+        )
+
+        long_optional_id = "task-7034-long-optional"
+        long_optional_raw = task_bytes(
+            long_optional_id,
+            "TODO",
+            extra_lines=(f"- execution_request: `{'x' * 501}`",),
+        )
+        grammar_cases.append(
+            (
+                long_optional_id,
+                long_optional_raw,
+                "task_file_field_too_long",
+            )
+        )
+
+        invalid_boolean_id = "task-7035-invalid-boolean"
+        invalid_boolean_raw = task_bytes(
+            invalid_boolean_id,
+            "TODO",
+            extra_lines=("- execution_candidate: `yes`",),
+        )
+        grammar_cases.append(
+            (
+                invalid_boolean_id,
+                invalid_boolean_raw,
+                "task_file_invalid_text",
+            )
+        )
+
+        invalid_optional_time_id = "task-7036-invalid-optional-time"
+        invalid_optional_time_raw = task_bytes(
+            invalid_optional_time_id,
+            "TODO",
+            extra_lines=("- execution_updated_at: `yesterday`",),
+        )
+        grammar_cases.append(
+            (
+                invalid_optional_time_id,
+                invalid_optional_time_raw,
+                "task_file_invalid_updated_at",
+            )
+        )
+
+        invalid_utf8_id = "task-7037-invalid-utf8"
+        invalid_utf8_raw = task_bytes(invalid_utf8_id, "TODO").replace(
+            b"Fixture summary",
+            b"Fixture \xff summary",
+            1,
+        )
+        grammar_cases.append(
+            (
+                invalid_utf8_id,
+                invalid_utf8_raw,
+                "task_file_invalid_utf8",
+            )
+        )
+
+        for task_id, raw, expected_reason in grammar_cases:
+            assert_transition_grammar_rejected(
+                task_id,
+                raw,
+                expected_reason,
+            )
+
+        optional_id = "task-7038-valid-optional"
+        optional_path, optional_raw = write_task(
+            optional_id,
+            "TODO",
+            extra_lines=(
+                "- source_command: `Start this task`",
+                "- execution_request: `Review the implementation`",
+                "- execution_result: `No execution performed`",
+                "- execution_summary: `Status-only transition`",
+                "- execution_candidate: `true`",
+                "- executed: `false`",
+                "- success: `true`",
+                "- dry_run: `false`",
+                "- execution_updated_at: `2026-07-23 10:15 UTC`",
+            ),
+        )
+        parsed_optional = run_web_app.parse_task_view_text(
+            optional_path.name,
+            optional_raw.decode("utf-8", errors="strict"),
+        )
+        assert parsed_optional is not None
+        assert parsed_optional["parse_state"] == "valid"
+        optional_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id=optional_id,
+            expected_digest=hashlib.sha256(optional_raw).hexdigest(),
+            current_status="TODO",
+            target_status="DOING",
+            planned_updated_at=planned_start,
+            _temp_token_factory=lambda: "e" * 16,
+        )
+        assert optional_result.result_type == "updated"
+        assert optional_path.read_bytes() == optional_raw.replace(
+            b"- status: `TODO`",
+            b"- status: `DOING`",
+            1,
+        ).replace(
+            b"- updated_at: `2026-07-23 10:00 UTC`",
+            b"- updated_at: `2026-07-23 10:30 UTC`",
+            1,
+        )
+
+        empty_optional_time_id = "task-7039-empty-optional-time"
+        empty_optional_time_path, empty_optional_time_raw = write_task(
+            empty_optional_time_id,
+            "TODO",
+            extra_lines=("- execution_updated_at: ``",),
+        )
+        parsed_empty_optional_time = run_web_app.parse_task_view_text(
+            empty_optional_time_path.name,
+            empty_optional_time_raw.decode("utf-8", errors="strict"),
+        )
+        assert parsed_empty_optional_time is not None
+        assert parsed_empty_optional_time["parse_state"] == "valid"
+        empty_optional_time_result = (
+            run_web_app.transition_task_file_status(
+                tasks_dir=tasks_dir,
+                task_id=empty_optional_time_id,
+                expected_digest=hashlib.sha256(
+                    empty_optional_time_raw
+                ).hexdigest(),
+                current_status="TODO",
+                target_status="DOING",
+                planned_updated_at=planned_start,
+                _temp_token_factory=lambda: "f" * 16,
+            )
+        )
+        assert empty_optional_time_result.result_type == "updated"
+        assert b"- execution_updated_at: ``" in empty_optional_time_path.read_bytes()
+
         mismatch_path, mismatch_raw = write_task(
             "task-7003-mismatch",
             "TODO",
@@ -2316,6 +2626,57 @@ def _test_task_transition_vertical_slice() -> None:
         registry = run_web_app.TaskTransitionRegistry(
             token_factory=TokenFactory(),
         )
+        snapshot_path, snapshot_raw = write_task(
+            "task-7999-snapshot-title",
+            "TODO",
+            title="Projected title",
+        )
+        authoritative_raw = snapshot_raw.replace(
+            b"- title: `Projected title`",
+            b"- title: `Authoritative title`",
+            1,
+        )
+
+        def edit_title_after_selection(path: Path) -> None:
+            assert path == snapshot_path.resolve()
+            path.write_bytes(authoritative_raw)
+
+        snapshot_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory("snapshottasktransition"),
+        )
+        snapshot_preview_status, snapshot_preview = (
+            run_web_app.preview_task_transition(
+                {
+                    "task_id": "task-7999-snapshot-title",
+                    "action": "start",
+                },
+                registry=snapshot_registry,
+                tasks_dir=tasks_dir,
+                utc_now=fixed_utc,
+                _after_selection=edit_title_after_selection,
+            )
+        )
+        assert snapshot_preview_status == HTTPStatus.OK
+        assert snapshot_preview["preview"]["title"] == "Authoritative title"
+        snapshot_confirm_status, snapshot_confirmed = (
+            run_web_app.confirm_task_transition(
+                {
+                    "token": snapshot_preview["token"],
+                    "confirmation": "START TASK",
+                },
+                registry=snapshot_registry,
+                tasks_dir=tasks_dir,
+            )
+        )
+        assert snapshot_confirm_status == HTTPStatus.OK
+        assert (
+            snapshot_confirmed["receipt"]["title"]
+            == snapshot_preview["preview"]["title"]
+        )
+        snapshot_after = snapshot_path.read_bytes()
+        assert b"- title: `Authoritative title`" in snapshot_after
+        assert b"- status: `DOING`" in snapshot_after
+
         start_path, start_raw = write_task(
             "task-8001-start",
             "TODO",
@@ -2334,8 +2695,9 @@ def _test_task_transition_vertical_slice() -> None:
         assert start_preview["preview"] == {
             "task_id": "task-8001-start",
             "title": "Start me",
-            "current_status": "TODO",
-            "target_status": "DOING",
+            "current_state": "TODO",
+            "transition": "TODO \u2192 DOING",
+            "proposed_state": "DOING",
             "updated_at": "2026-07-23 12:00 UTC",
             "storage_location": (
                 "task-transition-test-fixture/tasks/task-8001-start.md"
@@ -2397,8 +2759,9 @@ def _test_task_transition_vertical_slice() -> None:
         )
         assert varied_status == HTTPStatus.OK
         for field_name in (
-            "current_status",
-            "target_status",
+            "current_state",
+            "transition",
+            "proposed_state",
             "updated_at",
             "no_execution",
             "notice",
@@ -2452,6 +2815,23 @@ def _test_task_transition_vertical_slice() -> None:
             "no_execution": True,
         }
         assert confirmed["receipt"] == expected_receipt
+        assert (
+            start_preview["preview"]["current_state"]
+            == confirmed["receipt"]["previous_state"]
+        )
+        assert (
+            start_preview["preview"]["transition"]
+            == confirmed["receipt"]["transition"]
+        )
+        assert (
+            start_preview["preview"]["proposed_state"]
+            == confirmed["receipt"]["current_state"]
+        )
+        for field_name in ("task_id", "title", "updated_at", "storage_location"):
+            assert (
+                start_preview["preview"][field_name]
+                == confirmed["receipt"][field_name]
+            )
         actual_started = start_path.read_bytes()
         assert b"- status: `DOING`" in actual_started
         assert b"- updated_at: `2026-07-23 12:00 UTC`" in actual_started
@@ -2759,6 +3139,7 @@ def _test_task_transition_vertical_slice() -> None:
             "Previous State",
             "Transition",
             "Current State",
+            "Proposed State",
             "No execution",
         ):
             assert exact_text in app_js or exact_text in web_source
@@ -2774,6 +3155,9 @@ def _test_task_transition_vertical_slice() -> None:
         assert 'view.status === "TODO"' in transition_renderer
         assert 'view.status === "DOING"' in transition_renderer
         assert "escapeHtml(preview.title || \"\")" in transition_renderer
+        assert "escapeHtml(preview.current_state || \"\")" in transition_renderer
+        assert "escapeHtml(preview.transition || \"\")" in transition_renderer
+        assert "escapeHtml(preview.proposed_state || \"\")" in transition_renderer
         assert "escapeHtml(preview.warning)" in transition_renderer
         assert "escapeHtml(receipt.transition || \"\")" in transition_renderer
         assert "await loadOverview()" in transition_renderer

@@ -43,18 +43,30 @@ TASK_METADATA_PATTERN = re.compile(
 TASK_REQUIRED_METADATA = frozenset(
     {"id", "title", "status", "repo", "created_at", "updated_at", "summary"}
 )
-TASK_ALLOWED_METADATA = TASK_REQUIRED_METADATA.union(
+TASK_OPTIONAL_TEXT_METADATA = frozenset(
     {
         "source_command",
-        "execution_candidate",
         "execution_request",
         "execution_result",
+        "execution_summary",
+    }
+)
+TASK_OPTIONAL_BOOLEAN_METADATA = frozenset(
+    {
+        "execution_candidate",
         "executed",
         "success",
         "dry_run",
-        "execution_updated_at",
-        "execution_summary",
     }
+)
+TASK_OPTIONAL_TIMESTAMP_METADATA = frozenset({"execution_updated_at"})
+TASK_ALLOWED_METADATA = TASK_REQUIRED_METADATA.union(
+    TASK_OPTIONAL_TEXT_METADATA,
+    TASK_OPTIONAL_BOOLEAN_METADATA,
+    TASK_OPTIONAL_TIMESTAMP_METADATA,
+)
+TASK_ALLOWED_STATUSES = frozenset(
+    {"NEEDS_APPROVAL", "BLOCKED", "FAILED", "DOING", "TODO", "DONE"}
 )
 
 
@@ -385,7 +397,37 @@ def preview_task_file_write(
     return TaskFileWriteResult(result_type="error", reason="failed_to_allocate_task_number")
 
 
-def _transition_metadata(raw: bytes) -> tuple[dict[str, str] | None, str | None]:
+def _transition_timestamp_is_valid(value: str) -> bool:
+    try:
+        parsed = datetime.strptime(value, TASK_TIMESTAMP_FORMAT)
+    except ValueError:
+        return False
+    return parsed.strftime(TASK_TIMESTAMP_FORMAT) == value
+
+
+def _transition_text_is_valid(
+    value: str,
+    *,
+    max_chars: int,
+    allow_empty: bool,
+) -> tuple[bool, str | None]:
+    if len(value) > max_chars:
+        return False, "task_file_field_too_long"
+    if any(
+        unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        for character in value
+    ):
+        return False, "task_file_invalid_text"
+    normalized = " ".join(unicodedata.normalize("NFC", value).split())
+    if not allow_empty and not normalized:
+        return False, "task_file_invalid_text"
+    return True, None
+
+
+def _transition_metadata(
+    raw: bytes,
+    file_name: str,
+) -> tuple[dict[str, str] | None, str | None]:
     try:
         text = raw.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
@@ -405,6 +447,47 @@ def _transition_metadata(raw: bytes) -> tuple[dict[str, str] | None, str | None]
         metadata[field_name] = matched.group("value")
     if not TASK_REQUIRED_METADATA.issubset(metadata):
         return None, "task_file_missing_metadata"
+    task_id = metadata["id"]
+    if not TASK_FILE_PATTERN.fullmatch(f"{task_id}.md"):
+        return None, "task_file_invalid_id"
+    if f"{task_id}.md" != file_name:
+        return None, "task_id_path_mismatch"
+    if metadata["status"] not in TASK_ALLOWED_STATUSES:
+        return None, "task_file_invalid_status"
+    for field_name in ("created_at", "updated_at"):
+        if not _transition_timestamp_is_valid(metadata[field_name]):
+            return None, "task_file_invalid_updated_at"
+    for field_name, max_chars in (
+        ("repo", MAX_REPO_CHARS),
+        ("title", MAX_TITLE_CHARS),
+        ("summary", MAX_SUMMARY_CHARS),
+    ):
+        valid, reason = _transition_text_is_valid(
+            metadata[field_name],
+            max_chars=max_chars,
+            allow_empty=False,
+        )
+        if not valid:
+            return None, reason
+    for field_name in TASK_OPTIONAL_TEXT_METADATA:
+        if field_name not in metadata:
+            continue
+        valid, reason = _transition_text_is_valid(
+            metadata[field_name],
+            max_chars=500,
+            allow_empty=False,
+        )
+        if not valid:
+            return None, reason
+    for field_name in TASK_OPTIONAL_BOOLEAN_METADATA:
+        if field_name in metadata and metadata[field_name] not in {"true", "false"}:
+            return None, "task_file_invalid_text"
+    if (
+        "execution_updated_at" in metadata
+        and metadata["execution_updated_at"]
+        and not _transition_timestamp_is_valid(metadata["execution_updated_at"])
+    ):
+        return None, "task_file_invalid_updated_at"
     return metadata, None
 
 
@@ -459,7 +542,7 @@ def transition_task_file_status(
     if not hmac.compare_digest(hashlib.sha256(original).hexdigest(), expected_digest):
         return TaskStatusTransitionResult("stale", "task_changed_since_preview")
 
-    metadata, metadata_error = _transition_metadata(original)
+    metadata, metadata_error = _transition_metadata(original, target_path.name)
     if metadata is None:
         return TaskStatusTransitionResult("hold", metadata_error)
     if metadata["id"] != task_id:

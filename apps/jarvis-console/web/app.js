@@ -1178,8 +1178,9 @@ function renderTaskTransitionPreview(data) {
       <dl class="create-local-task-facts">
         <div><dt>Task ID</dt><dd><code>${escapeHtml(preview.task_id || "")}</code></dd></div>
         <div><dt>Title</dt><dd>${escapeHtml(preview.title || "")}</dd></div>
-        <div><dt>Current State</dt><dd>${escapeHtml(preview.current_status || "")}</dd></div>
-        <div><dt>Target State</dt><dd>${escapeHtml(preview.target_status || "")}</dd></div>
+        <div><dt>Current State</dt><dd>${escapeHtml(preview.current_state || "")}</dd></div>
+        <div><dt>Transition</dt><dd>${escapeHtml(preview.transition || "")}</dd></div>
+        <div><dt>Proposed State</dt><dd>${escapeHtml(preview.proposed_state || "")}</dd></div>
         <div><dt>Updated at</dt><dd>${escapeHtml(preview.updated_at || "")}</dd></div>
         <div><dt>Storage location</dt><dd><code>${escapeHtml(preview.storage_location || "")}</code></dd></div>
         <div><dt>Execution</dt><dd>${preview.no_execution ? "No execution" : "Unavailable"}</dd></div>
