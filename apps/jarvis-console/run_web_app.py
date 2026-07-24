@@ -4873,7 +4873,7 @@ class CompletionEvidenceRegistry:
             if confirmation != COMPLETION_EVIDENCE_CONFIRMATION_LITERAL:
                 return HTTPStatus.BAD_REQUEST, {
                     "ok": False,
-                    "error": "exact_confirmation_required",
+                    "error": "completion_evidence_exact_confirmation_required",
                 }
             if record.receipt is not None:
                 return HTTPStatus.OK, {
@@ -5715,7 +5715,10 @@ def validate_completion_evidence_http_request(
         COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
         COMPLETION_EVIDENCE_CONFIRM_ENDPOINT,
     } or query:
-        return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
+        return HTTPStatus.NOT_FOUND, {
+            "ok": False,
+            "error": "completion_evidence_not_found",
+        }
     if len(header_pairs) > 32:
         return HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE, {
             "ok": False,
@@ -5734,7 +5737,7 @@ def validate_completion_evidence_http_request(
     if headers.get("transfer-encoding"):
         return HTTPStatus.BAD_REQUEST, {
             "ok": False,
-            "error": "transfer_encoding_not_allowed",
+            "error": "completion_evidence_transfer_encoding_not_allowed",
         }
     if any(
         len(headers.get(name, [])) != 1
@@ -5765,7 +5768,7 @@ def validate_completion_evidence_http_request(
     if not re.fullmatch(r"[1-9][0-9]*", content_length):
         return HTTPStatus.BAD_REQUEST, {
             "ok": False,
-            "error": "invalid_content_length",
+            "error": "completion_evidence_invalid_content_length",
         }
     body_length = int(content_length)
     if body_length > MAX_JSON_BODY_BYTES:

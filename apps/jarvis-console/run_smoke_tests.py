@@ -3633,7 +3633,10 @@ def _test_completion_evidence_vertical_slice() -> None:
             tasks_dir=tasks_dir,
         )
         assert wrong_status == HTTPStatus.BAD_REQUEST
-        assert wrong["error"] == "exact_confirmation_required"
+        assert (
+            wrong["error"]
+            == "completion_evidence_exact_confirmation_required"
+        )
         assert task_path.read_bytes() == original
 
         confirm_status, confirmed = run_web_app.confirm_completion_evidence(
@@ -3933,11 +3936,16 @@ def _test_completion_evidence_vertical_slice() -> None:
             header_pairs=header_pairs,
             bound_port=8790,
         ) == (HTTPStatus.OK, {"ok": True, "body_length": 2})
-        for pairs, expected_status in (
-            (header_pairs + [("Host", "127.0.0.1:8790")], HTTPStatus.BAD_REQUEST),
+        for pairs, expected_status, expected_error in (
+            (
+                header_pairs + [("Host", "127.0.0.1:8790")],
+                HTTPStatus.BAD_REQUEST,
+                "completion_evidence_headers_rejected",
+            ),
             (
                 [pair for pair in header_pairs if pair[0] != "Origin"],
                 HTTPStatus.BAD_REQUEST,
+                "completion_evidence_headers_rejected",
             ),
             (
                 [
@@ -3947,6 +3955,7 @@ def _test_completion_evidence_vertical_slice() -> None:
                     for name, value in header_pairs
                 ],
                 HTTPStatus.FORBIDDEN,
+                "completion_evidence_origin_rejected",
             ),
             (
                 [
@@ -3956,6 +3965,7 @@ def _test_completion_evidence_vertical_slice() -> None:
                     for name, value in header_pairs
                 ],
                 HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                "completion_evidence_json_required",
             ),
             (
                 [
@@ -3965,24 +3975,44 @@ def _test_completion_evidence_vertical_slice() -> None:
                     for name, value in header_pairs
                 ],
                 HTTPStatus.BAD_REQUEST,
+                "completion_evidence_invalid_content_length",
             ),
             (
                 header_pairs + [("Transfer-Encoding", "chunked")],
                 HTTPStatus.BAD_REQUEST,
+                "completion_evidence_transfer_encoding_not_allowed",
             ),
         ):
-            assert run_web_app.validate_completion_evidence_http_request(
-                path=run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
-                query="",
-                header_pairs=pairs,
-                bound_port=8790,
-            )[0] == expected_status
-        assert run_web_app.validate_completion_evidence_http_request(
+            rejected_status, rejected_payload = (
+                run_web_app.validate_completion_evidence_http_request(
+                    path=run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
+                    query="",
+                    header_pairs=pairs,
+                    bound_port=8790,
+                )
+            )
+            assert rejected_status == expected_status
+            assert rejected_payload["error"] == expected_error
+        query_rejected = run_web_app.validate_completion_evidence_http_request(
             path=run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
             query="x=1",
             header_pairs=header_pairs,
             bound_port=8790,
-        )[0] == HTTPStatus.NOT_FOUND
+        )
+        assert query_rejected == (
+            HTTPStatus.NOT_FOUND,
+            {"ok": False, "error": "completion_evidence_not_found"},
+        )
+        path_rejected = run_web_app.validate_completion_evidence_http_request(
+            path="/api/completion-evidence/other",
+            query="",
+            header_pairs=header_pairs,
+            bound_port=8790,
+        )
+        assert path_rejected == (
+            HTTPStatus.NOT_FOUND,
+            {"ok": False, "error": "completion_evidence_not_found"},
+        )
         assert run_web_app.validate_completion_evidence_http_request(
             path=run_web_app.COMPLETION_EVIDENCE_PREVIEW_ENDPOINT,
             query="",
