@@ -64,7 +64,9 @@ if str(RESEARCH_COUNCIL_ROOT) not in sys.path:
 
 from task_file_writer import (  # noqa: E402
     TASK_FILE_PATTERN,
+    TaskStatusTransitionResult,
     preview_task_file_write,
+    transition_task_file_status,
     write_task_file,
 )
 from research_council import (  # noqa: E402
@@ -279,6 +281,24 @@ CREATE_LOCAL_TASK_REQUIRED_HEADERS = (
     "content-type",
     "content-length",
 )
+TASK_TRANSITION_PRODUCT_NAME = "Start / Complete Task"
+TASK_TRANSITION_PREVIEW_ENDPOINT = "/api/task-transition/preview"
+TASK_TRANSITION_CONFIRM_ENDPOINT = "/api/task-transition/confirm"
+TASK_TRANSITION_ACTIONS = {
+    "start": ("TODO", "DOING", "START TASK"),
+    "complete": ("DOING", "DONE", "COMPLETE TASK"),
+}
+TASK_TRANSITION_COMPLETE_WARNING = (
+    "Confirm Complete only if verification evidence is already recorded. "
+    "Jarvis does not evaluate whether verification evidence exists or infer "
+    "completion from task content or summary."
+)
+TASK_TRANSITION_NOTICE = (
+    "This changes only status and updated_at. It does not execute the task."
+)
+TASK_TRANSITION_TOKEN_TTL_SECONDS = 10 * 60
+TASK_TRANSITION_TOKEN_CAPACITY = 128
+TASK_TRANSITION_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{24,128}$")
 EVALUATE_IDEA_PRODUCT_NAME = "Evaluate Idea"
 EVALUATE_IDEA_ENDPOINT = "/api/evaluate-idea"
 EVALUATE_IDEA_MAX_IDEA_CHARS = 2_000
@@ -4281,6 +4301,334 @@ def confirm_create_local_task(
     )
 
 
+@dataclass
+class _TaskTransitionRecord:
+    task_id: str
+    title: str
+    storage_location: str
+    action: str
+    current_status: str
+    target_status: str
+    observed_updated_at: str
+    planned_updated_at: str
+    expected_digest: str
+    confirmation_literal: str
+    expires_at: float
+    receipt: dict[str, Any] | None = None
+    consumed_without_receipt: bool = False
+
+
+class TaskTransitionRegistry:
+    """Feature-local authority for one previewed Task status transition."""
+
+    def __init__(
+        self,
+        *,
+        clock: Any = time.monotonic,
+        token_factory: Any = lambda: secrets.token_urlsafe(32),
+        ttl_seconds: int = TASK_TRANSITION_TOKEN_TTL_SECONDS,
+        capacity: int = TASK_TRANSITION_TOKEN_CAPACITY,
+    ) -> None:
+        self._clock = clock
+        self._token_factory = token_factory
+        self._ttl_seconds = ttl_seconds
+        self._capacity = capacity
+        self._records: dict[str, _TaskTransitionRecord] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _digest(token: str) -> str:
+        return hashlib.sha256(f"task-transition:{token}".encode("utf-8")).hexdigest()
+
+    def _purge_expired_locked(self, now: float) -> None:
+        for digest in [
+            key
+            for key, record in self._records.items()
+            if record.expires_at <= now
+        ]:
+            del self._records[digest]
+
+    def issue(self, record: _TaskTransitionRecord) -> tuple[int, dict[str, Any]]:
+        now = float(self._clock())
+        with self._lock:
+            self._purge_expired_locked(now)
+            if len(self._records) >= self._capacity:
+                return HTTPStatus.SERVICE_UNAVAILABLE, {
+                    "ok": False,
+                    "error": "task_transition_temporarily_unavailable",
+                }
+            for _ in range(8):
+                token = str(self._token_factory())
+                if not TASK_TRANSITION_TOKEN_PATTERN.fullmatch(token):
+                    continue
+                digest = self._digest(token)
+                if digest in self._records:
+                    continue
+                record.expires_at = now + self._ttl_seconds
+                self._records[digest] = record
+                return HTTPStatus.OK, {
+                    "ok": True,
+                    "token": token,
+                    "expires_in_seconds": self._ttl_seconds,
+                }
+        return HTTPStatus.SERVICE_UNAVAILABLE, {
+            "ok": False,
+            "error": "task_transition_temporarily_unavailable",
+        }
+
+    def confirm(
+        self,
+        *,
+        token: str,
+        confirmation: str,
+        tasks_dir: Path,
+        writer: Any = transition_task_file_status,
+    ) -> tuple[int, dict[str, Any]]:
+        if not TASK_TRANSITION_TOKEN_PATTERN.fullmatch(token):
+            return HTTPStatus.NOT_FOUND, {
+                "ok": False,
+                "error": "invalid_or_expired_task_transition_token",
+            }
+        now = float(self._clock())
+        digest = self._digest(token)
+        with self._lock:
+            self._purge_expired_locked(now)
+            record = self._records.get(digest)
+            if record is None:
+                return HTTPStatus.NOT_FOUND, {
+                    "ok": False,
+                    "error": "invalid_or_expired_task_transition_token",
+                }
+            if confirmation != record.confirmation_literal:
+                return HTTPStatus.BAD_REQUEST, {
+                    "ok": False,
+                    "error": "exact_confirmation_required",
+                }
+            if record.receipt is not None:
+                return HTTPStatus.OK, {
+                    "ok": True,
+                    "product_name": TASK_TRANSITION_PRODUCT_NAME,
+                    "result_type": "already_updated",
+                    "receipt": dict(record.receipt),
+                }
+            if record.consumed_without_receipt:
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "task_transition_token_already_consumed",
+                }
+
+            record.consumed_without_receipt = True
+            try:
+                result = writer(
+                    tasks_dir=tasks_dir,
+                    task_id=record.task_id,
+                    expected_digest=record.expected_digest,
+                    current_status=record.current_status,
+                    target_status=record.target_status,
+                    planned_updated_at=record.planned_updated_at,
+                )
+            except OSError:
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "task_transition_storage_unavailable",
+                }
+            if result.result_type == "stale":
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "task_changed_since_preview",
+                }
+            if result.result_type != "updated":
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": result.reason or "task_transition_failed",
+                }
+
+            receipt = {
+                "task_id": record.task_id,
+                "title": record.title,
+                "previous_state": record.current_status,
+                "transition": (
+                    f"{record.current_status} \u2192 {record.target_status}"
+                ),
+                "current_state": record.target_status,
+                "updated_at": record.planned_updated_at,
+                "storage_location": record.storage_location,
+                "no_execution": True,
+            }
+            record.receipt = receipt
+            record.expires_at = now + self._ttl_seconds
+            return HTTPStatus.OK, {
+                "ok": True,
+                "product_name": TASK_TRANSITION_PRODUCT_NAME,
+                "result_type": "updated",
+                "receipt": dict(receipt),
+            }
+
+
+TASK_TRANSITION_REGISTRY = TaskTransitionRegistry()
+
+
+def selected_task_transition_items(
+    tasks_dir: Path = CREATE_LOCAL_TASKS_DIR,
+) -> list[dict[str, Any]]:
+    """Return the same capped valid projection used by Actionable Task View."""
+
+    if tasks_dir.resolve() == CREATE_LOCAL_TASKS_DIR.resolve():
+        return overview_payload()["tasks"]
+    directory = overview_directory_by_key()["memory_tasks"]
+    discovered: list[dict[str, Any]] = []
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return discovered
+    for path in tasks_dir.rglob("*"):
+        if not path.is_file() or not is_overview_candidate_path(path, tasks_dir):
+            continue
+        discovered.append(overview_file_item(path, directory))
+    discovered.sort(
+        key=lambda item: (item["modified"], item["path"]),
+        reverse=True,
+    )
+    return project_task_view_items(
+        discovered[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY]
+    )
+
+
+def preview_task_transition(
+    payload: dict[str, Any],
+    *,
+    registry: TaskTransitionRegistry = TASK_TRANSITION_REGISTRY,
+    tasks_dir: Path = CREATE_LOCAL_TASKS_DIR,
+    utc_now: Any = lambda: datetime.now(timezone.utc).strftime(
+        TASK_VIEW_TIMESTAMP_FORMAT
+    ),
+) -> tuple[int, dict[str, Any]]:
+    """Preview one status-only transition without writing the Task file."""
+
+    if set(payload) != {"task_id", "action"}:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "task_transition_preview_accepts_task_id_and_action_only",
+        }
+    task_id = payload.get("task_id")
+    action = payload.get("action")
+    if not isinstance(task_id, str) or not isinstance(action, str):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_task_transition_preview",
+        }
+    transition = TASK_TRANSITION_ACTIONS.get(action)
+    if transition is None:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_task_transition_action",
+        }
+    current_status, target_status, confirmation_literal = transition
+    selected_item = next(
+        (
+            item
+            for item in selected_task_transition_items(tasks_dir)
+            if item["task_view"]["parse_state"] == "valid"
+            and item["task_view"]["id"] == task_id
+        ),
+        None,
+    )
+    if selected_item is None:
+        return HTTPStatus.NOT_FOUND, {
+            "ok": False,
+            "error": "task_not_found_in_actionable_view",
+        }
+    task_view = selected_item["task_view"]
+    if task_view["status"] != current_status:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "task_status_transition_not_allowed",
+        }
+
+    task_path = (REPO_ROOT / selected_item["path"]).resolve()
+    expected_path = (tasks_dir / f"{task_id}.md").resolve()
+    if task_path != expected_path or task_path.parent != tasks_dir.resolve():
+        return HTTPStatus.NOT_FOUND, {
+            "ok": False,
+            "error": "task_not_found_in_actionable_view",
+        }
+    try:
+        raw = task_path.read_bytes()
+    except OSError:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "task_changed_since_preview",
+        }
+    planned_updated_at = str(utc_now())
+    if parse_task_view_timestamp(planned_updated_at) is None:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "invalid_planned_updated_at",
+        }
+    storage_location = selected_item["path"]
+    record = _TaskTransitionRecord(
+        task_id=task_id,
+        title=task_view["title"],
+        storage_location=storage_location,
+        action=action,
+        current_status=current_status,
+        target_status=target_status,
+        observed_updated_at=task_view["updated_at"],
+        planned_updated_at=planned_updated_at,
+        expected_digest=hashlib.sha256(raw).hexdigest(),
+        confirmation_literal=confirmation_literal,
+        expires_at=0.0,
+    )
+    issue_status, issued = registry.issue(record)
+    if issue_status != HTTPStatus.OK:
+        return issue_status, issued
+    return HTTPStatus.OK, {
+        "ok": True,
+        "product_name": TASK_TRANSITION_PRODUCT_NAME,
+        "token": issued["token"],
+        "expires_in_seconds": issued["expires_in_seconds"],
+        "confirmation_literal": confirmation_literal,
+        "preview": {
+            "task_id": task_id,
+            "title": task_view["title"],
+            "current_status": current_status,
+            "target_status": target_status,
+            "updated_at": planned_updated_at,
+            "storage_location": storage_location,
+            "no_execution": True,
+            "notice": TASK_TRANSITION_NOTICE,
+            "warning": (
+                TASK_TRANSITION_COMPLETE_WARNING if action == "complete" else ""
+            ),
+        },
+    }
+
+
+def confirm_task_transition(
+    payload: dict[str, Any],
+    *,
+    registry: TaskTransitionRegistry = TASK_TRANSITION_REGISTRY,
+    tasks_dir: Path = CREATE_LOCAL_TASKS_DIR,
+) -> tuple[int, dict[str, Any]]:
+    """Confirm one server-held status-only Task transition."""
+
+    if set(payload) != {"token", "confirmation"}:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "task_transition_confirm_accepts_token_and_confirmation_only",
+        }
+    token = payload.get("token")
+    confirmation = payload.get("confirmation")
+    if not isinstance(token, str) or not isinstance(confirmation, str):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_task_transition_confirmation",
+        }
+    return registry.confirm(
+        token=token,
+        confirmation=confirmation,
+        tasks_dir=tasks_dir,
+    )
+
+
 def _bounded_evaluate_idea_text(value: Any, max_chars: int) -> str:
     text = str(value or "").strip()
     if len(text) <= max_chars:
@@ -4688,6 +5036,117 @@ def validate_create_local_task_http_request(
     return HTTPStatus.OK, {"ok": True, "body_length": body_length}
 
 
+class _DuplicateTaskTransitionJsonKey(ValueError):
+    pass
+
+
+def parse_task_transition_json_body(raw_body: bytes) -> tuple[int, dict[str, Any]]:
+    """Parse feature-local transition JSON and reject duplicate keys."""
+
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in parsed:
+                raise _DuplicateTaskTransitionJsonKey
+            parsed[key] = value
+        return parsed
+
+    try:
+        payload = json.loads(
+            raw_body.decode("utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        _DuplicateTaskTransitionJsonKey,
+    ):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_task_transition_json",
+        }
+    if not isinstance(payload, dict):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "task_transition_json_must_be_object",
+        }
+    return HTTPStatus.OK, payload
+
+
+def validate_task_transition_http_request(
+    *,
+    path: str,
+    query: str,
+    header_pairs: list[tuple[str, str]],
+    bound_port: int,
+) -> tuple[int, dict[str, Any]]:
+    """Validate one exact locally guarded task-transition request."""
+
+    if path not in {
+        TASK_TRANSITION_PREVIEW_ENDPOINT,
+        TASK_TRANSITION_CONFIRM_ENDPOINT,
+    } or query:
+        return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
+    if len(header_pairs) > 32:
+        return HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE, {
+            "ok": False,
+            "error": "invalid_task_transition_headers",
+        }
+    headers: dict[str, list[str]] = {}
+    for raw_name, raw_value in header_pairs:
+        name = str(raw_name).strip().lower()
+        value = str(raw_value).strip()
+        if not name or len(name) > 80 or len(value) > 1024:
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "invalid_task_transition_headers",
+            }
+        headers.setdefault(name, []).append(value)
+    if headers.get("transfer-encoding"):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "transfer_encoding_not_allowed",
+        }
+    if any(
+        len(headers.get(name, [])) != 1
+        for name in CREATE_LOCAL_TASK_REQUIRED_HEADERS
+    ):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_task_transition_headers",
+        }
+    expected_authority = f"{DEFAULT_HOST}:{bound_port}"
+    if (
+        headers["host"][0] != expected_authority
+        or headers["origin"][0] != f"http://{expected_authority}"
+    ):
+        return HTTPStatus.FORBIDDEN, {
+            "ok": False,
+            "error": "task_transition_origin_rejected",
+        }
+    if (
+        headers["content-type"][0].lower()
+        not in CREATE_LOCAL_TASK_ALLOWED_CONTENT_TYPES
+    ):
+        return HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {
+            "ok": False,
+            "error": "task_transition_json_required",
+        }
+    content_length = headers["content-length"][0]
+    if not re.fullmatch(r"0|[1-9][0-9]*", content_length):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "invalid_content_length",
+        }
+    body_length = int(content_length)
+    if body_length <= 0 or body_length > MAX_JSON_BODY_BYTES:
+        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {
+            "ok": False,
+            "error": "task_transition_body_size_rejected",
+        }
+    return HTTPStatus.OK, {"ok": True, "body_length": body_length}
+
+
 def handle_get_api(path: str, query: str = "") -> tuple[int, dict[str, Any]]:
     """Handle read-only GET API routes."""
 
@@ -4783,6 +5242,12 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
         }:
             self._handle_create_local_task_post(parsed.path, parsed.query)
             return
+        if path in {
+            TASK_TRANSITION_PREVIEW_ENDPOINT,
+            TASK_TRANSITION_CONFIRM_ENDPOINT,
+        }:
+            self._handle_task_transition_post(parsed.path, parsed.query)
+            return
         if path not in {
             "/api/suggest-skill",
             "/api/voice-inbox/prepare",
@@ -4856,6 +5321,61 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             )
         else:
             response_status, response_payload = confirm_create_local_task(
+                payload,
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+        self._send_json(response_status, response_payload)
+
+    def _handle_task_transition_post(self, path: str, query: str) -> None:
+        metadata_status, metadata = validate_task_transition_http_request(
+            path=path,
+            query=query,
+            header_pairs=list(self.headers.raw_items()),
+            bound_port=int(self.server.server_address[1]),
+        )
+        if metadata_status != HTTPStatus.OK:
+            self._send_json(metadata_status, metadata)
+            return
+        raw_body = self.rfile.read(metadata["body_length"])
+        if len(raw_body) != metadata["body_length"]:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "ok": False,
+                    "error": "task_transition_body_length_mismatch",
+                },
+            )
+            return
+        parse_status, payload = parse_task_transition_json_body(raw_body)
+        if parse_status != HTTPStatus.OK:
+            self._send_json(parse_status, payload)
+            return
+        registry = getattr(
+            self.server,
+            "task_transition_registry",
+            TASK_TRANSITION_REGISTRY,
+        )
+        tasks_dir = getattr(
+            self.server,
+            "task_transition_tasks_dir",
+            CREATE_LOCAL_TASKS_DIR,
+        )
+        if path == TASK_TRANSITION_PREVIEW_ENDPOINT:
+            response_status, response_payload = preview_task_transition(
+                payload,
+                registry=registry,
+                tasks_dir=tasks_dir,
+                utc_now=getattr(
+                    self.server,
+                    "task_transition_utc_now",
+                    lambda: datetime.now(timezone.utc).strftime(
+                        TASK_VIEW_TIMESTAMP_FORMAT
+                    ),
+                ),
+            )
+        else:
+            response_status, response_payload = confirm_task_transition(
                 payload,
                 registry=registry,
                 tasks_dir=tasks_dir,

@@ -38,6 +38,11 @@ let lastVoiceCandidateData = null;
 let createLocalTaskToken = "";
 let createLocalTaskConfirmation = "";
 let createLocalTaskBusy = false;
+let taskTransitionToken = "";
+let taskTransitionConfirmation = "";
+let taskTransitionTaskId = "";
+let taskTransitionBusy = false;
+let taskTransitionLastReceipt = null;
 let evaluateIdeaBusy = false;
 const LOCAL_URL_PREFIX = "http:" + "//127.0.0.1";
 const LOCAL_URL_PROTOCOL = "http:";
@@ -1081,6 +1086,15 @@ function actionableTaskItemMarkup(item) {
   const summary = valid
     ? view.summary
     : `Reason code: ${view.reason_code || "invalid_text"}${view.reason_field ? ` (${view.reason_field})` : ""}`;
+  const action = valid && view.status === "TODO"
+    ? "start"
+    : valid && view.status === "DOING"
+      ? "complete"
+      : "";
+  const actionLabel = action === "start" ? "Start Task" : "Complete Task";
+  const receiptMarkup = taskTransitionLastReceipt?.receipt?.task_id === view.id
+    ? taskTransitionReceiptMarkup(taskTransitionLastReceipt)
+    : "";
   return `
     <article class="overview-item normalized-overview-item">
       <div class="overview-item-heading">
@@ -1099,8 +1113,170 @@ function actionableTaskItemMarkup(item) {
         <dt>Next action</dt><dd>${escapeHtml(view.next_action || "")}</dd>
         <dt>Path</dt><dd><code>${escapeHtml(item.path || "")}</code></dd>
       </dl>
+      ${
+        action
+          ? `
+            <div class="suggestion-actions">
+              <button class="primary-button preview-task-transition" type="button" data-task-id="${escapeHtml(view.id)}" data-task-action="${escapeHtml(action)}">${escapeHtml(actionLabel)}</button>
+            </div>
+          `
+          : ""
+      }
+      <div class="task-transition-result" data-task-transition-result="${escapeHtml(view.id || "")}">
+        ${receiptMarkup}
+      </div>
     </article>
   `;
+}
+
+function taskTransitionReceiptMarkup(data) {
+  const receipt = data?.receipt || {};
+  const receiptState = data?.result_type === "already_updated" ? "Already updated" : "Updated";
+  return `
+    <article class="create-local-task-receipt">
+      <div class="overview-section-heading">
+        <h4>Task Transition Receipt</h4>
+        <span class="overview-badge read-only">${escapeHtml(receiptState)}</span>
+      </div>
+      <dl class="create-local-task-facts">
+        <div><dt>Task ID</dt><dd><code>${escapeHtml(receipt.task_id || "")}</code></dd></div>
+        <div><dt>Title</dt><dd>${escapeHtml(receipt.title || "")}</dd></div>
+        <div><dt>Previous State</dt><dd>${escapeHtml(receipt.previous_state || "")}</dd></div>
+        <div><dt>Transition</dt><dd>${escapeHtml(receipt.transition || "")}</dd></div>
+        <div><dt>Current State</dt><dd>${escapeHtml(receipt.current_state || "")}</dd></div>
+        <div><dt>Updated at</dt><dd>${escapeHtml(receipt.updated_at || "")}</dd></div>
+        <div><dt>Storage location</dt><dd><code>${escapeHtml(receipt.storage_location || "")}</code></dd></div>
+        <div><dt>Execution</dt><dd>${receipt.no_execution ? "No execution" : "Unavailable"}</dd></div>
+      </dl>
+    </article>
+  `;
+}
+
+function taskTransitionResultElement(taskId) {
+  return [...document.querySelectorAll("[data-task-transition-result]")]
+    .find((element) => element.dataset.taskTransitionResult === taskId) || null;
+}
+
+function renderTaskTransitionPreview(data) {
+  const preview = data?.preview || {};
+  const target = taskTransitionResultElement(preview.task_id || "");
+  if (!target) {
+    return;
+  }
+  taskTransitionToken = data.token || "";
+  taskTransitionConfirmation = data.confirmation_literal || "";
+  taskTransitionTaskId = preview.task_id || "";
+  const confirmLabel = taskTransitionConfirmation === "START TASK"
+    ? "Confirm Start"
+    : "Confirm Complete";
+  target.innerHTML = `
+    <article class="create-local-task-preview">
+      <div class="overview-section-heading">
+        <h4>Task Transition Preview</h4>
+        <span class="overview-badge approval-needed">Not updated</span>
+      </div>
+      <dl class="create-local-task-facts">
+        <div><dt>Task ID</dt><dd><code>${escapeHtml(preview.task_id || "")}</code></dd></div>
+        <div><dt>Title</dt><dd>${escapeHtml(preview.title || "")}</dd></div>
+        <div><dt>Current State</dt><dd>${escapeHtml(preview.current_status || "")}</dd></div>
+        <div><dt>Target State</dt><dd>${escapeHtml(preview.target_status || "")}</dd></div>
+        <div><dt>Updated at</dt><dd>${escapeHtml(preview.updated_at || "")}</dd></div>
+        <div><dt>Storage location</dt><dd><code>${escapeHtml(preview.storage_location || "")}</code></dd></div>
+        <div><dt>Execution</dt><dd>${preview.no_execution ? "No execution" : "Unavailable"}</dd></div>
+      </dl>
+      <p class="muted">${escapeHtml(preview.notice || "")}</p>
+      ${preview.warning ? `<p class="safety-note">${escapeHtml(preview.warning)}</p>` : ""}
+      <div class="suggestion-actions">
+        <button class="primary-button confirm-task-transition" type="button">${escapeHtml(confirmLabel)}</button>
+      </div>
+    </article>
+  `;
+}
+
+async function previewTaskTransition(button) {
+  if (taskTransitionBusy) {
+    return;
+  }
+  const taskId = button.dataset.taskId || "";
+  const action = button.dataset.taskAction || "";
+  const target = taskTransitionResultElement(taskId);
+  taskTransitionBusy = true;
+  taskTransitionLastReceipt = null;
+  if (target) {
+    target.innerHTML = "<p class=\"muted\">Preparing task transition preview...</p>";
+  }
+  try {
+    const response = await fetch("/api/task-transition/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task_id: taskId, action }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderTaskTransitionPreview(data);
+    statusText.textContent = "Task transition preview ready. Nothing has been updated.";
+  } catch (error) {
+    taskTransitionToken = "";
+    taskTransitionConfirmation = "";
+    taskTransitionTaskId = "";
+    if (target) {
+      target.innerHTML = `<p class="safety-note">Task transition preview failed: ${escapeHtml(error.message)}</p>`;
+    }
+    statusText.textContent = `Task transition preview failed: ${error.message}`;
+  } finally {
+    taskTransitionBusy = false;
+  }
+}
+
+async function confirmTaskTransition() {
+  if (
+    taskTransitionBusy
+    || !taskTransitionToken
+    || !taskTransitionConfirmation
+    || !taskTransitionTaskId
+  ) {
+    return;
+  }
+  taskTransitionBusy = true;
+  const target = taskTransitionResultElement(taskTransitionTaskId);
+  const button = target?.querySelector(".confirm-task-transition");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Updating local Task...";
+  }
+  try {
+    const response = await fetch("/api/task-transition/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: taskTransitionToken,
+        confirmation: taskTransitionConfirmation,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    taskTransitionLastReceipt = data;
+    taskTransitionToken = "";
+    taskTransitionConfirmation = "";
+    taskTransitionTaskId = "";
+    await loadOverview();
+    statusText.textContent = `Task updated: ${data.receipt?.transition || ""}.`;
+    nextActionText.textContent = "Review the refreshed Actionable Task View.";
+  } catch (error) {
+    if (target) {
+      target.innerHTML = `<p class="safety-note">Task transition failed: ${escapeHtml(error.message)}</p>`;
+    }
+    taskTransitionToken = "";
+    taskTransitionConfirmation = "";
+    taskTransitionTaskId = "";
+    statusText.textContent = `Task transition failed: ${error.message}`;
+  } finally {
+    taskTransitionBusy = false;
+  }
 }
 
 function renderActionableTaskView(items) {
@@ -2461,6 +2637,18 @@ skillGrid.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const taskTransitionPreviewButton = event.target.closest(".preview-task-transition");
+  if (taskTransitionPreviewButton) {
+    previewTaskTransition(taskTransitionPreviewButton);
+    return;
+  }
+
+  const taskTransitionConfirmButton = event.target.closest(".confirm-task-transition");
+  if (taskTransitionConfirmButton) {
+    confirmTaskTransition();
+    return;
+  }
+
   const createLocalTaskPreviewButton = event.target.closest(".preview-create-local-task");
   if (createLocalTaskPreviewButton) {
     previewCreateLocalTask();

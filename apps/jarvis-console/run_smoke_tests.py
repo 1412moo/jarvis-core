@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
+import hashlib
 from http.client import HTTPConnection
 from io import StringIO
 import inspect
@@ -11,6 +12,7 @@ from http import HTTPStatus
 from pathlib import Path
 import socket
 import subprocess
+import shutil
 from tempfile import TemporaryDirectory
 import threading
 from typing import Any
@@ -1983,7 +1985,824 @@ for (const [index, payload] of malformed.entries()) {
     )
 
 
+def _test_task_transition_vertical_slice() -> None:
+    fixture_root = run_web_app.REPO_ROOT / "task-transition-test-fixture"
+    resolved_fixture = fixture_root.resolve()
+    resolved_workspace = Path("C:/work").resolve()
+    assert resolved_fixture.parent == run_web_app.REPO_ROOT.resolve()
+    assert resolved_fixture.is_relative_to(resolved_workspace)
+    assert not fixture_root.exists()
+
+    watched_roots = (
+        run_web_app.REPO_ROOT / "memory" / "tasks",
+        run_web_app.REPO_ROOT / "reports",
+    )
+
+    def artifact_snapshot() -> tuple[tuple[str, int, int], ...]:
+        snapshot: list[tuple[str, int, int]] = []
+        for root in watched_roots:
+            if not root.is_dir():
+                continue
+            for path in sorted(root.rglob("*")):
+                if path.is_file():
+                    stat_result = path.stat()
+                    snapshot.append(
+                        (
+                            path.relative_to(run_web_app.REPO_ROOT).as_posix(),
+                            stat_result.st_size,
+                            stat_result.st_mtime_ns,
+                        )
+                    )
+        return tuple(snapshot)
+
+    before_artifacts = artifact_snapshot()
+    fixture_root.mkdir()
+    tasks_dir = fixture_root / "tasks"
+    tasks_dir.mkdir()
+
+    def task_bytes(
+        task_id: str,
+        status: str,
+        *,
+        title: str = "Fixture Task",
+        summary: str = "Fixture summary",
+        updated_at: str = "2026-07-23 10:00 UTC",
+        newline: str = "\r\n",
+        extra_lines: tuple[str, ...] = (),
+    ) -> bytes:
+        return (
+            newline.join(
+                [
+                    f"# {task_id}",
+                    "",
+                    f"- id: `{task_id}`",
+                    f"- title: `{title}`",
+                    f"- status: `{status}`",
+                    "- repo: `jarvis-core`",
+                    "- created_at: `2026-07-23 09:00 UTC`",
+                    f"- updated_at: `{updated_at}`",
+                    f"- summary: `{summary}`",
+                    *extra_lines,
+                ]
+            )
+            + newline
+        ).encode("utf-8")
+
+    def write_task(
+        task_id: str,
+        status: str,
+        **kwargs: Any,
+    ) -> tuple[Path, bytes]:
+        path = tasks_dir / f"{task_id}.md"
+        raw = task_bytes(task_id, status, **kwargs)
+        path.write_bytes(raw)
+        return path, raw
+
+    class TokenFactory:
+        def __init__(self, prefix: str = "tasktransitiontoken") -> None:
+            self.prefix = prefix
+            self.counter = 0
+
+        def __call__(self) -> str:
+            self.counter += 1
+            return f"{self.prefix}{self.counter:016d}"
+
+    class FakeClock:
+        def __init__(self) -> None:
+            self.value = 1000.0
+
+        def __call__(self) -> float:
+            return self.value
+
+    class FailingBinaryFile:
+        def __init__(self, path: Path, stage: str) -> None:
+            self.file = path.open("xb")
+            self.stage = stage
+
+        @property
+        def closed(self) -> bool:
+            return self.file.closed
+
+        def write(self, data: bytes) -> int:
+            if self.stage == "write":
+                raise OSError("injected write failure")
+            return self.file.write(data)
+
+        def flush(self) -> None:
+            if self.stage == "flush":
+                raise OSError("injected flush failure")
+            self.file.flush()
+
+        def fileno(self) -> int:
+            return self.file.fileno()
+
+        def close(self) -> None:
+            self.file.close()
+            if self.stage == "close":
+                raise OSError("injected close failure")
+
+    try:
+        writer_path, writer_before = write_task("task-7001-writer", "TODO")
+        planned_start = "2026-07-23 10:30 UTC"
+        start_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="task-7001-writer",
+            expected_digest=hashlib.sha256(writer_before).hexdigest(),
+            current_status="TODO",
+            target_status="DOING",
+            planned_updated_at=planned_start,
+            _temp_token_factory=lambda: "a" * 16,
+        )
+        assert start_result.result_type == "updated"
+        start_bytes = writer_path.read_bytes()
+        assert start_bytes == writer_before.replace(
+            b"- status: `TODO`",
+            b"- status: `DOING`",
+            1,
+        ).replace(
+            b"- updated_at: `2026-07-23 10:00 UTC`",
+            b"- updated_at: `2026-07-23 10:30 UTC`",
+            1,
+        )
+        assert start_bytes.count(b"\r\n") == writer_before.count(b"\r\n")
+
+        planned_complete = "2026-07-23 11:00 UTC"
+        complete_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="task-7001-writer",
+            expected_digest=hashlib.sha256(start_bytes).hexdigest(),
+            current_status="DOING",
+            target_status="DONE",
+            planned_updated_at=planned_complete,
+            _temp_token_factory=lambda: "b" * 16,
+        )
+        assert complete_result.result_type == "updated"
+        complete_bytes = writer_path.read_bytes()
+        assert complete_bytes == start_bytes.replace(
+            b"- status: `DOING`",
+            b"- status: `DONE`",
+            1,
+        ).replace(
+            b"- updated_at: `2026-07-23 10:30 UTC`",
+            b"- updated_at: `2026-07-23 11:00 UTC`",
+            1,
+        )
+
+        all_statuses = (
+            "TODO",
+            "DOING",
+            "BLOCKED",
+            "DONE",
+            "FAILED",
+            "NEEDS_APPROVAL",
+        )
+        for source_status in all_statuses:
+            for target_status in all_statuses:
+                if (source_status, target_status) in {
+                    ("TODO", "DOING"),
+                    ("DOING", "DONE"),
+                }:
+                    continue
+                invalid_result = run_web_app.transition_task_file_status(
+                    tasks_dir=tasks_dir,
+                    task_id="task-7001-writer",
+                    expected_digest=hashlib.sha256(complete_bytes).hexdigest(),
+                    current_status=source_status,
+                    target_status=target_status,
+                    planned_updated_at=planned_complete,
+                )
+                assert invalid_result == run_web_app.TaskStatusTransitionResult(
+                    "hold",
+                    "invalid_task_transition",
+                )
+
+        traversal_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="../escape",
+            expected_digest="0" * 64,
+            current_status="TODO",
+            target_status="DOING",
+            planned_updated_at=planned_start,
+        )
+        assert traversal_result.reason == "invalid_task_id"
+
+        duplicate_path, duplicate_raw = write_task(
+            "task-7002-duplicate",
+            "TODO",
+            extra_lines=("- status: `TODO`",),
+        )
+        duplicate_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="task-7002-duplicate",
+            expected_digest=hashlib.sha256(duplicate_raw).hexdigest(),
+            current_status="TODO",
+            target_status="DOING",
+            planned_updated_at=planned_start,
+        )
+        assert duplicate_result.reason == "task_file_duplicate_metadata"
+        assert duplicate_path.read_bytes() == duplicate_raw
+
+        mismatch_path, mismatch_raw = write_task(
+            "task-7003-mismatch",
+            "TODO",
+        )
+        digest_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="task-7003-mismatch",
+            expected_digest="0" * 64,
+            current_status="TODO",
+            target_status="DOING",
+            planned_updated_at=planned_start,
+        )
+        assert digest_result.reason == "task_changed_since_preview"
+        current_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="task-7003-mismatch",
+            expected_digest=hashlib.sha256(mismatch_raw).hexdigest(),
+            current_status="DOING",
+            target_status="DONE",
+            planned_updated_at=planned_start,
+        )
+        assert current_result.reason == "task_changed_since_preview"
+        assert mismatch_path.read_bytes() == mismatch_raw
+
+        deleted_path, deleted_raw = write_task("task-7004-deleted", "TODO")
+        deleted_digest = hashlib.sha256(deleted_raw).hexdigest()
+        deleted_path.unlink()
+        deleted_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="task-7004-deleted",
+            expected_digest=deleted_digest,
+            current_status="TODO",
+            target_status="DOING",
+            planned_updated_at=planned_start,
+        )
+        assert deleted_result.reason == "task_changed_since_preview"
+
+        final_path, final_raw = write_task("task-7005-final-check", "TODO")
+        externally_changed = final_raw.replace(
+            b"Fixture summary",
+            b"Externally changed summary",
+        )
+
+        def change_before_final_check(path: Path) -> None:
+            path.write_bytes(externally_changed)
+
+        final_result = run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="task-7005-final-check",
+            expected_digest=hashlib.sha256(final_raw).hexdigest(),
+            current_status="TODO",
+            target_status="DOING",
+            planned_updated_at=planned_start,
+            _temp_token_factory=lambda: "c" * 16,
+            _before_final_check=change_before_final_check,
+        )
+        assert final_result.reason == "task_changed_since_preview"
+        assert final_path.read_bytes() == externally_changed
+        assert not list(tasks_dir.glob(".*.transition.tmp"))
+
+        failure_expectations = {
+            "open": "task_transition_temp_create_failed",
+            "write": "task_transition_write_failed",
+            "flush": "task_transition_flush_failed",
+            "fsync": "task_transition_fsync_failed",
+            "close": "task_transition_close_failed",
+            "replace": "task_transition_replace_failed",
+        }
+        for index, (stage, expected_reason) in enumerate(
+            failure_expectations.items(),
+            start=7101,
+        ):
+            task_id = f"task-{index:04d}-{stage}"
+            failure_path, failure_raw = write_task(task_id, "TODO")
+
+            def open_file(path: Path, failure_stage: str = stage) -> Any:
+                if failure_stage == "open":
+                    raise OSError("injected open failure")
+                return FailingBinaryFile(path, failure_stage)
+
+            def fsync_file(_fd: int, failure_stage: str = stage) -> None:
+                if failure_stage == "fsync":
+                    raise OSError("injected fsync failure")
+                return None
+
+            def replace_file(
+                temp_path: Path,
+                target_path: Path,
+                failure_stage: str = stage,
+            ) -> None:
+                if failure_stage == "replace":
+                    raise OSError("injected replace failure")
+                temp_path.replace(target_path)
+
+            failure_result = run_web_app.transition_task_file_status(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=hashlib.sha256(failure_raw).hexdigest(),
+                current_status="TODO",
+                target_status="DOING",
+                planned_updated_at=planned_start,
+                _open_temp_file=open_file,
+                _replace_file=replace_file,
+                _fsync_file=fsync_file,
+                _temp_token_factory=lambda: "d" * 16,
+            )
+            assert failure_result.reason == expected_reason
+            assert failure_path.read_bytes() == failure_raw
+            assert not list(tasks_dir.glob(".*.transition.tmp"))
+
+        fixed_utc = lambda: "2026-07-23 12:00 UTC"
+        registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory(),
+        )
+        start_path, start_raw = write_task(
+            "task-8001-start",
+            "TODO",
+            title="Start me",
+            summary="No content inference is allowed.",
+        )
+        preview_status, start_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8001-start", "action": "start"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )
+        assert preview_status == HTTPStatus.OK
+        assert start_path.read_bytes() == start_raw
+        assert start_preview["confirmation_literal"] == "START TASK"
+        assert start_preview["preview"] == {
+            "task_id": "task-8001-start",
+            "title": "Start me",
+            "current_status": "TODO",
+            "target_status": "DOING",
+            "updated_at": "2026-07-23 12:00 UTC",
+            "storage_location": (
+                "task-transition-test-fixture/tasks/task-8001-start.md"
+            ),
+            "no_execution": True,
+            "notice": run_web_app.TASK_TRANSITION_NOTICE,
+            "warning": "",
+        }
+        complete_path, complete_raw = write_task(
+            "task-8002-complete",
+            "DOING",
+            title="Complete me",
+        )
+        complete_preview_status, complete_preview = (
+            run_web_app.preview_task_transition(
+                {"task_id": "task-8002-complete", "action": "complete"},
+                registry=registry,
+                tasks_dir=tasks_dir,
+                utc_now=fixed_utc,
+            )
+        )
+        assert complete_preview_status == HTTPStatus.OK
+        assert complete_path.read_bytes() == complete_raw
+        assert complete_preview["confirmation_literal"] == "COMPLETE TASK"
+        assert (
+            complete_preview["preview"]["warning"]
+            == run_web_app.TASK_TRANSITION_COMPLETE_WARNING
+        )
+
+        assert run_web_app.preview_task_transition(
+            {"task_id": "task-8001-start", "action": "start", "path": "x"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )[1]["error"] == (
+            "task_transition_preview_accepts_task_id_and_action_only"
+        )
+        assert run_web_app.preview_task_transition(
+            {"task_id": "task-8001-start", "action": "retry"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )[1]["error"] == "invalid_task_transition_action"
+        assert run_web_app.preview_task_transition(
+            {"task_id": "task-8001-start", "action": "complete"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )[1]["error"] == "task_status_transition_not_allowed"
+
+        varied_path, _ = write_task(
+            "task-8003-varied",
+            "TODO",
+            title="Different title",
+            summary="Completely unrelated summary and body.",
+        )
+        varied_status, varied_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8003-varied", "action": "start"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )
+        assert varied_status == HTTPStatus.OK
+        for field_name in (
+            "current_status",
+            "target_status",
+            "updated_at",
+            "no_execution",
+            "notice",
+            "warning",
+        ):
+            assert (
+                varied_preview["preview"][field_name]
+                == start_preview["preview"][field_name]
+            )
+        assert varied_preview["confirmation_literal"] == "START TASK"
+        assert varied_path.exists()
+
+        assert run_web_app.confirm_task_transition(
+            {
+                "token": start_preview["token"],
+                "confirmation": "START TASK",
+                "status": "DONE",
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )[1]["error"] == (
+            "task_transition_confirm_accepts_token_and_confirmation_only"
+        )
+        assert run_web_app.confirm_task_transition(
+            {
+                "token": start_preview["token"],
+                "confirmation": "COMPLETE TASK",
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )[1]["error"] == "exact_confirmation_required"
+        confirm_status, confirmed = run_web_app.confirm_task_transition(
+            {
+                "token": start_preview["token"],
+                "confirmation": "START TASK",
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert confirm_status == HTTPStatus.OK
+        expected_receipt = {
+            "task_id": "task-8001-start",
+            "title": "Start me",
+            "previous_state": "TODO",
+            "transition": "TODO \u2192 DOING",
+            "current_state": "DOING",
+            "updated_at": "2026-07-23 12:00 UTC",
+            "storage_location": (
+                "task-transition-test-fixture/tasks/task-8001-start.md"
+            ),
+            "no_execution": True,
+        }
+        assert confirmed["receipt"] == expected_receipt
+        actual_started = start_path.read_bytes()
+        assert b"- status: `DOING`" in actual_started
+        assert b"- updated_at: `2026-07-23 12:00 UTC`" in actual_started
+        repeat_status, repeated = run_web_app.confirm_task_transition(
+            {
+                "token": start_preview["token"],
+                "confirmation": "START TASK",
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert repeat_status == HTTPStatus.OK
+        assert repeated["result_type"] == "already_updated"
+        assert repeated["receipt"] == confirmed["receipt"]
+
+        two_path, _ = write_task("task-8004-dual-preview", "TODO")
+        two_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory("twotasktransitiontoken"),
+        )
+        two_preview_results = [
+            run_web_app.preview_task_transition(
+                {"task_id": "task-8004-dual-preview", "action": "start"},
+                registry=two_registry,
+                tasks_dir=tasks_dir,
+                utc_now=fixed_utc,
+            )
+            for _ in range(2)
+        ]
+        assert all(
+            status == HTTPStatus.OK
+            for status, _payload in two_preview_results
+        )
+        two_previews = [payload for _status, payload in two_preview_results]
+        first_two = run_web_app.confirm_task_transition(
+            {
+                "token": two_previews[0]["token"],
+                "confirmation": "START TASK",
+            },
+            registry=two_registry,
+            tasks_dir=tasks_dir,
+        )
+        second_two = run_web_app.confirm_task_transition(
+            {
+                "token": two_previews[1]["token"],
+                "confirmation": "START TASK",
+            },
+            registry=two_registry,
+            tasks_dir=tasks_dir,
+        )
+        assert first_two[0] == HTTPStatus.OK
+        assert second_two == (
+            HTTPStatus.CONFLICT,
+            {"ok": False, "error": "task_changed_since_preview"},
+        )
+        assert b"- status: `DOING`" in two_path.read_bytes()
+
+        concurrent_path, _ = write_task("task-8005-concurrent", "TODO")
+        concurrent_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory("concurrenttasktoken"),
+        )
+        concurrent_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8005-concurrent", "action": "start"},
+            registry=concurrent_registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )[1]
+        writer_calls = 0
+        writer_call_lock = threading.Lock()
+
+        def counting_writer(**kwargs: Any) -> Any:
+            nonlocal writer_calls
+            with writer_call_lock:
+                writer_calls += 1
+            return run_web_app.transition_task_file_status(**kwargs)
+
+        concurrent_results: list[tuple[int, dict[str, Any]]] = []
+
+        def confirm_concurrently() -> None:
+            concurrent_results.append(
+                concurrent_registry.confirm(
+                    token=concurrent_preview["token"],
+                    confirmation="START TASK",
+                    tasks_dir=tasks_dir,
+                    writer=counting_writer,
+                )
+            )
+
+        threads = [threading.Thread(target=confirm_concurrently) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+            assert not thread.is_alive()
+        assert writer_calls == 1
+        assert sorted(
+            result[1]["result_type"] for result in concurrent_results
+        ) == ["already_updated", "updated"]
+        assert (
+            concurrent_results[0][1]["receipt"]
+            == concurrent_results[1][1]["receipt"]
+        )
+        assert b"- status: `DOING`" in concurrent_path.read_bytes()
+
+        stale_path, stale_raw = write_task("task-8006-stale", "TODO")
+        stale_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory("staletasktransitiontoken"),
+        )
+        stale_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8006-stale", "action": "start"},
+            registry=stale_registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )[1]
+        stale_path.write_bytes(
+            stale_raw.replace(b"Fixture summary", b"Changed after preview")
+        )
+        assert run_web_app.confirm_task_transition(
+            {
+                "token": stale_preview["token"],
+                "confirmation": "START TASK",
+            },
+            registry=stale_registry,
+            tasks_dir=tasks_dir,
+        ) == (
+            HTTPStatus.CONFLICT,
+            {"ok": False, "error": "task_changed_since_preview"},
+        )
+
+        delete_path, _ = write_task("task-8007-delete", "TODO")
+        delete_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory("deletetasktransitiontoken"),
+        )
+        delete_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8007-delete", "action": "start"},
+            registry=delete_registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )[1]
+        delete_path.unlink()
+        assert run_web_app.confirm_task_transition(
+            {
+                "token": delete_preview["token"],
+                "confirmation": "START TASK",
+            },
+            registry=delete_registry,
+            tasks_dir=tasks_dir,
+        )[1]["error"] == "task_changed_since_preview"
+
+        expired_path, _ = write_task("task-8008-expired", "TODO")
+        expired_clock = FakeClock()
+        expired_registry = run_web_app.TaskTransitionRegistry(
+            clock=expired_clock,
+            token_factory=TokenFactory("expiredtasktransitiontoken"),
+            ttl_seconds=10,
+        )
+        expired_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8008-expired", "action": "start"},
+            registry=expired_registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )[1]
+        expired_clock.value += 11
+        assert run_web_app.confirm_task_transition(
+            {
+                "token": expired_preview["token"],
+                "confirmation": "START TASK",
+            },
+            registry=expired_registry,
+            tasks_dir=tasks_dir,
+        )[1]["error"] == "invalid_or_expired_task_transition_token"
+        assert b"- status: `TODO`" in expired_path.read_bytes()
+
+        consumed_path, _ = write_task("task-8009-consumed", "TODO")
+        consumed_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory("consumedtasktransitiontoken"),
+        )
+        consumed_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8009-consumed", "action": "start"},
+            registry=consumed_registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )[1]
+
+        class ErrorResult:
+            result_type = "error"
+            reason = "injected_transition_failure"
+
+        assert consumed_registry.confirm(
+            token=consumed_preview["token"],
+            confirmation="START TASK",
+            tasks_dir=tasks_dir,
+            writer=lambda **_kwargs: ErrorResult(),
+        )[1]["error"] == "injected_transition_failure"
+        assert consumed_registry.confirm(
+            token=consumed_preview["token"],
+            confirmation="START TASK",
+            tasks_dir=tasks_dir,
+        )[1]["error"] == "task_transition_token_already_consumed"
+        assert b"- status: `TODO`" in consumed_path.read_bytes()
+
+        http_path, http_raw = write_task("task-8010-http", "TODO")
+        direct_http_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=lambda: "h" * 32,
+        )
+        direct_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8010-http", "action": "start"},
+            registry=direct_http_registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )
+        direct_confirm = run_web_app.confirm_task_transition(
+            {
+                "token": direct_preview[1]["token"],
+                "confirmation": "START TASK",
+            },
+            registry=direct_http_registry,
+            tasks_dir=tasks_dir,
+        )
+        assert direct_preview[0] == direct_confirm[0] == HTTPStatus.OK
+        http_path.write_bytes(http_raw)
+
+        http_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=lambda: "h" * 32,
+        )
+        server = run_web_app.ThreadingHTTPServer(
+            (run_web_app.DEFAULT_HOST, 0),
+            run_web_app.JarvisConsoleHandler,
+        )
+        server.task_transition_registry = http_registry
+        server.task_transition_tasks_dir = tasks_dir
+        server.task_transition_utc_now = fixed_utc
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        port = int(server.server_address[1])
+
+        def post_transition(
+            path: str,
+            payload: dict[str, Any],
+            *,
+            origin: str | None = None,
+        ) -> tuple[int, dict[str, Any]]:
+            connection = HTTPConnection(run_web_app.DEFAULT_HOST, port, timeout=10)
+            body = json.dumps(payload, ensure_ascii=True).encode("ascii")
+            connection.request(
+                "POST",
+                path,
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": origin or f"http://{run_web_app.DEFAULT_HOST}:{port}",
+                },
+            )
+            response = connection.getresponse()
+            response_payload = json.loads(response.read().decode("utf-8"))
+            response_status = response.status
+            connection.close()
+            return response_status, response_payload
+
+        try:
+            rejected_status, rejected = post_transition(
+                run_web_app.TASK_TRANSITION_PREVIEW_ENDPOINT,
+                {"task_id": "task-8010-http", "action": "start"},
+                origin="http://127.0.0.1:1",
+            )
+            assert rejected_status == HTTPStatus.FORBIDDEN
+            assert rejected["error"] == "task_transition_origin_rejected"
+            http_preview = post_transition(
+                run_web_app.TASK_TRANSITION_PREVIEW_ENDPOINT,
+                {"task_id": "task-8010-http", "action": "start"},
+            )
+            assert http_preview == direct_preview
+            http_confirm = post_transition(
+                run_web_app.TASK_TRANSITION_CONFIRM_ENDPOINT,
+                {
+                    "token": http_preview[1]["token"],
+                    "confirmation": "START TASK",
+                },
+            )
+            assert http_confirm == direct_confirm
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=5)
+        assert not server_thread.is_alive()
+        assert http_path.read_bytes() == actual_started.replace(
+            b"task-8001-start",
+            b"task-8010-http",
+        ).replace(
+            b"Start me",
+            b"Fixture Task",
+        ).replace(
+            b"No content inference is allowed.",
+            b"Fixture summary",
+        )
+
+        app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
+        web_source = Path(run_web_app.__file__).read_text(encoding="utf-8")
+        for exact_text in (
+            "/api/task-transition/preview",
+            "/api/task-transition/confirm",
+            "Start Task",
+            "Complete Task",
+            "Task Transition Preview",
+            "Task Transition Receipt",
+            "Previous State",
+            "Transition",
+            "Current State",
+            "No execution",
+        ):
+            assert exact_text in app_js or exact_text in web_source
+        assert run_web_app.TASK_TRANSITION_COMPLETE_WARNING == (
+            "Confirm Complete only if verification evidence is already recorded. "
+            "Jarvis does not evaluate whether verification evidence exists or infer "
+            "completion from task content or summary."
+        )
+        transition_renderer = app_js.split(
+            "function actionableTaskItemMarkup",
+            1,
+        )[1].split("function renderActionableTaskView", 1)[0]
+        assert 'view.status === "TODO"' in transition_renderer
+        assert 'view.status === "DOING"' in transition_renderer
+        assert "escapeHtml(preview.title || \"\")" in transition_renderer
+        assert "escapeHtml(preview.warning)" in transition_renderer
+        assert "escapeHtml(receipt.transition || \"\")" in transition_renderer
+        assert "await loadOverview()" in transition_renderer
+        transition_source = (
+            inspect.getsource(run_web_app.preview_task_transition)
+            + inspect.getsource(run_web_app.confirm_task_transition)
+            + inspect.getsource(run_web_app.TaskTransitionRegistry)
+        ).lower().replace("fullmatch", "")
+        assert 'task_view["summary"]' not in transition_source
+        assert "openai" not in transition_source
+        assert "llm" not in transition_source
+        assert "subprocess" not in transition_source
+        assert not list(tasks_dir.glob(".*.transition.tmp"))
+    finally:
+        if fixture_root.exists():
+            shutil.rmtree(fixture_root)
+
+    assert not fixture_root.exists()
+    actual_overview = run_web_app.overview_payload()
+    assert len(actual_overview["tasks"]) == 5
+    assert sum(
+        item["task_view"]["status"] in {"TODO", "DOING"}
+        for item in actual_overview["tasks"]
+    ) == 0
+    assert artifact_snapshot() == before_artifacts
+
+
 def _test_actionable_task_view_vertical_slice() -> None:
+    _test_task_transition_vertical_slice()
     watched_roots = (
         run_web_app.REPO_ROOT / "memory" / "tasks",
         run_web_app.REPO_ROOT / "reports",
@@ -2486,9 +3305,21 @@ def _test_actionable_task_view_vertical_slice() -> None:
     )[1].split("function memoryDraftPrompt", 1)[0]
     assert 'escapeHtml(view.next_action || "")' in renderer_source
     assert 'escapeHtml(item.path || "")' in renderer_source
-    assert "<button" not in renderer_source
+    assert (
+        'const action = valid && view.status === "TODO"\n'
+        '    ? "start"\n'
+        '    : valid && view.status === "DOING"\n'
+        '      ? "complete"\n'
+        '      : "";'
+    ) in renderer_source
     assert "<form" not in renderer_source
-    assert "fetch(" not in renderer_source
+    assert renderer_source.count(
+        'fetch("/api/task-transition/preview"'
+    ) == 1
+    assert renderer_source.count(
+        'fetch("/api/task-transition/confirm"'
+    ) == 1
+    assert renderer_source.count("fetch(") == 2
     assert "onclick" not in renderer_source
     parser_projection_source = (
         inspect.getsource(run_web_app.parse_task_view_text)

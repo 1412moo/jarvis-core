@@ -17,7 +17,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, TextIO
+from typing import Any, BinaryIO, Callable, TextIO
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -33,6 +35,27 @@ MAX_TITLE_CHARS = 120
 MAX_REPO_CHARS = 80
 MAX_SUMMARY_CHARS = 500
 MAX_SOURCE_COMMAND_CHARS = 80
+TASK_STATUS_TRANSITIONS = frozenset({("TODO", "DOING"), ("DOING", "DONE")})
+TASK_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M UTC"
+TASK_METADATA_PATTERN = re.compile(
+    r"^- (?P<field>[a-z][a-z0-9_]*): `(?P<value>[^`\r\n]*)`$"
+)
+TASK_REQUIRED_METADATA = frozenset(
+    {"id", "title", "status", "repo", "created_at", "updated_at", "summary"}
+)
+TASK_ALLOWED_METADATA = TASK_REQUIRED_METADATA.union(
+    {
+        "source_command",
+        "execution_candidate",
+        "execution_request",
+        "execution_result",
+        "executed",
+        "success",
+        "dry_run",
+        "execution_updated_at",
+        "execution_summary",
+    }
+)
 
 
 @dataclass
@@ -53,6 +76,17 @@ class TaskFileWriteResult:
             "reason": self.reason,
             "created_at": self.created_at,
         }
+
+
+@dataclass(frozen=True)
+class TaskStatusTransitionResult:
+    result_type: str
+    reason: str | None = None
+    task_id: str | None = None
+    previous_status: str | None = None
+    current_status: str | None = None
+    updated_at: str | None = None
+    file_path: str | None = None
 
 
 def _normalize_spaces(text: str) -> str:
@@ -349,6 +383,188 @@ def preview_task_file_write(
         )
 
     return TaskFileWriteResult(result_type="error", reason="failed_to_allocate_task_number")
+
+
+def _transition_metadata(raw: bytes) -> tuple[dict[str, str] | None, str | None]:
+    try:
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return None, "task_file_invalid_utf8"
+    metadata: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.lstrip().startswith("- "):
+            continue
+        matched = TASK_METADATA_PATTERN.fullmatch(line)
+        if matched is None:
+            return None, "task_file_invalid_metadata"
+        field_name = matched.group("field")
+        if field_name not in TASK_ALLOWED_METADATA:
+            return None, "task_file_unsupported_metadata"
+        if field_name in metadata:
+            return None, "task_file_duplicate_metadata"
+        metadata[field_name] = matched.group("value")
+    if not TASK_REQUIRED_METADATA.issubset(metadata):
+        return None, "task_file_missing_metadata"
+    return metadata, None
+
+
+def _open_transition_temp_file(path: Path) -> BinaryIO:
+    return path.open("xb")
+
+
+def _replace_transition_file(temp_path: Path, target_path: Path) -> None:
+    os.replace(temp_path, target_path)
+
+
+def transition_task_file_status(
+    *,
+    tasks_dir: Path,
+    task_id: str,
+    expected_digest: str,
+    current_status: str,
+    target_status: str,
+    planned_updated_at: str,
+    _open_temp_file: Callable[[Path], BinaryIO] = _open_transition_temp_file,
+    _replace_file: Callable[[Path, Path], None] = _replace_transition_file,
+    _fsync_file: Callable[[int], None] = os.fsync,
+    _temp_token_factory: Callable[[], str] = lambda: secrets.token_hex(8),
+    _before_final_check: Callable[[Path], None] | None = None,
+) -> TaskStatusTransitionResult:
+    """Atomically replace only status and updated_at for one direct-child Task."""
+
+    if not TASK_FILE_PATTERN.fullmatch(f"{task_id}.md"):
+        return TaskStatusTransitionResult("hold", "invalid_task_id")
+    if (current_status, target_status) not in TASK_STATUS_TRANSITIONS:
+        return TaskStatusTransitionResult("hold", "invalid_task_transition")
+    if not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
+        return TaskStatusTransitionResult("hold", "invalid_expected_digest")
+    try:
+        parsed_time = datetime.strptime(planned_updated_at, TASK_TIMESTAMP_FORMAT)
+    except ValueError:
+        return TaskStatusTransitionResult("hold", "invalid_planned_updated_at")
+    if parsed_time.strftime(TASK_TIMESTAMP_FORMAT) != planned_updated_at:
+        return TaskStatusTransitionResult("hold", "invalid_planned_updated_at")
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return TaskStatusTransitionResult("error", "tasks_dir_not_found")
+
+    resolved_tasks_dir = tasks_dir.resolve()
+    target_path = (tasks_dir / f"{task_id}.md").resolve()
+    if target_path.parent != resolved_tasks_dir:
+        return TaskStatusTransitionResult("hold", "task_path_not_direct_child")
+
+    try:
+        original = target_path.read_bytes()
+    except OSError:
+        return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+    if not hmac.compare_digest(hashlib.sha256(original).hexdigest(), expected_digest):
+        return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+
+    metadata, metadata_error = _transition_metadata(original)
+    if metadata is None:
+        return TaskStatusTransitionResult("hold", metadata_error)
+    if metadata["id"] != task_id:
+        return TaskStatusTransitionResult("hold", "task_id_path_mismatch")
+    if metadata["status"] != current_status:
+        return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+
+    status_pattern = re.compile(
+        rb"(?m)^- status: `[^`\r\n]*`(?=\r?$)"
+    )
+    updated_pattern = re.compile(
+        rb"(?m)^- updated_at: `[^`\r\n]*`(?=\r?$)"
+    )
+    if len(status_pattern.findall(original)) != 1:
+        return TaskStatusTransitionResult("hold", "task_file_invalid_status_metadata")
+    if len(updated_pattern.findall(original)) != 1:
+        return TaskStatusTransitionResult("hold", "task_file_invalid_updated_at_metadata")
+    updated = status_pattern.sub(
+        f"- status: `{target_status}`".encode("ascii"),
+        original,
+        count=1,
+    )
+    updated = updated_pattern.sub(
+        f"- updated_at: `{planned_updated_at}`".encode("ascii"),
+        updated,
+        count=1,
+    )
+
+    temp_path: Path | None = None
+    temp_file: BinaryIO | None = None
+    for _ in range(8):
+        token = str(_temp_token_factory())
+        if not re.fullmatch(r"[a-f0-9]{16,64}", token):
+            continue
+        candidate_path = target_path.parent / f".{target_path.name}.{token}.transition.tmp"
+        try:
+            temp_file = _open_temp_file(candidate_path)
+        except FileExistsError:
+            continue
+        except OSError:
+            return TaskStatusTransitionResult("error", "task_transition_temp_create_failed")
+        temp_path = candidate_path
+        break
+    if temp_path is None or temp_file is None:
+        return TaskStatusTransitionResult("error", "task_transition_temp_allocation_failed")
+
+    failure_reason: str | None = None
+    try:
+        try:
+            temp_file.write(updated)
+        except (OSError, UnicodeError):
+            failure_reason = "task_transition_write_failed"
+        if failure_reason is None:
+            try:
+                temp_file.flush()
+            except OSError:
+                failure_reason = "task_transition_flush_failed"
+        if failure_reason is None:
+            try:
+                _fsync_file(temp_file.fileno())
+            except OSError:
+                failure_reason = "task_transition_fsync_failed"
+        try:
+            temp_file.close()
+        except OSError:
+            failure_reason = failure_reason or "task_transition_close_failed"
+        if failure_reason is not None:
+            return TaskStatusTransitionResult("error", failure_reason)
+
+        if _before_final_check is not None:
+            _before_final_check(target_path)
+        try:
+            final_original = target_path.read_bytes()
+        except OSError:
+            return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+        if not hmac.compare_digest(
+            hashlib.sha256(final_original).hexdigest(),
+            expected_digest,
+        ):
+            return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+        try:
+            _replace_file(temp_path, target_path)
+        except OSError:
+            return TaskStatusTransitionResult("error", "task_transition_replace_failed")
+        temp_path = None
+    finally:
+        try:
+            if temp_file is not None and not temp_file.closed:
+                temp_file.close()
+        except OSError:
+            pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    return TaskStatusTransitionResult(
+        "updated",
+        task_id=task_id,
+        previous_status=current_status,
+        current_status=target_status,
+        updated_at=planned_updated_at,
+        file_path=str(target_path),
+    )
 
 
 def main() -> None:
