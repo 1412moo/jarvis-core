@@ -1047,10 +1047,26 @@ def reconcile_project_control_reporting_state(
     director_status = str(director_report.get("status") or "")
     manager_owner_action = str(manager_report.get("owner_action") or "")
     director_owner_action = str(director_report.get("owner_action") or "")
+    manager_owner_decision = str(manager_report.get("owner_decision") or "")
+    director_owner_decision = str(director_report.get("owner_decision") or "")
     if manager_status != director_status:
         raise RegistryError("Manager and Director reporting status disagree")
     if manager_owner_action != director_owner_action:
         raise RegistryError("Manager and Director owner action disagree")
+    if manager_owner_decision != director_owner_decision:
+        raise RegistryError("Manager and Director owner decision disagree")
+    if manager_owner_action == "decision_required":
+        if not manager_owner_decision:
+            raise RegistryError(
+                "Manager and Director decision state requires a decision"
+            )
+    elif manager_owner_action == "none":
+        if manager_owner_decision:
+            raise RegistryError(
+                "Manager and Director no-action state requires empty decisions"
+            )
+    else:
+        raise RegistryError("Manager and Director owner action is invalid")
 
     source_conflicts = manager_report.get("source_conflicts")
     if not isinstance(source_conflicts, list) or not all(
@@ -1070,12 +1086,7 @@ def reconcile_project_control_reporting_state(
         if reason not in visible_reasons:
             visible_reasons.append(reason)
     if manager_owner_action == "decision_required" and not visible_reasons:
-        owner_decision = str(manager_report.get("owner_decision") or "")
-        if not owner_decision:
-            raise RegistryError(
-                "Manager Report decision state requires a visible reason"
-            )
-        visible_reasons.append(owner_decision)
+        visible_reasons.append(manager_owner_decision)
 
     needs_attention = (
         bool(visible_reasons)
@@ -7468,16 +7479,50 @@ def run_self_test() -> None:
         director_report_payload["owner_action"]
         == manager_report_payload["owner_action"]
     )
-    assert owner_card["status"] == (
-        "attention"
-        if manager_report_payload["owner_action"] == "decision_required"
-        or owner_card["attention_reasons"]
-        else "observed"
+    assert (
+        director_report_payload["owner_decision"]
+        == manager_report_payload["owner_decision"]
     )
-    assert all(
-        conflict in owner_card["attention_reasons"]
-        for conflict in manager_report_payload["source_conflicts"]
+    current_snapshot = read_master_plan_snapshot()
+    reporting_evidence = owner_card["recent_milestone_evidence"]
+    available_hashes = {
+        overview["repo"]["head"],
+        *[commit["hash"] for commit in reporting_evidence["commits"]],
+    }
+    expected_missing_references = []
+    verified_head = current_snapshot["verified_implementation_head"]
+    if not any(commit.startswith(verified_head) for commit in available_hashes):
+        expected_missing_references.append(
+            "Verified implementation HEAD is absent from live Git evidence"
+        )
+    expected_missing_references.extend(
+        (
+            f"Checkpoint package {package['work_package_id']} commit is absent "
+            "from Git evidence"
+        )
+        for package in current_snapshot["manager_reporting_work_packages"]
+        if package["commit_hash"] not in available_hashes
     )
+    if expected_missing_references:
+        assert manager_report_payload["source_conflicts"]
+        assert manager_report_payload["status"] == "blocked"
+        assert manager_report_payload["owner_action"] == "decision_required"
+        assert manager_report_payload["owner_decision"]
+        assert owner_card["status"] == "attention"
+        assert all(
+            conflict in manager_report_payload["source_conflicts"]
+            for conflict in expected_missing_references
+        )
+        assert all(
+            conflict in owner_card["attention_reasons"]
+            for conflict in manager_report_payload["source_conflicts"]
+        )
+    elif current_snapshot["approval_state"] == "none":
+        assert manager_report_payload["source_conflicts"] == []
+        assert manager_report_payload["owner_action"] == "none"
+        assert manager_report_payload["owner_decision"] == ""
+        assert owner_card["status"] == "observed"
+        assert owner_card["attention_reasons"] == []
     owner_decision_payload = owner_card["owner_decision"]
     assert owner_decision_payload["contract_type"] == "jarvis_owner_decision"
     assert owner_decision_payload["version"] == "0.1A"

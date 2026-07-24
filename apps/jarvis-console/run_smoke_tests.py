@@ -1447,6 +1447,7 @@ def _test_project_control_reporting_state_invariants() -> None:
     no_conflict_director = {
         "status": "in_progress",
         "owner_action": "none",
+        "owner_decision": "",
     }
     assert run_web_app.reconcile_project_control_reporting_state(
         [],
@@ -1467,6 +1468,7 @@ def _test_project_control_reporting_state_invariants() -> None:
     blocked_director = {
         "status": "blocked",
         "owner_action": "decision_required",
+        "owner_decision": "Resolve reporting source conflicts before continuing.",
     }
     status, reasons = run_web_app.reconcile_project_control_reporting_state(
         ["Live branch differs from the Master Plan."],
@@ -1488,6 +1490,7 @@ def _test_project_control_reporting_state_invariants() -> None:
     approval_director = {
         "status": "in_progress",
         "owner_action": "decision_required",
+        "owner_decision": "Owner approval is required.",
     }
     assert run_web_app.reconcile_project_control_reporting_state(
         [],
@@ -1505,6 +1508,49 @@ def _test_project_control_reporting_state_invariants() -> None:
         assert "status disagree" in str(exc)
     else:
         raise AssertionError("reporting status disagreement must fail closed")
+
+    mismatched_decision_director = dict(blocked_director)
+    mismatched_decision_director["owner_decision"] = "Another decision."
+    try:
+        run_web_app.reconcile_project_control_reporting_state(
+            [],
+            blocked_manager,
+            mismatched_decision_director,
+        )
+    except run_web_app.RegistryError as exc:
+        assert "decision disagree" in str(exc)
+    else:
+        raise AssertionError("reporting decision disagreement must fail closed")
+
+    empty_decision_manager = dict(blocked_manager)
+    empty_decision_manager["owner_decision"] = ""
+    empty_decision_director = dict(blocked_director)
+    empty_decision_director["owner_decision"] = ""
+    try:
+        run_web_app.reconcile_project_control_reporting_state(
+            [],
+            empty_decision_manager,
+            empty_decision_director,
+        )
+    except run_web_app.RegistryError as exc:
+        assert "requires a decision" in str(exc)
+    else:
+        raise AssertionError("empty required reporting decision must fail closed")
+
+    unexpected_decision_manager = dict(no_conflict_manager)
+    unexpected_decision_manager["owner_decision"] = "Unexpected."
+    unexpected_decision_director = dict(no_conflict_director)
+    unexpected_decision_director["owner_decision"] = "Unexpected."
+    try:
+        run_web_app.reconcile_project_control_reporting_state(
+            [],
+            unexpected_decision_manager,
+            unexpected_decision_director,
+        )
+    except run_web_app.RegistryError as exc:
+        assert "requires empty decisions" in str(exc)
+    else:
+        raise AssertionError("no-action reporting decision must be empty")
 
 
 def _project_registry_fixture() -> dict[str, Any]:
@@ -4147,16 +4193,50 @@ def main() -> None:
         director_report_payload["owner_action"]
         == manager_report_payload["owner_action"]
     )
-    assert project_card["status"] == (
-        "attention"
-        if manager_report_payload["owner_action"] == "decision_required"
-        or project_card["attention_reasons"]
-        else "observed"
+    assert (
+        director_report_payload["owner_decision"]
+        == manager_report_payload["owner_decision"]
     )
-    assert all(
-        conflict in project_card["attention_reasons"]
-        for conflict in manager_report_payload["source_conflicts"]
+    current_snapshot = run_web_app.read_master_plan_snapshot()
+    reporting_evidence = project_card["recent_milestone_evidence"]
+    available_hashes = {
+        overview["repo"]["head"],
+        *[commit["hash"] for commit in reporting_evidence["commits"]],
+    }
+    expected_missing_references = []
+    verified_head = current_snapshot["verified_implementation_head"]
+    if not any(commit.startswith(verified_head) for commit in available_hashes):
+        expected_missing_references.append(
+            "Verified implementation HEAD is absent from live Git evidence"
+        )
+    expected_missing_references.extend(
+        (
+            f"Checkpoint package {package['work_package_id']} commit is absent "
+            "from Git evidence"
+        )
+        for package in current_snapshot["manager_reporting_work_packages"]
+        if package["commit_hash"] not in available_hashes
     )
+    if expected_missing_references:
+        assert manager_report_payload["source_conflicts"]
+        assert manager_report_payload["status"] == "blocked"
+        assert manager_report_payload["owner_action"] == "decision_required"
+        assert manager_report_payload["owner_decision"]
+        assert project_card["status"] == "attention"
+        assert all(
+            conflict in manager_report_payload["source_conflicts"]
+            for conflict in expected_missing_references
+        )
+        assert all(
+            conflict in project_card["attention_reasons"]
+            for conflict in manager_report_payload["source_conflicts"]
+        )
+    elif current_snapshot["approval_state"] == "none":
+        assert manager_report_payload["source_conflicts"] == []
+        assert manager_report_payload["owner_action"] == "none"
+        assert manager_report_payload["owner_decision"] == ""
+        assert project_card["status"] == "observed"
+        assert project_card["attention_reasons"] == []
     owner_decision_payload = project_card["owner_decision"]
     assert owner_decision_payload["contract_type"] == CONTRACT_TYPE
     assert owner_decision_payload["version"] == OWNER_DECISION_VERSION
