@@ -1092,6 +1092,8 @@ function actionableTaskItemMarkup(item) {
       ? "complete"
       : "";
   const actionLabel = action === "start" ? "Start Task" : "Complete Task";
+  const accessLabel = action ? "Preview + Confirm required" : "Read-only";
+  const accessClass = action ? "approval-needed" : "read-only";
   const receiptMarkup = taskTransitionLastReceipt?.receipt?.task_id === view.id
     ? taskTransitionReceiptMarkup(taskTransitionLastReceipt)
     : "";
@@ -1101,7 +1103,7 @@ function actionableTaskItemMarkup(item) {
         <strong>${escapeHtml(title)}</strong>
         <div class="overview-badges">
           <span class="overview-badge">${escapeHtml(status)}</span>
-          <span class="overview-badge read-only">Read-only</span>
+          <span class="overview-badge ${escapeHtml(accessClass)}">${escapeHtml(accessLabel)}</span>
         </div>
       </div>
       <dl class="overview-facts compact-facts">
@@ -1292,12 +1294,14 @@ function renderActionableTaskView(items) {
   return `
     <section class="overview-card">
       <div class="overview-section-heading">
-        <h3>Read-only Actionable Task View</h3>
+        <h3>Actionable Task View</h3>
         <div class="overview-badges">
-          <span class="overview-badge read-only">Read-only</span>
+          <span class="overview-badge read-only">Read-only discovery</span>
+          <span class="overview-badge approval-needed">Confirmed status transitions only</span>
           <span class="overview-badge">Displayed total: ${escapeHtml(String(displayedItems.length))}</span>
         </div>
       </div>
+      <p class="muted">Discovery and basic details are read-only. Start / Complete changes only status and updated_at after Preview + Confirm and never executes the Task.</p>
       <p class="muted">Shows up to 10 files selected by existing Recent Tasks discovery before task validation; this is not the full backlog.</p>
       <p class="muted"><strong>Display order:</strong> metadata review, NEEDS_APPROVAL, BLOCKED, FAILED, DOING, TODO, DONE; then updated time newest first and path.</p>
       <div class="overview-skill-grid">
@@ -2389,7 +2393,7 @@ async function loadOverview() {
   if (!tasksDetails) {
     return;
   }
-  tasksDetails.innerHTML = "<p class=\"muted\">Loading read-only overview...</p>";
+  tasksDetails.innerHTML = "<p class=\"muted\">Loading Project Control overview...</p>";
   try {
     const response = await fetch("/api/overview");
     const data = await response.json();
@@ -2397,7 +2401,7 @@ async function loadOverview() {
       throw new Error(data.error || `Request failed: ${response.status}`);
     }
     renderOverview(data);
-    statusText.textContent = "Read-only Project Control overview refreshed.";
+    statusText.textContent = "Project Control overview refreshed: read-only discovery with confirmed status transitions only.";
   } catch (error) {
     tasksDetails.innerHTML = `<p class="safety-note">Overview failed: ${escapeHtml(error.message)}</p>`;
     statusText.textContent = `Overview failed: ${error.message}`;

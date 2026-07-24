@@ -1878,7 +1878,7 @@ def overview_skills_payload(skills: list[dict[str, Any]]) -> list[dict[str, Any]
 
 
 def overview_payload() -> dict[str, Any]:
-    """Return the read-only Project Control and local-artifact dashboard payload."""
+    """Return Project Control discovery and bounded Task transition copy."""
 
     registry = load_registry()
     repo = repo_status_payload()
@@ -1915,7 +1915,8 @@ def overview_payload() -> dict[str, Any]:
         "docs_examples": docs_examples,
         "recent_groups": recent_groups,
         "notes": [
-            "Read-only dashboard. Jarvis Console does not create or mutate tasks.",
+            "/api/overview discovery and basic details are read-only.",
+            "Only explicit Start / Complete Preview + Confirm may update the selected valid Task's status and updated_at; Jarvis never executes the Task.",
             "Reports and checkpoints are discovered as existing local files only; none are generated here.",
             "Recent items are read-only metadata from allowlisted local paths.",
             "Jarvis Console does not run skills, call Codex/ChatGPT/Hermes, or commit/push.",
@@ -8270,7 +8271,10 @@ def run_self_test() -> None:
     assert "Jarvis-Core 내부 workstream" in app_js
     assert "승인 필요 여부" in app_js
     assert "잠긴 기능" in app_js
-    assert "Read-only Project Control overview refreshed." in app_js
+    assert (
+        "Project Control overview refreshed: read-only discovery with "
+        "confirmed status transitions only."
+    ) in app_js
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js
     assert "/api/memory-skills/candidates/preview" in app_js

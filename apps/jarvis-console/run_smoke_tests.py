@@ -3178,6 +3178,10 @@ def _test_task_transition_vertical_slice() -> None:
     assert not fixture_root.exists()
     actual_overview = run_web_app.overview_payload()
     assert len(actual_overview["tasks"]) == 5
+    assert all(
+        item["task_view"]["status"] == "DONE"
+        for item in actual_overview["tasks"]
+    )
     assert sum(
         item["task_view"]["status"] in {"TODO", "DOING"}
         for item in actual_overview["tasks"]
@@ -3622,6 +3626,18 @@ def _test_actionable_task_view_vertical_slice() -> None:
     repeat_status, repeat_payload = run_web_app.handle_get_api("/api/overview")
     assert direct_status == repeat_status == HTTPStatus.OK
     assert direct_payload == repeat_payload
+    assert direct_payload["notes"][:2] == [
+        "/api/overview discovery and basic details are read-only.",
+        (
+            "Only explicit Start / Complete Preview + Confirm may update the "
+            "selected valid Task's status and updated_at; Jarvis never executes "
+            "the Task."
+        ),
+    ]
+    assert all(
+        "does not create or mutate tasks" not in note
+        for note in direct_payload["notes"]
+    )
     assert all("task_view" in item for item in direct_payload["tasks"])
     assert len(direct_payload["tasks"]) <= (
         run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
@@ -3660,7 +3676,11 @@ def _test_actionable_task_view_vertical_slice() -> None:
     app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
     web_app_source = Path(run_web_app.__file__).read_text(encoding="utf-8")
     for exact_text in (
-        "Read-only Actionable Task View",
+        "Actionable Task View",
+        "Read-only discovery",
+        "Confirmed status transitions only",
+        "Preview + Confirm required",
+        "Discovery and basic details are read-only. Start / Complete changes only status and updated_at after Preview + Confirm and never executes the Task.",
         "Needs metadata review",
         "Needs attention",
         "In progress",
@@ -3687,8 +3707,20 @@ def _test_actionable_task_view_vertical_slice() -> None:
         "function actionableTaskItemMarkup",
         1,
     )[1].split("function memoryDraftPrompt", 1)[0]
-    assert 'escapeHtml(view.next_action || "")' in renderer_source
-    assert 'escapeHtml(item.path || "")' in renderer_source
+    for escaping_contract in (
+        "escapeHtml(title)",
+        "escapeHtml(status)",
+        "escapeHtml(taskId)",
+        "escapeHtml(updatedAt)",
+        "escapeHtml(summary)",
+        "escapeHtml(accessClass)",
+        "escapeHtml(accessLabel)",
+        'escapeHtml(view.next_action || "")',
+        'escapeHtml(item.path || "")',
+        "escapeHtml(view.id)",
+        "escapeHtml(action)",
+    ):
+        assert escaping_contract in renderer_source
     assert (
         'const action = valid && view.status === "TODO"\n'
         '    ? "start"\n'
@@ -3705,6 +3737,89 @@ def _test_actionable_task_view_vertical_slice() -> None:
     ) == 1
     assert renderer_source.count("fetch(") == 2
     assert "onclick" not in renderer_source
+
+    escape_source = "function escapeHtml" + app_js.split(
+        "function escapeHtml",
+        1,
+    )[1].split("function truncateText", 1)[0]
+    item_renderer_source = (
+        "function actionableTaskItemMarkup"
+        + app_js.split(
+            "function actionableTaskItemMarkup",
+            1,
+        )[1].split("function taskTransitionReceiptMarkup", 1)[0]
+    )
+    badge_harness = (
+        f"{escape_source}\n"
+        "const taskTransitionLastReceipt = null;\n"
+        "function taskTransitionReceiptMarkup() { return \"\"; }\n"
+        f"{item_renderer_source}\n"
+        """
+function fixtureItem(status, parseState = "valid") {
+  const valid = parseState === "valid";
+  return {
+    path: `memory/tasks/task-9001-${String(status).toLowerCase()}.md`,
+    task_view: valid
+      ? {
+          parse_state: "valid",
+          id: `task-9001-${String(status).toLowerCase().replaceAll("_", "-")}`,
+          title: `${status} title`,
+          status,
+          updated_at: "2026-07-23 10:00 UTC",
+          summary: `${status} summary`,
+          next_action: "Review next action.",
+        }
+      : {
+          parse_state: "invalid",
+          reason_code: "missing_field",
+          reason_field: "summary",
+          next_action: "Repair metadata.",
+        },
+  };
+}
+const guardedBadge =
+  '<span class="overview-badge approval-needed">Preview + Confirm required</span>';
+const readOnlyBadge =
+  '<span class="overview-badge read-only">Read-only</span>';
+for (const status of ["TODO", "DOING"]) {
+  const html = actionableTaskItemMarkup(fixtureItem(status));
+  if (!html.includes(guardedBadge) || html.includes(readOnlyBadge)) {
+    throw new Error(`${status} did not render the guarded badge exactly`);
+  }
+}
+for (const status of ["DONE", "FAILED", "BLOCKED", "NEEDS_APPROVAL"]) {
+  const html = actionableTaskItemMarkup(fixtureItem(status));
+  if (!html.includes(readOnlyBadge) || html.includes(guardedBadge)) {
+    throw new Error(`${status} did not render the read-only badge exactly`);
+  }
+  if (html.includes("preview-task-transition")) {
+    throw new Error(`${status} unexpectedly rendered a transition action`);
+  }
+}
+const metadataHtml = actionableTaskItemMarkup(
+  fixtureItem("METADATA_REVIEW", "invalid"),
+);
+if (!metadataHtml.includes(readOnlyBadge) ||
+    metadataHtml.includes(guardedBadge) ||
+    metadataHtml.includes("preview-task-transition")) {
+  throw new Error("metadata review did not render read-only exactly");
+}
+"""
+    )
+    badge_completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=badge_harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert badge_completed.returncode == 0, (
+        "Actionable Task badge renderer harness failed: "
+        f"{badge_completed.stdout}\n{badge_completed.stderr}"
+    )
     parser_projection_source = (
         inspect.getsource(run_web_app.parse_task_view_text)
         + inspect.getsource(run_web_app.project_task_view_items)
@@ -4875,7 +4990,10 @@ def main() -> None:
     assert "Jarvis-Core 내부 workstream" in app_js
     assert "승인 필요 여부" in app_js
     assert "잠긴 기능" in app_js
-    assert "Read-only Project Control overview refreshed." in app_js
+    assert (
+        "Project Control overview refreshed: read-only discovery with "
+        "confirmed status transitions only."
+    ) in app_js
     assert "/api/history" in app_js
     assert "/api/memory-skills" in app_js
     assert "/api/memory-skills/candidates/preview" in app_js
