@@ -955,7 +955,7 @@ def status_payload() -> dict[str, Any]:
         "registry_version": registry["registry_version"],
         "registry_read_only": registry["read_only"],
         "safety": [
-            "Safety mode: Jarvis only recommends. It does not run tools.",
+            "Task discovery and basic details are read-only. Create Local Task creates one local TODO only after Preview and explicit Confirm; Start / Complete changes only status and updated_at for TODO → DOING or DOING → DONE after Preview and explicit Confirm. Neither flow executes Task work, automatically or otherwise. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.",
             "Local-only",
             "No automatic Codex / ChatGPT / Hermes invocation",
             "No commit or push",
@@ -7319,6 +7319,14 @@ def run_self_test() -> None:
     assert {"research_council", "daily_ai_radar", "hermes_manager"}.issubset(skill_ids)
     assert len(status["skills"]) == 6
     assert "jarvis.bat" in status["protected_paths"]
+    assert status["safety"][0] == (
+        "Task discovery and basic details are read-only. Create Local Task "
+        "creates one local TODO only after Preview and explicit Confirm; Start / "
+        "Complete changes only status and updated_at for TODO → DOING or DOING "
+        "→ DONE after Preview and explicit Confirm. Neither flow executes Task "
+        "work, automatically or otherwise. Jarvis does not create approvals or "
+        "reports, run skills, commit, push, or make external calls."
+    )
     assert all({"docs", "tests", "examples", "action_guide", "when_to_use"}.issubset(skill) for skill in status["skills"])
     hermes_commands = suggest_skill("Codex commit review")["commands"]
     assert "apps/hermes-manager-pilot/run_web_app.py" in hermes_commands["git_bash"]
@@ -8233,7 +8241,15 @@ def run_self_test() -> None:
     assert "skillGrid" in html
     assert "skillDetail" in html
     assert "Select a skill to inspect commands" in html
-    assert "Safety mode: Jarvis only recommends. It does not run tools." in html
+    assert (
+        "Safety mode: Task discovery and basic details are read-only. Create "
+        "Local Task creates one local TODO only after Preview and explicit "
+        "Confirm; Start / Complete changes only status and updated_at for TODO "
+        "→ DOING or DOING → DONE after Preview and explicit Confirm. Neither "
+        "flow executes Task work, automatically or otherwise. Jarvis does not "
+        "create approvals or reports, run skills, commit, push, or make external "
+        "calls."
+    ) in html
     assert "Local-only" in html
     assert "No automatic Codex / ChatGPT / Hermes invocation" in html
     assert "What do you want Jarvis to help with?" in html
@@ -8248,7 +8264,14 @@ def run_self_test() -> None:
     assert "Refresh History" in html
     assert "Refresh Memory / Skills" in html
     assert "Owner-facing local project dashboard" in html
-    assert "does not create tasks" in html
+    assert (
+        "Task discovery and basic details are read-only. Create Local Task "
+        "creates one local TODO only after Preview and explicit Confirm; Start / "
+        "Complete changes only status and updated_at for TODO → DOING or DOING "
+        "→ DONE after Preview and explicit Confirm. Neither flow executes Task "
+        "work, automatically or otherwise. Jarvis Console does not create "
+        "approvals or reports, run skills, commit, push, or make external calls."
+    ) in html
     assert "does not create commits" in html
     assert "preview-only: sample candidates" in html
     assert "no save endpoint" in html

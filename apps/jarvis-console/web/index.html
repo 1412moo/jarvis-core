@@ -11,7 +11,7 @@
     <div>
       <p class="eyebrow">Jarvis Console v0.1</p>
       <h1>Jarvis Console</h1>
-      <p class="safety-summary">Safety mode: Jarvis does not run tools. The only write is one explicitly confirmed Create Local Task TODO.</p>
+      <p class="safety-summary">Safety mode: Task discovery and basic details are read-only. Create Local Task creates one local TODO only after Preview and explicit Confirm; Start / Complete changes only status and updated_at for TODO → DOING or DOING → DONE after Preview and explicit Confirm. Neither flow executes Task work, automatically or otherwise. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.</p>
     </div>
     <div class="safety-strip" aria-label="Safety boundary">
       <span>Local-only</span>
@@ -174,7 +174,7 @@
         <div id="tasksDetails" class="overview-panel">
           <p class="muted">Overview has not been loaded yet.</p>
         </div>
-        <p class="safety-note">Read-only dashboard: Jarvis Console does not create tasks or approvals, generate reports, run skills, commit, push, or contact another app.</p>
+        <p class="safety-note">Task discovery and basic details are read-only. Create Local Task creates one local TODO only after Preview and explicit Confirm; Start / Complete changes only status and updated_at for TODO → DOING or DOING → DONE after Preview and explicit Confirm. Neither flow executes Task work, automatically or otherwise. Jarvis Console does not create approvals or reports, run skills, commit, push, or make external calls.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-history">

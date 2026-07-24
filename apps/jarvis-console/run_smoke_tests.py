@@ -613,7 +613,13 @@ def _test_create_local_task_vertical_slice() -> None:
 
     html = Path(run_web_app.WEB_ROOT, "index.html").read_text(encoding="utf-8")
     assert (
-        "The only write is one explicitly confirmed Create Local Task TODO."
+        "Safety mode: Task discovery and basic details are read-only. Create "
+        "Local Task creates one local TODO only after Preview and explicit "
+        "Confirm; Start / Complete changes only status and updated_at for TODO "
+        "→ DOING or DOING → DONE after Preview and explicit Confirm. Neither "
+        "flow executes Task work, automatically or otherwise. Jarvis does not "
+        "create approvals or reports, run skills, commit, push, or make external "
+        "calls."
         in html
     )
     assert run_web_app.handle_post_api(
