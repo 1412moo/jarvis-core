@@ -1036,6 +1036,55 @@ def recent_milestone_evidence_payload(repo: Mapping[str, Any]) -> dict[str, obje
     return recent_milestone_evidence_to_dict(evidence)
 
 
+def reconcile_project_control_reporting_state(
+    base_attention_reasons: list[str],
+    manager_report: Mapping[str, Any],
+    director_report: Mapping[str, Any],
+) -> tuple[str, list[str]]:
+    """Align the outer project card with canonical reporting state."""
+
+    manager_status = str(manager_report.get("status") or "")
+    director_status = str(director_report.get("status") or "")
+    manager_owner_action = str(manager_report.get("owner_action") or "")
+    director_owner_action = str(director_report.get("owner_action") or "")
+    if manager_status != director_status:
+        raise RegistryError("Manager and Director reporting status disagree")
+    if manager_owner_action != director_owner_action:
+        raise RegistryError("Manager and Director owner action disagree")
+
+    source_conflicts = manager_report.get("source_conflicts")
+    if not isinstance(source_conflicts, list) or not all(
+        isinstance(item, str) and item for item in source_conflicts
+    ):
+        raise RegistryError("Manager Report source conflicts are invalid")
+    if source_conflicts and (
+        manager_status != "blocked"
+        or manager_owner_action != "decision_required"
+    ):
+        raise RegistryError(
+            "Manager Report source conflicts require blocked decision state"
+        )
+
+    visible_reasons = []
+    for reason in (*base_attention_reasons, *source_conflicts):
+        if reason not in visible_reasons:
+            visible_reasons.append(reason)
+    if manager_owner_action == "decision_required" and not visible_reasons:
+        owner_decision = str(manager_report.get("owner_decision") or "")
+        if not owner_decision:
+            raise RegistryError(
+                "Manager Report decision state requires a visible reason"
+            )
+        visible_reasons.append(owner_decision)
+
+    needs_attention = (
+        bool(visible_reasons)
+        or manager_status == "blocked"
+        or manager_owner_action == "decision_required"
+    )
+    return ("attention" if needs_attention else "observed"), visible_reasons
+
+
 def _parse_master_plan_table_row(line: str) -> list[str]:
     """Normalize one bounded four-cell master-plan table row."""
 
@@ -1327,6 +1376,15 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
         director_report = build_director_report(manager_report)
     except DirectorReportingError as exc:
         raise RegistryError(f"Director Report is unavailable: {exc}") from exc
+    manager_report_payload = manager_report_projection(manager_report)
+    director_report_payload = director_report_projection(director_report)
+    project_status, visible_attention_reasons = (
+        reconcile_project_control_reporting_state(
+            attention_reasons,
+            manager_report_payload,
+            director_report_payload,
+        )
+    )
     return {
         "version": "project_control.v0.1F",
         "mode": "read-only",
@@ -1335,7 +1393,7 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
             {
                 "project_id": "jarvis-core",
                 "display_name": "Jarvis-Core",
-                "status": "attention" if attention_reasons else "observed",
+                "status": project_status,
                 "branch": live_branch,
                 "live_head": str(repo.get("head_short") or "unknown"),
                 "verified_implementation_head": snapshot["verified_implementation_head"],
@@ -1361,14 +1419,14 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
                     "approval_note": snapshot["approval_note"],
                 },
                 "workstreams": snapshot["workstreams"],
-                "director_report": director_report_projection(director_report),
-                "manager_report": manager_report_projection(manager_report),
+                "director_report": director_report_payload,
+                "manager_report": manager_report_payload,
                 "owner_decision": owner_decision_to_dict(owner_decision),
                 "recent_milestone_evidence": recent_milestone_evidence,
                 "locked_capabilities": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
                 "validation_commands": list(PROJECT_CONTROL_VALIDATION_COMMANDS),
                 "forbidden_actions": list(PROJECT_CONTROL_FORBIDDEN_ACTIONS),
-                "attention_reasons": attention_reasons,
+                "attention_reasons": visible_attention_reasons,
             }
         ],
         "notes": [
@@ -7370,8 +7428,6 @@ def run_self_test() -> None:
     assert owner_card["live_head"] == overview["repo"]["head_short"]
     assert owner_card["known_protected_untracked"] == ["jarvis.bat"]
     assert owner_card["validation_commands"] == ["git status --short", "git diff --check"]
-    assert owner_card["status"] == "observed"
-    assert owner_card["attention_reasons"] == []
     assert owner_card["owner_summary"]["current_reason"]
     assert owner_card["owner_summary"]["owner_outcome"]
     assert owner_card["owner_summary"]["approval_state"] in MASTER_PLAN_APPROVAL_STATES
@@ -7394,7 +7450,6 @@ def run_self_test() -> None:
         director_report_payload["authority_boundary"]
         == "derived_owner_summary_only"
     )
-    assert director_report_payload["owner_action"] == "none"
     assert director_report_payload["completed_packages"]
     assert "evidence_summary" not in director_report_payload
     manager_report_payload = owner_card["manager_report"]
@@ -7404,8 +7459,25 @@ def run_self_test() -> None:
     assert manager_report_payload["derived_view"] is True
     assert manager_report_payload["read_only"] is True
     assert manager_report_payload["authority_boundary"] == "derived_reporting_only"
-    assert manager_report_payload["owner_action"] == "none"
     assert manager_report_payload["completed_work_packages"]
+    assert (
+        director_report_payload["status"]
+        == manager_report_payload["status"]
+    )
+    assert (
+        director_report_payload["owner_action"]
+        == manager_report_payload["owner_action"]
+    )
+    assert owner_card["status"] == (
+        "attention"
+        if manager_report_payload["owner_action"] == "decision_required"
+        or owner_card["attention_reasons"]
+        else "observed"
+    )
+    assert all(
+        conflict in owner_card["attention_reasons"]
+        for conflict in manager_report_payload["source_conflicts"]
+    )
     owner_decision_payload = owner_card["owner_decision"]
     assert owner_decision_payload["contract_type"] == "jarvis_owner_decision"
     assert owner_decision_payload["version"] == "0.1A"

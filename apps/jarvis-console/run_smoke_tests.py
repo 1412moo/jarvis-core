@@ -1437,6 +1437,76 @@ def _test_project_control_snapshot() -> None:
             raise AssertionError("oversized master plans must be rejected")
 
 
+def _test_project_control_reporting_state_invariants() -> None:
+    no_conflict_manager = {
+        "status": "in_progress",
+        "owner_action": "none",
+        "owner_decision": "",
+        "source_conflicts": [],
+    }
+    no_conflict_director = {
+        "status": "in_progress",
+        "owner_action": "none",
+    }
+    assert run_web_app.reconcile_project_control_reporting_state(
+        [],
+        no_conflict_manager,
+        no_conflict_director,
+    ) == ("observed", [])
+
+    conflicts = [
+        "Verified implementation HEAD is absent from live Git evidence",
+        "Checkpoint package commit is absent from Git evidence",
+    ]
+    blocked_manager = {
+        "status": "blocked",
+        "owner_action": "decision_required",
+        "owner_decision": "Resolve reporting source conflicts before continuing.",
+        "source_conflicts": conflicts,
+    }
+    blocked_director = {
+        "status": "blocked",
+        "owner_action": "decision_required",
+    }
+    status, reasons = run_web_app.reconcile_project_control_reporting_state(
+        ["Live branch differs from the Master Plan."],
+        blocked_manager,
+        blocked_director,
+    )
+    assert status == "attention"
+    assert reasons == [
+        "Live branch differs from the Master Plan.",
+        *conflicts,
+    ]
+
+    approval_manager = {
+        "status": "in_progress",
+        "owner_action": "decision_required",
+        "owner_decision": "Owner approval is required.",
+        "source_conflicts": [],
+    }
+    approval_director = {
+        "status": "in_progress",
+        "owner_action": "decision_required",
+    }
+    assert run_web_app.reconcile_project_control_reporting_state(
+        [],
+        approval_manager,
+        approval_director,
+    ) == ("attention", ["Owner approval is required."])
+
+    try:
+        run_web_app.reconcile_project_control_reporting_state(
+            [],
+            blocked_manager,
+            no_conflict_director,
+        )
+    except run_web_app.RegistryError as exc:
+        assert "status disagree" in str(exc)
+    else:
+        raise AssertionError("reporting status disagreement must fail closed")
+
+
 def _project_registry_fixture() -> dict[str, Any]:
     return {
         "registry_type": REGISTRY_TYPE,
@@ -3969,6 +4039,7 @@ def main() -> None:
     _test_director_renderer_fails_closed_on_malformed_nested_data()
     _test_read_only_git_preserves_porcelain_status()
     _test_project_control_snapshot()
+    _test_project_control_reporting_state_invariants()
     _test_owner_decision_contract()
     _test_project_control_registry_primitives()
     _test_recent_milestone_evidence_contract()
@@ -4027,8 +4098,6 @@ def main() -> None:
     assert project_card["live_head"] == overview["repo"]["head_short"]
     assert project_card["known_protected_untracked"] == ["jarvis.bat"]
     assert project_card["validation_commands"] == ["git status --short", "git diff --check"]
-    assert project_card["status"] == "observed"
-    assert project_card["attention_reasons"] == []
     owner_summary = project_card["owner_summary"]
     assert owner_summary["current_reason"]
     assert owner_summary["owner_outcome"]
@@ -4051,8 +4120,6 @@ def main() -> None:
     assert director_report_payload["derived_view"] is True
     assert director_report_payload["read_only"] is True
     assert director_report_payload["authority_boundary"] == DIRECTOR_AUTHORITY_BOUNDARY
-    assert director_report_payload["owner_action"] == "none"
-    assert director_report_payload["owner_decision"] == ""
     assert director_report_payload["completed_packages"]
     assert "evidence_summary" not in director_report_payload
     assert "source_conflicts" not in director_report_payload
@@ -4066,8 +4133,6 @@ def main() -> None:
     assert manager_report_payload["derived_view"] is True
     assert manager_report_payload["read_only"] is True
     assert manager_report_payload["authority_boundary"] == "derived_reporting_only"
-    assert manager_report_payload["owner_action"] == "none"
-    assert manager_report_payload["owner_decision"] == ""
     assert manager_report_payload["completed_work_packages"]
     assert all(
         item["commit_hash"]
@@ -4077,6 +4142,21 @@ def main() -> None:
     normalized_manager_payload.pop("read_only")
     normalized_manager_payload.pop("authority_boundary")
     assert normalize_manager_report(normalized_manager_payload)
+    assert director_report_payload["status"] == manager_report_payload["status"]
+    assert (
+        director_report_payload["owner_action"]
+        == manager_report_payload["owner_action"]
+    )
+    assert project_card["status"] == (
+        "attention"
+        if manager_report_payload["owner_action"] == "decision_required"
+        or project_card["attention_reasons"]
+        else "observed"
+    )
+    assert all(
+        conflict in project_card["attention_reasons"]
+        for conflict in manager_report_payload["source_conflicts"]
+    )
     owner_decision_payload = project_card["owner_decision"]
     assert owner_decision_payload["contract_type"] == CONTRACT_TYPE
     assert owner_decision_payload["version"] == OWNER_DECISION_VERSION
