@@ -79,6 +79,134 @@ from hermes_manager_pilot.prompt_queue import (
 from hermes_manager_pilot.schemas import ValidationError
 
 
+def _test_tasks_reports_registry_copy() -> None:
+    baseline_commit = "064f82bf4806198a4e904e58b85c3c87a2ca8123"
+    registry_path = Path(run_web_app.REGISTRY_PATH)
+    relative_registry_path = registry_path.relative_to(
+        run_web_app.REPO_ROOT
+    ).as_posix()
+    baseline_result = subprocess.run(
+        ("git", "show", f"{baseline_commit}:{relative_registry_path}"),
+        cwd=run_web_app.REPO_ROOT,
+        check=False,
+        capture_output=True,
+    )
+    assert baseline_result.returncode == 0, baseline_result.stderr.decode(
+        "utf-8",
+        errors="replace",
+    )
+    baseline_raw = baseline_result.stdout
+    current_raw = registry_path.read_bytes()
+    baseline_registry = json.loads(baseline_raw.decode("utf-8"))
+    current_registry = json.loads(current_raw.decode("utf-8"))
+
+    baseline_index = next(
+        index
+        for index, skill in enumerate(baseline_registry["skills"])
+        if skill["skill_id"] == "tasks_reports"
+    )
+    current_index = next(
+        index
+        for index, skill in enumerate(current_registry["skills"])
+        if skill["skill_id"] == "tasks_reports"
+    )
+    assert current_index == baseline_index
+
+    replacements = (
+        (
+            "Treat this as a future surface; v0.1 does not mutate tasks or reports.",
+            (
+                "Treat this as a planned approval/report surface; Task discovery "
+                "and basic details are read-only."
+            ),
+            ("skills", current_index, "primary_next_action_description"),
+        ),
+        (
+            "Do not mutate tasks in v0.1.",
+            (
+                "Only after Preview and explicit Confirm may Start / Complete "
+                "change status and updated_at for TODO → DOING or DOING → DONE."
+            ),
+            ("skills", current_index, "action_guide", 1),
+        ),
+        (
+            "v0.1 does not mutate tasks or write reports from this console.",
+            (
+                "No general Task content editing, Task work execution, AI "
+                "judgment, automatic execution, or generic status editing."
+            ),
+            ("skills", current_index, "safety_notes", 0),
+        ),
+        (
+            "No task mutation.",
+            "No Task work execution or report persistence from this console.",
+            ("skills", current_index, "non_goals", 0),
+        ),
+    )
+
+    def string_values(
+        value: Any,
+        path: tuple[Any, ...] = (),
+    ) -> dict[tuple[Any, ...], str]:
+        if isinstance(value, str):
+            return {path: value}
+        collected: dict[tuple[Any, ...], str] = {}
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                collected.update(string_values(item, (*path, index)))
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                collected.update(string_values(item, (*path, key)))
+        return collected
+
+    baseline_strings = string_values(baseline_registry)
+    current_strings = string_values(current_registry)
+    assert baseline_strings.keys() == current_strings.keys()
+    approved_paths = {path for _old, _new, path in replacements}
+    for path, baseline_value in baseline_strings.items():
+        if path not in approved_paths:
+            assert current_strings[path].encode("utf-8") == baseline_value.encode(
+                "utf-8"
+            )
+    for obsolete, replacement, path in replacements:
+        assert baseline_strings[path] == obsolete
+        assert current_strings[path] == replacement
+        assert obsolete.encode("utf-8") not in current_raw
+        assert current_raw.count(replacement.encode("utf-8")) == 1
+
+    restored_raw = current_raw
+    for obsolete, replacement, _path in replacements:
+        restored_raw = restored_raw.replace(
+            replacement.encode("utf-8"),
+            obsolete.encode("utf-8"),
+        )
+    assert restored_raw == baseline_raw
+
+    tasks_reports = current_registry["skills"][current_index]
+    assert tasks_reports["status"] == "planned"
+    assert "approval/report surface" in tasks_reports[
+        "primary_next_action_description"
+    ]
+    transition_copy = tasks_reports["action_guide"][1]
+    assert "Preview and explicit Confirm" in transition_copy
+    assert "TODO → DOING" in transition_copy
+    assert "DOING → DONE" in transition_copy
+    assert "status and updated_at" in transition_copy
+    prohibition_copy = tasks_reports["safety_notes"][0]
+    for exact_prohibition in (
+        "No general Task content editing",
+        "Task work execution",
+        "AI judgment",
+        "automatic execution",
+        "generic status editing",
+    ):
+        assert exact_prohibition in prohibition_copy
+    assert tasks_reports["non_goals"] == [
+        "No Task work execution or report persistence from this console.",
+        "No report persistence from this console.",
+    ]
+
+
 def _run_fixture_git(repo: Path, *args: str) -> str:
     completed = subprocess.run(
         ("git", *args),
@@ -3836,6 +3964,7 @@ if (!metadataHtml.includes(readOnlyBadge) ||
 
 
 def main() -> None:
+    _test_tasks_reports_registry_copy()
     _test_actionable_task_view_vertical_slice()
     _test_director_renderer_fails_closed_on_malformed_nested_data()
     _test_read_only_git_preserves_porcelain_status()
