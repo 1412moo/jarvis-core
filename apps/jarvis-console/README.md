@@ -86,6 +86,9 @@ Included:
 - An **Evaluate Idea** form in the Research Council tab that accepts Idea, Goal,
   optional Context, and bounded Provided Evidence, then shows five deterministic
   in-memory result sections.
+- A **Continue Evaluation as Task** handoff that re-evaluates the bound input on
+  the server, previews one local `TODO` from the recommendation, and creates it
+  only after explicit **Confirm Create Local Task**.
 - A `Project Control` tab that combines bounded master-plan fields with fixed
   read-only Git metadata for one trusted Jarvis-Core owner card.
 - A single-repo `project_control.v0.1E` payload inside the existing
@@ -127,10 +130,27 @@ sections and marks `write_free=true`, `local_only=true`, and
 `external_calls=false`. Evaluate Idea creates no report, Task, download, or
 saved state.
 
+After a successful evaluation, **Preview as Local Task** can prepare one
+write-free Create Local Task preview. The client binds that handoff to the exact
+Idea, Goal, Context, and Provided Evidence tuple; changing any input invalidates
+it. The server independently validates and re-runs Evaluate Idea, derives Title
+and Summary only from the server recommendation's `next_step`, fixes status to
+`TODO`, repo to `jarvis-core`, and source command to `Evaluate Idea`, then issues
+the existing short-lived confirmation token. Client-supplied decisions,
+recommendations, Task fields, paths, IDs, status, and timestamps are not
+accepted.
+
+The provisional destination may change if another Task is allocated first. The
+receipt returned by **Confirm Create Local Task** is authoritative. A lost or
+server-error Confirm response keeps the same token locked for **Retry Confirm**;
+a successful retry returns the same receipt without creating a duplicate.
+
 ## Create Local Task
 
 Create Local Task is one bounded write capability in this Console milestone.
-The user first prepares a Voice Inbox candidate, then selects Preview.
+The user first prepares a Voice Inbox candidate or successfully runs Evaluate
+Idea and selects **Preview as Local Task**, then reviews the Create Local Task
+Preview.
 The server recomputes and holds the canonical normalized Title and Summary in
 process memory, shows every persisted field with status `TODO` and a provisional
 local destination, and issues a short-lived one-use token. Nothing is created
@@ -146,8 +166,10 @@ receipt and never creates a second Task.
 
 Create Local Task does not:
 
-- auto-save on Voice Inbox preparation or Preview;
+- auto-save on Voice Inbox preparation, Evaluate Idea, or Preview;
 - save the raw transcript;
+- accept a client-authored Evaluate Idea decision, next step, Task field, path,
+  ID, status, or timestamp;
 - approve, start, run, retry, or change Task status;
 - write Memory / Skills candidates;
 - run git commands, commit, push, or call an external service.
@@ -340,6 +362,8 @@ python -B apps\research-council\run_local_app.py
 Jarvis Console does not run Research Council automatically. Evaluate Idea runs
 the deterministic analysis only after the user explicitly selects
 **Evaluate Idea**, and it keeps the result in memory without saving a report.
+The optional **Preview as Local Task** handoff is also write-free; only explicit
+**Confirm Create Local Task** writes one local `TODO`.
 
 ### Daily AI Radar
 

@@ -111,8 +111,59 @@ def _test_tasks_reports_registry_copy() -> None:
         if skill["skill_id"] == "tasks_reports"
     )
     assert current_index == baseline_index
+    baseline_research_index = next(
+        index
+        for index, skill in enumerate(baseline_registry["skills"])
+        if skill["skill_id"] == "research_council"
+    )
+    current_research_index = next(
+        index
+        for index, skill in enumerate(current_registry["skills"])
+        if skill["skill_id"] == "research_council"
+    )
+    assert current_research_index == baseline_research_index
 
     replacements = (
+        (
+            "Review the refined input.",
+            (
+                "In Jarvis Console, review a successful Evaluate Idea "
+                "recommendation before using Preview as Local Task."
+            ),
+            (
+                "skills",
+                current_research_index,
+                "action_guide",
+                4,
+            ),
+        ),
+        (
+            "Run the report.",
+            (
+                "Review the local TODO preview, then explicitly Confirm Create "
+                "Local Task if the handoff is correct."
+            ),
+            (
+                "skills",
+                current_research_index,
+                "action_guide",
+                5,
+            ),
+        ),
+        (
+            "Jarvis Console does not run Research Council automatically.",
+            (
+                "Jarvis Console does not run Research Council automatically; "
+                "Evaluate Idea and Preview as Local Task are write-free, and "
+                "only explicit Confirm Create Local Task writes one local TODO."
+            ),
+            (
+                "skills",
+                current_research_index,
+                "safety_notes",
+                1,
+            ),
+        ),
         (
             "Treat this as a future surface; v0.1 does not mutate tasks or reports.",
             (
@@ -720,6 +771,1159 @@ def _test_evaluate_idea_vertical_slice() -> None:
     assert artifact_snapshot() == before_artifacts
 
 
+def _test_evaluate_idea_create_task_vertical_slice() -> None:
+    class FakeClock:
+        def __init__(self) -> None:
+            self.value = 1_000.0
+
+        def __call__(self) -> float:
+            return self.value
+
+        def advance(self, seconds: float) -> None:
+            self.value += seconds
+
+    class TokenFactory:
+        def __init__(self, prefix: str = "evaluate-task-token") -> None:
+            self.prefix = prefix
+            self.counter = 0
+
+        def __call__(self) -> str:
+            self.counter += 1
+            return f"{self.prefix}-{self.counter:08d}"
+
+    class PreviewResult:
+        def __init__(
+            self,
+            result_type: str,
+            task_id: str | None = None,
+        ) -> None:
+            self.result_type = result_type
+            self.task_id = task_id
+
+    production_dir = run_web_app.REPO_ROOT / "memory" / "tasks"
+
+    def production_snapshot() -> dict[str, str]:
+        return {
+            path.relative_to(production_dir).as_posix(): hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+            for path in sorted(production_dir.rglob("*"))
+            if path.is_file()
+        }
+
+    before_production = production_snapshot()
+    optional_payload = {
+        "idea": "A local workflow assistant for small clinic intake teams.",
+        "goal": "Decide whether a manual pilot is justified.",
+        "context": "Teams currently duplicate intake notes across two tools.",
+        "provided_evidence": [
+            "Three staff interviews identified duplicate entry.",
+            "A timed walkthrough took twelve minutes.",
+        ],
+    }
+    evaluation_status, evaluation = run_web_app.evaluate_idea(optional_payload)
+    assert evaluation_status == HTTPStatus.OK
+    actual_next_step = evaluation["recommendation"]["next_step"]
+    assert "`experiment-001`" in actual_next_step
+    assert run_web_app.normalize_evaluate_idea_task_seed(
+        "  cafe\u0301\t`inner`\nword  "
+    ) == ("caf\u00e9 inner word", None)
+    assert run_web_app.normalize_evaluate_idea_task_seed(" \u2028 a\u00a0b ") == (
+        "a b",
+        None,
+    )
+    assert run_web_app.normalize_evaluate_idea_task_seed("`` \t") == (
+        None,
+        "evaluate_idea_create_task_next_step_empty",
+    )
+    for unsafe in ("bad\u200bvalue", "bad\x00value", "bad\ud800value"):
+        assert run_web_app.normalize_evaluate_idea_task_seed(unsafe) == (
+            None,
+            "evaluate_idea_create_task_next_step_unsafe",
+        )
+
+    with TemporaryDirectory(prefix="jarvis-evaluate-task-") as temp_dir:
+        tasks_dir = Path(temp_dir) / "memory" / "tasks"
+        tasks_dir.mkdir(parents=True)
+        clock = FakeClock()
+        registry = run_web_app.CreateLocalTaskRegistry(
+            clock=clock,
+            token_factory=TokenFactory(),
+            ttl_seconds=60,
+            capacity=8,
+        )
+
+        preview_status, preview = (
+            run_web_app.preview_evaluate_idea_create_task(
+                optional_payload,
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+        )
+        assert preview_status == HTTPStatus.OK
+        assert set(preview) == {
+            "ok",
+            "product_name",
+            "result_type",
+            "source",
+            "token",
+            "expires_in_seconds",
+            "confirmation_literal",
+            "evaluation",
+            "candidate",
+            "destination",
+            "warning",
+        }
+        assert preview["product_name"] == "Create Local Task"
+        assert preview["result_type"] == "preview"
+        assert preview["source"] == "evaluate_idea"
+        assert preview["confirmation_literal"] == "CREATE LOCAL TASK"
+        assert preview["evaluation"] == {
+            "decision": evaluation["recommendation"]["decision"],
+            "next_step": actual_next_step,
+        }
+        assert "`" in preview["evaluation"]["next_step"]
+        assert preview["candidate"] == {
+            "title": (
+                "Run experiment-001 (Workflow interview) as the primary next "
+                "experiment"
+            ),
+            "summary": run_web_app.voice_candidate_summary(
+                actual_next_step.replace("`", "")
+            ),
+            "status": "TODO",
+            "repo": "jarvis-core",
+            "source_command": "Evaluate Idea",
+        }
+        assert "`" not in preview["candidate"]["title"]
+        assert "`" not in preview["candidate"]["summary"]
+        assert preview["destination"] == {
+            "storage_location": (
+                "memory/tasks/task-0001-run-experiment-001-workflow-"
+                "interview-as-the-primary-next-experiment.md"
+            ),
+            "provisional": True,
+            "receipt_authoritative": True,
+        }
+        assert preview["warning"] == (
+            "Evaluate Idea is decision support, not implementation approval. "
+            "This preview creates nothing. Only explicit Confirm Create Local "
+            "Task writes one local TODO Task."
+        )
+        assert not list(tasks_dir.iterdir())
+
+        confirm_status, confirmed = run_web_app.confirm_create_local_task(
+            {
+                "token": preview["token"],
+                "confirmation": preview["confirmation_literal"],
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert confirm_status == HTTPStatus.OK
+        assert confirmed["result_type"] == "created"
+        receipt = confirmed["receipt"]
+        assert receipt["status"] == "TODO"
+        assert receipt["storage_location"] == (
+            preview["destination"]["storage_location"]
+        )
+        created_path = tasks_dir / Path(receipt["storage_location"]).name
+        created_text = created_path.read_text(encoding="utf-8")
+        assert "- status: `TODO`" in created_text
+        assert "- source_command: `Evaluate Idea`" in created_text
+        assert "completion_evidence" not in created_text
+        assert "- execution_" not in created_text
+
+        replay_status, replay = run_web_app.confirm_create_local_task(
+            {
+                "token": preview["token"],
+                "confirmation": preview["confirmation_literal"],
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert replay_status == HTTPStatus.OK
+        assert replay["result_type"] == "already_created"
+        assert replay["receipt"] == receipt
+        assert len(list(tasks_dir.glob("task-*.md"))) == 1
+
+        race_status, race_preview = (
+            run_web_app.preview_evaluate_idea_create_task(
+                {
+                    "idea": "Race-safe local task.",
+                    "goal": "Decide the next bounded experiment.",
+                },
+                registry=registry,
+                tasks_dir=tasks_dir,
+                evaluator=lambda _payload: (
+                    HTTPStatus.OK,
+                    {
+                        "recommendation": {
+                            "decision": "continue_with_primary_blocker_experiment",
+                            "next_step": "Run the allocation race experiment.",
+                        }
+                    },
+                ),
+            )
+        )
+        assert race_status == HTTPStatus.OK
+        provisional_location = race_preview["destination"]["storage_location"]
+        (tasks_dir / "task-0002-allocation-race.md").write_text(
+            "fixture\n",
+            encoding="utf-8",
+        )
+        race_confirm_status, race_confirmed = (
+            run_web_app.confirm_create_local_task(
+                {
+                    "token": race_preview["token"],
+                    "confirmation": "CREATE LOCAL TASK",
+                },
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+        )
+        assert race_confirm_status == HTTPStatus.OK
+        assert race_confirmed["receipt"]["storage_location"] != (
+            provisional_location
+        )
+        assert race_confirmed["receipt"]["storage_location"].startswith(
+            "memory/tasks/"
+        )
+
+        expired_status, expired_preview = (
+            run_web_app.preview_evaluate_idea_create_task(
+                {
+                    "idea": "Expiry-safe local task.",
+                    "goal": "Decide the next bounded experiment.",
+                },
+                registry=registry,
+                tasks_dir=tasks_dir,
+                evaluator=lambda _payload: (
+                    HTTPStatus.OK,
+                    {
+                        "recommendation": {
+                            "decision": "continue",
+                            "next_step": "Run the expiry experiment.",
+                        }
+                    },
+                ),
+            )
+        )
+        assert expired_status == HTTPStatus.OK
+        clock.advance(61)
+        expired_confirm_status, expired_confirm = (
+            run_web_app.confirm_create_local_task(
+                {
+                    "token": expired_preview["token"],
+                    "confirmation": "CREATE LOCAL TASK",
+                },
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+        )
+        assert expired_confirm_status == HTTPStatus.NOT_FOUND
+        assert expired_confirm["error"] == (
+            "invalid_or_expired_create_local_task_token"
+        )
+
+        captured_payloads: list[dict[str, Any]] = []
+
+        def capture_defaults(
+            payload: dict[str, Any],
+        ) -> tuple[int, dict[str, Any]]:
+            captured_payloads.append(payload)
+            return HTTPStatus.OK, {
+                "recommendation": {
+                    "decision": "continue",
+                    "next_step": "Run the defaults experiment.",
+                }
+            }
+
+        defaults_status, defaults_preview = (
+            run_web_app.preview_evaluate_idea_create_task(
+                {"idea": "idea", "goal": "goal"},
+                registry=registry,
+                tasks_dir=tasks_dir,
+                evaluator=capture_defaults,
+            )
+        )
+        assert defaults_status == HTTPStatus.OK
+        assert captured_payloads == [
+            {
+                "idea": "idea",
+                "goal": "goal",
+                "context": "",
+                "provided_evidence": [],
+            }
+        ]
+        assert list(captured_payloads[0]) == [
+            "idea",
+            "goal",
+            "context",
+            "provided_evidence",
+        ]
+        assert defaults_preview["candidate"]["source_command"] == "Evaluate Idea"
+
+        long_status, long_preview = (
+            run_web_app.preview_evaluate_idea_create_task(
+                {"idea": "long", "goal": "truncate"},
+                registry=registry,
+                tasks_dir=tasks_dir,
+                evaluator=lambda _payload: (
+                    HTTPStatus.OK,
+                    {
+                        "recommendation": {
+                            "decision": "continue",
+                            "next_step": "x" * 1_000,
+                        }
+                    },
+                ),
+            )
+        )
+        assert long_status == HTTPStatus.OK
+        assert len(long_preview["candidate"]["title"]) == 120
+        assert len(long_preview["candidate"]["summary"]) == 280
+
+        pause_status, pause_preview = (
+            run_web_app.preview_evaluate_idea_create_task(
+                {"idea": "pause", "goal": "remediate"},
+                registry=registry,
+                tasks_dir=tasks_dir,
+                evaluator=lambda _payload: (
+                    HTTPStatus.OK,
+                    {
+                        "recommendation": {
+                            "decision": "pause_broad_use_resolve_safety_blocker",
+                            "next_step": "Resolve the safety blocker first.",
+                        }
+                    },
+                ),
+            )
+        )
+        assert pause_status == HTTPStatus.OK
+        assert pause_preview["evaluation"] == {
+            "decision": "pause_broad_use_resolve_safety_blocker",
+            "next_step": "Resolve the safety blocker first.",
+        }
+        assert pause_preview["candidate"]["status"] == "TODO"
+
+        invalid_cases = (
+            ({}, "requires_idea_and_goal"),
+            (
+                {"idea": "idea", "goal": " ", "context": "", "provided_evidence": []},
+                "requires_idea_and_goal",
+            ),
+            (
+                {"idea": 7, "goal": "goal"},
+                "fields_must_be_strings",
+            ),
+            (
+                {"idea": "idea", "goal": "goal", "context": []},
+                "fields_must_be_strings",
+            ),
+            (
+                {"idea": "idea", "goal": "goal", "provided_evidence": "x"},
+                "provided_evidence_must_be_a_list",
+            ),
+            (
+                {
+                    "idea": "idea",
+                    "goal": "goal",
+                    "provided_evidence": ["x"] * 9,
+                },
+                "too_many_provided_evidence_entries",
+            ),
+            (
+                {
+                    "idea": "idea",
+                    "goal": "goal",
+                    "provided_evidence": [7],
+                },
+                "provided_evidence_entries_must_be_strings",
+            ),
+            (
+                {
+                    "idea": "idea",
+                    "goal": "goal",
+                    "provided_evidence": [" "],
+                },
+                "provided_evidence_entries_must_be_nonempty",
+            ),
+            (
+                {
+                    "idea": "idea",
+                    "goal": "goal",
+                    "provided_evidence": ["x" * 501],
+                },
+                "provided_evidence_entry_too_long",
+            ),
+            (
+                {"idea": "x" * 2_001, "goal": "goal"},
+                "idea_too_long",
+            ),
+            (
+                {"idea": "idea", "goal": "x" * 501},
+                "goal_too_long",
+            ),
+            (
+                {"idea": "idea", "goal": "goal", "context": "x" * 2_001},
+                "context_too_long",
+            ),
+            (
+                {"idea": "idea\ud800", "goal": "goal"},
+                "invalid_unicode",
+            ),
+            (
+                {
+                    "idea": "idea",
+                    "goal": "goal",
+                    "title": "client-controlled",
+                },
+                "unknown_fields",
+            ),
+        )
+        for invalid_payload, suffix in invalid_cases:
+            invalid_status, invalid = (
+                run_web_app.preview_evaluate_idea_create_task(
+                    invalid_payload,
+                    registry=registry,
+                    tasks_dir=tasks_dir,
+                )
+            )
+            assert invalid_status == HTTPStatus.BAD_REQUEST
+            assert invalid["error"] == (
+                f"evaluate_idea_create_task_{suffix}"
+            )
+
+        business_cases = (
+            (
+                lambda _payload: (HTTPStatus.OK, {}),
+                "evaluate_idea_create_task_recommendation_unavailable",
+            ),
+            (
+                lambda _payload: (
+                    HTTPStatus.OK,
+                    {"recommendation": {"decision": "continue"}},
+                ),
+                "evaluate_idea_create_task_next_step_unavailable",
+            ),
+            (
+                lambda _payload: (
+                    HTTPStatus.OK,
+                    {
+                        "recommendation": {
+                            "decision": "continue",
+                            "next_step": 7,
+                        }
+                    },
+                ),
+                "evaluate_idea_create_task_next_step_nonstring",
+            ),
+            (
+                lambda _payload: (
+                    HTTPStatus.OK,
+                    {
+                        "recommendation": {
+                            "decision": "continue",
+                            "next_step": "bad\u200bvalue",
+                        }
+                    },
+                ),
+                "evaluate_idea_create_task_next_step_unsafe",
+            ),
+            (
+                lambda _payload: (
+                    HTTPStatus.OK,
+                    {
+                        "recommendation": {
+                            "decision": "continue",
+                            "next_step": " `` \t",
+                        }
+                    },
+                ),
+                "evaluate_idea_create_task_next_step_empty",
+            ),
+        )
+        for evaluator, expected_error in business_cases:
+            status, result = run_web_app.preview_evaluate_idea_create_task(
+                {"idea": "idea", "goal": "goal"},
+                registry=registry,
+                tasks_dir=tasks_dir,
+                evaluator=evaluator,
+            )
+            assert status == HTTPStatus.CONFLICT
+            assert result["error"] == expected_error
+
+        unexpected_status, unexpected = (
+            run_web_app.preview_evaluate_idea_create_task(
+                {"idea": "idea", "goal": "goal"},
+                registry=registry,
+                tasks_dir=tasks_dir,
+                evaluator=lambda _payload: (
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"ok": False},
+                ),
+            )
+        )
+        assert unexpected_status == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert unexpected["error"] == (
+            "evaluate_idea_create_task_preview_failed"
+        )
+
+        def raise_evaluator(_payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+            raise RuntimeError("injected evaluator failure")
+
+        raised_status, raised = run_web_app.preview_evaluate_idea_create_task(
+            {"idea": "idea", "goal": "goal"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+            evaluator=raise_evaluator,
+        )
+        assert raised_status == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert raised["error"] == "evaluate_idea_create_task_preview_failed"
+
+        def raise_storage(
+            _candidate: dict[str, str],
+            *,
+            tasks_dir: Path,
+        ) -> Any:
+            raise OSError("injected storage failure")
+
+        storage_status, storage = run_web_app.preview_evaluate_idea_create_task(
+            {"idea": "idea", "goal": "goal"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+            evaluator=capture_defaults,
+            candidate_previewer=raise_storage,
+        )
+        assert storage_status == HTTPStatus.CONFLICT
+        assert storage["error"] == (
+            "evaluate_idea_create_task_storage_unavailable"
+        )
+        candidate_status, candidate_error = (
+            run_web_app.preview_evaluate_idea_create_task(
+                {"idea": "idea", "goal": "goal"},
+                registry=registry,
+                tasks_dir=tasks_dir,
+                evaluator=capture_defaults,
+                candidate_previewer=lambda _candidate, *, tasks_dir: (
+                    PreviewResult("hold")
+                ),
+            )
+        )
+        assert candidate_status == HTTPStatus.CONFLICT
+        assert candidate_error["error"] == (
+            "evaluate_idea_create_task_candidate_preview_failed"
+        )
+        unavailable_status, unavailable = (
+            run_web_app.preview_evaluate_idea_create_task(
+                {"idea": "idea", "goal": "goal"},
+                registry=run_web_app.CreateLocalTaskRegistry(capacity=0),
+                tasks_dir=tasks_dir,
+                evaluator=capture_defaults,
+            )
+        )
+        assert unavailable_status == HTTPStatus.SERVICE_UNAVAILABLE
+        assert unavailable["error"] == (
+            "evaluate_idea_create_task_temporarily_unavailable"
+        )
+
+        valid_headers = [
+            ("Host", "127.0.0.1:43210"),
+            ("Origin", "http://127.0.0.1:43210"),
+            ("Content-Type", "application/json"),
+            ("Content-Length", "2"),
+        ]
+        assert run_web_app.validate_evaluate_idea_create_task_http_request(
+            path=run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT,
+            query="",
+            header_pairs=valid_headers,
+            bound_port=43210,
+        ) == (HTTPStatus.OK, {"ok": True, "body_length": 2})
+        guard_cases = (
+            (
+                [*valid_headers, ("Host", "127.0.0.1:43210")],
+                HTTPStatus.BAD_REQUEST,
+                "evaluate_idea_create_task_headers_rejected",
+            ),
+            (
+                [pair for pair in valid_headers if pair[0] != "Origin"],
+                HTTPStatus.BAD_REQUEST,
+                "evaluate_idea_create_task_headers_rejected",
+            ),
+            (
+                [*valid_headers, ("Transfer-Encoding", "chunked")],
+                HTTPStatus.BAD_REQUEST,
+                "evaluate_idea_create_task_transfer_encoding_not_allowed",
+            ),
+            (
+                [
+                    (name, "http://127.0.0.1:1")
+                    if name == "Origin"
+                    else (name, value)
+                    for name, value in valid_headers
+                ],
+                HTTPStatus.FORBIDDEN,
+                "evaluate_idea_create_task_origin_rejected",
+            ),
+            (
+                [
+                    (name, "text/plain")
+                    if name == "Content-Type"
+                    else (name, value)
+                    for name, value in valid_headers
+                ],
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                "evaluate_idea_create_task_json_required",
+            ),
+            (
+                [
+                    (name, "0")
+                    if name == "Content-Length"
+                    else (name, value)
+                    for name, value in valid_headers
+                ],
+                HTTPStatus.BAD_REQUEST,
+                "evaluate_idea_create_task_invalid_content_length",
+            ),
+        )
+        for headers, expected_status, expected_error in guard_cases:
+            status, result = (
+                run_web_app.validate_evaluate_idea_create_task_http_request(
+                    path=run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT,
+                    query="",
+                    header_pairs=headers,
+                    bound_port=43210,
+                )
+            )
+            assert status == expected_status
+            assert result["error"] == expected_error
+        large_status, large = (
+            run_web_app.validate_evaluate_idea_create_task_http_request(
+                path=run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT,
+                query="",
+                header_pairs=[
+                    (name, str(run_web_app.MAX_JSON_BODY_BYTES + 1))
+                    if name == "Content-Length"
+                    else (name, value)
+                    for name, value in valid_headers
+                ],
+                bound_port=43210,
+            )
+        )
+        assert large_status == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+        assert large["error"] == (
+            "evaluate_idea_create_task_body_size_rejected"
+        )
+        too_many_status, too_many = (
+            run_web_app.validate_evaluate_idea_create_task_http_request(
+                path=run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT,
+                query="",
+                header_pairs=[
+                    *valid_headers,
+                    *[(f"X-Test-{index}", "x") for index in range(29)],
+                ],
+                bound_port=43210,
+            )
+        )
+        assert too_many_status == HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE
+        assert too_many["error"] == (
+            "evaluate_idea_create_task_headers_rejected"
+        )
+        for path, query in (
+            (run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT, "x=1"),
+            ("/api/evaluate-idea/create-task-preview/other", ""),
+        ):
+            not_found_status, not_found = (
+                run_web_app.validate_evaluate_idea_create_task_http_request(
+                    path=path,
+                    query=query,
+                    header_pairs=valid_headers,
+                    bound_port=43210,
+                )
+            )
+            assert not_found_status == HTTPStatus.NOT_FOUND
+            assert not_found["error"] == (
+                "evaluate_idea_create_task_not_found"
+            )
+
+        parse_cases = (
+            (
+                b"\xff",
+                "evaluate_idea_create_task_invalid_json",
+            ),
+            (
+                b"{",
+                "evaluate_idea_create_task_invalid_json",
+            ),
+            (
+                b'{"idea":"one","idea":"two"}',
+                "evaluate_idea_create_task_duplicate_json_key",
+            ),
+            (
+                b"[]",
+                "evaluate_idea_create_task_json_must_be_object",
+            ),
+        )
+        for raw_body, expected_error in parse_cases:
+            parse_status, parsed = (
+                run_web_app.parse_evaluate_idea_create_task_json_body(raw_body)
+            )
+            assert parse_status == HTTPStatus.BAD_REQUEST
+            assert parsed["error"] == expected_error
+        assert run_web_app.handle_post_api(
+            run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT,
+            optional_payload,
+        ) == (HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
+
+        http_registry = run_web_app.CreateLocalTaskRegistry(
+            token_factory=TokenFactory("evaluate-http-token"),
+            capacity=8,
+        )
+        server = run_web_app.ThreadingHTTPServer(
+            (run_web_app.DEFAULT_HOST, 0),
+            run_web_app.JarvisConsoleHandler,
+        )
+        server.create_local_task_registry = http_registry
+        server.create_local_tasks_dir = tasks_dir
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        port = int(server.server_address[1])
+
+        def post_json(
+            path: str,
+            payload: dict[str, Any],
+        ) -> tuple[int, dict[str, Any]]:
+            connection = HTTPConnection(run_web_app.DEFAULT_HOST, port, timeout=10)
+            body = json.dumps(payload, ensure_ascii=True).encode("ascii")
+            connection.request(
+                "POST",
+                path,
+                body=body,
+                headers={
+                    "Origin": f"http://{run_web_app.DEFAULT_HOST}:{port}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response = connection.getresponse()
+            response_payload = json.loads(response.read().decode("utf-8"))
+            response_status = response.status
+            connection.close()
+            return response_status, response_payload
+
+        try:
+            http_status, http_preview = post_json(
+                run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT,
+                optional_payload,
+            )
+            assert http_status == HTTPStatus.OK
+            assert http_preview["source"] == "evaluate_idea"
+            query_status, query_result = post_json(
+                f"{run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT}?x=1",
+                optional_payload,
+            )
+            assert query_status == HTTPStatus.NOT_FOUND
+            assert query_result["error"] == (
+                "evaluate_idea_create_task_not_found"
+            )
+            unknown_status, unknown = post_json(
+                "/api/completely-unknown",
+                {},
+            )
+            assert unknown_status == HTTPStatus.NOT_FOUND
+            assert unknown["error"] == "not_found"
+
+            truncated_body = json.dumps(optional_payload).encode("utf-8")
+            declared_length = len(truncated_body) + 7
+            raw_request = (
+                f"POST {run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT} "
+                "HTTP/1.1\r\n"
+                f"Host: {run_web_app.DEFAULT_HOST}:{port}\r\n"
+                f"Origin: http://{run_web_app.DEFAULT_HOST}:{port}\r\n"
+                "Content-Type: application/json\r\n"
+                f"Content-Length: {declared_length}\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+            ).encode("ascii") + truncated_body
+            with socket.create_connection(
+                (run_web_app.DEFAULT_HOST, port),
+                timeout=5,
+            ) as truncated_socket:
+                truncated_socket.sendall(raw_request)
+                truncated_socket.shutdown(socket.SHUT_WR)
+                response_chunks: list[bytes] = []
+                while True:
+                    chunk = truncated_socket.recv(4096)
+                    if not chunk:
+                        break
+                    response_chunks.append(chunk)
+            raw_response = b"".join(response_chunks)
+            assert b" 400 " in raw_response.split(b"\r\n", 1)[0]
+            assert (
+                b"evaluate_idea_create_task_body_length_mismatch"
+                in raw_response
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=5)
+        assert not server_thread.is_alive()
+
+    assert production_snapshot() == before_production
+
+
+def _test_evaluate_idea_create_task_client_state_machine() -> None:
+    app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
+    block_start = app_js.index("function evaluateIdeaList(")
+    block_end = app_js.index("function copyCommandLabel(", block_start)
+    feature_source = app_js[block_start:block_end]
+    isolated_source = app_js[
+        app_js.index("function canonicalEvaluateIdeaPayload(", block_start):
+        block_end
+    ]
+    for voice_authority in (
+        "createLocalTaskToken",
+        "createLocalTaskConfirmation",
+        "createLocalTaskBusy",
+        "lastVoiceCandidateData",
+    ):
+        assert voice_authority not in isolated_source
+    assert ">Preview as Local Task<" in feature_source
+    assert '"/api/evaluate-idea/create-task-preview"' in feature_source
+    assert '"/api/create-local-task/confirm"' in feature_source
+
+    harness = f"""
+function escapeHtml(value) {{
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}}
+function field(value = "") {{
+  return {{ value, disabled: false }};
+}}
+const evaluateIdeaInput = field("Initial idea");
+const evaluateIdeaGoal = field("Choose a bounded next experiment");
+const evaluateIdeaContext = field("Initial context");
+const evaluateIdeaEvidence = field("Evidence one\\nEvidence two");
+const evaluateIdeaButton = {{ disabled: false, textContent: "" }};
+const statusText = {{ textContent: "" }};
+const nextActionText = {{ textContent: "" }};
+const previewButton = {{ disabled: false, textContent: "" }};
+const confirmButton = {{ disabled: false, textContent: "" }};
+const resultTarget = {{
+  innerHTML: "",
+  querySelector(selector) {{
+    if (
+      selector === ".evaluate-create-local-task-receipt"
+      && this.innerHTML.includes("evaluate-create-local-task-receipt")
+    ) {{
+      return {{}};
+    }}
+    return null;
+  }},
+}};
+const researchDetails = {{
+  _innerHTML: "",
+  get innerHTML() {{
+    return this._innerHTML;
+  }},
+  set innerHTML(value) {{
+    this._innerHTML = value;
+    if (value.includes("evaluate-create-local-task-result")) {{
+      resultTarget.innerHTML = "No Evaluate-to-Task preview yet.";
+    }}
+  }},
+  querySelector(selector) {{
+    if (
+      selector === ".evaluate-create-local-task-result"
+      && this._innerHTML.includes("evaluate-create-local-task-result")
+    ) {{
+      return resultTarget;
+    }}
+    if (
+      selector === ".preview-evaluate-local-task"
+      && this._innerHTML.includes("preview-evaluate-local-task")
+    ) {{
+      return previewButton;
+    }}
+    if (
+      selector === ".confirm-evaluate-local-task"
+      && resultTarget.innerHTML.includes("confirm-evaluate-local-task")
+    ) {{
+      return confirmButton;
+    }}
+    return null;
+  }},
+}};
+let lastVoiceCandidateData = {{ id: "voice-candidate" }};
+let createLocalTaskToken = "voice-token";
+let createLocalTaskConfirmation = "VOICE CONFIRM";
+let createLocalTaskBusy = true;
+let evaluateIdeaBusy = false;
+let evaluateIdeaRevision = 0;
+let evaluateSuccessfulBinding = null;
+let evaluateTaskPreviewBusy = false;
+let evaluateTaskToken = "";
+let evaluateTaskConfirmation = "";
+let evaluateTaskTokenBinding = null;
+let evaluateTaskConfirmPending = false;
+let evaluateTaskConfirmInFlight = false;
+let evaluateTaskConfirmRetryReady = false;
+const HTTP_STATUS_OK = 200;
+const fetchCalls = [];
+const fetchQueue = [];
+async function fetch(url, options) {{
+  fetchCalls.push({{ url, options }});
+  if (!fetchQueue.length) {{
+    throw new Error(`No queued response for ${{url}}`);
+  }}
+  return await fetchQueue.shift();
+}}
+function response(status, data) {{
+  return {{
+    status,
+    ok: status >= 200 && status < 300,
+    async json() {{
+      return data;
+    }},
+  }};
+}}
+function deferred() {{
+  let resolve;
+  let reject;
+  const promise = new Promise((resolveValue, rejectValue) => {{
+    resolve = resolveValue;
+    reject = rejectValue;
+  }});
+  return {{ promise, resolve, reject }};
+}}
+function evaluationData(nextStep = "Run the bounded workflow experiment.") {{
+  return {{
+    ok: true,
+    executive_summary: "Local evaluation.",
+    evidence_gaps: [],
+    key_critiques_risks: [],
+    minimum_experiments: [],
+    recommendation: {{
+      decision: "continue",
+      summary: "Continue.",
+      rationale: "Evidence supports one bounded test.",
+      next_step: nextStep,
+    }},
+    write_free: true,
+    local_only: true,
+    external_calls: false,
+  }};
+}}
+function previewData(token) {{
+  return {{
+    ok: true,
+    product_name: "Create Local Task",
+    result_type: "preview",
+    source: "evaluate_idea",
+    token,
+    expires_in_seconds: 60,
+    confirmation_literal: "CREATE LOCAL TASK",
+    evaluation: {{
+      decision: "continue",
+      next_step: "Run the bounded workflow experiment.",
+    }},
+    candidate: {{
+      title: "Run the bounded workflow experiment",
+      summary: "Run the bounded workflow experiment.",
+      status: "TODO",
+      repo: "jarvis-core",
+      source_command: "Evaluate Idea",
+    }},
+    destination: {{
+      storage_location: "memory/tasks/task-0001-run-the-bounded-workflow-experiment.md",
+      provisional: true,
+      receipt_authoritative: true,
+    }},
+    warning: "Preview creates nothing.",
+  }};
+}}
+function receiptData(resultType = "created") {{
+  return {{
+    ok: true,
+    product_name: "Create Local Task",
+    result_type: resultType,
+    receipt: {{
+      task_id: "task-0001-run-the-bounded-workflow-experiment",
+      title: "Run the bounded workflow experiment",
+      status: "TODO",
+      storage_location: "memory/tasks/task-0001-run-the-bounded-workflow-experiment.md",
+      created_at: "2026-07-27 00:00 UTC",
+      next_recommended_action: "Review the new TODO task.",
+    }},
+  }};
+}}
+{feature_source}
+(async () => {{
+  const canonical = canonicalEvaluateIdeaPayload();
+  if (
+    JSON.stringify(Object.keys(canonical))
+    !== JSON.stringify(["idea", "goal", "context", "provided_evidence"])
+  ) {{
+    throw new Error("canonical Evaluate payload order changed");
+  }}
+
+  const staleEvaluate = deferred();
+  fetchQueue.push(staleEvaluate.promise);
+  const staleEvaluateRequest = evaluateIdea();
+  await Promise.resolve();
+  evaluateIdeaInput.value = "Mutated while Evaluate was in flight";
+  onEvaluateIdeaInputMutation();
+  staleEvaluate.resolve(response(200, evaluationData()));
+  await staleEvaluateRequest;
+  if (evaluateSuccessfulBinding !== null) {{
+    throw new Error("late Evaluate response retained authority");
+  }}
+
+  fetchQueue.push(response(200, evaluationData()));
+  await evaluateIdea();
+  if (!evaluateIdeaBindingMatches(evaluateSuccessfulBinding)) {{
+    throw new Error("successful Evaluate did not bind current inputs");
+  }}
+  const successfulEvaluateCall = fetchCalls.at(-1);
+  const successfulBody = JSON.parse(successfulEvaluateCall.options.body);
+  if (
+    successfulEvaluateCall.url !== "/api/evaluate-idea"
+    || JSON.stringify(Object.keys(successfulBody))
+      !== JSON.stringify(["idea", "goal", "context", "provided_evidence"])
+  ) {{
+    throw new Error("Evaluate request did not use the fixed canonical payload");
+  }}
+
+  const stalePreview = deferred();
+  fetchQueue.push(stalePreview.promise);
+  const stalePreviewRequest = previewEvaluateIdeaAsTask();
+  await Promise.resolve();
+  evaluateIdeaContext.value = "Mutated while Preview was in flight";
+  onEvaluateIdeaInputMutation();
+  stalePreview.resolve(response(200, previewData("stale-token-00000001")));
+  await stalePreviewRequest;
+  if (evaluateTaskToken || evaluateSuccessfulBinding !== null) {{
+    throw new Error("late Preview response retained authority");
+  }}
+
+  fetchQueue.push(response(200, evaluationData()));
+  await evaluateIdea();
+  const boundPayloadJson = evaluateSuccessfulBinding.payloadJson;
+  fetchQueue.push(response(200, previewData("evaluate-token-00000001")));
+  await previewEvaluateIdeaAsTask();
+  const successfulPreviewCall = fetchCalls.at(-1);
+  if (
+    successfulPreviewCall.url !== "/api/evaluate-idea/create-task-preview"
+    || successfulPreviewCall.options.body !== boundPayloadJson
+    || evaluateTaskToken !== "evaluate-token-00000001"
+  ) {{
+    throw new Error("Preview was not bound to the exact successful Evaluate tuple");
+  }}
+  if (
+    createLocalTaskToken !== "voice-token"
+    || createLocalTaskConfirmation !== "VOICE CONFIRM"
+    || createLocalTaskBusy !== true
+    || lastVoiceCandidateData.id !== "voice-candidate"
+  ) {{
+    throw new Error("Evaluate handoff mutated Voice authority");
+  }}
+
+  fetchQueue.push(Promise.reject(new Error("lost confirm response")));
+  await confirmEvaluateIdeaTask();
+  const firstConfirmCall = fetchCalls.at(-1);
+  const firstConfirmBody = firstConfirmCall.options.body;
+  if (
+    !evaluateTaskConfirmPending
+    || !evaluateTaskConfirmRetryReady
+    || evaluateTaskToken !== "evaluate-token-00000001"
+    || !evaluateIdeaInput.disabled
+    || firstConfirmCall.url !== "/api/create-local-task/confirm"
+  ) {{
+    throw new Error("lost Confirm did not retain locked retry authority");
+  }}
+  const lockedCallCount = fetchCalls.length;
+  const lockedRevision = evaluateIdeaRevision;
+  onEvaluateIdeaInputMutation();
+  await evaluateIdea();
+  await previewEvaluateIdeaAsTask();
+  if (
+    fetchCalls.length !== lockedCallCount
+    || evaluateIdeaRevision !== lockedRevision
+  ) {{
+    throw new Error("Confirm-pending lock allowed a new evaluation or handoff");
+  }}
+
+  fetchQueue.push(response(200, receiptData("already_created")));
+  await confirmEvaluateIdeaTask();
+  const retryConfirmCall = fetchCalls.at(-1);
+  const receiptCount = (
+    resultTarget.innerHTML.match(/evaluate-create-local-task-receipt/g) || []
+  ).length;
+  if (
+    retryConfirmCall.options.body !== firstConfirmBody
+    || receiptCount !== 1
+    || evaluateTaskToken
+    || evaluateTaskConfirmPending
+    || evaluateIdeaInput.disabled
+  ) {{
+    throw new Error(`Retry Confirm did not reconcile one receipt and unlock: ${{
+      JSON.stringify({{
+        sameBody: retryConfirmCall.options.body === firstConfirmBody,
+        receiptCount,
+        evaluateTaskToken,
+        evaluateTaskConfirmPending,
+        inputDisabled: evaluateIdeaInput.disabled,
+      }})
+    }}`);
+  }}
+
+  fetchQueue.push(response(200, evaluationData()));
+  await evaluateIdea();
+  fetchQueue.push(response(200, previewData("evaluate-token-00000002")));
+  await previewEvaluateIdeaAsTask();
+  fetchQueue.push(response(409, {{ ok: false, error: "terminal conflict" }}));
+  await confirmEvaluateIdeaTask();
+  if (
+    evaluateTaskToken
+    || evaluateTaskConfirmPending
+    || evaluateIdeaInput.disabled
+    || !resultTarget.innerHTML.includes("terminal conflict")
+  ) {{
+    throw new Error("terminal 4xx did not clear authority and unlock");
+  }}
+  if (
+    createLocalTaskToken !== "voice-token"
+    || createLocalTaskConfirmation !== "VOICE CONFIRM"
+    || createLocalTaskBusy !== true
+    || lastVoiceCandidateData.id !== "voice-candidate"
+  ) {{
+    throw new Error("Voice authority changed after confirm paths");
+  }}
+}})().catch((error) => {{
+  console.error(error.stack || error);
+  process.exitCode = 1;
+}});
+"""
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, (
+        "Evaluate-to-Task client state harness failed: "
+        f"{completed.stdout}\n{completed.stderr}"
+    )
+
+
 def _test_create_local_task_vertical_slice() -> None:
     class FakeClock:
         def __init__(self) -> None:
@@ -765,13 +1969,15 @@ def _test_create_local_task_vertical_slice() -> None:
     html = Path(run_web_app.WEB_ROOT, "index.html").read_text(encoding="utf-8")
     assert (
         "Safety mode: Task discovery and basic details are read-only. Create "
-        "Local Task creates one local TODO; Start / Complete changes only status "
-        "and updated_at; Record Completion Evidence appends one evidence value "
-        "and updates only updated_at for an eligible DOING Task. Every write "
-        "requires Preview and explicit Confirm. Evidence is not validated, "
-        "status stays DOING, and no flow executes or automatically completes "
-        "Task work. Jarvis does not create approvals or reports, run skills, "
-        "commit, push, or make external calls."
+        "Local Task creates one local TODO from Voice Inbox or a reviewed "
+        "Evaluate Idea recommendation; Start / Complete changes only status and "
+        "updated_at; Record Completion Evidence appends one evidence value and "
+        "updates only updated_at for an eligible DOING Task. Evaluate Idea and "
+        "every Task preview remain write-free. Every write requires Preview and "
+        "explicit Confirm. Evidence is not validated, status stays DOING, and "
+        "no flow executes or automatically completes Task work. Jarvis does not "
+        "create approvals or reports, run skills, commit, push, or make external "
+        "calls."
         in html
     )
     assert run_web_app.handle_post_api(
@@ -4808,6 +6014,8 @@ def main() -> None:
     _test_project_control_registry_primitives()
     _test_recent_milestone_evidence_contract()
     _test_evaluate_idea_vertical_slice()
+    _test_evaluate_idea_create_task_vertical_slice()
+    _test_evaluate_idea_create_task_client_state_machine()
     run_web_app.run_self_test()
     _test_codex_review_vertical_slice()
     _test_create_local_task_vertical_slice()

@@ -49,6 +49,16 @@ let completionEvidenceTaskId = "";
 let completionEvidenceBusy = false;
 let completionEvidenceLastReceipt = null;
 let evaluateIdeaBusy = false;
+let evaluateIdeaRevision = 0;
+let evaluateSuccessfulBinding = null;
+let evaluateTaskPreviewBusy = false;
+let evaluateTaskToken = "";
+let evaluateTaskConfirmation = "";
+let evaluateTaskTokenBinding = null;
+let evaluateTaskConfirmPending = false;
+let evaluateTaskConfirmInFlight = false;
+let evaluateTaskConfirmRetryReady = false;
+const HTTP_STATUS_OK = 200;
 const LOCAL_URL_PREFIX = "http:" + "//127.0.0.1";
 const LOCAL_URL_PROTOCOL = "http:";
 const LOCAL_URL_HOSTNAME = "127.0.0.1";
@@ -239,7 +249,131 @@ function evaluateIdeaList(items, renderer, emptyText) {
   return `<div class="evaluate-idea-items">${items.map(renderer).join("")}</div>`;
 }
 
-function renderEvaluateIdea(data) {
+function canonicalEvaluateIdeaPayload() {
+  return {
+    idea: evaluateIdeaInput?.value.trim() || "",
+    goal: evaluateIdeaGoal?.value.trim() || "",
+    context: evaluateIdeaContext?.value.trim() || "",
+    provided_evidence: (evaluateIdeaEvidence?.value || "")
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  };
+}
+
+function fixedEvaluateIdeaPayload(payload) {
+  return {
+    idea: String(payload?.idea || ""),
+    goal: String(payload?.goal || ""),
+    context: String(payload?.context || ""),
+    provided_evidence: Array.isArray(payload?.provided_evidence)
+      ? [...payload.provided_evidence]
+      : [],
+  };
+}
+
+function evaluateIdeaPayloadJson(payload) {
+  return JSON.stringify(fixedEvaluateIdeaPayload(payload));
+}
+
+function makeEvaluateIdeaBinding(revision, payload) {
+  const canonicalPayload = fixedEvaluateIdeaPayload(payload);
+  return {
+    revision,
+    payload: canonicalPayload,
+    payloadJson: evaluateIdeaPayloadJson(canonicalPayload),
+  };
+}
+
+function evaluateIdeaBindingMatches(binding) {
+  return Boolean(
+    binding
+      && binding.revision === evaluateIdeaRevision
+      && binding.payloadJson === evaluateIdeaPayloadJson(canonicalEvaluateIdeaPayload()),
+  );
+}
+
+function evaluateTaskResultElement() {
+  return researchDetails?.querySelector(".evaluate-create-local-task-result") || null;
+}
+
+function refreshEvaluateIdeaControls() {
+  const evaluateInputs = [
+    evaluateIdeaInput,
+    evaluateIdeaGoal,
+    evaluateIdeaContext,
+    evaluateIdeaEvidence,
+  ].filter(Boolean);
+  evaluateInputs.forEach((input) => {
+    input.disabled = evaluateTaskConfirmPending;
+  });
+  if (evaluateIdeaButton) {
+    evaluateIdeaButton.disabled = evaluateIdeaBusy || evaluateTaskConfirmPending;
+    evaluateIdeaButton.textContent = evaluateIdeaBusy ? "Evaluating Idea..." : "Evaluate Idea";
+  }
+  const previewButton = researchDetails?.querySelector(".preview-evaluate-local-task");
+  if (previewButton) {
+    previewButton.disabled = (
+      evaluateTaskPreviewBusy
+      || evaluateTaskConfirmPending
+      || !evaluateIdeaBindingMatches(evaluateSuccessfulBinding)
+    );
+  }
+  const confirmButton = researchDetails?.querySelector(".confirm-evaluate-local-task");
+  if (confirmButton) {
+    confirmButton.disabled = (
+      evaluateTaskConfirmInFlight
+      || (evaluateTaskConfirmPending && !evaluateTaskConfirmRetryReady)
+      || (!evaluateTaskConfirmPending && !evaluateTaskToken)
+    );
+    confirmButton.textContent = evaluateTaskConfirmRetryReady
+      ? "Retry Confirm"
+      : evaluateTaskConfirmInFlight
+        ? "Creating local TODO Task..."
+        : "Confirm Create Local Task";
+  }
+}
+
+function clearEvaluateTaskAuthority({ clearSuccessfulBinding = true } = {}) {
+  evaluateTaskToken = "";
+  evaluateTaskConfirmation = "";
+  evaluateTaskTokenBinding = null;
+  evaluateTaskPreviewBusy = false;
+  evaluateTaskConfirmPending = false;
+  evaluateTaskConfirmInFlight = false;
+  evaluateTaskConfirmRetryReady = false;
+  if (clearSuccessfulBinding) {
+    evaluateSuccessfulBinding = null;
+  }
+}
+
+function invalidateEvaluateTaskHandoff() {
+  if (evaluateTaskConfirmPending) {
+    return;
+  }
+  clearEvaluateTaskAuthority();
+  const previewButton = researchDetails?.querySelector(".preview-evaluate-local-task");
+  if (previewButton) {
+    previewButton.disabled = true;
+  }
+  const target = evaluateTaskResultElement();
+  if (target && !target.querySelector(".evaluate-create-local-task-receipt")) {
+    target.innerHTML = (
+      "<p class=\"muted\">Evaluate the current inputs again before Preview as Local Task.</p>"
+    );
+  }
+  refreshEvaluateIdeaControls();
+}
+
+function onEvaluateIdeaInputMutation() {
+  if (evaluateTaskConfirmPending) {
+    return;
+  }
+  evaluateIdeaRevision += 1;
+  invalidateEvaluateTaskHandoff();
+}
+
+function renderEvaluateIdea(data, binding = evaluateSuccessfulBinding) {
   if (!researchDetails) {
     return;
   }
@@ -328,10 +462,27 @@ function renderEvaluateIdea(data) {
         <div><dt>Local-only</dt><dd>${data.local_only ? "Yes" : "No"}</dd></div>
         <div><dt>External calls</dt><dd>${data.external_calls ? "Yes" : "No"}</dd></div>
       </dl>
+      <section class="evaluate-idea-section evaluate-create-local-task" aria-label="Continue Evaluation as Task">
+        <div class="overview-section-heading">
+          <div>
+            <p class="eyebrow">Continue Evaluation as Task</p>
+            <h4>Prepare one local TODO from the recommended next step</h4>
+          </div>
+          <span class="overview-badge approval-needed">Explicit Confirm required</span>
+        </div>
+        <p class="muted">Evaluate Idea remains write-free. Preview creates nothing, and only explicit Confirm Create Local Task writes one TODO.</p>
+        <div class="suggestion-actions">
+          <button class="primary-button preview-evaluate-local-task" type="button"${binding ? "" : " disabled"}>Preview as Local Task</button>
+        </div>
+        <div class="evaluate-create-local-task-result">
+          <p class="muted">No Evaluate-to-Task preview yet.</p>
+        </div>
+      </section>
     </article>
   `;
   statusText.textContent = "Evaluate Idea completed in memory. Nothing was saved.";
   nextActionText.textContent = recommendation.next_step || "Review the minimum experiments.";
+  refreshEvaluateIdeaControls();
 }
 
 function renderEvaluateIdeaFailure(message) {
@@ -348,30 +499,25 @@ function renderEvaluateIdeaFailure(message) {
 }
 
 async function evaluateIdea() {
-  if (evaluateIdeaBusy) {
+  if (evaluateIdeaBusy || evaluateTaskConfirmPending) {
     return;
   }
-  const idea = evaluateIdeaInput?.value.trim() || "";
-  const goal = evaluateIdeaGoal?.value.trim() || "";
-  const context = evaluateIdeaContext?.value.trim() || "";
-  const providedEvidence = (evaluateIdeaEvidence?.value || "")
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (!idea || !goal) {
+  evaluateIdeaRevision += 1;
+  clearEvaluateTaskAuthority();
+  const requestRevision = evaluateIdeaRevision;
+  const payload = canonicalEvaluateIdeaPayload();
+  const requestBinding = makeEvaluateIdeaBinding(requestRevision, payload);
+  if (!payload.idea || !payload.goal) {
     renderEvaluateIdeaFailure("Idea and Goal are required.");
     return;
   }
-  if (providedEvidence.length > 8) {
+  if (payload.provided_evidence.length > 8) {
     renderEvaluateIdeaFailure("Provided Evidence accepts up to 8 non-empty entries.");
     return;
   }
 
   evaluateIdeaBusy = true;
-  if (evaluateIdeaButton) {
-    evaluateIdeaButton.disabled = true;
-    evaluateIdeaButton.textContent = "Evaluating Idea...";
-  }
+  refreshEvaluateIdeaControls();
   if (researchDetails) {
     researchDetails.innerHTML = "<p class=\"muted\">Running deterministic local evaluation. Nothing is being saved...</p>";
   }
@@ -379,26 +525,242 @@ async function evaluateIdea() {
     const response = await fetch("/api/evaluate-idea", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        idea,
-        goal,
-        context,
-        provided_evidence: providedEvidence,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await response.json();
+    if (!evaluateIdeaBindingMatches(requestBinding)) {
+      return;
+    }
     if (!response.ok || !data.ok) {
       throw new Error(data.error || `Request failed: ${response.status}`);
     }
-    renderEvaluateIdea(data);
+    evaluateSuccessfulBinding = requestBinding;
+    renderEvaluateIdea(data, requestBinding);
   } catch (error) {
-    renderEvaluateIdeaFailure(error.message || "Evaluation failed.");
+    if (evaluateIdeaBindingMatches(requestBinding)) {
+      clearEvaluateTaskAuthority();
+      renderEvaluateIdeaFailure(error.message || "Evaluation failed.");
+    }
   } finally {
     evaluateIdeaBusy = false;
-    if (evaluateIdeaButton) {
-      evaluateIdeaButton.disabled = false;
-      evaluateIdeaButton.textContent = "Evaluate Idea";
+    refreshEvaluateIdeaControls();
+  }
+}
+
+function renderEvaluateTaskPreview(data, binding) {
+  const target = evaluateTaskResultElement();
+  if (!target || !evaluateIdeaBindingMatches(binding)) {
+    return;
+  }
+  const evaluation = data.evaluation || {};
+  const candidate = data.candidate || {};
+  const destination = data.destination || {};
+  evaluateTaskToken = data.token || "";
+  evaluateTaskConfirmation = data.confirmation_literal || "";
+  evaluateTaskTokenBinding = binding;
+  target.innerHTML = `
+    <article class="create-local-task-preview evaluate-create-local-task-preview">
+      <div class="overview-section-heading">
+        <h4>Create Local Task Preview</h4>
+        <span class="overview-badge approval-needed">Not created</span>
+      </div>
+      <dl class="create-local-task-facts">
+        <div><dt>Decision</dt><dd>${escapeHtml(evaluation.decision || "")}</dd></div>
+        <div><dt>Original next step</dt><dd>${escapeHtml(evaluation.next_step || "")}</dd></div>
+        <div><dt>Title</dt><dd>${escapeHtml(candidate.title || "")}</dd></div>
+        <div><dt>Summary</dt><dd>${escapeHtml(candidate.summary || "")}</dd></div>
+        <div><dt>Status</dt><dd>${escapeHtml(candidate.status || "")}</dd></div>
+        <div><dt>Repo</dt><dd>${escapeHtml(candidate.repo || "")}</dd></div>
+        <div><dt>Source</dt><dd>${escapeHtml(candidate.source_command || "")}</dd></div>
+        <div><dt>Provisional destination</dt><dd><code>${escapeHtml(destination.storage_location || "")}</code></dd></div>
+      </dl>
+      <p class="muted">The provisional path may change during concurrent allocation. The Receipt is authoritative.</p>
+      <p class="safety-note">${escapeHtml(data.warning || "")}</p>
+      <div class="suggestion-actions">
+        <button class="primary-button confirm-evaluate-local-task" type="button">Confirm Create Local Task</button>
+      </div>
+    </article>
+  `;
+  statusText.textContent = "Evaluate-to-Task preview ready. Nothing has been created.";
+  nextActionText.textContent = "Review the candidate, then explicitly Confirm Create Local Task.";
+  refreshEvaluateIdeaControls();
+}
+
+function renderEvaluateTaskReceipt(data) {
+  const target = evaluateTaskResultElement();
+  if (!target) {
+    return;
+  }
+  const receipt = data.receipt || {};
+  const receiptState = data.result_type === "already_created" ? "Already created" : "Created";
+  target.innerHTML = `
+    <article class="create-local-task-receipt evaluate-create-local-task-receipt">
+      <div class="overview-section-heading">
+        <h4>Create Local Task Receipt</h4>
+        <span class="overview-badge read-only">${escapeHtml(receiptState)}</span>
+      </div>
+      <dl class="create-local-task-facts">
+        <div><dt>Task ID</dt><dd><code>${escapeHtml(receipt.task_id || "")}</code></dd></div>
+        <div><dt>Title</dt><dd>${escapeHtml(receipt.title || "")}</dd></div>
+        <div><dt>Status</dt><dd>${escapeHtml(receipt.status || "")}</dd></div>
+        <div><dt>Storage location</dt><dd><code>${escapeHtml(receipt.storage_location || "")}</code></dd></div>
+        <div><dt>Created at</dt><dd>${escapeHtml(receipt.created_at || "")}</dd></div>
+        <div><dt>Next recommended action</dt><dd>${escapeHtml(receipt.next_recommended_action || "")}</dd></div>
+      </dl>
+    </article>
+  `;
+  statusText.textContent = `${receiptState}: ${receipt.task_id || "local TODO task"}.`;
+  nextActionText.textContent = receipt.next_recommended_action || "Review the new TODO task.";
+}
+
+function renderEvaluateTaskConfirmRetry(message) {
+  const target = evaluateTaskResultElement();
+  if (!target) {
+    return;
+  }
+  target.innerHTML = `
+    <article class="create-local-task-preview evaluate-create-local-task-confirm-retry">
+      <h4>Confirm response was not authoritative</h4>
+      <p class="safety-note">${escapeHtml(message)}</p>
+      <p class="muted">The same token is retained. Evaluate inputs and handoff controls stay locked until Retry Confirm succeeds or returns a terminal client error.</p>
+      <div class="suggestion-actions">
+        <button class="primary-button confirm-evaluate-local-task" type="button">Retry Confirm</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderEvaluateTaskTerminalFailure(message) {
+  const target = evaluateTaskResultElement();
+  if (target) {
+    target.innerHTML = `
+      <article class="create-local-task-preview blocked">
+        <h4>Create Local Task could not complete</h4>
+        <p class="safety-note">${escapeHtml(message)}</p>
+        <p class="muted">No retry authority was retained. Evaluate the current inputs again.</p>
+      </article>
+    `;
+  }
+}
+
+async function previewEvaluateIdeaAsTask() {
+  const binding = evaluateSuccessfulBinding;
+  if (
+    evaluateTaskPreviewBusy
+    || evaluateTaskConfirmPending
+    || !evaluateIdeaBindingMatches(binding)
+  ) {
+    statusText.textContent = "Evaluate the current inputs again before Preview as Local Task.";
+    return;
+  }
+  evaluateTaskPreviewBusy = true;
+  refreshEvaluateIdeaControls();
+  const target = evaluateTaskResultElement();
+  if (target) {
+    target.innerHTML = "<p class=\"muted\">Preparing a write-free local Task preview...</p>";
+  }
+  try {
+    const response = await fetch("/api/evaluate-idea/create-task-preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: binding.payloadJson,
+    });
+    const data = await response.json();
+    if (
+      !evaluateIdeaBindingMatches(binding)
+      || evaluateSuccessfulBinding !== binding
+    ) {
+      return;
     }
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    renderEvaluateTaskPreview(data, binding);
+  } catch (error) {
+    if (
+      evaluateIdeaBindingMatches(binding)
+      && evaluateSuccessfulBinding === binding
+    ) {
+      evaluateTaskToken = "";
+      evaluateTaskConfirmation = "";
+      evaluateTaskTokenBinding = null;
+      if (target) {
+        target.innerHTML = `<p class="safety-note">Preview as Local Task failed: ${escapeHtml(error.message || "Preview failed.")}</p>`;
+      }
+      statusText.textContent = `Preview as Local Task failed: ${error.message || "Preview failed."}`;
+    }
+  } finally {
+    evaluateTaskPreviewBusy = false;
+    refreshEvaluateIdeaControls();
+  }
+}
+
+async function confirmEvaluateIdeaTask() {
+  const binding = evaluateTaskTokenBinding;
+  if (
+    evaluateTaskConfirmInFlight
+    || !evaluateTaskToken
+    || !evaluateTaskConfirmation
+    || !evaluateIdeaBindingMatches(binding)
+  ) {
+    statusText.textContent = "The Evaluate-to-Task confirmation is no longer bound to the current evaluation.";
+    return;
+  }
+
+  evaluateTaskConfirmPending = true;
+  evaluateTaskConfirmInFlight = true;
+  evaluateTaskConfirmRetryReady = false;
+  refreshEvaluateIdeaControls();
+  try {
+    const response = await fetch("/api/create-local-task/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: evaluateTaskToken,
+        confirmation: evaluateTaskConfirmation,
+      }),
+    });
+    let data;
+    try {
+      data = await response.json();
+    } catch (error) {
+      if (response.status === HTTP_STATUS_OK || response.status >= 500) {
+        throw error;
+      }
+      renderEvaluateTaskTerminalFailure(`Request failed: ${response.status}`);
+      clearEvaluateTaskAuthority();
+      refreshEvaluateIdeaControls();
+      return;
+    }
+
+    if (response.status === HTTP_STATUS_OK) {
+      renderEvaluateTaskReceipt(data);
+      clearEvaluateTaskAuthority();
+      refreshEvaluateIdeaControls();
+      return;
+    }
+    if (response.status >= 500) {
+      evaluateTaskConfirmRetryReady = true;
+      renderEvaluateTaskConfirmRetry(
+        data.error || `Request failed: ${response.status}`,
+      );
+      statusText.textContent = "Confirm response was unavailable. Retry Confirm with the same token.";
+      return;
+    }
+    renderEvaluateTaskTerminalFailure(
+      data.error || `Request failed: ${response.status}`,
+    );
+    clearEvaluateTaskAuthority();
+    refreshEvaluateIdeaControls();
+  } catch (error) {
+    evaluateTaskConfirmRetryReady = true;
+    renderEvaluateTaskConfirmRetry(
+      error.message || "The Confirm response was lost.",
+    );
+    statusText.textContent = "Confirm response was lost. Retry Confirm with the same token.";
+  } finally {
+    evaluateTaskConfirmInFlight = false;
+    refreshEvaluateIdeaControls();
   }
 }
 
@@ -2792,6 +3154,15 @@ if (evaluateIdeaButton) {
   evaluateIdeaButton.addEventListener("click", evaluateIdea);
 }
 
+[
+  evaluateIdeaInput,
+  evaluateIdeaGoal,
+  evaluateIdeaContext,
+  evaluateIdeaEvidence,
+].filter(Boolean).forEach((input) => {
+  input.addEventListener("input", onEvaluateIdeaInputMutation);
+});
+
 if (refreshOverviewButton) {
   refreshOverviewButton.addEventListener("click", () => {
     loadOverview();
@@ -2825,6 +3196,18 @@ skillGrid.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const evaluateTaskPreviewButton = event.target.closest(".preview-evaluate-local-task");
+  if (evaluateTaskPreviewButton) {
+    previewEvaluateIdeaAsTask();
+    return;
+  }
+
+  const evaluateTaskConfirmButton = event.target.closest(".confirm-evaluate-local-task");
+  if (evaluateTaskConfirmButton) {
+    confirmEvaluateIdeaTask();
+    return;
+  }
+
   const completionEvidencePreviewButton = event.target.closest(".preview-completion-evidence");
   if (completionEvidencePreviewButton) {
     previewCompletionEvidence(completionEvidencePreviewButton);

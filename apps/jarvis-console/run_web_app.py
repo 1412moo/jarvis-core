@@ -319,6 +319,20 @@ COMPLETION_EVIDENCE_RECOMMENDATION = (
 )
 EVALUATE_IDEA_PRODUCT_NAME = "Evaluate Idea"
 EVALUATE_IDEA_ENDPOINT = "/api/evaluate-idea"
+EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT = (
+    "/api/evaluate-idea/create-task-preview"
+)
+EVALUATE_IDEA_CREATE_TASK_ALLOWED_FIELDS = (
+    "idea",
+    "goal",
+    "context",
+    "provided_evidence",
+)
+EVALUATE_IDEA_CREATE_TASK_WARNING = (
+    "Evaluate Idea is decision support, not implementation approval. "
+    "This preview creates nothing. Only explicit Confirm Create Local Task "
+    "writes one local TODO Task."
+)
 EVALUATE_IDEA_MAX_IDEA_CHARS = 2_000
 EVALUATE_IDEA_MAX_GOAL_CHARS = 500
 EVALUATE_IDEA_MAX_CONTEXT_CHARS = 2_000
@@ -973,7 +987,7 @@ def status_payload() -> dict[str, Any]:
         "registry_version": registry["registry_version"],
         "registry_read_only": registry["read_only"],
         "safety": [
-            "Task discovery and basic details are read-only. Create Local Task creates one local TODO; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.",
+            "Task discovery and basic details are read-only. Create Local Task creates one local TODO from Voice Inbox or a reviewed Evaluate Idea recommendation; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Evaluate Idea and every Task preview remain write-free. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.",
             "Local-only",
             "No automatic Codex / ChatGPT / Hermes invocation",
             "No commit or push",
@@ -1523,7 +1537,7 @@ def truncate_overview_text(value: str, max_chars: int) -> str:
     text = " ".join(value.split())
     if len(text) <= max_chars:
         return text
-    return text[: max_chars - 1].rstrip() + "..."
+    return text[: max_chars - 3].rstrip() + "..."
 
 
 def read_overview_title_and_summary(path: Path) -> tuple[str, str]:
@@ -5384,6 +5398,165 @@ def evaluate_idea(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     }
 
 
+def normalize_evaluate_idea_task_seed(value: str) -> tuple[str | None, str | None]:
+    """Return one Task-safe seed from a server-produced recommendation."""
+
+    try:
+        normalized = unicodedata.normalize("NFC", value)
+    except UnicodeError:
+        return None, "evaluate_idea_create_task_next_step_unsafe"
+
+    characters: list[str] = []
+    whitespace_pending = False
+    for character in normalized:
+        if character.isspace():
+            whitespace_pending = bool(characters)
+            continue
+        if character == "`":
+            continue
+        if unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}:
+            return None, "evaluate_idea_create_task_next_step_unsafe"
+        if whitespace_pending:
+            characters.append(" ")
+            whitespace_pending = False
+        characters.append(character)
+
+    task_seed = "".join(characters).strip()
+    if not task_seed:
+        return None, "evaluate_idea_create_task_next_step_empty"
+    return task_seed, None
+
+
+def _evaluate_idea_create_task_validation_error(error: Any) -> str:
+    suffix = str(error or "invalid_request")
+    if suffix.startswith("evaluate_idea_"):
+        suffix = suffix[len("evaluate_idea_") :]
+    return f"evaluate_idea_create_task_{suffix}"
+
+
+def preview_evaluate_idea_create_task(
+    payload: dict[str, Any],
+    *,
+    registry: CreateLocalTaskRegistry = CREATE_LOCAL_TASK_REGISTRY,
+    tasks_dir: Path = CREATE_LOCAL_TASKS_DIR,
+    evaluator: Any = evaluate_idea,
+    candidate_previewer: Any = preview_task_file_write,
+) -> tuple[int, dict[str, Any]]:
+    """Preview one local TODO derived only from a fresh server evaluation."""
+
+    validation_status, validated = _validate_evaluate_idea_payload(payload)
+    if validation_status != HTTPStatus.OK:
+        assert isinstance(validated, dict)
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": _evaluate_idea_create_task_validation_error(
+                validated.get("error")
+            ),
+        }
+    assert isinstance(validated, ResearchCouncilInput)
+    canonical_payload = {
+        "idea": validated.raw_idea,
+        "goal": validated.goal,
+        "context": validated.context or "",
+        "provided_evidence": list(validated.provided_evidence),
+    }
+
+    try:
+        evaluation_status, evaluation = evaluator(canonical_payload)
+    except Exception:
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_preview_failed",
+        }
+    if evaluation_status == HTTPStatus.BAD_REQUEST and isinstance(evaluation, dict):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": _evaluate_idea_create_task_validation_error(
+                evaluation.get("error")
+            ),
+        }
+    if evaluation_status != HTTPStatus.OK or not isinstance(evaluation, dict):
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_preview_failed",
+        }
+
+    recommendation = evaluation.get("recommendation")
+    if not isinstance(recommendation, Mapping):
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_recommendation_unavailable",
+        }
+    if "next_step" not in recommendation:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_next_step_unavailable",
+        }
+    next_step = recommendation.get("next_step")
+    if not isinstance(next_step, str):
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_next_step_nonstring",
+        }
+    task_seed, seed_error = normalize_evaluate_idea_task_seed(next_step)
+    if task_seed is None:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": seed_error
+            or "evaluate_idea_create_task_next_step_unsafe",
+        }
+
+    candidate = {
+        "title": voice_candidate_title(task_seed),
+        "summary": voice_candidate_summary(task_seed),
+        "status": CREATE_LOCAL_TASK_STATUS,
+        "repo": CREATE_LOCAL_TASK_REPO,
+        "source_command": "Evaluate Idea",
+    }
+    try:
+        provisional = candidate_previewer(candidate, tasks_dir=tasks_dir)
+    except OSError:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_storage_unavailable",
+        }
+    if provisional.result_type != "would_create" or not provisional.task_id:
+        return HTTPStatus.CONFLICT, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_candidate_preview_failed",
+        }
+
+    issue_status, issued = registry.issue(candidate)
+    if issue_status != HTTPStatus.OK:
+        return HTTPStatus.SERVICE_UNAVAILABLE, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_temporarily_unavailable",
+        }
+
+    return HTTPStatus.OK, {
+        "ok": True,
+        "product_name": CREATE_LOCAL_TASK_PRODUCT_NAME,
+        "result_type": "preview",
+        "source": "evaluate_idea",
+        "token": issued["token"],
+        "expires_in_seconds": issued["expires_in_seconds"],
+        "confirmation_literal": CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+        "evaluation": {
+            "decision": recommendation.get("decision"),
+            "next_step": next_step,
+        },
+        "candidate": dict(candidate),
+        "destination": {
+            "storage_location": (
+                f"{CREATE_LOCAL_TASK_STORAGE_ROOT}/{provisional.task_id}.md"
+            ),
+            "provisional": True,
+            "receipt_authoritative": True,
+        },
+        "warning": EVALUATE_IDEA_CREATE_TASK_WARNING,
+    }
+
+
 def prepare_voice_inbox_task(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Prepare a read-only task candidate from a pasted transcript."""
 
@@ -5667,6 +5840,123 @@ class _DuplicateCompletionEvidenceJsonKey(ValueError):
     pass
 
 
+class _DuplicateEvaluateIdeaCreateTaskJsonKey(ValueError):
+    pass
+
+
+def parse_evaluate_idea_create_task_json_body(
+    raw_body: bytes,
+) -> tuple[int, dict[str, Any]]:
+    """Parse the exact Evaluate-to-Task request with distinct JSON errors."""
+
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in parsed:
+                raise _DuplicateEvaluateIdeaCreateTaskJsonKey
+            parsed[key] = value
+        return parsed
+
+    try:
+        decoded = raw_body.decode("utf-8")
+        payload = json.loads(decoded, object_pairs_hook=reject_duplicate_keys)
+    except _DuplicateEvaluateIdeaCreateTaskJsonKey:
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_duplicate_json_key",
+        }
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_invalid_json",
+        }
+    if not isinstance(payload, dict):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_json_must_be_object",
+        }
+    return HTTPStatus.OK, payload
+
+
+def validate_evaluate_idea_create_task_http_request(
+    *,
+    path: str,
+    query: str,
+    header_pairs: list[tuple[str, str]],
+    bound_port: int,
+) -> tuple[int, dict[str, Any]]:
+    """Validate the guarded Evaluate-to-Task preview request."""
+
+    if path != EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT or query:
+        return HTTPStatus.NOT_FOUND, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_not_found",
+        }
+    if len(header_pairs) > 32:
+        return HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_headers_rejected",
+        }
+
+    headers: dict[str, list[str]] = {}
+    for raw_name, raw_value in header_pairs:
+        name = str(raw_name).strip().lower()
+        value = str(raw_value).strip()
+        if not name or len(name) > 80 or len(value) > 1024:
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "evaluate_idea_create_task_headers_rejected",
+            }
+        headers.setdefault(name, []).append(value)
+    if headers.get("transfer-encoding"):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": (
+                "evaluate_idea_create_task_transfer_encoding_not_allowed"
+            ),
+        }
+    if any(
+        len(headers.get(name, [])) != 1
+        for name in CREATE_LOCAL_TASK_REQUIRED_HEADERS
+    ):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_headers_rejected",
+        }
+
+    expected_authority = f"{DEFAULT_HOST}:{bound_port}"
+    if (
+        headers["host"][0] != expected_authority
+        or headers["origin"][0] != f"http://{expected_authority}"
+    ):
+        return HTTPStatus.FORBIDDEN, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_origin_rejected",
+        }
+    if (
+        headers["content-type"][0].lower()
+        not in CREATE_LOCAL_TASK_ALLOWED_CONTENT_TYPES
+    ):
+        return HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_json_required",
+        }
+
+    content_length = headers["content-length"][0]
+    if not re.fullmatch(r"[1-9][0-9]*", content_length):
+        return HTTPStatus.BAD_REQUEST, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_invalid_content_length",
+        }
+    body_length = int(content_length)
+    if body_length > MAX_JSON_BODY_BYTES:
+        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {
+            "ok": False,
+            "error": "evaluate_idea_create_task_body_size_rejected",
+        }
+    return HTTPStatus.OK, {"ok": True, "body_length": body_length}
+
+
 def parse_completion_evidence_json_body(
     raw_body: bytes,
 ) -> tuple[int, dict[str, Any]]:
@@ -5868,6 +6158,12 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
 
         parsed = urlparse(self.path)
         path = parsed.path
+        if path.startswith(EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT):
+            self._handle_evaluate_idea_create_task_post(
+                parsed.path,
+                parsed.query,
+            )
+            return
         if path in {
             CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
             CREATE_LOCAL_TASK_CONFIRM_ENDPOINT,
@@ -5912,6 +6208,58 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             return
 
         response_status, response_payload = handle_post_api(path, payload)
+        self._send_json(response_status, response_payload)
+
+    def _handle_evaluate_idea_create_task_post(
+        self,
+        path: str,
+        query: str,
+    ) -> None:
+        metadata_status, metadata = (
+            validate_evaluate_idea_create_task_http_request(
+                path=path,
+                query=query,
+                header_pairs=list(self.headers.raw_items()),
+                bound_port=int(self.server.server_address[1]),
+            )
+        )
+        if metadata_status != HTTPStatus.OK:
+            self._send_json(metadata_status, metadata)
+            return
+        raw_body = self.rfile.read(metadata["body_length"])
+        if len(raw_body) != metadata["body_length"]:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "ok": False,
+                    "error": "evaluate_idea_create_task_body_length_mismatch",
+                },
+            )
+            return
+        parse_status, payload = parse_evaluate_idea_create_task_json_body(
+            raw_body
+        )
+        if parse_status != HTTPStatus.OK:
+            self._send_json(parse_status, payload)
+            return
+        response_status, response_payload = preview_evaluate_idea_create_task(
+            payload,
+            registry=getattr(
+                self.server,
+                "create_local_task_registry",
+                CREATE_LOCAL_TASK_REGISTRY,
+            ),
+            tasks_dir=getattr(
+                self.server,
+                "create_local_tasks_dir",
+                CREATE_LOCAL_TASKS_DIR,
+            ),
+            evaluator=getattr(
+                self.server,
+                "evaluate_idea_create_task_evaluator",
+                evaluate_idea,
+            ),
+        )
         self._send_json(response_status, response_payload)
 
     def _handle_create_local_task_post(self, path: str, query: str) -> None:
@@ -7993,13 +8341,14 @@ def run_self_test() -> None:
     assert "jarvis.bat" in status["protected_paths"]
     assert status["safety"][0] == (
         "Task discovery and basic details are read-only. Create Local Task "
-        "creates one local TODO; Start / Complete changes only status and "
-        "updated_at; Record Completion Evidence appends one evidence value and "
-        "updates only updated_at for an eligible DOING Task. Every write "
-        "requires Preview and explicit Confirm. Evidence is not validated, "
-        "status stays DOING, and no flow executes or automatically completes "
-        "Task work. Jarvis does not create approvals or reports, run skills, "
-        "commit, push, or make external calls."
+        "creates one local TODO from Voice Inbox or a reviewed Evaluate Idea "
+        "recommendation; Start / Complete changes only status and updated_at; "
+        "Record Completion Evidence appends one evidence value and updates only "
+        "updated_at for an eligible DOING Task. Evaluate Idea and every Task "
+        "preview remain write-free. Every write requires Preview and explicit "
+        "Confirm. Evidence is not validated, status stays DOING, and no flow "
+        "executes or automatically completes Task work. Jarvis does not create "
+        "approvals or reports, run skills, commit, push, or make external calls."
     )
     assert all({"docs", "tests", "examples", "action_guide", "when_to_use"}.issubset(skill) for skill in status["skills"])
     hermes_commands = suggest_skill("Codex commit review")["commands"]
@@ -8965,13 +9314,15 @@ def run_self_test() -> None:
     assert "Select a skill to inspect commands" in html
     assert (
         "Safety mode: Task discovery and basic details are read-only. Create "
-        "Local Task creates one local TODO; Start / Complete changes only status "
-        "and updated_at; Record Completion Evidence appends one evidence value "
-        "and updates only updated_at for an eligible DOING Task. Every write "
-        "requires Preview and explicit Confirm. Evidence is not validated, "
-        "status stays DOING, and no flow executes or automatically completes "
-        "Task work. Jarvis does not create approvals or reports, run skills, "
-        "commit, push, or make external calls."
+        "Local Task creates one local TODO from Voice Inbox or a reviewed "
+        "Evaluate Idea recommendation; Start / Complete changes only status and "
+        "updated_at; Record Completion Evidence appends one evidence value and "
+        "updates only updated_at for an eligible DOING Task. Evaluate Idea and "
+        "every Task preview remain write-free. Every write requires Preview and "
+        "explicit Confirm. Evidence is not validated, status stays DOING, and "
+        "no flow executes or automatically completes Task work. Jarvis does not "
+        "create approvals or reports, run skills, commit, push, or make external "
+        "calls."
     ) in html
     assert "Local-only" in html
     assert "No automatic Codex / ChatGPT / Hermes invocation" in html
@@ -8989,14 +9340,17 @@ def run_self_test() -> None:
     assert "Owner-facing local project dashboard" in html
     assert (
         "Task discovery and basic details are read-only. Create Local Task "
-        "creates one local TODO; Start / Complete changes only status and "
-        "updated_at; Record Completion Evidence appends one evidence value and "
-        "updates only updated_at for an eligible DOING Task. Every write "
-        "requires Preview and explicit Confirm. Evidence is not validated, "
-        "status stays DOING, and no flow executes or automatically completes "
-        "Task work. Jarvis Console does not create approvals or reports, run "
-        "skills, commit, push, or make external calls."
+        "creates one local TODO from Voice Inbox or a reviewed Evaluate Idea "
+        "recommendation; Start / Complete changes only status and updated_at; "
+        "Record Completion Evidence appends one evidence value and updates only "
+        "updated_at for an eligible DOING Task. Evaluate Idea and every Task "
+        "preview remain write-free. Every write requires Preview and explicit "
+        "Confirm. Evidence is not validated, status stays DOING, and no flow "
+        "executes or automatically completes Task work. Jarvis Console does not "
+        "create approvals or reports, run skills, commit, push, or make external "
+        "calls."
     ) in html
+    assert "Preview as Local Task derives one local TODO candidate" in html
     assert "does not create commits" in html
     assert "preview-only: sample candidates" in html
     assert "no save endpoint" in html

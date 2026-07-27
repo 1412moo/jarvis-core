@@ -11,7 +11,7 @@
     <div>
       <p class="eyebrow">Jarvis Console v0.1</p>
       <h1>Jarvis Console</h1>
-      <p class="safety-summary">Safety mode: Task discovery and basic details are read-only. Create Local Task creates one local TODO; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.</p>
+      <p class="safety-summary">Safety mode: Task discovery and basic details are read-only. Create Local Task creates one local TODO from Voice Inbox or a reviewed Evaluate Idea recommendation; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Evaluate Idea and every Task preview remain write-free. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.</p>
     </div>
     <div class="safety-strip" aria-label="Safety boundary">
       <span>Local-only</span>
@@ -140,13 +140,13 @@
             <label for="evaluateIdeaEvidence">Provided Evidence <span class="muted">(optional, one entry per line, up to 8)</span></label>
             <textarea id="evaluateIdeaEvidence" rows="5" placeholder="Five users reported the same workflow delay.&#10;A manual pilot reduced review time by 20%."></textarea>
             <button id="evaluateIdeaButton" class="primary-button" type="button">Evaluate Idea</button>
-            <p class="safety-note">Deterministic and in-memory only. LLM augmentation is off; no report, task, or file is created.</p>
+            <p class="safety-note">Deterministic and in-memory only. LLM augmentation is off; Evaluate Idea creates no report, Task, or file. A separate Preview as Local Task handoff creates nothing until explicit Confirm.</p>
           </div>
           <div id="researchDetails" class="evaluate-idea-result" aria-live="polite">
             <p class="muted">Enter an Idea and Goal, then choose Evaluate Idea.</p>
           </div>
         </div>
-        <p class="safety-note">Evaluate Idea is decision support, not final proof or implementation approval.</p>
+        <p class="safety-note">Evaluate Idea is decision support, not final proof or implementation approval. After a successful evaluation, Preview as Local Task derives one local TODO candidate from the server recommendation; only Confirm Create Local Task writes it.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-radar">
@@ -174,7 +174,7 @@
         <div id="tasksDetails" class="overview-panel">
           <p class="muted">Overview has not been loaded yet.</p>
         </div>
-        <p class="safety-note">Task discovery and basic details are read-only. Create Local Task creates one local TODO; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis Console does not create approvals or reports, run skills, commit, push, or make external calls.</p>
+        <p class="safety-note">Task discovery and basic details are read-only. Create Local Task creates one local TODO from Voice Inbox or a reviewed Evaluate Idea recommendation; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Evaluate Idea and every Task preview remain write-free. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis Console does not create approvals or reports, run skills, commit, push, or make external calls.</p>
       </section>
 
       <section class="tab-panel hidden" id="tab-history">

@@ -22,8 +22,8 @@
         "Run the launcher manually.",
         "Paste a raw idea.",
         "Click the idea refinement control.",
-        "Review the refined input.",
-        "Run the report.",
+        "In Jarvis Console, review a successful Evaluate Idea recommendation before using Preview as Local Task.",
+        "Review the local TODO preview, then explicitly Confirm Create Local Task if the handoff is correct.",
         "Treat the report as validation planning, not final proof."
       ],
       "handoff_steps": [
@@ -93,7 +93,7 @@
       ],
       "safety_notes": [
         "Research Council reports are decision support, not final proof.",
-        "Jarvis Console does not run Research Council automatically."
+        "Jarvis Console does not run Research Council automatically; Evaluate Idea and Preview as Local Task are write-free, and only explicit Confirm Create Local Task writes one local TODO."
       ],
       "non_goals": [
         "No automatic execution.",
