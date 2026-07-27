@@ -52,6 +52,8 @@ let evaluateIdeaBusy = false;
 let evaluateIdeaRevision = 0;
 let evaluateSuccessfulBinding = null;
 let evaluateTaskPreviewBusy = false;
+let evaluateTaskPreviewGeneration = 0;
+let evaluateTaskActivePreviewRequestId = null;
 let evaluateTaskToken = "";
 let evaluateTaskConfirmation = "";
 let evaluateTaskTokenBinding = null;
@@ -297,6 +299,15 @@ function evaluateTaskResultElement() {
   return researchDetails?.querySelector(".evaluate-create-local-task-result") || null;
 }
 
+function evaluateTaskPreviewRequestMatches(requestId, binding) {
+  return Boolean(
+    evaluateTaskPreviewBusy
+      && evaluateTaskActivePreviewRequestId === requestId
+      && evaluateSuccessfulBinding === binding
+      && evaluateIdeaBindingMatches(binding)
+  );
+}
+
 function refreshEvaluateIdeaControls() {
   const evaluateInputs = [
     evaluateIdeaInput,
@@ -335,6 +346,8 @@ function refreshEvaluateIdeaControls() {
 }
 
 function clearEvaluateTaskAuthority({ clearSuccessfulBinding = true } = {}) {
+  evaluateTaskPreviewGeneration += 1;
+  evaluateTaskActivePreviewRequestId = null;
   evaluateTaskToken = "";
   evaluateTaskConfirmation = "";
   evaluateTaskTokenBinding = null;
@@ -547,9 +560,12 @@ async function evaluateIdea() {
   }
 }
 
-function renderEvaluateTaskPreview(data, binding) {
+function renderEvaluateTaskPreview(data, binding, requestId) {
   const target = evaluateTaskResultElement();
-  if (!target || !evaluateIdeaBindingMatches(binding)) {
+  if (
+    !target
+    || !evaluateTaskPreviewRequestMatches(requestId, binding)
+  ) {
     return;
   }
   const evaluation = data.evaluation || {};
@@ -653,6 +669,9 @@ async function previewEvaluateIdeaAsTask() {
     statusText.textContent = "Evaluate the current inputs again before Preview as Local Task.";
     return;
   }
+  evaluateTaskPreviewGeneration += 1;
+  const requestId = evaluateTaskPreviewGeneration;
+  evaluateTaskActivePreviewRequestId = requestId;
   evaluateTaskPreviewBusy = true;
   refreshEvaluateIdeaControls();
   const target = evaluateTaskResultElement();
@@ -666,21 +685,15 @@ async function previewEvaluateIdeaAsTask() {
       body: binding.payloadJson,
     });
     const data = await response.json();
-    if (
-      !evaluateIdeaBindingMatches(binding)
-      || evaluateSuccessfulBinding !== binding
-    ) {
+    if (!evaluateTaskPreviewRequestMatches(requestId, binding)) {
       return;
     }
     if (!response.ok || !data.ok) {
       throw new Error(data.error || `Request failed: ${response.status}`);
     }
-    renderEvaluateTaskPreview(data, binding);
+    renderEvaluateTaskPreview(data, binding, requestId);
   } catch (error) {
-    if (
-      evaluateIdeaBindingMatches(binding)
-      && evaluateSuccessfulBinding === binding
-    ) {
+    if (evaluateTaskPreviewRequestMatches(requestId, binding)) {
       evaluateTaskToken = "";
       evaluateTaskConfirmation = "";
       evaluateTaskTokenBinding = null;
@@ -690,8 +703,11 @@ async function previewEvaluateIdeaAsTask() {
       statusText.textContent = `Preview as Local Task failed: ${error.message || "Preview failed."}`;
     }
   } finally {
-    evaluateTaskPreviewBusy = false;
-    refreshEvaluateIdeaControls();
+    if (evaluateTaskPreviewRequestMatches(requestId, binding)) {
+      evaluateTaskActivePreviewRequestId = null;
+      evaluateTaskPreviewBusy = false;
+      refreshEvaluateIdeaControls();
+    }
   }
 }
 

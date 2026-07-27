@@ -1666,6 +1666,8 @@ let evaluateIdeaBusy = false;
 let evaluateIdeaRevision = 0;
 let evaluateSuccessfulBinding = null;
 let evaluateTaskPreviewBusy = false;
+let evaluateTaskPreviewGeneration = 0;
+let evaluateTaskActivePreviewRequestId = null;
 let evaluateTaskToken = "";
 let evaluateTaskConfirmation = "";
 let evaluateTaskTokenBinding = null;
@@ -1718,7 +1720,7 @@ function evaluationData(nextStep = "Run the bounded workflow experiment.") {{
     external_calls: false,
   }};
 }}
-function previewData(token) {{
+function previewData(token, title = "Run the bounded workflow experiment") {{
   return {{
     ok: true,
     product_name: "Create Local Task",
@@ -1732,7 +1734,7 @@ function previewData(token) {{
       next_step: "Run the bounded workflow experiment.",
     }},
     candidate: {{
-      title: "Run the bounded workflow experiment",
+      title,
       summary: "Run the bounded workflow experiment.",
       status: "TODO",
       repo: "jarvis-core",
@@ -1798,30 +1800,57 @@ function receiptData(resultType = "created") {{
     throw new Error("Evaluate request did not use the fixed canonical payload");
   }}
 
-  const stalePreview = deferred();
-  fetchQueue.push(stalePreview.promise);
-  const stalePreviewRequest = previewEvaluateIdeaAsTask();
+  const previewA = deferred();
+  fetchQueue.push(previewA.promise);
+  const previewARequest = previewEvaluateIdeaAsTask();
   await Promise.resolve();
   evaluateIdeaContext.value = "Mutated while Preview was in flight";
   onEvaluateIdeaInputMutation();
-  stalePreview.resolve(response(200, previewData("stale-token-00000001")));
-  await stalePreviewRequest;
-  if (evaluateTaskToken || evaluateSuccessfulBinding !== null) {{
-    throw new Error("late Preview response retained authority");
-  }}
-
   fetchQueue.push(response(200, evaluationData()));
   await evaluateIdea();
   const boundPayloadJson = evaluateSuccessfulBinding.payloadJson;
-  fetchQueue.push(response(200, previewData("evaluate-token-00000001")));
+  const previewB = deferred();
+  fetchQueue.push(previewB.promise);
+  const previewBRequest = previewEvaluateIdeaAsTask();
+  await Promise.resolve();
+  const previewBRequestId = evaluateTaskActivePreviewRequestId;
+  const previewBLoadingMarkup = resultTarget.innerHTML;
+  const fetchCountBeforeASettles = fetchCalls.length;
+  previewA.resolve(response(
+    200,
+    previewData("stale-token-00000001", "STALE A candidate"),
+  ));
+  await previewARequest;
+  if (
+    !evaluateTaskPreviewBusy
+    || evaluateTaskActivePreviewRequestId !== previewBRequestId
+    || !previewButton.disabled
+    || evaluateTaskToken
+    || resultTarget.innerHTML !== previewBLoadingMarkup
+    || resultTarget.innerHTML.includes("STALE A candidate")
+  ) {{
+    throw new Error("stale Preview A mutated current Preview B state");
+  }}
   await previewEvaluateIdeaAsTask();
+  if (fetchCalls.length !== fetchCountBeforeASettles) {{
+    throw new Error("stale Preview A enabled a third Preview request");
+  }}
+  previewB.resolve(response(
+    200,
+    previewData("evaluate-token-00000001", "CURRENT B candidate"),
+  ));
+  await previewBRequest;
   const successfulPreviewCall = fetchCalls.at(-1);
   if (
     successfulPreviewCall.url !== "/api/evaluate-idea/create-task-preview"
     || successfulPreviewCall.options.body !== boundPayloadJson
     || evaluateTaskToken !== "evaluate-token-00000001"
+    || evaluateTaskPreviewBusy
+    || evaluateTaskActivePreviewRequestId !== null
+    || !resultTarget.innerHTML.includes("CURRENT B candidate")
+    || resultTarget.innerHTML.includes("STALE A candidate")
   ) {{
-    throw new Error("Preview was not bound to the exact successful Evaluate tuple");
+    throw new Error("only current Preview B should own token and rendering");
   }}
   if (
     createLocalTaskToken !== "voice-token"
