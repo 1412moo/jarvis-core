@@ -5496,7 +5496,7 @@ def preview_evaluate_idea_create_task(
     if not isinstance(next_step, str):
         return HTTPStatus.CONFLICT, {
             "ok": False,
-            "error": "evaluate_idea_create_task_next_step_nonstring",
+            "error": "evaluate_idea_create_task_next_step_invalid",
         }
     task_seed, seed_error = normalize_evaluate_idea_task_seed(next_step)
     if task_seed is None:

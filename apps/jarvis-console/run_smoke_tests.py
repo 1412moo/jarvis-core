@@ -1217,7 +1217,7 @@ def _test_evaluate_idea_create_task_vertical_slice() -> None:
                         }
                     },
                 ),
-                "evaluate_idea_create_task_next_step_nonstring",
+                "evaluate_idea_create_task_next_step_invalid",
             ),
             (
                 lambda _payload: (
