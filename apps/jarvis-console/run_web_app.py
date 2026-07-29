@@ -4571,6 +4571,16 @@ class CreateLocalTaskRegistry:
                 }
             if draft.receipt is not None:
                 return self._already_created(draft)
+            if (
+                draft_revision == draft.current_revision
+                and draft.current_kind == "invalidate"
+                and draft.current_operation_id == operation_id
+                and draft.current_request_fingerprint == request_fingerprint
+                and draft.authority_response is not None
+            ):
+                return HTTPStatus.OK, _deep_copy_json(
+                    draft.authority_response
+                )
             if draft.state == "cancelled":
                 return HTTPStatus.CONFLICT, {
                     "ok": False,
@@ -4587,15 +4597,6 @@ class CreateLocalTaskRegistry:
                     "error": "evaluate_idea_create_task_draft_revision_stale",
                 }
             if draft_revision == draft.current_revision:
-                if (
-                    draft.current_kind == "invalidate"
-                    and draft.current_operation_id == operation_id
-                    and draft.current_request_fingerprint == request_fingerprint
-                    and draft.authority_response is not None
-                ):
-                    return HTTPStatus.OK, _deep_copy_json(
-                        draft.authority_response
-                    )
                 return HTTPStatus.CONFLICT, {
                     "ok": False,
                     "error": "evaluate_idea_create_task_draft_revision_conflict",

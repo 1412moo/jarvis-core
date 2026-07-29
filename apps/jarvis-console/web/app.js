@@ -401,6 +401,12 @@ function refreshEvaluateIdeaControls() {
         ? "Creating local TODO Task..."
         : "Confirm Create Local Task";
   }
+  const invalidatePending = evaluateTaskPendingRequest?.kind === "invalidate";
+  researchDetails?.querySelectorAll(
+    ".evaluate-task-edit-draft, .evaluate-task-evaluate-again",
+  ).forEach((button) => {
+    button.disabled = invalidatePending;
+  });
   setEvaluateTaskWriteControlsLocked(evaluateTaskAuthorityLocked);
 }
 
@@ -994,12 +1000,16 @@ async function invalidateEvaluateTaskDraft(action, retry = false) {
     return;
   }
   let request = evaluateTaskPendingRequest;
-  if (
-    !retry
-    || !request
-    || request.kind !== "invalidate"
-    || request.payload.action !== action
-  ) {
+  if (request?.kind === "invalidate") {
+    if (!retry || request.payload.action !== action) {
+      statusText.textContent = "The current Invalidate operation is still pending.";
+      refreshEvaluateIdeaControls();
+      return;
+    }
+  } else {
+    if (retry) {
+      return;
+    }
     const baseRevision = Math.max(
       evaluateTaskDraft.revision,
       Number(request?.payload?.draft_revision || 0),

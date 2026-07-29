@@ -6358,10 +6358,22 @@ def _test_evaluate_idea_create_task_vertical_slice() -> None:
         "operation_id": str(run_web_app.uuid.uuid4()),
         "action": "evaluate_again",
     }
+    cancel_status, cancelled = run_web_app.invalidate_evaluate_idea_create_task(
+        cancel_request,
+        registry=cancel_registry,
+    )
+    assert cancel_status == HTTPStatus.OK
+    assert cancelled["state"] == "cancelled"
     assert run_web_app.invalidate_evaluate_idea_create_task(
         cancel_request,
         registry=cancel_registry,
-    )[1]["state"] == "cancelled"
+    ) == (HTTPStatus.OK, cancelled)
+    different_cancel = dict(cancel_request)
+    different_cancel["operation_id"] = str(run_web_app.uuid.uuid4())
+    assert run_web_app.invalidate_evaluate_idea_create_task(
+        different_cancel,
+        registry=cancel_registry,
+    )[1]["error"] == "evaluate_idea_create_task_draft_cancelled"
     assert run_web_app.preview_evaluate_idea_create_task(
         final_payload(cancel_draft, 2),
         registry=cancel_registry,
@@ -6516,10 +6528,16 @@ def _test_evaluate_idea_create_task_vertical_slice() -> None:
             "operation_id": str(run_web_app.uuid.uuid4()),
             "action": "evaluate_again",
         }
+        http_cancel_status, http_cancelled = post_workflow(
+            run_web_app.EVALUATE_IDEA_CREATE_TASK_INVALIDATE_ENDPOINT,
+            http_invalidate,
+        )
+        assert http_cancel_status == HTTPStatus.OK
+        assert http_cancelled["result_type"] == "cancelled"
         assert post_workflow(
             run_web_app.EVALUATE_IDEA_CREATE_TASK_INVALIDATE_ENDPOINT,
             http_invalidate,
-        )[1]["result_type"] == "cancelled"
+        ) == (HTTPStatus.OK, http_cancelled)
         feature_status, feature_error = post_workflow(
             f"{run_web_app.EVALUATE_IDEA_CREATE_TASK_DRAFT_ENDPOINT}/extra",
             {},
@@ -6563,6 +6581,9 @@ def _test_evaluate_idea_create_task_client_state_machine() -> None:
         "evaluate-task-evaluate-again",
         "retry-evaluate-task-final",
         "retry-evaluate-task-invalidate",
+        'evaluateTaskPendingRequest?.kind === "invalidate"',
+        '".evaluate-task-edit-draft, .evaluate-task-evaluate-again"',
+        "button.disabled = invalidatePending",
         "setEvaluateTaskWriteControlsLocked",
         ".preview-task-transition",
         ".preview-completion-evidence",
@@ -6588,6 +6609,96 @@ def _test_evaluate_idea_create_task_client_state_machine() -> None:
     ]
     assert edit_settlement.index("evaluateTaskClientGeneration += 1") < (
         edit_settlement.index("evaluateTaskAuthorityLocked = false")
+    )
+    invalidate_start = app_js.index(
+        "async function invalidateEvaluateTaskDraft("
+    )
+    invalidate_end = app_js.index(
+        "\nasync function confirmEvaluateIdeaTask(",
+        invalidate_start,
+    )
+    invalidate_source = app_js[invalidate_start:invalidate_end]
+    controlled_fetch_harness = "\n".join(
+        (
+            "let evaluateTaskDraft = { draftId: 'draft-a', revision: 3, "
+            "authorityRevision: 3 };",
+            "let evaluateTaskPendingRequest = { kind: 'final', "
+            "payload: { draft_revision: 4 } };",
+            "let evaluateTaskClientGeneration = 11;",
+            "let evaluateTaskAuthorityLocked = false;",
+            "let evaluateTaskToken = 'token';",
+            "let evaluateTaskConfirmation = 'CREATE LOCAL TASK';",
+            "let evaluateTaskConfirmRequest = null;",
+            "let evaluateTaskConfirmPending = false;",
+            "let evaluateTaskConfirmInFlight = false;",
+            "let evaluateTaskConfirmRetryReady = false;",
+            "const statusText = { textContent: '' };",
+            "let uuidCount = 0;",
+            "function newEvaluateTaskUuid() { uuidCount += 1; "
+            "return `operation-${uuidCount}`; }",
+            "function refreshEvaluateIdeaControls() {}",
+            "function renderEvaluateTaskRetry() {}",
+            "function evaluateTaskRequestMatches(request) { "
+            "return evaluateTaskPendingRequest === request "
+            "&& request.clientGeneration === evaluateTaskClientGeneration "
+            "&& request.draftId === evaluateTaskDraft.draftId; }",
+            "function evaluateTaskResponseJson(response) { "
+            "return Promise.resolve(response.data); }",
+            "function evaluateTaskReceiptIsValid() { return false; }",
+            "function acceptEvaluateTaskReceipt() {}",
+            "function renderEvaluateTaskDraft() {}",
+            "function clearEvaluateTaskAuthority() {}",
+            "async function evaluateIdea() {}",
+            "const fetchBodies = [];",
+            "let rejectFirst;",
+            "function fetch(_url, options) {",
+            "  fetchBodies.push(options.body);",
+            "  if (fetchBodies.length === 1) {",
+            "    return new Promise((_resolve, reject) => { rejectFirst = reject; });",
+            "  }",
+            "  return new Promise(() => {});",
+            "}",
+            invalidate_source,
+            "(async () => {",
+            "  const first = invalidateEvaluateTaskDraft('edit_draft');",
+            "  const firstRequest = evaluateTaskPendingRequest;",
+            "  const firstIdentity = JSON.stringify(firstRequest.payload);",
+            "  await invalidateEvaluateTaskDraft('edit_draft');",
+            "  await invalidateEvaluateTaskDraft('evaluate_again');",
+            "  if (fetchBodies.length !== 1) {",
+            "    throw new Error('rapid duplicate/mixed clicks sent another request');",
+            "  }",
+            "  if (evaluateTaskPendingRequest !== firstRequest "
+            "|| JSON.stringify(evaluateTaskPendingRequest.payload) !== firstIdentity) {",
+            "    throw new Error('pending invalidate identity changed');",
+            "  }",
+            "  rejectFirst(new Error('lost response'));",
+            "  await first;",
+            "  invalidateEvaluateTaskDraft('edit_draft', true);",
+            "  await Promise.resolve();",
+            "  if (fetchBodies.length !== 2 || fetchBodies[1] !== fetchBodies[0]) {",
+            "    throw new Error('retry did not preserve the exact body');",
+            "  }",
+            "  if (evaluateTaskPendingRequest !== firstRequest "
+            "|| JSON.stringify(evaluateTaskPendingRequest.payload) !== firstIdentity) {",
+            "    throw new Error('retry replaced invalidate authority');",
+            "  }",
+            "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+        )
+    )
+    controlled_fetch = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=controlled_fetch_harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert controlled_fetch.returncode == 0, (
+        "Invalidate controlled-fetch harness failed: "
+        f"{controlled_fetch.stdout}\n{controlled_fetch.stderr}"
     )
     completed = subprocess.run(
         ("node", "--check", "web/app.js"),
