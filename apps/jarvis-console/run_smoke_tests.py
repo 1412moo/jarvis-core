@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import FrozenInstanceError, replace
 import hashlib
 from http.client import HTTPConnection
@@ -15,6 +16,7 @@ import subprocess
 import shutil
 from tempfile import TemporaryDirectory
 import threading
+from types import SimpleNamespace
 from typing import Any
 
 import run_web_app
@@ -771,7 +773,7 @@ def _test_evaluate_idea_vertical_slice() -> None:
     assert artifact_snapshot() == before_artifacts
 
 
-def _test_evaluate_idea_create_task_vertical_slice() -> None:
+def _legacy_test_evaluate_idea_create_task_vertical_slice() -> None:
     class FakeClock:
         def __init__(self) -> None:
             self.value = 1_000.0
@@ -1572,7 +1574,7 @@ def _test_evaluate_idea_create_task_vertical_slice() -> None:
     assert production_snapshot() == before_production
 
 
-def _test_evaluate_idea_create_task_client_state_machine() -> None:
+def _legacy_test_evaluate_idea_create_task_client_state_machine() -> None:
     app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
     block_start = app_js.index("function evaluateIdeaList(")
     block_end = app_js.index("function copyCommandLabel(", block_start)
@@ -6030,6 +6032,573 @@ if (!metadataHtml.includes(readOnlyBadge) ||
     assert "llm" not in parser_projection_source
     assert "openai" not in parser_projection_source
     assert artifact_snapshot() == before_artifacts
+
+
+def _test_evaluate_idea_create_task_vertical_slice() -> None:
+    """Exercise Draft/Final/Invalidate/Confirm authority and replay semantics."""
+
+    draft_fields = {
+        "ok",
+        "product_name",
+        "result_type",
+        "source",
+        "draft_request_id",
+        "draft_id",
+        "draft_revision",
+        "expires_in_seconds",
+        "evaluation",
+        "canonical_candidate",
+        "editable_fields",
+        "immutable_fields",
+        "warning",
+    }
+    final_fields = {
+        "ok",
+        "product_name",
+        "result_type",
+        "source",
+        "draft_id",
+        "draft_revision",
+        "operation_id",
+        "token",
+        "expires_in_seconds",
+        "confirmation_literal",
+        "evaluation",
+        "candidate",
+        "immutable_fields",
+        "destination",
+        "warning",
+    }
+    evaluation = {
+        "idea": "Build a bounded Jarvis correction flow",
+        "goal": "Create exactly one reviewed TODO",
+        "context": "Local-only",
+        "provided_evidence": ["Current Evaluate Idea is deterministic"],
+    }
+
+    def draft_payload(request_id: str | None = None) -> dict[str, Any]:
+        return {
+            "draft_request_id": request_id or str(run_web_app.uuid.uuid4()),
+            **evaluation,
+        }
+
+    def final_payload(
+        draft: dict[str, Any],
+        revision: int,
+        *,
+        operation_id: str | None = None,
+        title: str = "  Cafe\u0301   validation  ",
+        summary: str = "  Verify   one bounded correction flow.  ",
+    ) -> dict[str, Any]:
+        return {
+            "draft_id": draft["draft_id"],
+            "draft_revision": revision,
+            "operation_id": operation_id or str(run_web_app.uuid.uuid4()),
+            **evaluation,
+            "title": title,
+            "summary": summary,
+        }
+
+    registry = run_web_app.CreateLocalTaskRegistry(hmac_secret=b"d" * 32)
+    preview_stub = lambda *_args, **_kwargs: SimpleNamespace(
+        result_type="would_create",
+        task_id="task-2026-evaluate-draft",
+    )
+    first_request = draft_payload()
+    draft_status, draft = run_web_app.draft_evaluate_idea_create_task(
+        first_request,
+        registry=registry,
+    )
+    assert draft_status == HTTPStatus.OK
+    assert set(draft) == draft_fields
+    assert draft["result_type"] == "draft"
+    assert draft["draft_revision"] == 0
+    assert draft["editable_fields"] == ["title", "summary"]
+    assert draft["immutable_fields"] == (
+        run_web_app.EVALUATE_IDEA_CREATE_TASK_IMMUTABLE_FIELDS
+    )
+    assert {"token", "confirmation_literal", "destination"}.isdisjoint(draft)
+    assert run_web_app.draft_evaluate_idea_create_task(
+        first_request,
+        registry=registry,
+    ) == (HTTPStatus.OK, draft)
+    conflict_request = dict(first_request)
+    conflict_request["goal"] = "Different canonical body"
+    assert run_web_app.draft_evaluate_idea_create_task(
+        conflict_request,
+        registry=registry,
+    )[1]["error"] == "evaluate_idea_create_task_draft_request_conflict"
+
+    with nullcontext(".") as temporary:
+        tasks_dir = Path(temporary)
+        final_one_request = final_payload(draft, 1)
+        final_status, final_one = run_web_app.preview_evaluate_idea_create_task(
+            final_one_request,
+            registry=registry,
+            tasks_dir=tasks_dir,
+            candidate_previewer=preview_stub,
+        )
+        assert final_status == HTTPStatus.OK
+        assert set(final_one) == final_fields
+        assert final_one["candidate"] == {
+            "title": "Café validation",
+            "summary": "Verify one bounded correction flow.",
+            "status": "TODO",
+            "repo": "jarvis-core",
+            "source_command": "Evaluate Idea",
+        }
+        assert final_one["confirmation_literal"] == "CREATE LOCAL TASK"
+        assert run_web_app.preview_evaluate_idea_create_task(
+            final_one_request,
+            registry=registry,
+            tasks_dir=tasks_dir,
+            candidate_previewer=preview_stub,
+        ) == (HTTPStatus.OK, final_one)
+
+        conflicting_equal = dict(final_one_request)
+        conflicting_equal["operation_id"] = str(run_web_app.uuid.uuid4())
+        assert run_web_app.preview_evaluate_idea_create_task(
+            conflicting_equal,
+            registry=registry,
+            tasks_dir=tasks_dir,
+            candidate_previewer=preview_stub,
+        )[1]["error"] == "evaluate_idea_create_task_draft_revision_conflict"
+
+        final_two_request = final_payload(
+            draft,
+            2,
+            title="Replacement title",
+            summary="Replacement summary",
+        )
+        final_two_status, final_two = (
+            run_web_app.preview_evaluate_idea_create_task(
+                final_two_request,
+                registry=registry,
+                tasks_dir=tasks_dir,
+                candidate_previewer=preview_stub,
+            )
+        )
+        assert final_two_status == HTTPStatus.OK
+        assert final_two["token"] != final_one["token"]
+        assert run_web_app.confirm_create_local_task(
+            {
+                "token": final_one["token"],
+                "confirmation": "CREATE LOCAL TASK",
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )[0] == HTTPStatus.NOT_FOUND
+        assert run_web_app.preview_evaluate_idea_create_task(
+            final_one_request,
+            registry=registry,
+            tasks_dir=tasks_dir,
+            candidate_previewer=preview_stub,
+        )[1]["error"] == "evaluate_idea_create_task_draft_revision_stale"
+
+        failed_final = final_payload(draft, 3)
+        failed_status, failed = run_web_app.preview_evaluate_idea_create_task(
+            failed_final,
+            registry=registry,
+            tasks_dir=tasks_dir,
+            candidate_previewer=lambda *_args, **_kwargs: SimpleNamespace(
+                result_type="rejected",
+                task_id=None,
+            ),
+        )
+        assert failed_status == HTTPStatus.CONFLICT
+        assert failed["error"] == "evaluate_idea_create_task_candidate_preview_failed"
+        assert run_web_app.preview_evaluate_idea_create_task(
+            final_two_request,
+            registry=registry,
+            tasks_dir=tasks_dir,
+            candidate_previewer=preview_stub,
+        ) == (HTTPStatus.OK, final_two)
+
+        invalidate_request = {
+            "draft_id": draft["draft_id"],
+            "draft_revision": 3,
+            "operation_id": str(run_web_app.uuid.uuid4()),
+            "action": "edit_draft",
+        }
+        invalidate_status, invalidated = (
+            run_web_app.invalidate_evaluate_idea_create_task(
+                invalidate_request,
+                registry=registry,
+            )
+        )
+        assert invalidate_status == HTTPStatus.OK
+        assert invalidated["result_type"] == "invalidated"
+        assert invalidated["state"] == "draft"
+        assert run_web_app.invalidate_evaluate_idea_create_task(
+            invalidate_request,
+            registry=registry,
+        ) == (HTTPStatus.OK, invalidated)
+        assert run_web_app.confirm_create_local_task(
+            {
+                "token": final_two["token"],
+                "confirmation": "CREATE LOCAL TASK",
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )[0] == HTTPStatus.NOT_FOUND
+
+        final_four_request = final_payload(
+            draft,
+            4,
+            title="Final reviewed title",
+            summary="Final reviewed summary",
+        )
+        _, final_four = run_web_app.preview_evaluate_idea_create_task(
+            final_four_request,
+            registry=registry,
+            tasks_dir=tasks_dir,
+            candidate_previewer=preview_stub,
+        )
+        writes: list[dict[str, str]] = []
+        original_writer = run_web_app.write_task_file
+        try:
+            def successful_writer(
+                candidate: dict[str, str],
+                *,
+                tasks_dir: Path,
+            ) -> SimpleNamespace:
+                _tasks_dir = tasks_dir
+                writes.append(dict(candidate))
+                return SimpleNamespace(
+                    result_type="created",
+                    task_id="task-2026-evaluate-draft",
+                    created_at="2026-01-01 00:00 UTC",
+                    reason=None,
+                )
+
+            run_web_app.write_task_file = successful_writer
+            wrong_status, _wrong = run_web_app.confirm_create_local_task(
+                {
+                    "token": final_four["token"],
+                    "confirmation": "create local task",
+                },
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+            assert wrong_status == HTTPStatus.BAD_REQUEST
+            confirm_request = {
+                "token": final_four["token"],
+                "confirmation": "CREATE LOCAL TASK",
+            }
+            created_status, created = run_web_app.confirm_create_local_task(
+                confirm_request,
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+            assert created_status == HTTPStatus.OK
+            assert created["result_type"] == "created"
+            replay_status, replay = run_web_app.confirm_create_local_task(
+                confirm_request,
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+        finally:
+            run_web_app.write_task_file = original_writer
+        assert replay_status == HTTPStatus.OK
+        assert replay["result_type"] == "already_created"
+        assert replay["receipt"] == created["receipt"]
+        assert len(writes) == 1
+        after_confirm = final_payload(draft, 5)
+        recovered_status, recovered = (
+            run_web_app.preview_evaluate_idea_create_task(
+                after_confirm,
+                registry=registry,
+                tasks_dir=tasks_dir,
+                candidate_previewer=preview_stub,
+            )
+        )
+        assert recovered_status == HTTPStatus.OK
+        assert recovered["result_type"] == "already_created"
+        assert recovered["receipt"] == created["receipt"]
+        recovered_invalidate = {
+            "draft_id": draft["draft_id"],
+            "draft_revision": 5,
+            "operation_id": str(run_web_app.uuid.uuid4()),
+            "action": "evaluate_again",
+        }
+        assert run_web_app.invalidate_evaluate_idea_create_task(
+            recovered_invalidate,
+            registry=registry,
+        )[1]["result_type"] == "already_created"
+
+    reverse_registry = run_web_app.CreateLocalTaskRegistry(hmac_secret=b"r" * 32)
+    _, reverse_draft = run_web_app.draft_evaluate_idea_create_task(
+        draft_payload(),
+        registry=reverse_registry,
+    )
+    preview_stub = lambda *_args, **_kwargs: SimpleNamespace(
+        result_type="would_create",
+        task_id="task-2026-revision-order",
+    )
+    high_request = final_payload(reverse_draft, 7)
+    assert run_web_app.preview_evaluate_idea_create_task(
+        high_request,
+        registry=reverse_registry,
+        candidate_previewer=preview_stub,
+    )[0] == HTTPStatus.OK
+    assert run_web_app.preview_evaluate_idea_create_task(
+        final_payload(reverse_draft, 6),
+        registry=reverse_registry,
+        candidate_previewer=preview_stub,
+    )[1]["error"] == "evaluate_idea_create_task_draft_revision_stale"
+
+    cancel_registry = run_web_app.CreateLocalTaskRegistry(hmac_secret=b"c" * 32)
+    _, cancel_draft = run_web_app.draft_evaluate_idea_create_task(
+        draft_payload(),
+        registry=cancel_registry,
+    )
+    cancel_request = {
+        "draft_id": cancel_draft["draft_id"],
+        "draft_revision": 1,
+        "operation_id": str(run_web_app.uuid.uuid4()),
+        "action": "evaluate_again",
+    }
+    assert run_web_app.invalidate_evaluate_idea_create_task(
+        cancel_request,
+        registry=cancel_registry,
+    )[1]["state"] == "cancelled"
+    assert run_web_app.preview_evaluate_idea_create_task(
+        final_payload(cancel_draft, 2),
+        registry=cancel_registry,
+        candidate_previewer=preview_stub,
+    )[1]["error"] == "evaluate_idea_create_task_draft_cancelled"
+
+    failure_registry = run_web_app.CreateLocalTaskRegistry(hmac_secret=b"f" * 32)
+    _, failure_draft = run_web_app.draft_evaluate_idea_create_task(
+        draft_payload(),
+        registry=failure_registry,
+    )
+    _, failure_final = run_web_app.preview_evaluate_idea_create_task(
+        final_payload(failure_draft, 1),
+        registry=failure_registry,
+        candidate_previewer=preview_stub,
+    )
+    original_writer = run_web_app.write_task_file
+    try:
+        run_web_app.write_task_file = (
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("lost"))
+        )
+        assert run_web_app.confirm_create_local_task(
+            {
+                "token": failure_final["token"],
+                "confirmation": "CREATE LOCAL TASK",
+            },
+            registry=failure_registry,
+        )[0] == HTTPStatus.CONFLICT
+    finally:
+        run_web_app.write_task_file = original_writer
+    assert run_web_app.preview_evaluate_idea_create_task(
+        final_payload(failure_draft, 2),
+        registry=failure_registry,
+        candidate_previewer=preview_stub,
+    )[1]["error"] == "evaluate_idea_create_task_draft_outcome_unknown"
+
+    capacity_registry = run_web_app.CreateLocalTaskRegistry(
+        capacity=1,
+        hmac_secret=b"k" * 32,
+    )
+    assert run_web_app.draft_evaluate_idea_create_task(
+        draft_payload(),
+        registry=capacity_registry,
+    )[0] == HTTPStatus.OK
+    assert run_web_app.draft_evaluate_idea_create_task(
+        draft_payload(),
+        registry=capacity_registry,
+    )[0] == HTTPStatus.SERVICE_UNAVAILABLE
+
+    current_time = [0.0]
+    expiry_registry = run_web_app.CreateLocalTaskRegistry(
+        clock=lambda: current_time[0],
+        hmac_secret=b"t" * 32,
+    )
+    _, expiring_draft = run_web_app.draft_evaluate_idea_create_task(
+        draft_payload(),
+        registry=expiry_registry,
+    )
+    current_time[0] = 601.0
+    assert run_web_app.preview_evaluate_idea_create_task(
+        final_payload(expiring_draft, 1),
+        registry=expiry_registry,
+        candidate_previewer=preview_stub,
+    )[0] == HTTPStatus.NOT_FOUND
+
+    for field, error in (
+        ("title", "evaluate_idea_create_task_invalid_title"),
+        ("summary", "evaluate_idea_create_task_invalid_summary"),
+    ):
+        invalid_registry = run_web_app.CreateLocalTaskRegistry()
+        _, invalid_draft = run_web_app.draft_evaluate_idea_create_task(
+            draft_payload(),
+            registry=invalid_registry,
+        )
+        invalid = final_payload(invalid_draft, 1)
+        invalid[field] = "unsafe\nvalue"
+        assert run_web_app.preview_evaluate_idea_create_task(
+            invalid,
+            registry=invalid_registry,
+            candidate_previewer=preview_stub,
+        )[1]["error"] == error
+
+    headers = [
+        ("Host", f"{run_web_app.DEFAULT_HOST}:8790"),
+        ("Origin", f"http://{run_web_app.DEFAULT_HOST}:8790"),
+        ("Content-Type", "application/json"),
+        ("Content-Length", "2"),
+    ]
+    for endpoint in (
+        run_web_app.EVALUATE_IDEA_CREATE_TASK_DRAFT_ENDPOINT,
+        run_web_app.EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT,
+        run_web_app.EVALUATE_IDEA_CREATE_TASK_INVALIDATE_ENDPOINT,
+    ):
+        assert run_web_app.validate_evaluate_idea_create_task_http_request(
+            path=endpoint,
+            query="",
+            header_pairs=headers,
+            bound_port=8790,
+        )[0] == HTTPStatus.OK
+    assert run_web_app.validate_evaluate_idea_create_task_http_request(
+        path=run_web_app.EVALUATE_IDEA_CREATE_TASK_DRAFT_ENDPOINT,
+        query="x=1",
+        header_pairs=headers,
+        bound_port=8790,
+    )[1]["error"] == "evaluate_idea_create_task_not_found"
+    assert run_web_app.parse_evaluate_idea_create_task_json_body(
+        b'{"x":1,"x":2}'
+    )[1]["error"] == "evaluate_idea_create_task_duplicate_json_key"
+
+    http_registry = run_web_app.CreateLocalTaskRegistry(hmac_secret=b"h" * 32)
+    server = run_web_app.ThreadingHTTPServer(
+        (run_web_app.DEFAULT_HOST, 0),
+        run_web_app.JarvisConsoleHandler,
+    )
+    server.create_local_task_registry = http_registry  # type: ignore[attr-defined]
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    port = int(server.server_address[1])
+
+    def post_workflow(
+        path: str,
+        payload: dict[str, Any],
+    ) -> tuple[int, dict[str, Any]]:
+        connection = HTTPConnection(run_web_app.DEFAULT_HOST, port, timeout=10)
+        body = json.dumps(payload, ensure_ascii=True).encode("ascii")
+        connection.request(
+            "POST",
+            path,
+            body=body,
+            headers={
+                "Content-Type": "application/json",
+                "Origin": f"http://{run_web_app.DEFAULT_HOST}:{port}",
+            },
+        )
+        response = connection.getresponse()
+        result = json.loads(response.read().decode("utf-8"))
+        status = response.status
+        connection.close()
+        return status, result
+
+    try:
+        http_request = draft_payload()
+        http_status, http_draft = post_workflow(
+            run_web_app.EVALUATE_IDEA_CREATE_TASK_DRAFT_ENDPOINT,
+            http_request,
+        )
+        assert http_status == HTTPStatus.OK
+        assert set(http_draft) == draft_fields
+        http_invalidate = {
+            "draft_id": http_draft["draft_id"],
+            "draft_revision": 1,
+            "operation_id": str(run_web_app.uuid.uuid4()),
+            "action": "evaluate_again",
+        }
+        assert post_workflow(
+            run_web_app.EVALUATE_IDEA_CREATE_TASK_INVALIDATE_ENDPOINT,
+            http_invalidate,
+        )[1]["result_type"] == "cancelled"
+        feature_status, feature_error = post_workflow(
+            f"{run_web_app.EVALUATE_IDEA_CREATE_TASK_DRAFT_ENDPOINT}/extra",
+            {},
+        )
+        assert feature_status == HTTPStatus.NOT_FOUND
+        assert feature_error["error"] == "evaluate_idea_create_task_not_found"
+        unrelated_status, unrelated_error = post_workflow(
+            "/api/unrelated",
+            {},
+        )
+        assert unrelated_status == HTTPStatus.NOT_FOUND
+        assert unrelated_error["error"] == "not_found"
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=5)
+    assert not server_thread.is_alive()
+
+
+def _test_evaluate_idea_create_task_client_state_machine() -> None:
+    """Keep the browser bound to exact Draft/Final/Invalidate/Confirm authority."""
+
+    app_js = (
+        Path(__file__).resolve().parent / "web" / "app.js"
+    ).read_text(encoding="utf-8")
+    required_fragments = (
+        'fetch("/api/evaluate-idea/create-task-draft"',
+        'fetch("/api/evaluate-idea/create-task-preview"',
+        'fetch("/api/evaluate-idea/create-task-preview/invalidate"',
+        'fetch("/api/create-local-task/confirm"',
+        "crypto.randomUUID()",
+        "evaluateTaskContentFingerprint",
+        "evaluateTaskClientGeneration",
+        "evaluateTaskAuthorityLocked = true",
+        "evaluateTaskPendingRequest === request",
+        "request.clientGeneration === evaluateTaskClientGeneration",
+        "evaluateTaskLastReceipt",
+        "Invalid JSON response",
+        "Inspect Tasks",
+        "evaluate-task-edit-draft",
+        "evaluate-task-evaluate-again",
+        "retry-evaluate-task-final",
+        "retry-evaluate-task-invalidate",
+        "setEvaluateTaskWriteControlsLocked",
+        ".preview-task-transition",
+        ".preview-completion-evidence",
+        ".preview-create-local-task",
+    )
+    for fragment in required_fragments:
+        assert fragment in app_js, fragment
+    assert app_js.index("evaluateTaskAuthorityLocked = true") < app_js.index(
+        'fetch("/api/evaluate-idea/create-task-preview"'
+    )
+    assert app_js.index(
+        'fetch("/api/evaluate-idea/create-task-preview/invalidate"'
+    ) < app_js.index(
+        'if (action === "edit_draft")'
+    )
+    edit_settlement_start = app_js.rindex('if (action === "edit_draft")')
+    edit_settlement = app_js[
+        edit_settlement_start:
+        app_js.index(
+            'clearEvaluateTaskAuthority({ preserveReceipt: false });',
+            edit_settlement_start,
+        )
+    ]
+    assert edit_settlement.index("evaluateTaskClientGeneration += 1") < (
+        edit_settlement.index("evaluateTaskAuthorityLocked = false")
+    )
+    completed = subprocess.run(
+        ("node", "--check", "web/app.js"),
+        cwd=Path(__file__).resolve().parent,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def main() -> None:

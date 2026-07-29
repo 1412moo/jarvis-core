@@ -51,15 +51,18 @@ let completionEvidenceLastReceipt = null;
 let evaluateIdeaBusy = false;
 let evaluateIdeaRevision = 0;
 let evaluateSuccessfulBinding = null;
-let evaluateTaskPreviewBusy = false;
-let evaluateTaskPreviewGeneration = 0;
-let evaluateTaskActivePreviewRequestId = null;
+let evaluateTaskClientGeneration = 0;
+let evaluateTaskDraft = null;
+let evaluateTaskDraftRequest = null;
+let evaluateTaskPendingRequest = null;
+let evaluateTaskAuthorityLocked = false;
 let evaluateTaskToken = "";
 let evaluateTaskConfirmation = "";
-let evaluateTaskTokenBinding = null;
 let evaluateTaskConfirmPending = false;
 let evaluateTaskConfirmInFlight = false;
 let evaluateTaskConfirmRetryReady = false;
+let evaluateTaskConfirmRequest = null;
+let evaluateTaskLastReceipt = null;
 const HTTP_STATUS_OK = 200;
 const LOCAL_URL_PREFIX = "http:" + "//127.0.0.1";
 const LOCAL_URL_PROTOCOL = "http:";
@@ -299,13 +302,64 @@ function evaluateTaskResultElement() {
   return researchDetails?.querySelector(".evaluate-create-local-task-result") || null;
 }
 
-function evaluateTaskPreviewRequestMatches(requestId, binding) {
+function newEvaluateTaskUuid() {
+  return crypto.randomUUID();
+}
+
+function evaluateTaskContentFingerprint(payload) {
+  return JSON.stringify({
+    idea: String(payload?.idea || ""),
+    goal: String(payload?.goal || ""),
+    context: String(payload?.context || ""),
+    provided_evidence: Array.isArray(payload?.provided_evidence)
+      ? [...payload.provided_evidence]
+      : [],
+    title: String(payload?.title || ""),
+    summary: String(payload?.summary || ""),
+  });
+}
+
+function evaluateTaskRequestMatches(request) {
   return Boolean(
-    evaluateTaskPreviewBusy
-      && evaluateTaskActivePreviewRequestId === requestId
-      && evaluateSuccessfulBinding === binding
-      && evaluateIdeaBindingMatches(binding)
+    request
+      && evaluateTaskPendingRequest === request
+      && evaluateTaskDraft
+      && request.clientGeneration === evaluateTaskClientGeneration
+      && request.draftId === evaluateTaskDraft.draftId
   );
+}
+
+function evaluateTaskDraftIsLive() {
+  return Boolean(
+    (evaluateTaskDraftRequest || evaluateTaskDraft)
+      && !evaluateTaskLastReceipt
+  );
+}
+
+function setEvaluateTaskWriteControlsLocked(locked) {
+  const controls = document.querySelectorAll([
+    ".preview-create-local-task",
+    ".confirm-create-local-task",
+    ".preview-task-transition",
+    ".confirm-task-transition",
+    ".preview-completion-evidence",
+    ".confirm-completion-evidence",
+    ".completion-evidence-input",
+  ].join(","));
+  controls.forEach((control) => {
+    if (locked) {
+      if (!Object.hasOwn(control.dataset, "evaluateTaskPreviousDisabled")) {
+        control.dataset.evaluateTaskPreviousDisabled = control.disabled ? "true" : "false";
+      }
+      control.disabled = true;
+    } else {
+      const wasDisabled = control.dataset.evaluateTaskPreviousDisabled;
+      if (wasDisabled !== undefined) {
+        control.disabled = wasDisabled === "true";
+        delete control.dataset.evaluateTaskPreviousDisabled;
+      }
+    }
+  });
 }
 
 function refreshEvaluateIdeaControls() {
@@ -316,17 +370,21 @@ function refreshEvaluateIdeaControls() {
     evaluateIdeaEvidence,
   ].filter(Boolean);
   evaluateInputs.forEach((input) => {
-    input.disabled = evaluateTaskConfirmPending;
+    input.disabled = evaluateTaskDraftIsLive() || evaluateTaskAuthorityLocked;
   });
   if (evaluateIdeaButton) {
-    evaluateIdeaButton.disabled = evaluateIdeaBusy || evaluateTaskConfirmPending;
+    evaluateIdeaButton.disabled = (
+      evaluateIdeaBusy
+      || evaluateTaskDraftIsLive()
+      || evaluateTaskAuthorityLocked
+    );
     evaluateIdeaButton.textContent = evaluateIdeaBusy ? "Evaluating Idea..." : "Evaluate Idea";
   }
-  const previewButton = researchDetails?.querySelector(".preview-evaluate-local-task");
-  if (previewButton) {
-    previewButton.disabled = (
-      evaluateTaskPreviewBusy
-      || evaluateTaskConfirmPending
+  const finalButton = researchDetails?.querySelector(".final-evaluate-local-task");
+  if (finalButton) {
+    finalButton.disabled = (
+      evaluateTaskAuthorityLocked
+      || !evaluateTaskDraft
       || !evaluateIdeaBindingMatches(evaluateSuccessfulBinding)
     );
   }
@@ -343,43 +401,52 @@ function refreshEvaluateIdeaControls() {
         ? "Creating local TODO Task..."
         : "Confirm Create Local Task";
   }
+  setEvaluateTaskWriteControlsLocked(evaluateTaskAuthorityLocked);
 }
 
-function clearEvaluateTaskAuthority({ clearSuccessfulBinding = true } = {}) {
-  evaluateTaskPreviewGeneration += 1;
-  evaluateTaskActivePreviewRequestId = null;
+function clearEvaluateTaskAuthority({
+  clearSuccessfulBinding = true,
+  clearDraft = true,
+  preserveReceipt = true,
+} = {}) {
+  evaluateTaskClientGeneration += 1;
+  evaluateTaskPendingRequest = null;
+  evaluateTaskDraftRequest = null;
   evaluateTaskToken = "";
   evaluateTaskConfirmation = "";
-  evaluateTaskTokenBinding = null;
-  evaluateTaskPreviewBusy = false;
   evaluateTaskConfirmPending = false;
   evaluateTaskConfirmInFlight = false;
   evaluateTaskConfirmRetryReady = false;
+  evaluateTaskConfirmRequest = null;
+  evaluateTaskAuthorityLocked = false;
+  if (clearDraft) {
+    evaluateTaskDraft = null;
+  }
+  if (!preserveReceipt) {
+    evaluateTaskLastReceipt = null;
+  }
   if (clearSuccessfulBinding) {
     evaluateSuccessfulBinding = null;
   }
+  setEvaluateTaskWriteControlsLocked(false);
 }
 
 function invalidateEvaluateTaskHandoff() {
-  if (evaluateTaskConfirmPending) {
+  if (evaluateTaskDraftIsLive() || evaluateTaskAuthorityLocked) {
     return;
   }
-  clearEvaluateTaskAuthority();
-  const previewButton = researchDetails?.querySelector(".preview-evaluate-local-task");
-  if (previewButton) {
-    previewButton.disabled = true;
-  }
+  clearEvaluateTaskAuthority({ preserveReceipt: true });
   const target = evaluateTaskResultElement();
   if (target && !target.querySelector(".evaluate-create-local-task-receipt")) {
     target.innerHTML = (
-      "<p class=\"muted\">Evaluate the current inputs again before Preview as Local Task.</p>"
+      "<p class=\"muted\">Evaluate the current inputs again before creating a Draft.</p>"
     );
   }
   refreshEvaluateIdeaControls();
 }
 
 function onEvaluateIdeaInputMutation() {
-  if (evaluateTaskConfirmPending) {
+  if (evaluateTaskDraftIsLive() || evaluateTaskAuthorityLocked) {
     return;
   }
   evaluateIdeaRevision += 1;
@@ -479,16 +546,13 @@ function renderEvaluateIdea(data, binding = evaluateSuccessfulBinding) {
         <div class="overview-section-heading">
           <div>
             <p class="eyebrow">Continue Evaluation as Task</p>
-            <h4>Prepare one local TODO from the recommended next step</h4>
+            <h4>Edit title and summary before one explicit Create</h4>
           </div>
           <span class="overview-badge approval-needed">Explicit Confirm required</span>
         </div>
-        <p class="muted">Evaluate Idea remains write-free. Preview creates nothing, and only explicit Confirm Create Local Task writes one TODO.</p>
-        <div class="suggestion-actions">
-          <button class="primary-button preview-evaluate-local-task" type="button"${binding ? "" : " disabled"}>Preview as Local Task</button>
-        </div>
+        <p class="muted">Draft and Final Preview write nothing. Only title and summary are editable; only explicit Confirm Create Local Task writes one TODO.</p>
         <div class="evaluate-create-local-task-result">
-          <p class="muted">No Evaluate-to-Task preview yet.</p>
+          <p class="muted">${binding ? "Preparing a write-free editable Draft..." : "No Evaluate-to-Task Draft yet."}</p>
         </div>
       </section>
     </article>
@@ -512,11 +576,11 @@ function renderEvaluateIdeaFailure(message) {
 }
 
 async function evaluateIdea() {
-  if (evaluateIdeaBusy || evaluateTaskConfirmPending) {
+  if (evaluateIdeaBusy || evaluateTaskDraftIsLive() || evaluateTaskAuthorityLocked) {
     return;
   }
   evaluateIdeaRevision += 1;
-  clearEvaluateTaskAuthority();
+  clearEvaluateTaskAuthority({ preserveReceipt: false });
   const requestRevision = evaluateIdeaRevision;
   const payload = canonicalEvaluateIdeaPayload();
   const requestBinding = makeEvaluateIdeaBinding(requestRevision, payload);
@@ -549,9 +613,10 @@ async function evaluateIdea() {
     }
     evaluateSuccessfulBinding = requestBinding;
     renderEvaluateIdea(data, requestBinding);
+    await createEvaluateTaskDraft(requestBinding);
   } catch (error) {
     if (evaluateIdeaBindingMatches(requestBinding)) {
-      clearEvaluateTaskAuthority();
+      clearEvaluateTaskAuthority({ preserveReceipt: false });
       renderEvaluateIdeaFailure(error.message || "Evaluation failed.");
     }
   } finally {
@@ -560,24 +625,56 @@ async function evaluateIdea() {
   }
 }
 
-function renderEvaluateTaskPreview(data, binding, requestId) {
+function renderEvaluateTaskDraft(data = evaluateTaskDraft) {
   const target = evaluateTaskResultElement();
-  if (
-    !target
-    || !evaluateTaskPreviewRequestMatches(requestId, binding)
-  ) {
+  if (!target || !data) {
+    return;
+  }
+  const evaluation = data.evaluation || {};
+  const candidate = data.canonicalCandidate || {};
+  target.innerHTML = `
+    <article class="create-local-task-preview evaluate-create-local-task-draft">
+      <div class="overview-section-heading">
+        <h4>Editable Task Draft</h4>
+        <span class="overview-badge read-only">Write-free</span>
+      </div>
+      <dl class="create-local-task-facts">
+        <div><dt>Decision</dt><dd>${escapeHtml(evaluation.decision || "")}</dd></div>
+        <div><dt>Recommended next step</dt><dd>${escapeHtml(evaluation.next_step || "")}</dd></div>
+        <div><dt>Status</dt><dd>${escapeHtml(candidate.status || "")}</dd></div>
+        <div><dt>Repo</dt><dd>${escapeHtml(candidate.repo || "")}</dd></div>
+        <div><dt>Source</dt><dd>${escapeHtml(candidate.source_command || "")}</dd></div>
+      </dl>
+      <label class="field-label" for="evaluateTaskDraftTitle">Title</label>
+      <input id="evaluateTaskDraftTitle" class="evaluate-task-title" type="text" maxlength="120" value="${escapeHtml(data.title || candidate.title || "")}">
+      <label class="field-label" for="evaluateTaskDraftSummary">Summary</label>
+      <textarea id="evaluateTaskDraftSummary" class="evaluate-task-summary" maxlength="500" rows="4">${escapeHtml(data.summary || candidate.summary || "")}</textarea>
+      <p class="safety-note">${escapeHtml(data.warning || "")}</p>
+      <div class="suggestion-actions">
+        <button class="primary-button final-evaluate-local-task" type="button">Final Preview</button>
+        <button class="secondary-action evaluate-task-evaluate-again" type="button">Evaluate Again</button>
+      </div>
+    </article>
+  `;
+  statusText.textContent = "Editable Draft ready. No file or Create token exists.";
+  nextActionText.textContent = "Edit only title and summary, then request Final Preview.";
+  refreshEvaluateIdeaControls();
+}
+
+function renderEvaluateTaskPreview(data, request) {
+  const target = evaluateTaskResultElement();
+  if (!target) {
     return;
   }
   const evaluation = data.evaluation || {};
   const candidate = data.candidate || {};
   const destination = data.destination || {};
-  evaluateTaskToken = data.token || "";
-  evaluateTaskConfirmation = data.confirmation_literal || "";
-  evaluateTaskTokenBinding = binding;
+  evaluateTaskToken = data.token;
+  evaluateTaskConfirmation = data.confirmation_literal;
   target.innerHTML = `
     <article class="create-local-task-preview evaluate-create-local-task-preview">
       <div class="overview-section-heading">
-        <h4>Create Local Task Preview</h4>
+        <h4>Final Create Local Task Preview</h4>
         <span class="overview-badge approval-needed">Not created</span>
       </div>
       <dl class="create-local-task-facts">
@@ -590,15 +687,25 @@ function renderEvaluateTaskPreview(data, binding, requestId) {
         <div><dt>Source</dt><dd>${escapeHtml(candidate.source_command || "")}</dd></div>
         <div><dt>Provisional destination</dt><dd><code>${escapeHtml(destination.storage_location || "")}</code></dd></div>
       </dl>
-      <p class="muted">The provisional path may change during concurrent allocation. The Receipt is authoritative.</p>
+      <p class="muted">The Receipt is authoritative. Edit requires server acknowledgement that this token was revoked.</p>
       <p class="safety-note">${escapeHtml(data.warning || "")}</p>
       <div class="suggestion-actions">
         <button class="primary-button confirm-evaluate-local-task" type="button">Confirm Create Local Task</button>
+        <button class="secondary-action evaluate-task-edit-draft" type="button">Edit Draft</button>
+        <button class="secondary-action evaluate-task-evaluate-again" type="button">Evaluate Again</button>
       </div>
     </article>
   `;
-  statusText.textContent = "Evaluate-to-Task preview ready. Nothing has been created.";
-  nextActionText.textContent = "Review the candidate, then explicitly Confirm Create Local Task.";
+  if (evaluateTaskDraft) {
+    evaluateTaskDraft.revision = request.payload.draft_revision;
+    evaluateTaskDraft.authorityRevision = request.payload.draft_revision;
+    evaluateTaskDraft.title = candidate.title;
+    evaluateTaskDraft.summary = candidate.summary;
+    evaluateTaskDraft.finalOperationId = request.payload.operation_id;
+    evaluateTaskDraft.finalFingerprint = request.contentFingerprint;
+  }
+  statusText.textContent = "Final Preview ready. Nothing has been created.";
+  nextActionText.textContent = "Confirm exactly once, or invalidate before editing.";
   refreshEvaluateIdeaControls();
 }
 
@@ -629,150 +736,413 @@ function renderEvaluateTaskReceipt(data) {
   nextActionText.textContent = receipt.next_recommended_action || "Review the new TODO task.";
 }
 
-function renderEvaluateTaskConfirmRetry(message) {
+function renderEvaluateTaskRetry(message, kind) {
   const target = evaluateTaskResultElement();
   if (!target) {
     return;
   }
+  const retryLabel = kind === "draft"
+    ? "Retry Draft"
+    : kind === "invalidate"
+      ? "Retry Invalidate"
+      : kind === "confirm"
+        ? "Retry Confirm"
+        : "Retry Final Preview";
+  const retryClass = kind === "draft"
+    ? "retry-evaluate-task-draft"
+    : kind === "invalidate"
+      ? "retry-evaluate-task-invalidate"
+      : kind === "confirm"
+        ? "confirm-evaluate-local-task"
+        : "retry-evaluate-task-final";
   target.innerHTML = `
     <article class="create-local-task-preview evaluate-create-local-task-confirm-retry">
-      <h4>Confirm response was not authoritative</h4>
+      <h4>${escapeHtml(retryLabel)} response was not authoritative</h4>
       <p class="safety-note">${escapeHtml(message)}</p>
-      <p class="muted">The same token is retained. Evaluate inputs and handoff controls stay locked until Retry Confirm succeeds or returns a terminal client error.</p>
+      <p class="muted">The exact request ID, revision, operation, body, and client generation are retained. Controls remain locked.</p>
       <div class="suggestion-actions">
-        <button class="primary-button confirm-evaluate-local-task" type="button">Retry Confirm</button>
+        <button class="primary-button ${retryClass}" type="button">${escapeHtml(retryLabel)}</button>
+        ${kind === "final" ? '<button class="secondary-action evaluate-task-edit-draft" type="button">Edit Draft</button><button class="secondary-action evaluate-task-evaluate-again" type="button">Evaluate Again</button>' : ""}
       </div>
     </article>
   `;
+  refreshEvaluateIdeaControls();
 }
 
-function renderEvaluateTaskTerminalFailure(message) {
+function renderEvaluateTaskOutcomeUnknown(message) {
   const target = evaluateTaskResultElement();
   if (target) {
     target.innerHTML = `
       <article class="create-local-task-preview blocked">
-        <h4>Create Local Task could not complete</h4>
+        <h4>Create outcome unknown</h4>
         <p class="safety-note">${escapeHtml(message)}</p>
-        <p class="muted">No retry authority was retained. Evaluate the current inputs again.</p>
+        <p class="muted">Inspect Tasks for the expected title and path. Jarvis will not create a new Final authority automatically.</p>
       </article>
     `;
   }
+  evaluateTaskAuthorityLocked = true;
+  statusText.textContent = "Create outcome unknown. Inspect Tasks before any new attempt.";
+  nextActionText.textContent = "Refresh Tasks and verify whether the TODO exists.";
+  refreshEvaluateIdeaControls();
 }
 
-async function previewEvaluateIdeaAsTask() {
-  const binding = evaluateSuccessfulBinding;
-  if (
-    evaluateTaskPreviewBusy
-    || evaluateTaskConfirmPending
-    || !evaluateIdeaBindingMatches(binding)
-  ) {
-    statusText.textContent = "Evaluate the current inputs again before Preview as Local Task.";
+function evaluateTaskResponseJson(response) {
+  return response.text().then((text) => {
+    try {
+      return JSON.parse(text);
+    } catch (_error) {
+      throw new Error(`Invalid JSON response (${response.status}).`);
+    }
+  });
+}
+
+function evaluateTaskDraftResponseIsValid(data, request) {
+  return Boolean(
+    data
+      && data.ok === true
+      && data.result_type === "draft"
+      && data.source === "evaluate_idea"
+      && data.draft_request_id === request.payload.draft_request_id
+      && typeof data.draft_id === "string"
+      && data.draft_revision === 0
+      && data.canonical_candidate
+      && !Object.hasOwn(data, "token")
+      && !Object.hasOwn(data, "confirmation_literal")
+      && !Object.hasOwn(data, "destination")
+  );
+}
+
+async function createEvaluateTaskDraft(binding, retry = false) {
+  if (!binding || !evaluateIdeaBindingMatches(binding)) {
     return;
   }
-  evaluateTaskPreviewGeneration += 1;
-  const requestId = evaluateTaskPreviewGeneration;
-  evaluateTaskActivePreviewRequestId = requestId;
-  evaluateTaskPreviewBusy = true;
+  if (!retry || !evaluateTaskDraftRequest) {
+    evaluateTaskDraftRequest = {
+      clientGeneration: evaluateTaskClientGeneration,
+      binding,
+      payload: {
+        draft_request_id: newEvaluateTaskUuid(),
+        ...fixedEvaluateIdeaPayload(binding.payload),
+      },
+    };
+  }
+  const request = evaluateTaskDraftRequest;
   refreshEvaluateIdeaControls();
   const target = evaluateTaskResultElement();
   if (target) {
-    target.innerHTML = "<p class=\"muted\">Preparing a write-free local Task preview...</p>";
+    target.innerHTML = "<p class=\"muted\">Preparing a write-free editable Draft...</p>";
+  }
+  try {
+    const response = await fetch("/api/evaluate-idea/create-task-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request.payload),
+    });
+    const data = await evaluateTaskResponseJson(response);
+    if (
+      evaluateTaskDraftRequest !== request
+      || request.clientGeneration !== evaluateTaskClientGeneration
+      || !evaluateIdeaBindingMatches(binding)
+    ) {
+      return;
+    }
+    if (!response.ok || !evaluateTaskDraftResponseIsValid(data, request)) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    evaluateTaskDraft = {
+      draftId: data.draft_id,
+      revision: 0,
+      authorityRevision: 0,
+      evaluation: { ...data.evaluation },
+      canonicalCandidate: { ...data.canonical_candidate },
+      title: data.canonical_candidate.title,
+      summary: data.canonical_candidate.summary,
+      warning: data.warning,
+      binding,
+    };
+    evaluateTaskDraftRequest = null;
+    renderEvaluateTaskDraft(evaluateTaskDraft);
+  } catch (error) {
+    if (evaluateTaskDraftRequest === request) {
+      renderEvaluateTaskRetry(error.message || "Draft failed.", "draft");
+      statusText.textContent = "Draft response was unavailable. Retry uses the exact request.";
+    }
+  }
+  refreshEvaluateIdeaControls();
+}
+
+function onEvaluateTaskCandidateMutation() {
+  if (!evaluateTaskDraft || evaluateTaskAuthorityLocked) {
+    return;
+  }
+  const title = researchDetails?.querySelector(".evaluate-task-title")?.value || "";
+  const summary = researchDetails?.querySelector(".evaluate-task-summary")?.value || "";
+  if (title !== evaluateTaskDraft.title || summary !== evaluateTaskDraft.summary) {
+    evaluateTaskDraft.revision += 1;
+    evaluateTaskDraft.title = title;
+    evaluateTaskDraft.summary = summary;
+  }
+}
+
+function evaluateTaskFinalResponseIsValid(data, request) {
+  return Boolean(
+    data
+      && data.ok === true
+      && data.result_type === "preview"
+      && data.source === "evaluate_idea"
+      && data.draft_id === request.draftId
+      && data.draft_revision === request.payload.draft_revision
+      && data.operation_id === request.payload.operation_id
+      && typeof data.token === "string"
+      && data.confirmation_literal === "CREATE LOCAL TASK"
+      && data.candidate
+      && data.destination
+  );
+}
+
+async function previewEvaluateIdeaAsTask(retry = false) {
+  const draft = evaluateTaskDraft;
+  if (!draft || !evaluateIdeaBindingMatches(draft.binding)) {
+    statusText.textContent = "Create a current Draft before Final Preview.";
+    return;
+  }
+  let request = evaluateTaskPendingRequest;
+  if (!retry || !request || request.kind !== "final") {
+    const title = researchDetails?.querySelector(".evaluate-task-title")?.value ?? draft.title;
+    const summary = researchDetails?.querySelector(".evaluate-task-summary")?.value ?? draft.summary;
+    draft.title = title;
+    draft.summary = summary;
+    const revision = Math.max(
+      1,
+      draft.revision <= draft.authorityRevision
+        ? draft.authorityRevision + 1
+        : draft.revision,
+    );
+    draft.revision = revision;
+    const payload = {
+      draft_id: draft.draftId,
+      draft_revision: revision,
+      operation_id: newEvaluateTaskUuid(),
+      ...fixedEvaluateIdeaPayload(draft.binding.payload),
+      title,
+      summary,
+    };
+    request = {
+      kind: "final",
+      clientGeneration: evaluateTaskClientGeneration,
+      draftId: draft.draftId,
+      payload,
+      contentFingerprint: evaluateTaskContentFingerprint(payload),
+    };
+    evaluateTaskPendingRequest = request;
+  }
+  evaluateTaskAuthorityLocked = true;
+  evaluateTaskToken = "";
+  evaluateTaskConfirmation = "";
+  refreshEvaluateIdeaControls();
+  const target = evaluateTaskResultElement();
+  if (target) {
+    target.innerHTML = "<p class=\"muted\">Preparing the authoritative write-free Final Preview...</p>";
   }
   try {
     const response = await fetch("/api/evaluate-idea/create-task-preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: binding.payloadJson,
+      body: JSON.stringify(request.payload),
     });
-    const data = await response.json();
-    if (!evaluateTaskPreviewRequestMatches(requestId, binding)) {
+    const data = await evaluateTaskResponseJson(response);
+    if (!evaluateTaskRequestMatches(request)) {
       return;
     }
-    if (!response.ok || !data.ok) {
+    if (!response.ok || !evaluateTaskFinalResponseIsValid(data, request)) {
       throw new Error(data.error || `Request failed: ${response.status}`);
     }
-    renderEvaluateTaskPreview(data, binding, requestId);
+    evaluateTaskPendingRequest = null;
+    renderEvaluateTaskPreview(data, request);
   } catch (error) {
-    if (evaluateTaskPreviewRequestMatches(requestId, binding)) {
-      evaluateTaskToken = "";
-      evaluateTaskConfirmation = "";
-      evaluateTaskTokenBinding = null;
-      if (target) {
-        target.innerHTML = `<p class="safety-note">Preview as Local Task failed: ${escapeHtml(error.message || "Preview failed.")}</p>`;
-      }
-      statusText.textContent = `Preview as Local Task failed: ${error.message || "Preview failed."}`;
+    if (evaluateTaskRequestMatches(request)) {
+      renderEvaluateTaskRetry(error.message || "Final Preview failed.", "final");
+      statusText.textContent = "Final Preview response was unavailable. Authority remains locked.";
     }
-  } finally {
-    if (evaluateTaskPreviewRequestMatches(requestId, binding)) {
-      evaluateTaskActivePreviewRequestId = null;
-      evaluateTaskPreviewBusy = false;
-      refreshEvaluateIdeaControls();
+  }
+}
+
+function evaluateTaskReceiptIsValid(data) {
+  return Boolean(
+    data
+      && data.ok === true
+      && ["created", "already_created"].includes(data.result_type)
+      && data.receipt
+      && typeof data.receipt.task_id === "string"
+      && typeof data.receipt.storage_location === "string"
+  );
+}
+
+function acceptEvaluateTaskReceipt(data) {
+  evaluateTaskLastReceipt = JSON.parse(JSON.stringify(data));
+  renderEvaluateTaskReceipt(evaluateTaskLastReceipt);
+  clearEvaluateTaskAuthority({
+    clearSuccessfulBinding: true,
+    clearDraft: true,
+    preserveReceipt: true,
+  });
+  renderEvaluateTaskReceipt(evaluateTaskLastReceipt);
+}
+
+async function invalidateEvaluateTaskDraft(action, retry = false) {
+  if (!evaluateTaskDraft || !["edit_draft", "evaluate_again"].includes(action)) {
+    return;
+  }
+  let request = evaluateTaskPendingRequest;
+  if (
+    !retry
+    || !request
+    || request.kind !== "invalidate"
+    || request.payload.action !== action
+  ) {
+    const baseRevision = Math.max(
+      evaluateTaskDraft.revision,
+      Number(request?.payload?.draft_revision || 0),
+    );
+    request = {
+      kind: "invalidate",
+      clientGeneration: evaluateTaskClientGeneration,
+      draftId: evaluateTaskDraft.draftId,
+      payload: {
+        draft_id: evaluateTaskDraft.draftId,
+        draft_revision: baseRevision + 1,
+        operation_id: newEvaluateTaskUuid(),
+        action,
+      },
+    };
+    evaluateTaskPendingRequest = request;
+  }
+  evaluateTaskAuthorityLocked = true;
+  refreshEvaluateIdeaControls();
+  try {
+    const response = await fetch("/api/evaluate-idea/create-task-preview/invalidate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request.payload),
+    });
+    const data = await evaluateTaskResponseJson(response);
+    if (!evaluateTaskRequestMatches(request)) {
+      return;
+    }
+    if (response.status === HTTP_STATUS_OK && evaluateTaskReceiptIsValid(data)) {
+      acceptEvaluateTaskReceipt(data);
+      return;
+    }
+    const expectedResult = action === "edit_draft" ? "invalidated" : "cancelled";
+    const expectedState = action === "edit_draft" ? "draft" : "cancelled";
+    const valid = Boolean(
+      response.status === HTTP_STATUS_OK
+        && data.ok === true
+        && data.result_type === expectedResult
+        && data.state === expectedState
+        && data.draft_id === request.draftId
+        && data.draft_revision === request.payload.draft_revision
+    );
+    if (!valid) {
+      throw new Error(data.error || `Request failed: ${response.status}`);
+    }
+    evaluateTaskPendingRequest = null;
+    evaluateTaskToken = "";
+    evaluateTaskConfirmation = "";
+    if (action === "edit_draft") {
+      evaluateTaskClientGeneration += 1;
+      evaluateTaskConfirmRequest = null;
+      evaluateTaskConfirmPending = false;
+      evaluateTaskConfirmInFlight = false;
+      evaluateTaskConfirmRetryReady = false;
+      evaluateTaskDraft.revision = data.draft_revision;
+      evaluateTaskDraft.authorityRevision = data.draft_revision;
+      evaluateTaskAuthorityLocked = false;
+      renderEvaluateTaskDraft(evaluateTaskDraft);
+      return;
+    }
+    clearEvaluateTaskAuthority({ preserveReceipt: false });
+    statusText.textContent = "Previous Draft cancelled. Starting a new evaluation.";
+    await evaluateIdea();
+  } catch (error) {
+    if (evaluateTaskRequestMatches(request)) {
+      renderEvaluateTaskRetry(error.message || "Invalidate failed.", "invalidate");
+      statusText.textContent = "Invalidate was not acknowledged. Controls remain locked.";
     }
   }
 }
 
 async function confirmEvaluateIdeaTask() {
-  const binding = evaluateTaskTokenBinding;
   if (
     evaluateTaskConfirmInFlight
     || !evaluateTaskToken
-    || !evaluateTaskConfirmation
-    || !evaluateIdeaBindingMatches(binding)
+    || evaluateTaskConfirmation !== "CREATE LOCAL TASK"
+    || !evaluateTaskDraft
   ) {
-    statusText.textContent = "The Evaluate-to-Task confirmation is no longer bound to the current evaluation.";
+    statusText.textContent = "The Final Preview has no current confirmation authority.";
     return;
   }
-
+  if (!evaluateTaskConfirmRequest) {
+    evaluateTaskConfirmRequest = {
+      clientGeneration: evaluateTaskClientGeneration,
+      draftId: evaluateTaskDraft.draftId,
+      token: evaluateTaskToken,
+      body: JSON.stringify({
+        token: evaluateTaskToken,
+        confirmation: evaluateTaskConfirmation,
+      }),
+    };
+  }
+  const request = evaluateTaskConfirmRequest;
   evaluateTaskConfirmPending = true;
   evaluateTaskConfirmInFlight = true;
   evaluateTaskConfirmRetryReady = false;
+  evaluateTaskAuthorityLocked = true;
   refreshEvaluateIdeaControls();
   try {
     const response = await fetch("/api/create-local-task/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token: evaluateTaskToken,
-        confirmation: evaluateTaskConfirmation,
-      }),
+      body: request.body,
     });
-    let data;
-    try {
-      data = await response.json();
-    } catch (error) {
-      if (response.status === HTTP_STATUS_OK || response.status >= 500) {
-        throw error;
-      }
-      renderEvaluateTaskTerminalFailure(`Request failed: ${response.status}`);
-      clearEvaluateTaskAuthority();
-      refreshEvaluateIdeaControls();
+    const data = await evaluateTaskResponseJson(response);
+    if (
+      request !== evaluateTaskConfirmRequest
+      || request.clientGeneration !== evaluateTaskClientGeneration
+      || request.draftId !== evaluateTaskDraft?.draftId
+    ) {
       return;
     }
-
-    if (response.status === HTTP_STATUS_OK) {
-      renderEvaluateTaskReceipt(data);
-      clearEvaluateTaskAuthority();
-      refreshEvaluateIdeaControls();
+    if (response.status === HTTP_STATUS_OK && evaluateTaskReceiptIsValid(data)) {
+      acceptEvaluateTaskReceipt(data);
       return;
     }
-    if (response.status >= 500) {
-      evaluateTaskConfirmRetryReady = true;
-      renderEvaluateTaskConfirmRetry(
-        data.error || `Request failed: ${response.status}`,
+    if (
+      response.status === 404
+      && data.error === "invalid_or_expired_create_local_task_token"
+    ) {
+      renderEvaluateTaskOutcomeUnknown(
+        "The retained token is now invalid or expired after an ambiguous Confirm.",
       );
-      statusText.textContent = "Confirm response was unavailable. Retry Confirm with the same token.";
       return;
     }
-    renderEvaluateTaskTerminalFailure(
-      data.error || `Request failed: ${response.status}`,
-    );
-    clearEvaluateTaskAuthority();
-    refreshEvaluateIdeaControls();
+    if (
+      response.status === 409
+      && [
+        "create_local_task_storage_unavailable",
+        "create_local_task_token_already_consumed",
+        "create_local_task_failed",
+      ].includes(data.error)
+    ) {
+      renderEvaluateTaskOutcomeUnknown(
+        "Create authority was claimed, but no authoritative receipt is available.",
+      );
+      return;
+    }
+    throw new Error(data.error || `Request failed: ${response.status}`);
   } catch (error) {
     evaluateTaskConfirmRetryReady = true;
-    renderEvaluateTaskConfirmRetry(
-      error.message || "The Confirm response was lost.",
-    );
+    renderEvaluateTaskRetry(error.message || "The Confirm response was lost.", "confirm");
     statusText.textContent = "Confirm response was lost. Retry Confirm with the same token.";
   } finally {
     evaluateTaskConfirmInFlight = false;
@@ -2859,6 +3229,7 @@ function renderOverview(data) {
     </section>
     ${renderDiscoveryRules(data.discovery)}
   `;
+  refreshEvaluateIdeaControls();
 }
 
 function renderRecentCommits(commits) {
@@ -3179,6 +3550,15 @@ if (evaluateIdeaButton) {
   input.addEventListener("input", onEvaluateIdeaInputMutation);
 });
 
+document.addEventListener("input", (event) => {
+  if (
+    event.target.closest(".evaluate-task-title")
+    || event.target.closest(".evaluate-task-summary")
+  ) {
+    onEvaluateTaskCandidateMutation();
+  }
+});
+
 if (refreshOverviewButton) {
   refreshOverviewButton.addEventListener("click", () => {
     loadOverview();
@@ -3212,9 +3592,30 @@ skillGrid.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  const evaluateTaskPreviewButton = event.target.closest(".preview-evaluate-local-task");
-  if (evaluateTaskPreviewButton) {
-    previewEvaluateIdeaAsTask();
+  const evaluateTaskDraftRetryButton = event.target.closest(".retry-evaluate-task-draft");
+  if (evaluateTaskDraftRetryButton) {
+    createEvaluateTaskDraft(evaluateTaskDraftRequest?.binding, true);
+    return;
+  }
+
+  const evaluateTaskFinalButton = event.target.closest(".final-evaluate-local-task");
+  if (evaluateTaskFinalButton) {
+    previewEvaluateIdeaAsTask(false);
+    return;
+  }
+
+  const evaluateTaskFinalRetryButton = event.target.closest(".retry-evaluate-task-final");
+  if (evaluateTaskFinalRetryButton) {
+    previewEvaluateIdeaAsTask(true);
+    return;
+  }
+
+  const evaluateTaskInvalidateRetryButton = event.target.closest(".retry-evaluate-task-invalidate");
+  if (evaluateTaskInvalidateRetryButton) {
+    invalidateEvaluateTaskDraft(
+      evaluateTaskPendingRequest?.payload?.action || "edit_draft",
+      true,
+    );
     return;
   }
 
@@ -3224,38 +3625,74 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const evaluateTaskEditButton = event.target.closest(".evaluate-task-edit-draft");
+  if (evaluateTaskEditButton) {
+    invalidateEvaluateTaskDraft("edit_draft");
+    return;
+  }
+
+  const evaluateTaskAgainButton = event.target.closest(".evaluate-task-evaluate-again");
+  if (evaluateTaskAgainButton) {
+    invalidateEvaluateTaskDraft("evaluate_again");
+    return;
+  }
+
   const completionEvidencePreviewButton = event.target.closest(".preview-completion-evidence");
   if (completionEvidencePreviewButton) {
+    if (evaluateTaskAuthorityLocked) {
+      statusText.textContent = "Task-write controls are locked by the current Final authority.";
+      return;
+    }
     previewCompletionEvidence(completionEvidencePreviewButton);
     return;
   }
 
   const completionEvidenceConfirmButton = event.target.closest(".confirm-completion-evidence");
   if (completionEvidenceConfirmButton) {
+    if (evaluateTaskAuthorityLocked) {
+      statusText.textContent = "Task-write controls are locked by the current Final authority.";
+      return;
+    }
     confirmCompletionEvidence();
     return;
   }
 
   const taskTransitionPreviewButton = event.target.closest(".preview-task-transition");
   if (taskTransitionPreviewButton) {
+    if (evaluateTaskAuthorityLocked) {
+      statusText.textContent = "Task-write controls are locked by the current Final authority.";
+      return;
+    }
     previewTaskTransition(taskTransitionPreviewButton);
     return;
   }
 
   const taskTransitionConfirmButton = event.target.closest(".confirm-task-transition");
   if (taskTransitionConfirmButton) {
+    if (evaluateTaskAuthorityLocked) {
+      statusText.textContent = "Task-write controls are locked by the current Final authority.";
+      return;
+    }
     confirmTaskTransition();
     return;
   }
 
   const createLocalTaskPreviewButton = event.target.closest(".preview-create-local-task");
   if (createLocalTaskPreviewButton) {
+    if (evaluateTaskAuthorityLocked) {
+      statusText.textContent = "Task-write controls are locked by the current Final authority.";
+      return;
+    }
     previewCreateLocalTask();
     return;
   }
 
   const createLocalTaskConfirmButton = event.target.closest(".confirm-create-local-task");
   if (createLocalTaskConfirmButton) {
+    if (evaluateTaskAuthorityLocked) {
+      statusText.textContent = "Task-write controls are locked by the current Final authority.";
+      return;
+    }
     confirmCreateLocalTask();
     return;
   }
