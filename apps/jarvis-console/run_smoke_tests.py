@@ -4671,7 +4671,7 @@ def _test_task_transition_vertical_slice() -> None:
         assert "escapeHtml(preview.proposed_state || \"\")" in transition_renderer
         assert "escapeHtml(preview.warning)" in transition_renderer
         assert "escapeHtml(receipt.transition || \"\")" in transition_renderer
-        assert "await loadOverview()" in transition_renderer
+        assert "await loadOverview({ announce: false })" in transition_renderer
         transition_source = (
             inspect.getsource(run_web_app.preview_task_transition)
             + inspect.getsource(run_web_app.confirm_task_transition)
@@ -6712,6 +6712,347 @@ def _test_evaluate_idea_create_task_client_state_machine() -> None:
     assert completed.returncode == 0, completed.stderr
 
 
+def _test_overview_refresh_write_receipt_separation() -> None:
+    """Keep Task-write receipts authoritative across bounded Overview refreshes."""
+
+    app_js = (
+        Path(__file__).resolve().parent / "web" / "app.js"
+    ).read_text(encoding="utf-8")
+    load_start = app_js.index("async function loadOverview(")
+    load_end = app_js.index("\nasync function loadHistory(", load_start)
+    evidence_start = app_js.index("async function confirmCompletionEvidence(")
+    evidence_end = app_js.index(
+        "\nfunction renderTaskTransitionPreview(",
+        evidence_start,
+    )
+    transition_start = app_js.index("async function confirmTaskTransition(")
+    transition_end = app_js.index(
+        "\nfunction renderActionableTaskView(",
+        transition_start,
+    )
+    load_source = app_js[load_start:load_end]
+    evidence_source = app_js[evidence_start:evidence_end]
+    transition_source = app_js[transition_start:transition_end]
+
+    assert 'fetch("/api/overview")' in load_source
+    assert 'result: "rendered"' in load_source
+    assert 'result: "failed"' in load_source
+    assert 'result: "stale"' in load_source
+    assert "requestGeneration !== overviewRequestGeneration" in load_source
+    assert "overviewSettledGeneration = requestGeneration" in load_source
+    assert 'fetch("/api/completion-evidence/confirm"' in evidence_source
+    assert 'fetch("/api/task-transition/confirm"' in transition_source
+    assert "/preview" not in evidence_source
+    assert "/preview" not in transition_source
+    assert "completionEvidenceLastReceipt = data" in evidence_source
+    assert "taskTransitionLastReceipt = data" in transition_source
+    assert evidence_source.index("completionEvidenceLastReceipt = data") < (
+        evidence_source.index("await loadOverview({ announce: false })")
+    )
+    assert transition_source.index("taskTransitionLastReceipt = data") < (
+        transition_source.index("await loadOverview({ announce: false })")
+    )
+    assert "const liveTarget = completionEvidenceResultElement(" in evidence_source
+    assert "data.receipt?.task_id" in evidence_source
+    assert "const liveTarget = taskTransitionResultElement(" in transition_source
+    assert "data.receipt?.task_id" in transition_source
+    assert "superseded by a newer request" in evidence_source
+    assert "superseded by a newer request" in transition_source
+    assert (
+        "overviewSettledGeneration < overviewRequestGeneration"
+        in evidence_source
+    )
+    assert (
+        "overviewSettledGeneration < overviewRequestGeneration"
+        in transition_source
+    )
+    actionable_source = app_js[
+        app_js.index("function actionableTaskItemMarkup("):
+        app_js.index("\nfunction taskTransitionReceiptMarkup(")
+    ]
+    assert (
+        "taskTransitionLastReceipt?.receipt?.task_id === view.id"
+        in actionable_source
+    )
+    assert "taskTransitionReceiptMarkup(taskTransitionLastReceipt)" in actionable_source
+    assert (
+        "completionEvidenceLastReceipt?.receipt?.task_id === view.id"
+        in actionable_source
+    )
+    assert (
+        "completionEvidenceReceiptMarkup(completionEvidenceLastReceipt)"
+        in actionable_source
+    )
+    refresh_handler = app_js[
+        app_js.index("if (refreshOverviewButton) {"):
+        app_js.index("\nif (refreshHistoryButton) {")
+    ]
+    assert "retryOverviewRefresh();" in refresh_handler
+    assert "function retryOverviewRefresh()" in load_source
+
+    harness = "\n".join(
+        (
+            "const tasksDetails = { innerHTML: 'initial' };",
+            "const statusText = { textContent: '' };",
+            "const nextActionText = { textContent: '' };",
+            "let overviewRequestGeneration = 0;",
+            "let overviewSettledGeneration = 0;",
+            "let overviewHasRendered = false;",
+            "let completionEvidenceBusy = false;",
+            "let completionEvidenceToken = '';",
+            "let completionEvidenceConfirmation = '';",
+            "let completionEvidenceTaskId = '';",
+            "let completionEvidenceLastReceipt = null;",
+            "let taskTransitionBusy = false;",
+            "let taskTransitionToken = '';",
+            "let taskTransitionConfirmation = '';",
+            "let taskTransitionTaskId = '';",
+            "let taskTransitionLastReceipt = null;",
+            "function newTarget() { return { innerHTML: '', querySelector: () => ({ disabled: false, textContent: '' }) }; }",
+            "let evidenceTarget = newTarget();",
+            "let transitionTarget = newTarget();",
+            "function completionEvidenceResultElement() { return evidenceTarget; }",
+            "function taskTransitionResultElement() { return transitionTarget; }",
+            "function completionEvidenceReceiptMarkup(data) { return `evidence-receipt:${data.receipt.task_id}`; }",
+            "function taskTransitionReceiptMarkup(data) { return `transition-receipt:${data.receipt.task_id}`; }",
+            "function escapeHtml(value) { return String(value || ''); }",
+            "let renderCount = 0;",
+            "function renderOverview(data) {",
+            "  renderCount += 1;",
+            "  tasksDetails.innerHTML = `overview:${data.marker}|evidence:${completionEvidenceLastReceipt?.receipt?.task_id || ''}|transition:${taskTransitionLastReceipt?.receipt?.task_id || ''}`;",
+            "}",
+            "const fetchCalls = [];",
+            "let fetchHandler = null;",
+            "function fetch(url, options = {}) {",
+            "  fetchCalls.push({ url, method: options.method || 'GET', body: options.body || '' });",
+            "  return fetchHandler(url, options);",
+            "}",
+            "function jsonResponse(status, data) {",
+            "  return Promise.resolve({ ok: status >= 200 && status < 300, status, json: async () => data });",
+            "}",
+            "function malformedResponse(status = 200) {",
+            "  return Promise.resolve({ ok: true, status, json: async () => { throw new Error('malformed overview'); } });",
+            "}",
+            load_source,
+            evidence_source,
+            transition_source,
+            "(async () => {",
+            "  fetchHandler = () => jsonResponse(500, { ok: false, error: 'initial unavailable' });",
+            "  const initialFailure = await loadOverview();",
+            "  if (initialFailure.result !== 'failed' || !tasksDetails.innerHTML.includes('Overview failed: initial unavailable')) {",
+            "    throw new Error('initial Overview failure was not rendered');",
+            "  }",
+            "  fetchHandler = () => jsonResponse(200, { ok: true, marker: 'last-good' });",
+            "  const firstSuccess = await loadOverview();",
+            "  if (firstSuccess.result !== 'rendered' || tasksDetails.innerHTML !== 'overview:last-good|evidence:|transition:') {",
+            "    throw new Error('first successful Overview was not rendered');",
+            "  }",
+            "  const lastGood = tasksDetails.innerHTML;",
+            "  fetchHandler = () => jsonResponse(500, { ok: false, error: 'refresh 500' });",
+            "  if ((await loadOverview()).result !== 'failed' || tasksDetails.innerHTML !== lastGood) {",
+            "    throw new Error('500 refresh replaced last-good Overview');",
+            "  }",
+            "  fetchHandler = () => malformedResponse();",
+            "  if ((await loadOverview()).result !== 'failed' || tasksDetails.innerHTML !== lastGood) {",
+            "    throw new Error('malformed refresh replaced last-good Overview');",
+            "  }",
+            "  fetchHandler = () => Promise.reject(new Error('transport down'));",
+            "  if ((await loadOverview()).result !== 'failed' || tasksDetails.innerHTML !== lastGood) {",
+            "    throw new Error('transport failure replaced last-good Overview');",
+            "  }",
+            "  let resolveA;",
+            "  let resolveB;",
+            "  let reverseCall = 0;",
+            "  fetchHandler = () => new Promise((resolve) => {",
+            "    reverseCall += 1;",
+            "    if (reverseCall === 1) { resolveA = resolve; } else { resolveB = resolve; }",
+            "  });",
+            "  const requestA = loadOverview({ announce: false });",
+            "  const requestB = loadOverview({ announce: false });",
+            "  resolveB({ ok: true, status: 200, json: async () => ({ ok: true, marker: 'newer-B' }) });",
+            "  const resultB = await requestB;",
+            "  resolveA({ ok: true, status: 200, json: async () => ({ ok: true, marker: 'older-A' }) });",
+            "  const resultA = await requestA;",
+            "  if (resultB.result !== 'rendered' || resultA.result !== 'stale' || !tasksDetails.innerHTML.startsWith('overview:newer-B')) {",
+            "    throw new Error('reverse A/B settlement did not suppress stale Overview');",
+            "  }",
+            "  const evidenceReceipt = {",
+            "    ok: true, result_type: 'recorded',",
+            "    receipt: { task_id: 'task-evidence', recommendation: 'Review evidence.' },",
+            "  };",
+            "  completionEvidenceToken = 'evidence-token';",
+            "  completionEvidenceConfirmation = 'RECORD EVIDENCE';",
+            "  completionEvidenceTaskId = 'task-evidence';",
+            "  const beforeEvidenceOverview = tasksDetails.innerHTML;",
+            "  let resolveEvidencePost;",
+            "  fetchHandler = (url) => {",
+            "    if (url === '/api/completion-evidence/confirm') {",
+            "      return new Promise((resolve) => { resolveEvidencePost = resolve; });",
+            "    }",
+            "    return jsonResponse(500, { ok: false, error: 'post-write refresh failed' });",
+            "  };",
+            "  const evidenceCallStart = fetchCalls.length;",
+            "  const oldEvidenceTarget = evidenceTarget;",
+            "  const evidenceConfirm = confirmCompletionEvidence();",
+            "  evidenceTarget = newTarget();",
+            "  resolveEvidencePost({ ok: true, status: 200, json: async () => evidenceReceipt });",
+            "  await evidenceConfirm;",
+            "  const evidenceCalls = fetchCalls.slice(evidenceCallStart);",
+            "  if (completionEvidenceLastReceipt !== evidenceReceipt || evidenceTarget.innerHTML !== 'evidence-receipt:task-evidence') {",
+            "    throw new Error('evidence receipt did not survive refresh failure');",
+            "  }",
+            "  if (oldEvidenceTarget.innerHTML === 'evidence-receipt:task-evidence') {",
+            "    throw new Error('evidence receipt rendered into detached target');",
+            "  }",
+            "  if (tasksDetails.innerHTML !== beforeEvidenceOverview || !statusText.textContent.includes('write succeeded; Overview refresh failed')) {",
+            "    throw new Error('evidence write/refresh result was confused');",
+            "  }",
+            "  if (evidenceCalls.length !== 2 || evidenceCalls[0].url !== '/api/completion-evidence/confirm' || evidenceCalls[0].method !== 'POST' || evidenceCalls[1].url !== '/api/overview' || evidenceCalls[1].method !== 'GET') {",
+            "    throw new Error('evidence request contract changed');",
+            "  }",
+            "  const evidenceBody = JSON.parse(evidenceCalls[0].body);",
+            "  if (JSON.stringify(Object.keys(evidenceBody).sort()) !== JSON.stringify(['confirmation', 'token']) || evidenceBody.token !== 'evidence-token' || evidenceBody.confirmation !== 'RECORD EVIDENCE') {",
+            "    throw new Error('evidence confirm body changed');",
+            "  }",
+            "  const postsBeforeRetry = fetchCalls.filter((call) => call.method === 'POST').length;",
+            "  fetchHandler = () => jsonResponse(200, { ok: true, marker: 'retry-good' });",
+            "  const retryCallStart = fetchCalls.length;",
+            "  if ((await retryOverviewRefresh()).result !== 'rendered') { throw new Error('Overview retry failed'); }",
+            "  const retryCalls = fetchCalls.slice(retryCallStart);",
+            "  const postsAfterRetry = fetchCalls.filter((call) => call.method === 'POST').length;",
+            "  if (postsAfterRetry !== postsBeforeRetry || retryCalls.length !== 1 || retryCalls[0].url !== '/api/overview' || retryCalls[0].method !== 'GET') {",
+            "    throw new Error('Overview retry repeated write authority');",
+            "  }",
+            "  if (retryCalls.some((call) => call.url.includes('/preview') || call.url.includes('/confirm'))) {",
+            "    throw new Error('named Overview retry requested write/token authority');",
+            "  }",
+            "  if (completionEvidenceLastReceipt !== evidenceReceipt || !tasksDetails.innerHTML.includes('evidence:task-evidence')) {",
+            "    throw new Error('evidence receipt was lost after successful retry');",
+            "  }",
+            "  const transitionReceipt = {",
+            "    ok: true, result_type: 'updated',",
+            "    receipt: { task_id: 'task-transition', transition: 'TODO -> DOING' },",
+            "  };",
+            "  taskTransitionToken = 'transition-token';",
+            "  taskTransitionConfirmation = 'START TASK';",
+            "  taskTransitionTaskId = 'task-transition';",
+            "  const beforeTransitionOverview = tasksDetails.innerHTML;",
+            "  let resolveTransitionPost;",
+            "  let resolveTransitionOverview;",
+            "  let resolveNewerTransitionOverview;",
+            "  let transitionOverviewCount = 0;",
+            "  fetchHandler = (url) => {",
+            "    if (url === '/api/task-transition/confirm') {",
+            "      return new Promise((resolve) => { resolveTransitionPost = resolve; });",
+            "    }",
+            "    transitionOverviewCount += 1;",
+            "    if (transitionOverviewCount === 1) {",
+            "      return new Promise((resolve) => { resolveTransitionOverview = resolve; });",
+            "    }",
+            "    return new Promise((resolve) => { resolveNewerTransitionOverview = resolve; });",
+            "  };",
+            "  const transitionCallStart = fetchCalls.length;",
+            "  const oldTransitionTarget = transitionTarget;",
+            "  const transitionConfirm = confirmTaskTransition();",
+            "  transitionTarget = newTarget();",
+            "  resolveTransitionPost({ ok: true, status: 200, json: async () => transitionReceipt });",
+            "  await Promise.resolve();",
+            "  await Promise.resolve();",
+            "  if (typeof resolveTransitionOverview !== 'function') {",
+            "    throw new Error('post-write Overview request did not start');",
+            "  }",
+            "  const newerTransitionOverview = retryOverviewRefresh();",
+            "  resolveTransitionOverview({ ok: true, status: 200, json: async () => ({ ok: true, marker: 'superseded-transition' }) });",
+            "  await transitionConfirm;",
+            "  const transitionCalls = fetchCalls.slice(transitionCallStart);",
+            "  if (taskTransitionLastReceipt !== transitionReceipt || transitionTarget.innerHTML !== 'transition-receipt:task-transition') {",
+            "    throw new Error('transition receipt did not survive stale refresh');",
+            "  }",
+            "  if (oldTransitionTarget.innerHTML === 'transition-receipt:task-transition') {",
+            "    throw new Error('transition receipt rendered into detached target');",
+            "  }",
+            "  if (tasksDetails.innerHTML !== beforeTransitionOverview || !statusText.textContent.includes('Task write succeeded: TODO -> DOING; its Overview refresh was superseded by a newer request')) {",
+            "    throw new Error('transition write/stale refresh result was confused');",
+            "  }",
+            "  if (transitionCalls.length !== 3 || transitionCalls[0].url !== '/api/task-transition/confirm' || transitionCalls[0].method !== 'POST' || transitionCalls[1].url !== '/api/overview' || transitionCalls[1].method !== 'GET' || transitionCalls[2].url !== '/api/overview' || transitionCalls[2].method !== 'GET') {",
+            "    throw new Error('transition request contract changed');",
+            "  }",
+            "  const transitionBody = JSON.parse(transitionCalls[0].body);",
+            "  if (JSON.stringify(Object.keys(transitionBody).sort()) !== JSON.stringify(['confirmation', 'token']) || transitionBody.token !== 'transition-token' || transitionBody.confirmation !== 'START TASK') {",
+            "    throw new Error('transition confirm body changed');",
+            "  }",
+            "  resolveNewerTransitionOverview({ ok: true, status: 200, json: async () => ({ ok: true, marker: 'latest-after-pending' }) });",
+            "  if ((await newerTransitionOverview).result !== 'rendered') {",
+            "    throw new Error('pending newer Overview did not settle');",
+            "  }",
+            "  const settledLatestStatus = statusText.textContent;",
+            "  if (!settledLatestStatus.includes('Project Control overview refreshed')) {",
+            "    throw new Error('announcing retry did not publish latest success');",
+            "  }",
+            "  const evidenceReceiptTwo = {",
+            "    ok: true, result_type: 'recorded',",
+            "    receipt: { task_id: 'task-evidence-two', recommendation: 'Review second evidence.' },",
+            "  };",
+            "  completionEvidenceToken = 'evidence-token-two';",
+            "  completionEvidenceConfirmation = 'RECORD EVIDENCE';",
+            "  completionEvidenceTaskId = 'task-evidence-two';",
+            "  evidenceTarget = newTarget();",
+            "  let settleOrderOverviewCount = 0;",
+            "  let resolveOlderPostWriteOverview;",
+            "  let resolveLatestManualOverview;",
+            "  fetchHandler = (url) => {",
+            "    if (url === '/api/completion-evidence/confirm') {",
+            "      return jsonResponse(200, evidenceReceiptTwo);",
+            "    }",
+            "    settleOrderOverviewCount += 1;",
+            "    if (settleOrderOverviewCount === 1) {",
+            "      return new Promise((resolve) => { resolveOlderPostWriteOverview = resolve; });",
+            "    }",
+            "    return new Promise((resolve) => { resolveLatestManualOverview = resolve; });",
+            "  };",
+            "  const olderPostWriteConfirm = confirmCompletionEvidence();",
+            "  for (let index = 0; index < 6 && typeof resolveOlderPostWriteOverview !== 'function'; index += 1) {",
+            "    await Promise.resolve();",
+            "  }",
+            "  if (typeof resolveOlderPostWriteOverview !== 'function') {",
+            "    throw new Error('older post-write Overview did not start');",
+            "  }",
+            "  const latestManualRetry = retryOverviewRefresh();",
+            "  resolveLatestManualOverview({ ok: true, status: 200, json: async () => ({ ok: true, marker: 'latest-manual-wins' }) });",
+            "  if ((await latestManualRetry).result !== 'rendered') {",
+            "    throw new Error('latest manual retry did not render');",
+            "  }",
+            "  const latestManualStatus = statusText.textContent;",
+            "  resolveOlderPostWriteOverview({ ok: true, status: 200, json: async () => ({ ok: true, marker: 'older-post-write' }) });",
+            "  await olderPostWriteConfirm;",
+            "  if (statusText.textContent !== latestManualStatus || !latestManualStatus.includes('Project Control overview refreshed')) {",
+            "    throw new Error('stale post-write caller overwrote settled latest status');",
+            "  }",
+            "  if (completionEvidenceLastReceipt !== evidenceReceiptTwo || evidenceTarget.innerHTML !== 'evidence-receipt:task-evidence-two') {",
+            "    throw new Error('second evidence receipt lost during settled-latest race');",
+            "  }",
+            "  if (fetchCalls.some((call) => call.url.includes('/preview'))) {",
+            "    throw new Error('refresh path issued a new preview/token request');",
+            "  }",
+            "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+        )
+    )
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, (
+        "Overview/write result harness failed: "
+        f"{completed.stdout}\n{completed.stderr}"
+    )
+
+
 def main() -> None:
     _test_tasks_reports_registry_copy()
     _test_actionable_task_view_vertical_slice()
@@ -6725,6 +7066,7 @@ def main() -> None:
     _test_evaluate_idea_vertical_slice()
     _test_evaluate_idea_create_task_vertical_slice()
     _test_evaluate_idea_create_task_client_state_machine()
+    _test_overview_refresh_write_receipt_separation()
     run_web_app.run_self_test()
     _test_codex_review_vertical_slice()
     _test_create_local_task_vertical_slice()

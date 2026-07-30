@@ -48,6 +48,9 @@ let completionEvidenceConfirmation = "";
 let completionEvidenceTaskId = "";
 let completionEvidenceBusy = false;
 let completionEvidenceLastReceipt = null;
+let overviewRequestGeneration = 0;
+let overviewSettledGeneration = 0;
+let overviewHasRendered = false;
 let evaluateIdeaBusy = false;
 let evaluateIdeaRevision = 0;
 let evaluateSuccessfulBinding = null;
@@ -2084,9 +2087,40 @@ async function confirmCompletionEvidence() {
     completionEvidenceToken = "";
     completionEvidenceConfirmation = "";
     completionEvidenceTaskId = "";
-    await loadOverview();
-    statusText.textContent = "Completion evidence recorded; Task status remains DOING.";
-    nextActionText.textContent = data.receipt?.recommendation || "Review the recorded evidence.";
+    const liveTarget = completionEvidenceResultElement(
+      data.receipt?.task_id || "",
+    );
+    if (liveTarget) {
+      liveTarget.innerHTML = completionEvidenceReceiptMarkup(data);
+    }
+    const overviewResult = await loadOverview({ announce: false });
+    if (overviewResult.result === "rendered") {
+      statusText.textContent = (
+        "Completion evidence write succeeded; Overview refresh succeeded. "
+        + "Task status remains DOING."
+      );
+      nextActionText.textContent = (
+        data.receipt?.recommendation || "Review the recorded evidence."
+      );
+    } else if (overviewResult.result === "failed") {
+      statusText.textContent = (
+        "Completion evidence write succeeded; Overview refresh failed. "
+        + "The receipt remains authoritative."
+      );
+      nextActionText.textContent = (
+        "Use Refresh Overview to retry the read-only GET. "
+        + "The evidence write will not be repeated."
+      );
+    } else if (overviewSettledGeneration < overviewRequestGeneration) {
+      statusText.textContent = (
+        "Completion evidence write succeeded; its Overview refresh was "
+        + "superseded by a newer request. The receipt remains authoritative."
+      );
+      nextActionText.textContent = (
+        "Review the latest Overview request result. "
+        + "The evidence write will not be repeated."
+      );
+    }
   } catch (error) {
     if (target) {
       target.innerHTML = `<p class="safety-note">Completion evidence recording failed: ${escapeHtml(error.message)}</p>`;
@@ -2207,9 +2241,39 @@ async function confirmTaskTransition() {
     taskTransitionToken = "";
     taskTransitionConfirmation = "";
     taskTransitionTaskId = "";
-    await loadOverview();
-    statusText.textContent = `Task updated: ${data.receipt?.transition || ""}.`;
-    nextActionText.textContent = "Review the refreshed Actionable Task View.";
+    const liveTarget = taskTransitionResultElement(
+      data.receipt?.task_id || "",
+    );
+    if (liveTarget) {
+      liveTarget.innerHTML = taskTransitionReceiptMarkup(data);
+    }
+    const overviewResult = await loadOverview({ announce: false });
+    if (overviewResult.result === "rendered") {
+      statusText.textContent = (
+        `Task write succeeded: ${data.receipt?.transition || ""}; `
+        + "Overview refresh succeeded."
+      );
+      nextActionText.textContent = "Review the refreshed Actionable Task View.";
+    } else if (overviewResult.result === "failed") {
+      statusText.textContent = (
+        `Task write succeeded: ${data.receipt?.transition || ""}; `
+        + "Overview refresh failed. The receipt remains authoritative."
+      );
+      nextActionText.textContent = (
+        "Use Refresh Overview to retry the read-only GET. "
+        + "The Task write will not be repeated."
+      );
+    } else if (overviewSettledGeneration < overviewRequestGeneration) {
+      statusText.textContent = (
+        `Task write succeeded: ${data.receipt?.transition || ""}; `
+        + "its Overview refresh was superseded by a newer request. "
+        + "The receipt remains authoritative."
+      );
+      nextActionText.textContent = (
+        "Review the latest Overview request result. "
+        + "The Task write will not be repeated."
+      );
+    }
   } catch (error) {
     if (target) {
       target.innerHTML = `<p class="safety-note">Task transition failed: ${escapeHtml(error.message)}</p>`;
@@ -3331,23 +3395,60 @@ function renderHistory(data) {
   `;
 }
 
-async function loadOverview() {
+async function loadOverview({ announce = true } = {}) {
+  const requestGeneration = overviewRequestGeneration + 1;
+  overviewRequestGeneration = requestGeneration;
   if (!tasksDetails) {
-    return;
+    overviewSettledGeneration = requestGeneration;
+    return {
+      result: "failed",
+      generation: requestGeneration,
+      error: "overview_unavailable",
+    };
   }
-  tasksDetails.innerHTML = "<p class=\"muted\">Loading Project Control overview...</p>";
+  if (!overviewHasRendered) {
+    tasksDetails.innerHTML = "<p class=\"muted\">Loading Project Control overview...</p>";
+  }
   try {
     const response = await fetch("/api/overview");
     const data = await response.json();
+    if (requestGeneration !== overviewRequestGeneration) {
+      return { result: "stale", generation: requestGeneration };
+    }
     if (!response.ok || !data.ok) {
       throw new Error(data.error || `Request failed: ${response.status}`);
     }
     renderOverview(data);
-    statusText.textContent = "Project Control overview refreshed: read-only discovery with confirmed status transitions only.";
+    overviewHasRendered = true;
+    overviewSettledGeneration = requestGeneration;
+    if (announce) {
+      statusText.textContent = "Project Control overview refreshed: read-only discovery with confirmed status transitions only.";
+    }
+    return { result: "rendered", generation: requestGeneration };
   } catch (error) {
-    tasksDetails.innerHTML = `<p class="safety-note">Overview failed: ${escapeHtml(error.message)}</p>`;
-    statusText.textContent = `Overview failed: ${error.message}`;
+    if (requestGeneration !== overviewRequestGeneration) {
+      return { result: "stale", generation: requestGeneration };
+    }
+    const message = error?.message || "Overview request failed.";
+    if (!overviewHasRendered) {
+      tasksDetails.innerHTML = `<p class="safety-note">Overview failed: ${escapeHtml(message)}</p>`;
+    }
+    overviewSettledGeneration = requestGeneration;
+    if (announce) {
+      statusText.textContent = overviewHasRendered
+        ? `Overview refresh failed; showing the last successful result: ${message}`
+        : `Overview failed: ${message}`;
+    }
+    return {
+      result: "failed",
+      generation: requestGeneration,
+      error: message,
+    };
   }
+}
+
+function retryOverviewRefresh() {
+  return loadOverview();
 }
 
 async function loadHistory() {
@@ -3571,7 +3672,7 @@ document.addEventListener("input", (event) => {
 
 if (refreshOverviewButton) {
   refreshOverviewButton.addEventListener("click", () => {
-    loadOverview();
+    retryOverviewRefresh();
   });
 }
 
