@@ -3527,6 +3527,7 @@ def _test_task_transition_vertical_slice() -> None:
         return tuple(snapshot)
 
     before_artifacts = artifact_snapshot()
+    before_overview_tasks = run_web_app.overview_payload()["tasks"]
     fixture_root.mkdir()
     tasks_dir = fixture_root / "tasks"
     tasks_dir.mkdir()
@@ -4688,15 +4689,7 @@ def _test_task_transition_vertical_slice() -> None:
 
     assert not fixture_root.exists()
     actual_overview = run_web_app.overview_payload()
-    assert len(actual_overview["tasks"]) == 5
-    assert all(
-        item["task_view"]["status"] == "DONE"
-        for item in actual_overview["tasks"]
-    )
-    assert sum(
-        item["task_view"]["status"] in {"TODO", "DOING"}
-        for item in actual_overview["tasks"]
-    ) == 0
+    assert actual_overview["tasks"] == before_overview_tasks
     assert artifact_snapshot() == before_artifacts
 
 
@@ -7053,6 +7046,282 @@ def _test_overview_refresh_write_receipt_separation() -> None:
     )
 
 
+def _test_open_created_task_vertical_slice() -> None:
+    """Verify the Voice Receipt-only, GET-only exact Task navigation contract."""
+
+    app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
+
+    def function_source(name: str, next_name: str) -> str:
+        start = app_js.index(f"function {name}(")
+        boundaries = [
+            index
+            for marker in (
+                f"\nfunction {next_name}(",
+                f"\nasync function {next_name}(",
+            )
+            if (index := app_js.find(marker, start)) >= 0
+        ]
+        end = min(boundaries)
+        return app_js[start:end]
+
+    preview_source = function_source(
+        "renderCreateLocalTaskPreview",
+        "createLocalTaskReceiptIsAuthoritative",
+    )
+    receipt_contract_source = function_source(
+        "createLocalTaskReceiptIsAuthoritative",
+        "renderCreateLocalTaskReceipt",
+    )
+    receipt_source = function_source(
+        "renderCreateLocalTaskReceipt",
+        "clearCreatedTaskFocus",
+    )
+    focus_source = function_source(
+        "clearCreatedTaskFocus",
+        "focusCreatedTaskCard",
+    ) + "\n" + function_source(
+        "focusCreatedTaskCard",
+        "openCreatedTask",
+    )
+    open_source = app_js[
+        app_js.index("async function openCreatedTask("):
+        app_js.index("\nasync function previewCreateLocalTask(")
+    ]
+    activate_source = function_source("activateTab", "escapeHtml")
+    actionable_source = function_source(
+        "actionableTaskItemMarkup",
+        "taskTransitionReceiptMarkup",
+    )
+    evaluate_receipt_source = function_source(
+        "renderEvaluateTaskReceipt",
+        "renderEvaluateTaskRetry",
+    )
+    create_confirm_source = app_js[
+        app_js.index("async function confirmCreateLocalTask("):
+        app_js.index("\nfunction renderSkillCards(")
+    ]
+
+    assert "Open Created Task" not in preview_source
+    assert "open-created-task" not in preview_source
+    assert "Open Created Task" in receipt_source
+    assert "open-created-task" in receipt_source
+    assert 'data?.product_name === "Create Local Task"' in receipt_contract_source
+    assert '["created", "already_created"].includes(data?.result_type)' in (
+        receipt_contract_source
+    )
+    assert 'receipt.status === "TODO"' in receipt_contract_source
+    assert "createLocalTaskLastReceipt?.receipt?.task_id" in open_source
+    assert 'activateTab("tasks")' in open_source
+    assert "fetch(" not in open_source
+    assert "POST" not in open_source
+    assert "/preview" not in open_source
+    assert "/confirm" not in open_source
+    assert "previewTaskTransition" not in open_source
+    assert "confirmCreateLocalTask" not in open_source
+    assert 'return loadOverview();' in activate_source
+    assert 'card.dataset.taskCardId === taskId' in focus_source
+    assert 'data-task-card-id="${escapeHtml(valid ? view.id : "")}"' in (
+        actionable_source
+    )
+    assert 'tabindex="-1"' in actionable_source
+    assert "scrollIntoView" in focus_source
+    assert 'setAttribute("aria-current", "true")' in focus_source
+    assert "Open Created Task" not in evaluate_receipt_source
+    assert "open-created-task" not in evaluate_receipt_source
+    assert "Open Created Task" not in create_confirm_source
+    assert "Start Task" in actionable_source
+    assert "preview-task-transition" in actionable_source
+
+    harness = "\n".join(
+        (
+            "function fakeClassList() {",
+            "  const values = new Set();",
+            "  return {",
+            "    add: (name) => values.add(name),",
+            "    remove: (name) => values.delete(name),",
+            "    contains: (name) => values.has(name),",
+            "    toggle: (name, enabled) => enabled ? values.add(name) : values.delete(name),",
+            "  };",
+            "}",
+            "function fakeTaskCard(taskId) {",
+            "  const attributes = {};",
+            "  return {",
+            "    dataset: { taskCardId: taskId },",
+            "    classList: fakeClassList(),",
+            "    style: {},",
+            "    scrollCalls: 0,",
+            "    focusCalls: 0,",
+            "    setAttribute(name, value) { attributes[name] = value; },",
+            "    removeAttribute(name) { delete attributes[name]; },",
+            "    getAttribute(name) { return attributes[name]; },",
+            "    scrollIntoView() { this.scrollCalls += 1; },",
+            "    focus() { this.focusCalls += 1; },",
+            "  };",
+            "}",
+            "const tabs = ['voice', 'tasks'].map((tab) => ({ dataset: { tab }, classList: fakeClassList() }));",
+            "const panels = ['voice', 'tasks'].map((tab) => ({ id: `tab-${tab}`, classList: fakeClassList() }));",
+            "const tasksDetails = {",
+            "  innerHTML: 'initial overview',",
+            "  cards: [],",
+            "  querySelectorAll(selector) {",
+            "    if (selector !== '[data-task-card-id]') { throw new Error(`unexpected selector: ${selector}`); }",
+            "    return this.cards;",
+            "  },",
+            "};",
+            "const receiptTarget = { innerHTML: '' };",
+            "const voiceResultBox = { querySelector: (selector) => selector === '.create-local-task-result' ? receiptTarget : null };",
+            "const statusText = { textContent: '' };",
+            "const nextActionText = { textContent: '' };",
+            "let recommendedSkillId = '';",
+            "let memorySkillsData = null;",
+            "let createLocalTaskToken = '';",
+            "let createLocalTaskConfirmation = '';",
+            "let createLocalTaskLastReceipt = null;",
+            "let overviewRequestGeneration = 0;",
+            "let overviewSettledGeneration = 0;",
+            "let overviewHasRendered = false;",
+            "let startPreviewCalls = 0;",
+            "function loadSkillDetail() {}",
+            "function loadHistory() {}",
+            "function loadMemorySkills() {}",
+            "function previewTaskTransition() { startPreviewCalls += 1; }",
+            "function escapeHtml(value) {",
+            "  return String(value || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('\"', '&quot;').replaceAll(\"'\", '&#039;');",
+            "}",
+            "function createLocalTaskResultElement() { return receiptTarget; }",
+            "const fetchCalls = [];",
+            "let fetchHandler = null;",
+            "function fetch(url, options = {}) {",
+            "  fetchCalls.push({ url, method: options.method || 'GET' });",
+            "  return fetchHandler(url, options);",
+            "}",
+            "function jsonResponse(status, data) {",
+            "  return Promise.resolve({ ok: status >= 200 && status < 300, status, json: async () => data });",
+            "}",
+            "function renderOverview(data) {",
+            "  tasksDetails.innerHTML = `overview:${data.marker || ''}`;",
+            "  tasksDetails.cards = (data.tasks || []).map((item) => fakeTaskCard(item.task_view.id));",
+            "}",
+            activate_source,
+            preview_source,
+            receipt_contract_source,
+            receipt_source,
+            focus_source,
+            app_js[
+                app_js.index("async function openCreatedTask("):
+                app_js.index("\nasync function previewCreateLocalTask(")
+            ],
+            app_js[
+                app_js.index("async function loadOverview("):
+                app_js.index("\nfunction retryOverviewRefresh(")
+            ],
+            "(async () => {",
+            "  const preview = { token: 'preview-token', confirmation_literal: 'CREATE LOCAL TASK', preview: { title: 'Draft', summary: 'Draft', status: 'TODO', local_destination: 'memory/tasks/task-0001-draft.md' } };",
+            "  renderCreateLocalTaskPreview(preview);",
+            "  if (receiptTarget.innerHTML.includes('Open Created Task') || createLocalTaskLastReceipt !== null) {",
+            "    throw new Error('Create Preview exposed Open Created Task');",
+            "  }",
+            "  const nonAuthoritative = { ok: false, product_name: 'Create Local Task', result_type: 'created', receipt: { task_id: 'task-0001-created', status: 'TODO' } };",
+            "  renderCreateLocalTaskReceipt(nonAuthoritative);",
+            "  if (receiptTarget.innerHTML.includes('Open Created Task') || createLocalTaskLastReceipt !== null) {",
+            "    throw new Error('non-authoritative state exposed Open Created Task');",
+            "  }",
+            "  const authoritative = {",
+            "    ok: true, product_name: 'Create Local Task', result_type: 'created',",
+            "    receipt: { task_id: 'task-0042-exact', title: 'Exact', status: 'TODO', storage_location: 'memory/tasks/task-0042-exact.md', created_at: '2026-07-31 00:00 UTC', next_recommended_action: 'Review then Start.' },",
+            "  };",
+            "  renderCreateLocalTaskReceipt(authoritative);",
+            "  if (!receiptTarget.innerHTML.includes('Open Created Task') || createLocalTaskLastReceipt === authoritative) {",
+            "    throw new Error('authoritative Receipt action or defensive copy is missing');",
+            "  }",
+            "  const authoritativeMarkup = receiptTarget.innerHTML;",
+            "  fetchHandler = () => jsonResponse(200, { ok: true, marker: 'exact', tasks: [",
+            "    { task_view: { id: 'task-9999-other' } },",
+            "    { task_view: { id: 'task-0042-exact' } },",
+            "  ] });",
+            "  const firstCall = fetchCalls.length;",
+            "  const focused = await openCreatedTask();",
+            "  const exactCalls = fetchCalls.slice(firstCall);",
+            "  const exactCard = tasksDetails.cards.find((card) => card.dataset.taskCardId === 'task-0042-exact');",
+            "  const otherCard = tasksDetails.cards.find((card) => card.dataset.taskCardId === 'task-9999-other');",
+            "  if (focused.result !== 'focused' || focused.taskId !== 'task-0042-exact') {",
+            "    throw new Error('exact authoritative task was not focused');",
+            "  }",
+            "  if (exactCalls.length !== 1 || exactCalls[0].url !== '/api/overview' || exactCalls[0].method !== 'GET') {",
+            "    throw new Error('Open Created Task did not use exactly one Overview GET');",
+            "  }",
+            "  if (!tabs.find((tab) => tab.dataset.tab === 'tasks').classList.contains('active')) {",
+            "    throw new Error('Project Control was not activated');",
+            "  }",
+            "  if (!exactCard.classList.contains('created-task-focus') || exactCard.getAttribute('aria-current') !== 'true' || exactCard.scrollCalls !== 1 || exactCard.focusCalls !== 1) {",
+            "    throw new Error('exact Task card was not visibly and accessibly focused');",
+            "  }",
+            "  if (otherCard.classList.contains('created-task-focus') || otherCard.scrollCalls || otherCard.focusCalls) {",
+            "    throw new Error('a non-matching Task was focused');",
+            "  }",
+            "  if (startPreviewCalls !== 0 || !statusText.textContent.includes('No Task action was run')) {",
+            "    throw new Error('Open Created Task triggered or implied Start Preview');",
+            "  }",
+            "  if (receiptTarget.innerHTML !== authoritativeMarkup) {",
+            "    throw new Error('successful open replaced the authoritative Receipt');",
+            "  }",
+            "  fetchHandler = () => jsonResponse(200, { ok: true, marker: 'missing', tasks: [",
+            "    { task_view: { id: 'task-9999-newest' } },",
+            "  ] });",
+            "  const missing = await openCreatedTask();",
+            "  if (missing.result !== 'missing' || tasksDetails.cards.some((card) => card.classList.contains('created-task-focus'))) {",
+            "    throw new Error('missing exact Task fell back to another Task');",
+            "  }",
+            "  if (receiptTarget.innerHTML !== authoritativeMarkup || !statusText.textContent.includes('was not found in the current Overview projection') || statusText.textContent.startsWith('Opened created Task')) {",
+            "    throw new Error('missing Task outcome was not truthful or Receipt-safe');",
+            "  }",
+            "  fetchHandler = () => jsonResponse(500, { ok: false, error: 'overview unavailable' });",
+            "  const failed = await openCreatedTask();",
+            "  if (failed.result !== 'failed' || receiptTarget.innerHTML !== authoritativeMarkup || !statusText.textContent.includes('Overview refresh failed') || statusText.textContent.startsWith('Opened created Task')) {",
+            "    throw new Error('Overview failure was not truthful or Receipt-safe');",
+            "  }",
+            "  let resolveOlder;",
+            "  let resolveNewer;",
+            "  let raceCount = 0;",
+            "  fetchHandler = () => new Promise((resolve) => {",
+            "    raceCount += 1;",
+            "    if (raceCount === 1) { resolveOlder = resolve; } else { resolveNewer = resolve; }",
+            "  });",
+            "  const staleOpen = openCreatedTask();",
+            "  const newerOverview = loadOverview();",
+            "  resolveNewer({ ok: true, status: 200, json: async () => ({ ok: true, marker: 'newer', tasks: [{ task_view: { id: 'task-1000-newer' } }] }) });",
+            "  if ((await newerOverview).result !== 'rendered') { throw new Error('newer Overview did not render'); }",
+            "  const newerStatus = statusText.textContent;",
+            "  resolveOlder({ ok: true, status: 200, json: async () => ({ ok: true, marker: 'stale', tasks: [{ task_view: { id: 'task-0042-exact' } }] }) });",
+            "  const stale = await staleOpen;",
+            "  if (stale.result !== 'stale' || tasksDetails.innerHTML !== 'overview:newer' || statusText.textContent !== newerStatus) {",
+            "    throw new Error('stale Overview focused or overwrote newer UI state');",
+            "  }",
+            "  if (tasksDetails.cards.some((card) => card.classList.contains('created-task-focus')) || receiptTarget.innerHTML !== authoritativeMarkup) {",
+            "    throw new Error('stale Overview changed focus or authoritative Receipt');",
+            "  }",
+            "  if (fetchCalls.some((call) => call.method !== 'GET') || startPreviewCalls !== 0) {",
+            "    throw new Error('Open Created Task performed a write or automatic Start');",
+            "  }",
+            "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+        )
+    )
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, (
+        "Open Created Task harness failed: "
+        f"{completed.stdout}\n{completed.stderr}"
+    )
+
+
 def main() -> None:
     _test_tasks_reports_registry_copy()
     _test_actionable_task_view_vertical_slice()
@@ -7067,6 +7336,7 @@ def main() -> None:
     _test_evaluate_idea_create_task_vertical_slice()
     _test_evaluate_idea_create_task_client_state_machine()
     _test_overview_refresh_write_receipt_separation()
+    _test_open_created_task_vertical_slice()
     run_web_app.run_self_test()
     _test_codex_review_vertical_slice()
     _test_create_local_task_vertical_slice()

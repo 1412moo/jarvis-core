@@ -38,6 +38,7 @@ let lastVoiceCandidateData = null;
 let createLocalTaskToken = "";
 let createLocalTaskConfirmation = "";
 let createLocalTaskBusy = false;
+let createLocalTaskLastReceipt = null;
 let taskTransitionToken = "";
 let taskTransitionConfirmation = "";
 let taskTransitionTaskId = "";
@@ -82,7 +83,7 @@ function activateTab(tabId) {
     loadSkillDetail(recommendedSkillId);
   }
   if (tabId === "tasks") {
-    loadOverview();
+    return loadOverview();
   }
   if (tabId === "history") {
     loadHistory();
@@ -1440,6 +1441,7 @@ function renderVoiceCandidate(data) {
   createLocalTaskToken = "";
   createLocalTaskConfirmation = "";
   createLocalTaskBusy = false;
+  createLocalTaskLastReceipt = null;
   voiceResultBox.innerHTML = `
     <section class="voice-candidate-card" aria-label="Voice Inbox task candidate">
       <div class="overview-section-heading">
@@ -1494,6 +1496,7 @@ function renderCreateLocalTaskPreview(data) {
   if (!target) {
     return;
   }
+  createLocalTaskLastReceipt = null;
   const preview = data.preview || {};
   createLocalTaskToken = data.token || "";
   createLocalTaskConfirmation = data.confirmation_literal || "";
@@ -1518,6 +1521,15 @@ function renderCreateLocalTaskPreview(data) {
   `;
 }
 
+function createLocalTaskReceiptIsAuthoritative(data) {
+  const receipt = data?.receipt || {};
+  return data?.ok === true
+    && data?.product_name === "Create Local Task"
+    && ["created", "already_created"].includes(data?.result_type)
+    && /^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(receipt.task_id || "")
+    && receipt.status === "TODO";
+}
+
 function renderCreateLocalTaskReceipt(data) {
   const target = createLocalTaskResultElement();
   if (!target) {
@@ -1525,6 +1537,10 @@ function renderCreateLocalTaskReceipt(data) {
   }
   const receipt = data.receipt || {};
   const receiptState = data.result_type === "already_created" ? "Already created" : "Created";
+  const authoritative = createLocalTaskReceiptIsAuthoritative(data);
+  createLocalTaskLastReceipt = authoritative
+    ? JSON.parse(JSON.stringify(data))
+    : null;
   target.innerHTML = `
     <article class="create-local-task-receipt">
       <div class="overview-section-heading">
@@ -1539,10 +1555,100 @@ function renderCreateLocalTaskReceipt(data) {
         <div><dt>Created at</dt><dd>${escapeHtml(receipt.created_at || "")}</dd></div>
         <div><dt>Next recommended action</dt><dd>${escapeHtml(receipt.next_recommended_action || "")}</dd></div>
       </dl>
+      ${
+        authoritative
+          ? `
+            <div class="suggestion-actions">
+              <button class="primary-button open-created-task" type="button">Open Created Task</button>
+            </div>
+            <p class="muted">Uses one read-only Project Control Overview refresh. It does not repeat Create or start the Task.</p>
+          `
+          : ""
+      }
     </article>
   `;
   statusText.textContent = `${receiptState}: ${receipt.task_id || "local TODO task"}.`;
   nextActionText.textContent = receipt.next_recommended_action || "Review the new TODO task.";
+}
+
+function clearCreatedTaskFocus() {
+  if (!tasksDetails) {
+    return;
+  }
+  tasksDetails.querySelectorAll("[data-task-card-id]").forEach((card) => {
+    card.classList.remove("created-task-focus");
+    card.removeAttribute("aria-current");
+    card.style.outline = "";
+    card.style.outlineOffset = "";
+    card.style.boxShadow = "";
+  });
+}
+
+function focusCreatedTaskCard(taskId) {
+  if (!tasksDetails || !taskId) {
+    return false;
+  }
+  const taskCards = Array.from(
+    tasksDetails.querySelectorAll("[data-task-card-id]"),
+  );
+  clearCreatedTaskFocus();
+  const exactCard = taskCards.find(
+    (card) => card.dataset.taskCardId === taskId,
+  );
+  if (!exactCard) {
+    return false;
+  }
+  exactCard.classList.add("created-task-focus");
+  exactCard.setAttribute("aria-current", "true");
+  exactCard.style.outline = "3px solid var(--accent)";
+  exactCard.style.outlineOffset = "4px";
+  exactCard.style.boxShadow = "0 0 0 6px rgba(71, 118, 230, 0.18)";
+  exactCard.scrollIntoView({ block: "center", behavior: "smooth" });
+  exactCard.focus({ preventScroll: true });
+  return true;
+}
+
+async function openCreatedTask() {
+  const taskId = createLocalTaskLastReceipt?.receipt?.task_id || "";
+  if (!taskId) {
+    statusText.textContent = "Open Created Task requires an authoritative Voice Create Receipt.";
+    return { result: "unavailable" };
+  }
+
+  clearCreatedTaskFocus();
+  const overviewOutcome = await activateTab("tasks");
+  if (!overviewOutcome || overviewOutcome.result === "stale") {
+    return overviewOutcome || { result: "failed", error: "overview_unavailable" };
+  }
+  if (overviewOutcome.result !== "rendered") {
+    statusText.textContent = (
+      `Created Task was not opened because Overview refresh failed: `
+      + `${overviewOutcome.error || "Overview unavailable"}. `
+      + "The Create Receipt remains authoritative. No write was retried."
+    );
+    nextActionText.textContent = "Retry Open Created Task or refresh Project Control; both actions perform GET only.";
+    return overviewOutcome;
+  }
+  if (!focusCreatedTaskCard(taskId)) {
+    statusText.textContent = (
+      `Created Task ${taskId} was not found in the current Overview projection. `
+      + "The Create Receipt remains authoritative. No other Task was selected."
+    );
+    nextActionText.textContent = "Refresh Project Control or return to the Voice Receipt and retry Open Created Task.";
+    return {
+      result: "missing",
+      generation: overviewOutcome.generation,
+      taskId,
+    };
+  }
+
+  statusText.textContent = `Opened created Task ${taskId} in Project Control. No Task action was run.`;
+  nextActionText.textContent = "Review the exact TODO card, then choose Start Task when ready.";
+  return {
+    result: "focused",
+    generation: overviewOutcome.generation,
+    taskId,
+  };
 }
 
 async function previewCreateLocalTask() {
@@ -1557,6 +1663,7 @@ async function previewCreateLocalTask() {
   }
 
   createLocalTaskBusy = true;
+  createLocalTaskLastReceipt = null;
   const target = createLocalTaskResultElement();
   if (target) {
     target.innerHTML = "<p class=\"muted\">Preparing Create Local Task preview...</p>";
@@ -1620,6 +1727,7 @@ async function confirmCreateLocalTask() {
     }
     createLocalTaskToken = "";
     createLocalTaskConfirmation = "";
+    createLocalTaskLastReceipt = null;
     statusText.textContent = `Create Local Task failed: ${error.message}`;
   } finally {
     createLocalTaskBusy = false;
@@ -1870,7 +1978,7 @@ function actionableTaskItemMarkup(item) {
     ? completionEvidenceReceiptMarkup(completionEvidenceLastReceipt)
     : "";
   return `
-    <article class="overview-item normalized-overview-item">
+    <article class="overview-item normalized-overview-item" data-task-card-id="${escapeHtml(valid ? view.id : "")}" tabindex="-1">
       <div class="overview-item-heading">
         <strong>${escapeHtml(title)}</strong>
         <div class="overview-badges">
@@ -3575,6 +3683,7 @@ function clearVoiceTranscript() {
   createLocalTaskToken = "";
   createLocalTaskConfirmation = "";
   createLocalTaskBusy = false;
+  createLocalTaskLastReceipt = null;
   statusText.textContent = "Voice Inbox cleared. No transcript was saved.";
 }
 
@@ -3703,6 +3812,12 @@ skillGrid.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const openCreatedTaskButton = event.target.closest(".open-created-task");
+  if (openCreatedTaskButton) {
+    openCreatedTask();
+    return;
+  }
+
   const evaluateTaskDraftRetryButton = event.target.closest(".retry-evaluate-task-draft");
   if (evaluateTaskDraftRetryButton) {
     createEvaluateTaskDraft(evaluateTaskDraftRequest?.binding, true);
