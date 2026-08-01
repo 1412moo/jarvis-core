@@ -1,12 +1,12 @@
 # Jarvis-Core ChatGPT Handoff
 
-Last verified: 2026-07-31
+Last verified: 2026-08-01
 
 Repository: `C:\work\jarvis-core`
 
 Branch: `main`
 
-Observed repository HEAD (current package is uncommitted): `91e00063434142bba0967f32b51428e133e1ab76`
+Observed Open Created Task feature commit: `b80ed92901d0805e3064ef8f80c36654e48ee771`, `feat(console): open created task from receipt`
 
 This is the authoritative fast-start handoff for the repository's current implementation. It describes what the source actually does, not what an older design document intended. When this document conflicts with executable source, tests, or current local data, the source, tests, and data win and this document must be corrected.
 
@@ -57,10 +57,10 @@ The repository also contains separately launched Hermes Manager, Research Counci
 Current local Git facts:
 
 - Branch: `main`.
-- HEAD: `91e00063434142bba0967f32b51428e133e1ab76`, `fix(console): preserve truthful overview refresh outcomes`.
+- Open Created Task feature commit: `b80ed92901d0805e3064ef8f80c36654e48ee771`, `feat(console): open created task from receipt`.
 - Protected untracked file: `jarvis.bat`.
 - Untracked Task files `task-0006` through `task-0028` are real smoke/dogfood output. They are not test fixtures committed to the repository.
-- The uncommitted Open Created Task package changes only `apps/jarvis-console/web/app.js`, `apps/jarvis-console/run_smoke_tests.py`, and this handoff.
+- The Open Created Task feature commit contains only `apps/jarvis-console/web/app.js`, `apps/jarvis-console/run_smoke_tests.py`, and this handoff.
 
 ## Repository Structure
 
@@ -419,7 +419,7 @@ Implemented boundary:
 - First slice is Voice Create because that is the 20-cycle observed surface. Evaluate Receipt expansion is outside the first slice.
 - Missing exact Task and Overview failure keep the Receipt intact and report a truthful no-open result; stale Overview responses do not focus or overwrite newer state.
 
-No product implementation is **In Progress**. The package is implemented and locally focused-validated but remains uncommitted by Owner policy.
+No product implementation is **In Progress**. The package is implemented, locally focused-validated, and committed as `b80ed92`.
 
 ## Constraints
 
@@ -511,7 +511,7 @@ For documentation-only changes, do not launch the server or browser. Run `git di
 
 | Priority | Product or maintenance direction | Status | Next gate |
 | --- | --- | --- | --- |
-| 1 | Open Created Task from authoritative Voice Create Receipt | Implemented | Focused validation passed; package remains uncommitted by policy. |
+| 1 | Open Created Task from authoritative Voice Create Receipt | Implemented | Focused validation passed; feature commit `b80ed92`. |
 | 2 | Reconcile stale Project Control reporting references | Planned | Separate maintenance decision; preserve historical evidence and fail-closed reporting. |
 | 3 | Resolve Windows temp-directory ACL validation limitation | Planned | Separate environment package; no product-source change unless evidence requires it. |
 | 4 | Decide whether observed Evidence-entry friction warrants a bounded slice | Planned | Compare actual dogfood value after priority 1; do not infer a generic editor. |
@@ -535,7 +535,7 @@ Read-only Task Detail, Search/Filter, Canonical BLOCKED Workflow, and post-creat
 | 2026-07-29 | Replace post-create `TODO` correction direction with Edit Before Create for Evaluate handoff only. | Implemented | Commits `511446f`, `925bcde`. |
 | 2026-07-30 | Keep write Receipt authoritative and separate it from Overview refresh outcome. | Implemented | Commit `91e0006`. |
 | 2026-07-30 | Recover Console launch without repository/system PATH changes, then complete five-minute smoke and one-hour/20-cycle dogfood. | Implemented | Local dogfood Tasks `task-0006` through `task-0028`; environment remained unchanged. |
-| 2026-07-31 | Implement direct GET-only navigation from an authoritative Voice Create Receipt to the exact Project Control Task card. | Implemented | Open Created Task source and deterministic harness in the uncommitted bounded package. |
+| 2026-07-31 | Implement direct GET-only navigation from an authoritative Voice Create Receipt to the exact Project Control Task card. | Implemented | Commit `b80ed92`; exact-path feature package and deterministic harness. |
 
 ## Glossary
 
@@ -568,7 +568,7 @@ Read-only Task Detail, Search/Filter, Canonical BLOCKED Workflow, and post-creat
 6. Preview is write-free; Confirm is token plus exact literal; server owns IDs, paths, status, repo, and timestamps.
 7. Receipts are authoritative. Overview refresh is a separate GET outcome and must never cause a write retry.
 8. Project Control currently shows reporting attention because `docs/master-plan.md` references old evidence. That is truthful behavior, not a UI bug.
-9. Repository HEAD remains `91e0006`; the uncommitted Open Created Task package is Implemented and no product work is currently In Progress.
+9. Open Created Task is committed at `b80ed92`; no product work is currently In Progress. Use live Git for any later documentation-only checkpoint HEAD.
 10. Open Created Task is Voice Receipt-only, performs one existing Overview GET, matches only authoritative `task_id`, and never starts the Task.
 11. `jarvis.bat` and local dogfood Tasks are untracked; do not stage or alter them.
 12. Do not claim full regression green in the current Windows/Codex session until the temp ACL issue is separately resolved.
