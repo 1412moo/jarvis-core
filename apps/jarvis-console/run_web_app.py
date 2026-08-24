@@ -10166,7 +10166,8 @@ def run_self_test() -> None:
     assert "MediaRecorder" not in app_js
     assert "loadOverview" in app_js
     assert "loadHistory" in app_js
-    assert "Refresh Project Control" not in app_js
+    assert not re.search(r"<button[^>]*>[^<]*Refresh Project Control", app_js)
+    assert "overview-refresh" not in app_js
     assert "Refresh History" not in app_js
     assert "renderSkillCards" in app_js
     assert "renderSkillDetail" in app_js
