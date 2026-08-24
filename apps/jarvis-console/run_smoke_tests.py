@@ -6363,10 +6363,12 @@ def _test_evaluate_idea_create_task_vertical_slice() -> None:
     ) == (HTTPStatus.OK, cancelled)
     different_cancel = dict(cancel_request)
     different_cancel["operation_id"] = str(run_web_app.uuid.uuid4())
-    assert run_web_app.invalidate_evaluate_idea_create_task(
+    different_status, different_body = run_web_app.invalidate_evaluate_idea_create_task(
         different_cancel,
         registry=cancel_registry,
-    )[1]["error"] == "evaluate_idea_create_task_draft_cancelled"
+    )
+    assert different_status == HTTPStatus.CONFLICT
+    assert different_body["error"] == "evaluate_idea_create_task_draft_cancelled"
     assert run_web_app.preview_evaluate_idea_create_task(
         final_payload(cancel_draft, 2),
         registry=cancel_registry,
@@ -6611,6 +6613,11 @@ def _test_evaluate_idea_create_task_client_state_machine() -> None:
         invalidate_start,
     )
     invalidate_source = app_js[invalidate_start:invalidate_end]
+    controls_start = app_js.index("function refreshEvaluateIdeaControls() {")
+    controls_source = app_js[
+        controls_start:
+        app_js.index("function clearEvaluateTaskAuthority(", controls_start)
+    ].rstrip()
     controlled_fetch_harness = "\n".join(
         (
             "let evaluateTaskDraft = { draftId: 'draft-a', revision: 3, "
@@ -6629,7 +6636,27 @@ def _test_evaluate_idea_create_task_client_state_machine() -> None:
             "let uuidCount = 0;",
             "function newEvaluateTaskUuid() { uuidCount += 1; "
             "return `operation-${uuidCount}`; }",
-            "function refreshEvaluateIdeaControls() {}",
+            "const evaluateIdeaInput = null;",
+            "const evaluateIdeaGoal = null;",
+            "const evaluateIdeaContext = null;",
+            "const evaluateIdeaEvidence = null;",
+            "const evaluateIdeaButton = null;",
+            "let evaluateIdeaBusy = false;",
+            "const evaluateSuccessfulBinding = null;",
+            "function evaluateTaskDraftIsLive() { return true; }",
+            "function evaluateIdeaBindingMatches() { return true; }",
+            "function setEvaluateTaskWriteControlsLocked() {}",
+            "const editDraftButton = { disabled: false };",
+            "const evaluateAgainButton = { disabled: false };",
+            "const researchDetails = {",
+            "  querySelector() { return null; },",
+            "  querySelectorAll(selector) {",
+            "    return selector.includes('evaluate-task-edit-draft')",
+            "      ? [editDraftButton, evaluateAgainButton]",
+            "      : [];",
+            "  },",
+            "};",
+            controls_source,
             "function renderEvaluateTaskRetry() {}",
             "function evaluateTaskRequestMatches(request) { "
             "return evaluateTaskPendingRequest === request "
@@ -6653,7 +6680,13 @@ def _test_evaluate_idea_create_task_client_state_machine() -> None:
             "}",
             invalidate_source,
             "(async () => {",
+            "  if (editDraftButton.disabled || evaluateAgainButton.disabled) {",
+            "    throw new Error('draft controls started disabled');",
+            "  }",
             "  const first = invalidateEvaluateTaskDraft('edit_draft');",
+            "  if (!editDraftButton.disabled || !evaluateAgainButton.disabled) {",
+            "    throw new Error('pending invalidate did not disable draft controls');",
+            "  }",
             "  const firstRequest = evaluateTaskPendingRequest;",
             "  const firstIdentity = JSON.stringify(firstRequest.payload);",
             "  await invalidateEvaluateTaskDraft('edit_draft');",
@@ -6675,6 +6708,14 @@ def _test_evaluate_idea_create_task_client_state_machine() -> None:
             "  if (evaluateTaskPendingRequest !== firstRequest "
             "|| JSON.stringify(evaluateTaskPendingRequest.payload) !== firstIdentity) {",
             "    throw new Error('retry replaced invalidate authority');",
+            "  }",
+            "  if (!editDraftButton.disabled || !evaluateAgainButton.disabled) {",
+            "    throw new Error('retry released the draft control lock');",
+            "  }",
+            "  evaluateTaskPendingRequest = null;",
+            "  refreshEvaluateIdeaControls();",
+            "  if (editDraftButton.disabled || evaluateAgainButton.disabled) {",
+            "    throw new Error('draft controls stayed disabled after settle');",
             "  }",
             "})().catch((error) => { console.error(error); process.exitCode = 1; });",
         )
