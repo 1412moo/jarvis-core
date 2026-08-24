@@ -461,6 +461,7 @@ READ_ONLY_GIT_COMMANDS = {
     ("rev-parse", "--abbrev-ref", "HEAD"),
     ("rev-parse", "HEAD"),
     ("status", "--short"),
+    ("status", "--short", "--untracked-files=all"),
     ("log", "--oneline", "-n", "10"),
     RECENT_MILESTONE_GIT_COMMAND,
 }
@@ -1092,7 +1093,7 @@ def repo_status_payload() -> dict[str, Any]:
     """Return read-only repository status for the overview dashboard."""
 
     head = run_read_only_git(("rev-parse", "HEAD"))
-    working_tree_status = run_read_only_git(("status", "--short"))
+    working_tree_status = run_read_only_git(("status", "--short", "--untracked-files=all"))
     return {
         "root": run_read_only_git(("rev-parse", "--show-toplevel")),
         "branch": run_read_only_git(("rev-parse", "--abbrev-ref", "HEAD")),
