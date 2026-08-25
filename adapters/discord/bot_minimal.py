@@ -37,9 +37,14 @@ INTAKE_DIR = REPO_ROOT / "orchestrator" / "discord-intake"
 if str(INTAKE_DIR) not in sys.path:
     sys.path.insert(0, str(INTAKE_DIR))
 
+NL_INTENT_DIR = REPO_ROOT / "orchestrator" / "discord-nl-intent"
+if str(NL_INTENT_DIR) not in sys.path:
+    sys.path.insert(0, str(NL_INTENT_DIR))
+
 from intake_parser import parse_intake
 from task_draft_builder import build_task_draft
 from task_file_writer import write_task_file
+from intent_router import resolve_intent, resolve_llm_fallback
 
 TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
@@ -2005,7 +2010,17 @@ async def _start_discord_bot() -> None:
 
         content = (message.content or "").strip()
         if not content.startswith("/"):
-            return
+            resolved_command = resolve_intent(content)
+            if resolved_command is None:
+                fallback_outcome = resolve_llm_fallback(content)
+                if fallback_outcome.command is not None:
+                    resolved_command = fallback_outcome.command
+                elif fallback_outcome.reply is not None:
+                    await message.reply(fallback_outcome.reply)
+                    return
+                else:
+                    return
+            content = resolved_command
 
         if (
             not content.startswith("/help")
