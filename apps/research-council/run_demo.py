@@ -8,6 +8,7 @@ from pathlib import Path
 
 from research_council import (
     ALIASES,
+    DETERMINISTIC_MODES,
     LLMAugmentationMode,
     ResearchCouncilInput,
     list_profiles,
@@ -290,7 +291,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--llm-augmentation-mode",
-        choices=[mode.value for mode in LLMAugmentationMode],
+        choices=[mode.value for mode in DETERMINISTIC_MODES],
         default=LLMAugmentationMode.OFF.value,
         help=(
             "Optional deterministic augmentation sandbox mode. Defaults to off; "

@@ -13,7 +13,7 @@ from research_council.evaluation import (
     format_regression_summary,
 )
 from research_council.benchmark_snapshot import export_benchmark_snapshot
-from research_council.llm_advisor import LLMAugmentationMode
+from research_council.llm_advisor import DETERMINISTIC_MODES, LLMAugmentationMode
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--llm-augmentation-mode",
-        choices=[mode.value for mode in LLMAugmentationMode],
+        choices=[mode.value for mode in DETERMINISTIC_MODES],
         default=LLMAugmentationMode.OFF.value,
         help="Optional deterministic LLM augmentation sandbox mode. Defaults to off.",
     )

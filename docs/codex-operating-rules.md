@@ -32,6 +32,37 @@
 Memory / Skills의 save endpoint, UI Save/Confirm, Voice Inbox auto-save처럼
 명시적으로 잠긴 기능은 별도 승인 없이는 활성화하지 않는다.
 
+### 승인된 예외: Research Council live augmentation
+
+`research-council-live-augmentation-v0.1` package로 승인된 범위에 한해 Research
+Council의 `llm_advisor`가 OpenRouter를 통해 외부 LLM을 호출할 수 있다. 이 예외는
+다음 경계를 모두 만족할 때만 유효하며, 하나라도 벗어나면 다시 승인 대상이다.
+
+1. Research Council 한정. Jarvis Console, Hermes, Daily AI Radar, Discord
+   adapter는 포함되지 않는다.
+2. Explicit opt-in. `LLMAugmentationMode.LIVE`를 호출자가 명시적으로 지정한
+   경우에만 동작하며 어떤 기본값도 `LIVE`가 아니다.
+3. Deterministic source-of-truth 불변. claims, evidence_ledger,
+   reviewer_critiques, experiments, recommendation, markdown_report, profile,
+   warnings를 읽을 수는 있으나 변경하거나 재판정할 수 없다.
+4. Additive-only. 결과는 `optional_llm_augments` 한 필드에만 기록하며
+   `ALLOWED_AUGMENTATION_CATEGORIES` 5종을 벗어나지 않는다.
+5. Benchmark/golden 경로 사용 금지. golden case, benchmark snapshot, mutation
+   test, demo runner, demo batch, local GUI에서 `LIVE`는 선택할 수 없다.
+6. Provider/model 고정. `z-ai/glm-4.6` + `deepinfra/fp4`로 고정하고
+   `allow_fallbacks=false`, `zdr=true`, `data_collection="deny"`를 명시한다.
+   OpenRouter의 자동 fallback과 자동 provider routing은 사용하지 않으며
+   `requiresUserIDs=true`인 provider는 사용하지 않는다.
+7. Credential은 환경변수에서만. `OPENROUTER_API_KEY`를 `os.environ`으로만 읽고
+   파일을 직접 열지 않으며 키 값을 로그, 에러, 산출물에 담지 않는다.
+8. 실패는 강등으로 처리. 키 부재, 타임아웃, rate limit, 네트워크 오류, 형식
+   오류는 augmentation을 off 동등 결과로 강등하며 파이프라인 실패로 전파하지
+   않는다.
+
+모델 alias는 provider 측 사정으로 변경될 수 있다. 이는 deterministic
+source-of-truth 계약과는 별개의 운영 리스크이며, 상수를 갱신하기 전에 OpenRouter
+공식 endpoint에서 현재 model ID, provider tag, 가격, context를 확인한다.
+
 ## 3. Local commit 정책
 
 다음 조건을 모두 만족할 때만 승인된 work package의 local commit을 만든다.

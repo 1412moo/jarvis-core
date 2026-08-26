@@ -27,11 +27,19 @@ ALLOWED_AUGMENTATION_CATEGORIES = frozenset(
 
 
 class LLMAugmentationMode(str, Enum):
-    """Deterministic-safe augmentation modes."""
+    """Deterministic-safe augmentation modes plus one opt-in live mode."""
 
     OFF = "off"
     TEST_SAFE = "test_safe"
     TEST_NOISY = "test_noisy"
+    LIVE = "live"
+
+
+DETERMINISTIC_MODES: tuple[LLMAugmentationMode, ...] = (
+    LLMAugmentationMode.OFF,
+    LLMAugmentationMode.TEST_SAFE,
+    LLMAugmentationMode.TEST_NOISY,
+)
 
 
 @dataclass(frozen=True)
@@ -40,11 +48,14 @@ class LLMAdvisorConfig:
 
     mode: LLMAugmentationMode | str = LLMAugmentationMode.OFF
     source: str = "deterministic_fake_advisor"
+    candidate_generator: Any = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", _coerce_mode(self.mode))
         source = str(self.source or "").strip() or "deterministic_fake_advisor"
         object.__setattr__(self, "source", source)
+        if self.candidate_generator is not None and not callable(self.candidate_generator):
+            raise ValueError("candidate_generator must be callable or None")
 
     @classmethod
     def from_value(cls, value: "LLMAdvisorConfig | LLMAugmentationMode | str | None") -> "LLMAdvisorConfig":
@@ -239,12 +250,20 @@ def build_llm_augmentation(
             profile_id=profile_id,
         )
 
-    candidates = _fake_advisor_candidates(
-        deterministic_result,
-        input_data=input_data,
-        domain_profile=domain_profile,
-        config=advisor_config,
-    )
+    if advisor_config.mode == LLMAugmentationMode.LIVE:
+        candidates = _live_advisor_candidates(
+            deterministic_result,
+            input_data=input_data,
+            domain_profile=domain_profile,
+            config=advisor_config,
+        )
+    else:
+        candidates = _fake_advisor_candidates(
+            deterministic_result,
+            input_data=input_data,
+            domain_profile=domain_profile,
+            config=advisor_config,
+        )
     return validate_llm_suggestions(
         candidates,
         deterministic_result=deterministic_result,
@@ -328,6 +347,41 @@ def validate_llm_insight_bundle(bundle: LLMInsightBundle) -> tuple[str, ...]:
                 f"LLM advisory bundle must not claim deterministic replacement: {phrase}"
             )
     return tuple(issues)
+
+
+def _live_advisor_candidates(
+    deterministic_result: Any,
+    *,
+    input_data: Any,
+    domain_profile: Any,
+    config: LLMAdvisorConfig,
+) -> tuple[LLMAugmentationCandidate, ...]:
+    """Call the injected live generator, degrading to no candidates on any failure.
+
+    A live generator never fails the pipeline. Any exception, timeout, rate limit
+    or malformed response yields an empty candidate tuple, which validates into an
+    OFF-equivalent result while the deterministic outputs stay untouched.
+    """
+
+    generator = config.candidate_generator
+    if generator is None:
+        return ()
+    try:
+        candidates = generator(
+            deterministic_result,
+            input_data=input_data,
+            domain_profile=domain_profile,
+            config=config,
+        )
+    except Exception:  # noqa: BLE001 - degrade, never propagate
+        return ()
+    if not isinstance(candidates, (list, tuple)):
+        return ()
+    return tuple(
+        candidate
+        for candidate in candidates
+        if isinstance(candidate, LLMAugmentationCandidate)
+    )
 
 
 def _fake_advisor_candidates(
@@ -733,6 +787,7 @@ _FORBIDDEN_PROFILE_TERMS: Mapping[str, tuple[str, ...]] = {
 
 __all__ = [
     "ALLOWED_AUGMENTATION_CATEGORIES",
+    "DETERMINISTIC_MODES",
     "LLMAdvisorConfig",
     "LLMAugmentationCandidate",
     "LLMAugmentationMode",

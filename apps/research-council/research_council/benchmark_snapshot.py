@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from .evaluation import RegressionSummary, build_benchmark_analytics
+from .llm_advisor import DETERMINISTIC_MODES
 from .scenario_templates import build_scenario_summary, generate_scenarios
 
 
 SNAPSHOT_SCHEMA_VERSION = 1
 DEFAULT_BENCHMARK_VERSION = "research-council-benchmark-v1"
+DETERMINISTIC_MODE_VALUES = frozenset(mode.value for mode in DETERMINISTIC_MODES)
 
 
 @dataclass(frozen=True)
@@ -107,6 +109,17 @@ class BenchmarkDiffSummary:
     benchmark_hash_changed: bool = False
 
 
+def _reject_non_deterministic_mode(augmentation_mode: str) -> None:
+    """Fail closed when a snapshot would record a non-deterministic mode."""
+
+    if str(augmentation_mode) not in DETERMINISTIC_MODE_VALUES:
+        allowed = ", ".join(sorted(DETERMINISTIC_MODE_VALUES))
+        raise ValueError(
+            f"benchmark snapshots require a deterministic augmentation mode; "
+            f"got {augmentation_mode!r}, expected one of {allowed}"
+        )
+
+
 def export_benchmark_snapshot(
     summary: RegressionSummary,
     path: str | Path,
@@ -133,6 +146,7 @@ def build_benchmark_snapshot(
 ) -> BenchmarkSnapshot:
     """Build a deterministic snapshot from an evaluated benchmark summary."""
 
+    _reject_non_deterministic_mode(augmentation_mode)
     snapshot_without_hash = _build_benchmark_snapshot_with_hash(
         summary,
         augmentation_mode=augmentation_mode,

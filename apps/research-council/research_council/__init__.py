@@ -27,6 +27,7 @@ from .json_export import (
 )
 from .llm_advisor import (
     ALLOWED_AUGMENTATION_CATEGORIES,
+    DETERMINISTIC_MODES,
     LLMAdvisorConfig,
     LLMAugmentationCandidate,
     LLMAugmentationMode,
@@ -64,6 +65,7 @@ __all__ = [
     "ALLOWED_AUGMENTATION_CATEGORIES",
     "LLMAdvisorConfig",
     "LLMAugmentationCandidate",
+    "DETERMINISTIC_MODES",
     "LLMAugmentationMode",
     "LLMAugmentationResult",
     "LLMInsightBundle",

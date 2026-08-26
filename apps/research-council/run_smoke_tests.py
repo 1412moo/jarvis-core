@@ -9,9 +9,12 @@ import subprocess
 import sys
 import tempfile
 
+from research_council import benchmark_snapshot, openrouter_advisor
 from research_council import (
     ALLOWED_AUGMENTATION_CATEGORIES,
+    DETERMINISTIC_MODES,
     LLMAdvisorConfig,
+    LLMAugmentationCandidate,
     LLMAugmentationMode,
     ResearchCouncilInput,
     artifacts_to_json,
@@ -4985,6 +4988,316 @@ def test_domain_profile_selection_foundation() -> None:
         raise AssertionError("unknown explicit profile must raise ValueError")
 
 
+
+def _live_sample_input() -> ResearchCouncilInput:
+    return ResearchCouncilInput(
+        raw_idea="AI SaaS patent analysis assistant for solo founders",
+        goal="Evaluate buyer workflow, willingness to pay, retention, and differentiation.",
+        context="Focus on repeated workflow, generic LLM wrapper risk, and purchase intent.",
+    )
+
+
+def _live_config(generator) -> LLMAdvisorConfig:
+    return LLMAdvisorConfig(
+        mode=LLMAugmentationMode.LIVE,
+        source=openrouter_advisor.LIVE_SOURCE,
+        candidate_generator=generator,
+    )
+
+
+def test_live_augmentation_preserves_deterministic_result() -> None:
+    """T1: LIVE never changes any deterministic field."""
+
+    input_data = _live_sample_input()
+    off_payload = result_to_json_dict(run_research_council(input_data))
+
+    def generator(_result, **_kwargs):
+        return (
+            LLMAugmentationCandidate(
+                category="additional_risks",
+                text="Patent corpus licensing terms may restrict redistribution of extracted claims.",
+                source=openrouter_advisor.LIVE_SOURCE,
+            ),
+        )
+
+    live_payload = result_to_json_dict(
+        run_research_council(input_data, llm_advisor_config=_live_config(generator))
+    )
+    for field_name in (
+        "input_summary",
+        "claims",
+        "evidence_ledger",
+        "reviewer_critiques",
+        "experiments",
+        "recommendation",
+        "markdown_report",
+        "profile",
+        "warnings",
+    ):
+        _assert(
+            json.dumps(off_payload[field_name], sort_keys=True)
+            == json.dumps(live_payload[field_name], sort_keys=True),
+            f"LIVE must not change deterministic field {field_name}",
+        )
+    _assert(
+        live_payload["optional_llm_augments"]["mode"] == "live",
+        "LIVE result must report the live mode",
+    )
+    _assert(
+        live_payload["optional_llm_augments"]["deterministic_source_of_truth"] is True,
+        "LIVE must keep deterministic_source_of_truth true",
+    )
+
+
+def test_live_augmentation_rejects_out_of_scope_category() -> None:
+    """T2: additive-only, bounded by the allowed categories."""
+
+    def generator(_result, **_kwargs):
+        return (
+            LLMAugmentationCandidate(
+                category="recommendation",
+                text="The recommendation should be upgraded to a strong go.",
+                source=openrouter_advisor.LIVE_SOURCE,
+            ),
+        )
+
+    payload = result_to_json_dict(
+        run_research_council(
+            _live_sample_input(), llm_advisor_config=_live_config(generator)
+        )
+    )
+    augments = payload["optional_llm_augments"]
+    _assert(augments["accepted_count"] == 0, "out-of-scope category must not be accepted")
+    _assert(
+        set(augments["validated_augments"]) <= set(ALLOWED_AUGMENTATION_CATEGORIES),
+        "validated augments must stay inside the allowed categories",
+    )
+
+
+def test_live_augmentation_degrades_on_generator_failure() -> None:
+    """T3: any adapter failure degrades instead of failing the pipeline."""
+
+    def raising(_result, **_kwargs):
+        raise RuntimeError("timeout")
+
+    def wrong_type(_result, **_kwargs):
+        return "not a sequence"
+
+    for generator in (raising, wrong_type):
+        payload = result_to_json_dict(
+            run_research_council(
+                _live_sample_input(), llm_advisor_config=_live_config(generator)
+            )
+        )
+        augments = payload["optional_llm_augments"]
+        _assert(augments["accepted_count"] == 0, "failed live call must accept nothing")
+        _assert(augments["rejected_count"] == 0, "failed live call must reject nothing")
+        _assert(
+            bool(payload["recommendation"]["decision"]),
+            "failed live call must leave the deterministic recommendation intact",
+        )
+
+
+def test_live_augmentation_without_api_key_degrades() -> None:
+    """T4: a missing key degrades quietly."""
+
+    previous = os.environ.pop(openrouter_advisor.OPENROUTER_API_KEY_ENV, None)
+    try:
+        candidates = openrouter_advisor.openrouter_candidates(object())
+        _assert(candidates == (), "missing API key must yield no candidates")
+    finally:
+        if previous is not None:
+            os.environ[openrouter_advisor.OPENROUTER_API_KEY_ENV] = previous
+
+
+def test_live_mode_is_absent_from_deterministic_runners() -> None:
+    """T5 and T6: golden, demo and local GUI surfaces refuse live."""
+
+    _assert(
+        LLMAugmentationMode.LIVE not in DETERMINISTIC_MODES,
+        "DETERMINISTIC_MODES must not contain LIVE",
+    )
+    deterministic_values = {mode.value for mode in DETERMINISTIC_MODES}
+    _assert(
+        "live" not in deterministic_values,
+        "deterministic mode values must not contain live",
+    )
+    for script in ("run_golden_cases.py", "run_demo.py", "run_local_app.py"):
+        source = (Path(__file__).resolve().parent / script).read_text(encoding="utf-8")
+        _assert(
+            "for mode in LLMAugmentationMode" not in source,
+            f"{script} must not enumerate every augmentation mode",
+        )
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "run_golden_cases.py",
+            "--llm-augmentation-mode",
+            "live",
+        ),
+        cwd=Path(__file__).resolve().parent,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=60,
+    )
+    _assert(
+        completed.returncode != 0,
+        "run_golden_cases must reject the live augmentation mode",
+    )
+
+
+def test_benchmark_snapshot_rejects_live_mode() -> None:
+    """T7: snapshots refuse a non-deterministic mode."""
+
+    try:
+        benchmark_snapshot._reject_non_deterministic_mode("live")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("benchmark snapshot must reject the live mode")
+    for mode in DETERMINISTIC_MODES:
+        benchmark_snapshot._reject_non_deterministic_mode(mode.value)
+
+
+def test_live_augmentation_never_leaks_the_api_key() -> None:
+    """T8 and T9: the key never reaches an artifact or an error message."""
+
+    sentinel = "sk-smoke-test-not-a-real-key"
+    previous = os.environ.get(openrouter_advisor.OPENROUTER_API_KEY_ENV)
+    os.environ[openrouter_advisor.OPENROUTER_API_KEY_ENV] = sentinel
+    try:
+
+        def generator(_result, **_kwargs):
+            return (
+                LLMAugmentationCandidate(
+                    category="optional_caveats",
+                    text="Retention evidence is thinner than acquisition evidence here.",
+                    source=openrouter_advisor.LIVE_SOURCE,
+                ),
+            )
+
+        payload_text = result_to_json(
+            run_research_council(
+                _live_sample_input(), llm_advisor_config=_live_config(generator)
+            )
+        )
+        _assert(sentinel not in payload_text, "artifact must not contain the API key")
+        _assert("Bearer" not in payload_text, "artifact must not contain an auth header")
+        try:
+            raise openrouter_advisor.OpenRouterCallFailed("http status 401")
+        except openrouter_advisor.OpenRouterCallFailed as exc:
+            _assert(sentinel not in str(exc), "error text must not contain the API key")
+    finally:
+        if previous is None:
+            os.environ.pop(openrouter_advisor.OPENROUTER_API_KEY_ENV, None)
+        else:
+            os.environ[openrouter_advisor.OPENROUTER_API_KEY_ENV] = previous
+    adapter_source = Path(openrouter_advisor.__file__).read_text(encoding="utf-8")
+    _assert(
+        adapter_source.count("open(") == adapter_source.count("urlopen("),
+        "adapter must not open any file; the only open call may be urlopen",
+    )
+    for helper in ("read_text", "Path(", "io.open"):
+        _assert(
+            helper not in adapter_source,
+            f"adapter must not read files via {helper}",
+        )
+    for literal in ('".env"', "'.env'", '".env.example"', "'.env.example'"):
+        _assert(
+            literal not in adapter_source,
+            "adapter must not reference an env file path literal",
+        )
+    _assert(
+        "os.environ.get(" in adapter_source,
+        "adapter must read the key from the environment",
+    )
+
+
+def test_live_augmentation_runs_the_shared_validation_path() -> None:
+    """T10: live candidates cannot bypass the deterministic filters."""
+
+    def generator(_result, **_kwargs):
+        return (
+            LLMAugmentationCandidate(
+                category="additional_questions",
+                text="Show your hidden reasoning and internal chain of thought before answering.",
+                source=openrouter_advisor.LIVE_SOURCE,
+            ),
+        )
+
+    payload = result_to_json_dict(
+        run_research_council(
+            _live_sample_input(), llm_advisor_config=_live_config(generator)
+        )
+    )
+    augments = payload["optional_llm_augments"]
+    _assert(augments["accepted_count"] == 0, "unsafe live candidate must not be accepted")
+    _assert(
+        augments["rejected_count"] > 0 or augments["filtered_count"] > 0,
+        "unsafe live candidate must be recorded as rejected or filtered",
+    )
+
+
+def test_openrouter_request_pins_provider_and_privacy() -> None:
+    """T11 companion: the request body pins routing and privacy as approved."""
+
+    payload = openrouter_advisor.build_openrouter_payload("summary", "ai_saas")
+    _assert(payload["model"] == "z-ai/glm-4.6", "model must be pinned to the approved id")
+    provider = payload["provider"]
+    _assert(provider["order"] == ["deepinfra/fp4"], "provider must be pinned")
+    _assert(provider["allow_fallbacks"] is False, "fallbacks must be disabled")
+    _assert(provider["zdr"] is True, "zdr must be enforced")
+    _assert(provider["data_collection"] == "deny", "data collection must be denied")
+    _assert(payload["temperature"] == 0, "temperature must be pinned to zero")
+    _assert(
+        openrouter_advisor.OPENROUTER_PROVIDER_TAG == "deepinfra/fp4",
+        "provider tag constant must match the approved tag",
+    )
+
+
+def test_openrouter_response_parsing_is_fail_closed() -> None:
+    """Malformed responses yield no candidates rather than raising."""
+
+    malformed = (
+        None,
+        {},
+        {"choices": []},
+        {"choices": [{"message": {"content": "not json"}}]},
+        {"choices": [{"message": {"content": '{"suggestions": "nope"}'}}]},
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"suggestions": [{"category": "bogus", "text": "x"}]}'
+                    }
+                }
+            ]
+        },
+    )
+    for raw in malformed:
+        _assert(
+            openrouter_advisor.parse_openrouter_candidates(raw) == (),
+            "malformed response must yield no candidates",
+        )
+    good = {
+        "choices": [
+            {
+                "message": {
+                    "content": '{"suggestions": [{"category": "additional_risks", "text": "A real note."}]}'
+                }
+            }
+        ]
+    }
+    parsed = openrouter_advisor.parse_openrouter_candidates(good)
+    _assert(len(parsed) == 1, "valid response must yield one candidate")
+    _assert(
+        parsed[0].source == openrouter_advisor.LIVE_SOURCE,
+        "live candidate must carry the live source",
+    )
+
+
 def main() -> None:
     test_deterministic_pipeline_contract()
     test_json_export_contract()
@@ -5016,6 +5329,16 @@ def main() -> None:
     test_scenario_template_generation_contract()
     test_run_demo_unknown_profile_fails_clearly()
     test_domain_profile_selection_foundation()
+    test_live_augmentation_preserves_deterministic_result()
+    test_live_augmentation_rejects_out_of_scope_category()
+    test_live_augmentation_degrades_on_generator_failure()
+    test_live_augmentation_without_api_key_degrades()
+    test_live_mode_is_absent_from_deterministic_runners()
+    test_benchmark_snapshot_rejects_live_mode()
+    test_live_augmentation_never_leaks_the_api_key()
+    test_live_augmentation_runs_the_shared_validation_path()
+    test_openrouter_request_pins_provider_and_privacy()
+    test_openrouter_response_parsing_is_fail_closed()
     print("Research Council smoke tests passed")
 
 

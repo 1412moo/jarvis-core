@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 from research_council import (
+    DETERMINISTIC_MODES,
     LLMAugmentationMode,
     ResearchCouncilInput,
     list_profiles,
@@ -25,7 +26,7 @@ from research_council import (
 APP_TITLE = "Research Council Local Launcher"
 DEFAULT_OUTPUT_ROOT = Path.home() / "ResearchCouncilRuns"
 DEFAULT_PROFILE_ID = "ai_saas"
-AUGMENTATION_MODE_VALUES = tuple(mode.value for mode in LLMAugmentationMode)
+AUGMENTATION_MODE_VALUES = tuple(mode.value for mode in DETERMINISTIC_MODES)
 SANDBOX_MESSAGE = "deterministic sandbox, no external LLM calls"
 IDEA_ONLY_HELP = (
     "You can start with only an idea. Empty fields will use safe default prompts."
