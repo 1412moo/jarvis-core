@@ -120,6 +120,7 @@ work package의 구현 결정은 각 Task 파일과
 | --- | --- | --- |
 | 2026-08-26 | `docs/ai-team-operating-model.md`를 신설해 Owner–ChatGPT–Claude Code 3자 운영 구조를 상위 문서로 고정한다. | Owner 요청(Discord DM). |
 | 2026-08-26 | Discord DM 채널 정책을 `pairing`에서 `allowlist`로 전환한다. | Owner가 세션 터미널에서 `/discord:access policy allowlist` 실행. |
+| 2026-08-26 | Phase 1(Owner 수동 중계) 운영 방식을 표준으로 채택한다: Discord는 짧은 지휘/보고 채널, `prompts/<task-id>-work-order.md`는 ChatGPT가 내용을 결정하는 상세 업무지시서(Claude Code는 내용을 임의로 재정의하지 않고 기록·구현만 하며 모호하거나 기존 규칙과 충돌하면 중단하고 보고), `memory/tasks/`는 Task 상태/메타데이터, `docs/master-plan.md`는 프로젝트 전체 방향을 담당한다. work-order 개정 이력은 별도 이력 섹션 없이 Git history로 관리한다. Phase 2(스냅샷 자동화)와 Phase 3(ChatGPT 상시 프로세스화, `master-plan.md` §6 잠긴 기능 재오픈 필요)는 보류한다. | Owner가 AI Team Architecture Proposal(Discord, 2026-08-26)을 검토 후 최종 승인. |
 
 ## 6. 현재 Discord/Claude Code 연결 구조
 
