@@ -1,0 +1,14 @@
+{
+  "name": "jarvis-buzz-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Phase 2 minimum slice: Jarvis orchestrator <-> local Buzz Relay <-> Claude CLI agent bridge. Design-approved scope only (see README.md).",
+  "type": "commonjs",
+  "scripts": {
+    "smoke": "node run_smoke_tests.js"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.10.4",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$comment": "Phase 2 minimum slice (orchestrator/buzz-bridge). Public pubkeys and env-var NAME references only - never a secret value. See orchestrator/buzz-bridge/README.md for the security invariants this file supports.",
+  "identities": [
+    {
+      "jarvis_role": "orchestrator",
+      "jarvis_agent_id": "jarvis-orchestrator",
+      "buzz_pubkey": "de056ad9a1fe76b7a6510771ebf656dd599fbebcadd800024b84b1b798de76a1",
+      "private_key_env": "JARVIS_ORCHESTRATOR_PRIVKEY",
+      "note": "The only sender identity orchestrator/buzz-bridge/bridge.js will accept as a valid inbound mention. Creates the fixed channel."
+    },
+    {
+      "jarvis_role": "agent",
+      "jarvis_agent_id": "jarvis-agent-claude",
+      "buzz_pubkey": "053e03c7b67fca28703bad30e6e1c18067fd8c24cd1e5aa0012de38a5c5e1f5e",
+      "cli_provider": "claude",
+      "private_key_env": "AGENT_CLAUDE_PRIVKEY",
+      "note": "First (and, in this slice, only) agent identity. Codex/agy identities are intentionally not defined yet."
+    }
+  ]
+}

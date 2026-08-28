@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 apps/research-council/artifacts/
+node_modules/
