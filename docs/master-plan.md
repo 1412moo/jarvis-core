@@ -104,12 +104,13 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 
 ### 현재 위치와 다음 체감 목표
 
-- 최근 완료: **Jarvis Multi-Agent Organization v0.1A Manual Pilot**
-- 현재 다음 작업: **Director Dashboard v0.1B를 별도 bounded package로 진행**
-- 현재 사용자 체감 결과: **검증된 조직 흐름이 Jarvis-Core 기본 SOP와 역할별 agent 설정으로 고정**
-- 다음 사용자 체감 milestone: **Director Dashboard v0.1B**
+- 최근 완료: **Buzz 통합 Phase 1**(task-0039, DONE — task-0040/0041/0043/0045 4/6 완료로 조건 충족. task-0042/0044는 선택적 잔여 항목)
+- **[2026-08-27 Owner 결정] Director Dashboard v0.1B 착수 보류.** task-0038(Buzz/AI-agent 협업 플랫폼 생태계 조사) 결과, Buzz Desktop과 기능이 정면 중복된다고 판단되어 Owner가 보류를 승인했다. Buzz 통합 여부는 `reports/task-0038-ai-agent-collaboration-platform-buzz-research.md`의 Phase 2 게이트(G1~G3, 2026-08-28 WebSocket 직결 경로 포함하도록 재정의됨) 통과 여부로 재검토한다.
+- 현재 다음 작업: **task-0047 — Docker Desktop 기반 로컬 Buzz Relay 핸즈온 스파이크(S1~S7).** 착수에는 Docker Desktop 설치를 포함한 별도 Owner 승인이 필요(아직 미승인, task-0047 TODO).
+- 현재 사용자 체감 결과: **검증된 조직 흐름이 Jarvis-Core 기본 SOP와 역할별 agent 설정으로 고정. task 상태값에 `ON_HOLD` 추가(7개), AGENTS.md 원칙 5(no secrets)가 scripts/check_no_secrets.py로 코드 강제됨**
+- 다음 사용자 체감 milestone: **Jarvis Console을 "메인 UI"에서 "Jarvis 전용 승인 화면"으로 축소**(task-0038 승인 항목 ②, Owner 승인 완료, 착수는 미정)
 - 최근 검증 결과: 첫 candidate P2 finding → repair 1회 → fresh Reviewer/QA pass, final pilot commit `7d4394eed584bc11ee25062a671952b2e4c38b31`
-- 현재 결정 필요: **없음** — SOP 승격 package 안에서 로컬 validation과 commit까지 승인됨
+- 현재 결정 필요: **task-0047(Docker Desktop 설치 + 핸즈온 스파이크) 착수 승인 여부** — 그 외 Phase 1 관련 결정은 모두 완료(task-0038 참고)
 
 ### 언제부터 실제로 편해지는가
 
@@ -159,15 +160,15 @@ flowchart LR
 - Current goal: Develop Jarvis-Core as a local-first, human-approved, skill-based personal AI assistant
 - Manager reporting milestone ID: `manager-reporting-v0.1`
 - Manager reporting status: `milestone_complete`
-- Manager reporting next package ID: `director-dashboard-v0.1b`
-- Current workstream: Jarvis Multi-Agent SOP v0.1B
-- Current milestone: Manual Pilot 운영 모델을 기본 SOP와 project custom-agent 설정으로 승격
-- Recommended next step: Director Dashboard v0.1B를 별도 bounded package로 진행한 뒤 실제 기능 work package 1~2개에서 SOP를 반복 검증
-- Next user-visible milestone: Director Summary를 대표 대시보드의 기본 요약으로 승격하고 Manager Report는 상세 evidence로 유지
-- Current reason: 한 번 성공한 역할 분리와 repair 흐름을 모든 Jarvis-Core 개발에서 반복 가능한 기본 운영 방식으로 고정해야 한다
+- Manager reporting next package ID: `local-buzz-relay-handson-spike-v0.1` (task-0047, director-dashboard-v0.1b는 보류, task-0038 참고)
+- Current workstream: task-0047 착수 대기 — Docker Desktop 기반 로컬 Buzz Relay 핸즈온 스파이크
+- Current milestone: Buzz 통합 Phase 1 완료(task-0039, task-0040/0041/0043/0045 4/6). 다음은 task-0046에서 설계한 S1~S7 스파이크로 Phase 2 Gate G1/G2(ACP 경로 + WebSocket 직결 경로 모두 포함)를 실기동 검증 — Director Dashboard v0.1B는 계속 보류
+- Recommended next step: Owner가 task-0047(Docker Desktop 설치 포함) 착수를 승인하면 S1(CLI stdio 왕복, 설치 0)부터 순서대로 진행. 승인 전까지는 task-0042(서명키)/task-0044(감사 해시체인) 같은 Phase 1 잔여 항목을 선택적으로 이어갈 수 있음
+- Next user-visible milestone: Jarvis Console을 "Jarvis 전용 승인 화면"으로 축소 (task-0038 승인 항목 ②)
+- Current reason: task-0038 조사(Codex/Gemini/Claude 3자 수렴 + GPT 종합)에서 Jarvis Console/Director Dashboard 같은 자체 협업 UI 개발이 Buzz와 정면 중복된다고 판단되어, Owner가 2026-08-27 방향 전환을 승인함
 - Owner outcome: Owner는 Director하고만 소통하고 budget 안의 Worker 운영과 repair는 Manager가 처리한다
-- Recent completed: Manual Pilot v0.1A가 Implementer, Reviewer P2 finding, repair, fresh Reviewer/QA, Manager, Director 사이클을 완료
-- Approval state: none
+- Recent completed: Manual Pilot v0.1A가 Implementer, Reviewer P2 finding, repair, fresh Reviewer/QA, Manager, Director 사이클을 완료. Buzz 통합 Phase 1(task-0039) 완료.
+- Approval state: Buzz 통합 Phase 1 완료(task-0038/0039, 2026-08-27~28). task-0047(Docker Desktop 설치 + 핸즈온 스파이크)은 미승인 — 착수 전 별도 승인 필요. director-dashboard-v0.1b는 미승인 상태로 보류.
 - Approval note: SOP v0.1B 승격은 승인됐고 Dashboard, 자동 runtime, push, PR, 외부 호출과 jarvis.bat는 범위 밖이다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
@@ -279,9 +280,13 @@ Manager는 Owner 개입 없이 repair 1회를 운영했고, 새 candidate에 fre
 
 SOP v0.1B는 이 흐름을 top-level `AGENTS.md`, 역할별 project custom-agent 설정과
 결정론적 validator로 승격한다. 채택은 완료됐지만 운영 성숙도는 아직 반복 검증
-중이다. 다음은 **Director Dashboard v0.1B**를 별도 package로 진행하고, 이후
-실제 기능 work package 1~2개에서 SOP를 반복 성공시킨다. 그 결과를 확인한 뒤에만
-Hermes 자동 runtime을 검토한다.
+중이다. **[2026-08-27 갱신] Director Dashboard v0.1B는 보류됐다** — task-0038
+조사에서 Buzz Desktop과 정면 중복으로 판단되어 Owner가 보류를 승인했다. 다음은
+**Buzz+Jarvis-Core 통합 Phase 1**(task-0039, 아키텍처 차용·외부 의존 0)을
+진행하고, Phase 2 게이트(G1~G3, `reports/task-0038-ai-agent-collaboration-platform-buzz-research.md`
+§6 참고)를 통과한 뒤에만 실제 통합을 검토한다. Director Dashboard v0.1B가
+재개되면 그 때 **실제 기능 work package 1~2개**에서 SOP를 반복 검증한다.
+Hermes 자동 runtime 검토는 이 뒤로 순연한다.
 
 ### 구현된 기반
 

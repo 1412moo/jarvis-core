@@ -1,5 +1,16 @@
 # Jarvis Console
 
+**[2026-08-27 방향 전환, task-0038 승인]** Jarvis Console의 장기 목표는 더 이상
+"Jarvis-Core의 메인 UI"가 아니다. task-0038(Buzz/AI-agent 협업 플랫폼 생태계
+조사) 결과, 채널/DM/스레드/에이전트 프레즌스 같은 협업 표면은 Buzz 같은 외부
+프로젝트에서 빌려오는 것이 낫다고 판단되어 Owner가 방향 전환을 승인했다.
+Console의 새 장기 목표는 **Jarvis 전용 승인 화면**(승인 대기 항목 확인·승인/거절)
+으로 축소하는 것이다. 이 문서의 아래 설명은 v0.1 당시 목표를 기록으로 남긴
+것이며, 실제 축소 작업은 별도 task로 진행한다. 근거: `reports/task-0038-ai-agent-collaboration-platform-buzz-research.md`,
+`memory/tasks/task-0038-ai-agent-collaboration-platform-buzz-research.md`.
+
+---
+
 Jarvis Console v0.1 is a local-only browser shell for the long-term Jarvis-Core
 main UI. It is meant to feel closer to a ChatGPT/Codex-style command surface
 than a collection of separate files, CLI commands, and JSON fixtures.

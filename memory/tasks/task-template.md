@@ -7,7 +7,7 @@
 - title: `작업 제목`
   - 규칙: 사람이 즉시 이해할 수 있는 한 줄 제목으로 작성한다.
 - status: `TODO`
-  - 규칙: `TODO | DOING | BLOCKED | DONE | FAILED | NEEDS_APPROVAL` 6개 값만 허용한다.
+  - 규칙: `TODO | DOING | BLOCKED | ON_HOLD | DONE | FAILED | NEEDS_APPROVAL` 7개 값만 허용한다.
 - repo: `jarvis-core`
   - 규칙: 실제 작업 대상 저장소 식별자를 정확히 기입한다.
 - created_at: `YYYY-MM-DD HH:mm UTC`

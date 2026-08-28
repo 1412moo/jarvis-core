@@ -17,6 +17,7 @@
 - `TODO`: 시작 전 상태
 - `DOING`: 진행 중 상태
 - `BLOCKED`: 외부 요인으로 진행 불가
+- `ON_HOLD`: Owner의 우선순위 판단으로 의도적 보류 (외부 요인이 아니라는 점에서 `BLOCKED`와 구분)
 - `DONE`: 검증까지 완료
 - `FAILED`: 시도했으나 목표 달성 실패
 - `NEEDS_APPROVAL`: 승인 필요 상태
@@ -26,7 +27,7 @@
 
 - `id`: Task 고유 식별자 (`task-####-slug`)
 - `title`: 사람이 읽는 작업 제목
-- `status`: 현재 상태 (`TODO | DOING | BLOCKED | DONE | FAILED | NEEDS_APPROVAL`)
+- `status`: 현재 상태 (`TODO | DOING | BLOCKED | ON_HOLD | DONE | FAILED | NEEDS_APPROVAL`)
 - `repo`: 작업 대상 저장소 식별자 (예: `jarvis-core`, `subrepo-abc`)
 - `created_at`: 생성 시각 (UTC, `YYYY-MM-DD HH:mm UTC`)
 - `updated_at`: 마지막 수정 시각 (UTC, `YYYY-MM-DD HH:mm UTC`)
@@ -58,7 +59,7 @@
 
 1. `memory/tasks/task-template.md`를 복사해 새 파일(`task-####-slug.md`)을 만든다.
 2. 파일명과 `id`가 동일한지 확인한다.
-3. `status`가 6개 허용값 중 하나인지 확인한다.
+3. `status`가 7개 허용값 중 하나인지 확인한다.
 4. `repo`, `created_at`, `updated_at`를 실제 값으로 채운다.
 5. `summary`를 1~3문장으로 작성하고 범위/확인 필요사항을 반영한다.
 6. 커밋 전 최소 1회 자체 검토로 누락 필드가 없는지 확인한다.

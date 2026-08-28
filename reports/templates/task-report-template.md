@@ -7,7 +7,7 @@
 - 작업명:
 - 작성자:
 - 작성일: `YYYY-MM-DD`
-- 상태: `TODO | DOING | BLOCKED | DONE | FAILED | NEEDS_APPROVAL`
+- 상태: `TODO | DOING | BLOCKED | ON_HOLD | DONE | FAILED | NEEDS_APPROVAL`
 - 관련 이슈/문서:
 
 ## 2) 작업 목적

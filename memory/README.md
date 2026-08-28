@@ -14,7 +14,7 @@
 1. `memory/tasks/task-template.md`를 복사해 `task-####-slug.md` 파일을 만든다.
 2. 헤더(`task-####-slug`)와 `id`를 동일하게 맞춘다.
 3. 필수 필드(`id, title, status, repo, created_at, updated_at, summary`)를 모두 채운다.
-4. `status`는 정의된 6개 값만 사용한다.
+4. `status`는 정의된 7개 값만 사용한다(`TODO | DOING | BLOCKED | ON_HOLD | DONE | FAILED | NEEDS_APPROVAL`).
 5. `summary`는 1~3문장으로 범위와 확인 필요사항을 적는다.
 
 ## 수동 생성 절차(요약)
