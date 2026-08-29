@@ -105,12 +105,14 @@ Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
 ### 현재 위치와 다음 체감 목표
 
 - 최근 완료: **Buzz 통합 Phase 1**(task-0039, DONE — task-0040/0041/0043/0045 4/6 완료로 조건 충족. task-0042/0044는 선택적 잔여 항목)
-- **[2026-08-27 Owner 결정] Director Dashboard v0.1B 착수 보류.** task-0038(Buzz/AI-agent 협업 플랫폼 생태계 조사) 결과, Buzz Desktop과 기능이 정면 중복된다고 판단되어 Owner가 보류를 승인했다. Buzz 통합 여부는 `reports/task-0038-ai-agent-collaboration-platform-buzz-research.md`의 Phase 2 게이트(G1~G3, 2026-08-28 WebSocket 직결 경로 포함하도록 재정의됨) 통과 여부로 재검토한다.
-- 현재 다음 작업: **task-0047 — Docker Desktop 기반 로컬 Buzz Relay 핸즈온 스파이크(S1~S7).** 착수에는 Docker Desktop 설치를 포함한 별도 Owner 승인이 필요(아직 미승인, task-0047 TODO).
+- **[2026-08-27 Owner 결정] Director Dashboard v0.1B 착수 보류.** task-0038(Buzz/AI-agent 협업 플랫폼 생태계 조사) 결과, Buzz Desktop과 기능이 정면 중복된다고 판단되어 Owner가 보류를 승인했다. Buzz 통합 여부는 `reports/task-0038-ai-agent-collaboration-platform-buzz-research.md`의 Phase 2 게이트(G1~G3, 2026-08-28 WebSocket 직결 경로 포함하도록 재정의됨) 통과 여부로 재검토한다. **이 보류는 계속 유지된다** — 아래 Phase 2 진행 상황은 이 결정을 바꾸지 않는다.
+- **[2026-08-28 갱신] task-0047(Docker Desktop 기반 로컬 Buzz Relay 핸즈온 스파이크, S1~S7) DONE.** 전건 실측 PASS. 이를 근거로 Phase 2 Gate 사실관계 확정: **G1 PARTIAL**(Windows self-host relay CORS 결함 #3490/#2872는 여전히 OPEN이나 headless bridge 경로는 영향 없음, Desktop join 시에만 `BUZZ_CORS_ORIGINS` 설정 필요), **G2 PASS**(WebSocket 직결 Agent Bridge 경로 실기동 확인), **G3 FAIL이지만 비차단**(Buzz approval gate E2E 미완성 — 자체 문서가 인정 — 이나 Jarvis가 승인을 100% 자체 소유하는 기존 원칙으로 이미 충족). 기록: `memory/tasks/task-0046-local-buzz-relay-agent-bridge-feasibility.md`, `memory/tasks/task-0047-local-buzz-relay-handson-spike.md`, `reports/task-0038-ai-agent-collaboration-platform-buzz-research.md`(commit `8b80bf9`, `ba633bb`).
+- **[2026-08-28] Phase 2 Buzz Bridge Slice 1 구현 완료(commit `a54316f`).** `orchestrator/buzz-bridge/`에 Jarvis Orchestrator ↔ 로컬 Buzz Relay ↔ Claude CLI agent 최소 왕복이 실제 코드로 존재한다(Nostr/Relay client, Buzz identity, Claude CLI adapter, inbound/outbound bridge, orchestrator response gate, 오프라인 smoke test 15건 PASS). **이것은 design-approved scope 내 첫 슬라이스이며 Phase 2 전체 통합에 대한 최종 승인이 아니다.** 상세 provenance: `memory/tasks/task-0048-buzz-bridge-phase2-slice1.md`.
+- 현재 다음 작업: **Phase 2 Buzz Bridge Slice 1의 다음 최소 증분(P2-2: 실제 task-file 연결, P2-3: 승인 경계 회귀 테스트).** 착수에는 별도 Owner 승인이 필요(아직 미승인).
 - 현재 사용자 체감 결과: **검증된 조직 흐름이 Jarvis-Core 기본 SOP와 역할별 agent 설정으로 고정. task 상태값에 `ON_HOLD` 추가(7개), AGENTS.md 원칙 5(no secrets)가 scripts/check_no_secrets.py로 코드 강제됨**
 - 다음 사용자 체감 milestone: **Jarvis Console을 "메인 UI"에서 "Jarvis 전용 승인 화면"으로 축소**(task-0038 승인 항목 ②, Owner 승인 완료, 착수는 미정)
 - 최근 검증 결과: 첫 candidate P2 finding → repair 1회 → fresh Reviewer/QA pass, final pilot commit `7d4394eed584bc11ee25062a671952b2e4c38b31`
-- 현재 결정 필요: **task-0047(Docker Desktop 설치 + 핸즈온 스파이크) 착수 승인 여부** — 그 외 Phase 1 관련 결정은 모두 완료(task-0038 참고)
+- 현재 결정 필요: **Phase 2 Buzz Bridge Slice 1 다음 증분(P2-2/P2-3) 착수 승인 여부, Codex/agy bridge 확장 여부, bridge/relay supervisor 도입 여부** — 그 외 Phase 1 관련 결정은 모두 완료(task-0038 참고)
 
 ### 언제부터 실제로 편해지는가
 
@@ -160,15 +162,15 @@ flowchart LR
 - Current goal: Develop Jarvis-Core as a local-first, human-approved, skill-based personal AI assistant
 - Manager reporting milestone ID: `manager-reporting-v0.1`
 - Manager reporting status: `milestone_complete`
-- Manager reporting next package ID: `local-buzz-relay-handson-spike-v0.1` (task-0047, director-dashboard-v0.1b는 보류, task-0038 참고)
-- Current workstream: task-0047 착수 대기 — Docker Desktop 기반 로컬 Buzz Relay 핸즈온 스파이크
-- Current milestone: Buzz 통합 Phase 1 완료(task-0039, task-0040/0041/0043/0045 4/6). 다음은 task-0046에서 설계한 S1~S7 스파이크로 Phase 2 Gate G1/G2(ACP 경로 + WebSocket 직결 경로 모두 포함)를 실기동 검증 — Director Dashboard v0.1B는 계속 보류
-- Recommended next step: Owner가 task-0047(Docker Desktop 설치 포함) 착수를 승인하면 S1(CLI stdio 왕복, 설치 0)부터 순서대로 진행. 승인 전까지는 task-0042(서명키)/task-0044(감사 해시체인) 같은 Phase 1 잔여 항목을 선택적으로 이어갈 수 있음
+- Manager reporting next package ID: `buzz-bridge-phase2-slice1-increment-v0.1` (task-0048 참고, P2-2/P2-3 착수는 Owner 승인 대기 — local-buzz-relay-handson-spike-v0.1(task-0047)은 완료, director-dashboard-v0.1b는 계속 보류, task-0038 참고)
+- Current workstream: Phase 2 Buzz Bridge Slice 1(commit `a54316f`) 구현 완료 — 다음 최소 증분(P2-2: 실제 task-file 연결, P2-3: 승인 경계 회귀 테스트) 착수는 Owner 승인 대기
+- Current milestone: Buzz 통합 Phase 1 완료(task-0039, task-0040/0041/0043/0045 4/6) + task-0047 스파이크(S1~S7) 전건 PASS로 Phase 2 Gate 사실관계 확정(G1 PARTIAL/G2 PASS/G3 FAIL-비차단) + Phase 2 Buzz Bridge Slice 1(a54316f) 구현 완료 — Director Dashboard v0.1B는 계속 보류
+- Recommended next step: Owner가 P2-2(실제 task-file 연결)/P2-3(승인 경계 회귀 테스트) 착수를 승인하면 진행. 승인 전까지는 task-0042(서명키)/task-0044(감사 해시체인) 같은 Phase 1 잔여 항목을 선택적으로 이어갈 수 있음
 - Next user-visible milestone: Jarvis Console을 "Jarvis 전용 승인 화면"으로 축소 (task-0038 승인 항목 ②)
 - Current reason: task-0038 조사(Codex/Gemini/Claude 3자 수렴 + GPT 종합)에서 Jarvis Console/Director Dashboard 같은 자체 협업 UI 개발이 Buzz와 정면 중복된다고 판단되어, Owner가 2026-08-27 방향 전환을 승인함
 - Owner outcome: Owner는 Director하고만 소통하고 budget 안의 Worker 운영과 repair는 Manager가 처리한다
-- Recent completed: Manual Pilot v0.1A가 Implementer, Reviewer P2 finding, repair, fresh Reviewer/QA, Manager, Director 사이클을 완료. Buzz 통합 Phase 1(task-0039) 완료.
-- Approval state: Buzz 통합 Phase 1 완료(task-0038/0039, 2026-08-27~28). task-0047(Docker Desktop 설치 + 핸즈온 스파이크)은 미승인 — 착수 전 별도 승인 필요. director-dashboard-v0.1b는 미승인 상태로 보류.
+- Recent completed: Manual Pilot v0.1A가 Implementer, Reviewer P2 finding, repair, fresh Reviewer/QA, Manager, Director 사이클을 완료. Buzz 통합 Phase 1(task-0039) 완료. task-0047 핸즈온 스파이크(S1~S7) 완료. Phase 2 Buzz Bridge Slice 1(commit `a54316f`) 구현 완료.
+- Approval state: Buzz 통합 Phase 1 완료(task-0038/0039, 2026-08-27~28) + task-0047 스파이크 완료(Owner 승인 하 실행, PASS) + Phase 2 Buzz Bridge Slice 1(a54316f) 구현 완료. Slice 1 다음 증분(P2-2/P2-3)과 Phase 2 전체 통합 확대는 미승인 — 착수 전 별도 승인 필요. director-dashboard-v0.1b는 미승인 상태로 보류.
 - Approval note: SOP v0.1B 승격은 승인됐고 Dashboard, 자동 runtime, push, PR, 외부 호출과 jarvis.bat는 범위 밖이다
 - Owner decision status: selection_required
 - Owner decision recommendation: hermes-manager
