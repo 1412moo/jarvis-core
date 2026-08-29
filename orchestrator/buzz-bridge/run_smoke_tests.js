@@ -15,12 +15,15 @@
  */
 
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const { generateSecretKey, getPublicKey, finalizeEvent } = require("nostr-tools/pure");
 const { passesInboundGate } = require("./bridge");
 const { passesResponseGate } = require("./orchestrator");
 const { nextSinceFilter, tagValue, verifyEvent } = require("./lib/nostr");
 const { BoundedSeenSet } = require("./lib/dedupe");
 const { buildSubprocessEnv, ARGS } = require("./claude_adapter");
+const { isValidTaskId, resolveTaskFilePath, appendRunRecord, acquireTaskLock, TASKS_DIR } = require("./lib/task_append");
 
 const orchSk = generateSecretKey();
 const agentSk = generateSecretKey();
@@ -226,6 +229,129 @@ test("subprocess_args_never_contain_skip_permissions_flag", () => {
   assert.ok(!joined.includes("dangerously-skip-permissions"));
   assert.ok(joined.includes("--permission-mode"));
   assert.ok(joined.includes("--restricted"));
+});
+
+// --- P2-2 task_append: taskId validation / path traversal ---------------
+
+const BAD_TASK_IDS = [
+  "../../etc/passwd",
+  "task-0001-x/../../y",
+  "task-0001-..-..",
+  "..\\..\\windows\\system32",
+  "TASK-0001-uppercase",
+  "task-1-not-four-digits",
+  "task-0001-",
+  "",
+  "task-0001-slug/extra",
+];
+
+test("task_append_rejects_invalid_taskid_format", () => {
+  for (const bad of BAD_TASK_IDS) {
+    assert.strictEqual(isValidTaskId(bad), false, `expected "${bad}" to be rejected`);
+  }
+  assert.strictEqual(isValidTaskId(undefined), false);
+  assert.strictEqual(isValidTaskId(null), false);
+});
+
+test("task_append_rejects_path_traversal_via_taskid", () => {
+  for (const bad of BAD_TASK_IDS) {
+    assert.throws(() => resolveTaskFilePath(bad), /invalid taskId/, `expected "${bad}" to throw`);
+  }
+  // Defense-in-depth check: even a hypothetical valid-shaped id can never
+  // resolve outside TASKS_DIR.
+  const insideTasksDir = path.resolve(TASKS_DIR) + path.sep;
+  const resolved = resolveTaskFilePath("task-0000-buzz-bridge-p2-2-smoke-missing");
+  assert.ok(resolved.startsWith(insideTasksDir));
+});
+
+test("task_append_rejects_nonexistent_task_file_without_creating_it", () => {
+  const missingId = "task-0000-buzz-bridge-p2-2-smoke-missing";
+  const missingPath = resolveTaskFilePath(missingId);
+  assert.strictEqual(fs.existsSync(missingPath), false, "precondition: scratch id must not already exist");
+  assert.throws(() => appendRunRecord(missingId, { runId: "run-x", channelName: "c", channelId: "c1", outgoingEventId: "o1", status: "OK" }), /does not exist/);
+  assert.strictEqual(fs.existsSync(missingPath), false, "append must not have created the file");
+});
+
+// --- P2-2 task_append: append-only round trip ----------------------------
+
+test("task_append_only_adds_after_existing_content_and_preserves_it", () => {
+  const scratchId = "task-0000-buzz-bridge-p2-2-smoke-scratch";
+  const scratchPath = resolveTaskFilePath(scratchId);
+  const originalContent = [
+    `# ${scratchId}`,
+    "",
+    `- id: \`${scratchId}\``,
+    "- status: `DOING`",
+    "- repo: `jarvis-core`",
+    "- summary: `smoke-test scratch task file for P2-2, deleted at end of run_smoke_tests.js`",
+    "",
+  ].join("\n");
+
+  assert.strictEqual(fs.existsSync(scratchPath), false, "precondition: scratch file must not pre-exist");
+  try {
+    fs.writeFileSync(scratchPath, originalContent, "utf8");
+
+    const { filePath } = appendRunRecord(scratchId, {
+      channelName: "jarvis-buzz-bridge-slice1",
+      channelId: "channel-abc",
+      runId: "run-smoketest-1",
+      outgoingEventId: "event-out-1",
+      status: "OK",
+      responseEventId: "event-resp-1",
+      agentPubkey: "agentpubkeyhex",
+    });
+    assert.strictEqual(filePath, scratchPath);
+
+    const afterFirstAppend = fs.readFileSync(scratchPath, "utf8");
+    assert.ok(afterFirstAppend.startsWith(originalContent), "existing content must be an unmodified prefix");
+    assert.ok(afterFirstAppend.length > originalContent.length, "append must add bytes");
+    assert.ok(afterFirstAppend.includes("run-smoketest-1"));
+    assert.ok(afterFirstAppend.includes("event-resp-1"));
+    assert.ok(!afterFirstAppend.includes("- status: `DONE`"), "append must never rewrite the status line");
+
+    // Second append (e.g. a later run) must layer on top, not overwrite.
+    appendRunRecord(scratchId, {
+      channelName: "jarvis-buzz-bridge-slice1",
+      channelId: "channel-abc",
+      runId: "run-smoketest-2",
+      outgoingEventId: "event-out-2",
+      status: "TIMEOUT",
+      reason: "no valid response within 1000ms",
+    });
+    const afterSecondAppend = fs.readFileSync(scratchPath, "utf8");
+    assert.ok(afterSecondAppend.startsWith(afterFirstAppend), "second append must extend, not rewrite, the first");
+    assert.ok(afterSecondAppend.includes("run-smoketest-2"));
+    assert.ok(afterSecondAppend.includes("run-smoketest-1"), "first append must still be present");
+  } finally {
+    fs.rmSync(scratchPath, { force: true });
+  }
+});
+
+// --- P2-2 task_append: same-taskId concurrent-run guard ------------------
+
+test("task_lock_rejects_duplicate_and_allows_reacquire_after_release", () => {
+  const lockTaskId = "task-0000-buzz-bridge-p2-2-smoke-lock";
+  const lock1 = acquireTaskLock(lockTaskId);
+  try {
+    assert.throws(() => acquireTaskLock(lockTaskId), /already in progress/);
+  } finally {
+    lock1.release();
+  }
+  // Released - a fresh acquire must now succeed, and must itself be releasable.
+  const lock2 = acquireTaskLock(lockTaskId);
+  lock2.release();
+});
+
+test("task_lock_is_independent_per_taskid", () => {
+  const idA = "task-0000-buzz-bridge-p2-2-smoke-lock-a";
+  const idB = "task-0000-buzz-bridge-p2-2-smoke-lock-b";
+  const lockA = acquireTaskLock(idA);
+  try {
+    const lockB = acquireTaskLock(idB); // must not be blocked by lockA
+    lockB.release();
+  } finally {
+    lockA.release();
+  }
 });
 
 function main() {

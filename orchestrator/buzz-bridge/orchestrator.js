@@ -12,7 +12,14 @@
  * slice at all - see Design Revision APPROVAL_BOUNDARY).
  *
  * Usage:
- *   node orchestrator.js "<question for the agent>" [timeoutMs]
+ *   node orchestrator.js "<question for the agent>" [timeoutMs] [taskId]
+ *
+ * taskId (optional, P2-2) must be an existing memory/tasks/<taskId>.md id
+ * (task-####-slug). When given, the run's correlation record is appended
+ * to that file (lib/task_append.js) after the run finishes - never before,
+ * never as a status change, never treated as approval. When omitted,
+ * behavior is unchanged from the original slice-1 script: no task file is
+ * read, created, or touched.
  */
 
 const crypto = require("crypto");
@@ -30,6 +37,7 @@ const {
 } = require("./lib/nostr");
 const { loadIdentities } = require("./lib/identities");
 const { CHANNEL_NAME } = require("./lib/constants");
+const { appendRunRecord, isValidTaskId, acquireTaskLock } = require("./lib/task_append");
 
 function loadConfig() {
   require("./lib/env").loadEnvFile(path.join(__dirname, ".env"));
@@ -67,70 +75,121 @@ function passesResponseGate(candidate, { outgoingEventId, runId, expectedAgentPu
   return { ok: true };
 }
 
-async function delegateOneQuestion(question, timeoutMs) {
-  const cfg = loadConfig();
-  const taskId = "task-buzz-slice-manual"; // first slice: manual/ad-hoc, no real task file wiring yet
-  const runId = `run-${crypto.randomBytes(8).toString("hex")}`;
+/**
+ * @param {string} [realTaskId] - an existing memory/tasks/<realTaskId>.md
+ *   id (task-####-slug). Optional for backward compatibility: when
+ *   omitted, behavior is byte-identical to the original slice-1 script -
+ *   no task file is read, created, or appended to. When given, it must
+ *   already exist as a task file; this function never creates one.
+ */
+async function delegateOneQuestion(question, timeoutMs, realTaskId) {
+  if (realTaskId !== undefined && !isValidTaskId(realTaskId)) {
+    throw new Error(`invalid taskId "${realTaskId}" - expected format task-####-slug (an existing memory/tasks file)`);
+  }
 
-  console.log(`[orchestrator] connecting to ${cfg.relayUrl}`);
-  const { ws, challenge } = await connectAndWaitForChallenge(cfg.relayUrl);
-  await authenticate(ws, cfg.privkeyHex, cfg.relayUrl, challenge);
-  console.log(`[orchestrator] authenticated as ${cfg.ownPubkey}`);
+  // Fails closed immediately if a run for this taskId is already in
+  // progress - no queueing, no retry. Released in `finally` below no
+  // matter how this run ends (success, failure, or timeout).
+  const taskLock = realTaskId ? acquireTaskLock(realTaskId) : null;
 
-  const channelResult = await ensureChannel(ws, cfg.privkeyHex, CHANNEL_NAME);
-  const channelId = channelResult.channelId;
-  console.log(`[orchestrator] channel "${CHANNEL_NAME}" ready (id ${channelId}, created=${channelResult.created})`);
+  try {
+    const cfg = loadConfig();
+    // Wire-protocol task id: always non-empty so bridge.js's inbound gate
+    // (which only checks the tag is present, not its specific value) keeps
+    // working unchanged. Falls back to the original slice-1 placeholder
+    // when no real task is given, so existing 2-arg callers see the same
+    // behavior as before this change.
+    const taskId = realTaskId || "task-buzz-slice-manual";
+    const runId = `run-${crypto.randomBytes(8).toString("hex")}`;
 
-  const outgoing = buildChannelMessage(cfg.privkeyHex, channelId, question, [
-    ["p", cfg.expectedAgentPubkey],
-    ["jarvis-task", taskId],
-    ["jarvis-run", runId],
-  ]);
+    console.log(`[orchestrator] connecting to ${cfg.relayUrl}`);
+    const { ws, challenge } = await connectAndWaitForChallenge(cfg.relayUrl);
+    await authenticate(ws, cfg.privkeyHex, cfg.relayUrl, challenge);
+    console.log(`[orchestrator] authenticated as ${cfg.ownPubkey}`);
 
-  const result = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      unsubscribe();
-      resolve({ status: "TIMEOUT", reason: `no valid response within ${timeoutMs}ms` });
-    }, timeoutMs);
+    const channelResult = await ensureChannel(ws, cfg.privkeyHex, CHANNEL_NAME);
+    const channelId = channelResult.channelId;
+    console.log(`[orchestrator] channel "${CHANNEL_NAME}" ready (id ${channelId}, created=${channelResult.created})`);
 
-    const waitFilter = nextSinceFilter({ kinds: [9], "#h": [channelId] }, null);
-    const unsubscribe = subscribeLive(ws, "orchestrator-live", waitFilter, (candidate) => {
-      try {
-        if (candidate.pubkey === cfg.ownPubkey) return; // ignore our own outgoing message
-        const gate = passesResponseGate(candidate, {
-          outgoingEventId: outgoing.id,
-          runId,
-          expectedAgentPubkey: cfg.expectedAgentPubkey,
-        });
-        if (!gate.ok) {
-          console.log(`[orchestrator] ANOMALY: ignoring candidate ${candidate.id} - ${gate.reason}`);
-          return;
-        }
-        clearTimeout(timer);
+    const outgoing = buildChannelMessage(cfg.privkeyHex, channelId, question, [
+      ["p", cfg.expectedAgentPubkey],
+      ["jarvis-task", taskId],
+      ["jarvis-run", runId],
+    ]);
+
+    const result = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
         unsubscribe();
-        resolve({ status: "OK", responseEvent: candidate });
-      } catch (err) {
-        console.error(`[orchestrator] event processing error: ${err.stack || err.message}`);
-      }
+        resolve({ status: "TIMEOUT", reason: `no valid response within ${timeoutMs}ms` });
+      }, timeoutMs);
+
+      const waitFilter = nextSinceFilter({ kinds: [9], "#h": [channelId] }, null);
+      const unsubscribe = subscribeLive(ws, "orchestrator-live", waitFilter, (candidate) => {
+        try {
+          if (candidate.pubkey === cfg.ownPubkey) return; // ignore our own outgoing message
+          const gate = passesResponseGate(candidate, {
+            outgoingEventId: outgoing.id,
+            runId,
+            expectedAgentPubkey: cfg.expectedAgentPubkey,
+          });
+          if (!gate.ok) {
+            console.log(`[orchestrator] ANOMALY: ignoring candidate ${candidate.id} - ${gate.reason}`);
+            return;
+          }
+          clearTimeout(timer);
+          unsubscribe();
+          resolve({ status: "OK", responseEvent: candidate });
+        } catch (err) {
+          console.error(`[orchestrator] event processing error: ${err.stack || err.message}`);
+        }
+      });
+
+      publish(ws, outgoing)
+        .then(() => console.log(`[orchestrator] delegated run ${runId} (event ${outgoing.id}), waiting for response...`))
+        .catch((err) => {
+          clearTimeout(timer);
+          unsubscribe();
+          reject(err);
+        });
     });
 
-    publish(ws, outgoing)
-      .then(() => console.log(`[orchestrator] delegated run ${runId} (event ${outgoing.id}), waiting for response...`))
-      .catch((err) => {
-        clearTimeout(timer);
-        unsubscribe();
-        reject(err);
-      });
-  });
+    ws.close();
+    const outcome = { taskId, runId, channelId, outgoingEventId: outgoing.id, ...result };
 
-  ws.close();
-  return { taskId, runId, channelId, outgoingEventId: outgoing.id, ...result };
+    if (realTaskId) {
+      // A failed append must never look like a failed run: it is reported
+      // separately on the same outcome object, and only ever logged, never
+      // thrown (Design constraint: append failure must not take down or
+      // mask the actual run result).
+      try {
+        const { filePath } = appendRunRecord(realTaskId, {
+          channelName: CHANNEL_NAME,
+          channelId,
+          runId,
+          outgoingEventId: outgoing.id,
+          status: outcome.status,
+          responseEventId: outcome.responseEvent ? outcome.responseEvent.id : undefined,
+          agentPubkey: outcome.responseEvent ? outcome.responseEvent.pubkey : undefined,
+          reason: outcome.reason,
+        });
+        outcome.taskAppend = { ok: true, filePath };
+      } catch (appendErr) {
+        console.error(`[orchestrator] WARNING: run finished but task-file append failed for ${realTaskId}: ${appendErr.message}`);
+        outcome.taskAppend = { ok: false, error: appendErr.message };
+      }
+    }
+
+    return outcome;
+  } finally {
+    if (taskLock) taskLock.release();
+  }
 }
 
 if (require.main === module) {
   const question = process.argv[2] || "이 문장을 한 문장으로 요약해줘: Jarvis-Core Phase 2 minimum slice smoke test.";
   const timeoutMs = Number(process.argv[3] || 120000);
-  delegateOneQuestion(question, timeoutMs)
+  const taskId = process.argv[4] || undefined; // optional: existing memory/tasks/<taskId>.md
+  delegateOneQuestion(question, timeoutMs, taskId)
     .then((result) => {
       console.log("\n=== ORCHESTRATOR RESULT ===");
       console.log(JSON.stringify(result, null, 2));
