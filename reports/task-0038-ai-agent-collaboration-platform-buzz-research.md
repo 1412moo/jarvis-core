@@ -870,3 +870,32 @@ Buzz 80 vs Jarvis 62. 그러나 항목별로 보면 Jarvis는 **오케스트레�
 - [OpenHands — Agent Canvas / ACP](https://www.openhands.dev/blog/use-any-coding-agent-in-openhands-with-acp) · [docs.openhands.dev ACP Agents](https://docs.openhands.dev/openhands/usage/agent-canvas/acp-agents)
 - [Patchwork (DEV.co 소개)](https://dev.co/devops/open-source/patchwork) — 카테고리 불일치로 제외
 - [MemClaw — Buzz gives every agent an identity (Engram 설명)](https://memclaw.net/blog/buzz-agents-get-an-identity/)
+
+---
+
+## [2026-08-28 06:15 UTC] append — task-0047 실기동 검증: Gate G2 PASS
+
+이 섹션은 append-only 기록이다. 위 본문(Executive Summary, §6.0, §6 Phase 2 게이트 표, §8 최종 Verdict 포함)은 수정하지 않는다. 2026-08-27 12:40 UTC 정정 및 2026-08-28 09:00/정정 addendum(§6, 줄 712~714)도 그대로 유지한다.
+
+**요지: §6 Phase 2 게이트 표의 G2("`buzz-acp`가 Windows에서 Claude Code를 실제로 구동하는가", 줄 709)는 2026-08-28 09:00 UTC addendum(줄 712)에서 "ACP 경로 단독"이 아니라 "WebSocket 직결 local agent bridge 경로"까지 포함하도록 재정의되었고, 그 (b) 경로가 task-0047 핸즈온 스파이크에서 실제로 실행되어 PASS했다.**
+
+task-0047(`memory/tasks/task-0047-local-buzz-relay-handson-spike.md`)이 §6의 addendum이 지정한 검증 방법(task-0046 §6 스파이크 S1~S7)을 전부 실행했다:
+
+| 스파이크 | 결과 |
+| --- | --- |
+| S1 CLI stdio 왕복(claude/codex/agy) | PASS |
+| S2 Docker Desktop/WSL2 전제 | PASS |
+| S3 Relay 단독 기동(5개 컨테이너, liveness/readiness/NIP-11) | PASS |
+| S4 헤드리스 AUTH 챌린지 수신 | PASS |
+| S5 NIP-42 인증 완주 | PASS |
+| S6 채널 구독 + 왕복 + kind 실측 (가장 중요한 게이트) | PASS |
+| S7 local Agent Bridge 결합 왕복(실제 claude CLI 서브프로세스, 스텁 아님) | PASS |
+
+**따라서 G2 = PASS (경로 (b), WebSocket 직결 local agent bridge 기준)로 실측 확정한다.**
+
+**이것이 의미하지 않는 것 (혼동 방지, §7/§8과 병기해서 읽을 것)**:
+- **Phase 2 게이트는 G1·G2·G3 3개 전부 통과해야 착수 가능하다(줄 704, 813).** 이번에 실측 확인된 것은 **G2 하나뿐**이다. G1(Windows self-host relay + 데스크톱 접속, Issue #3490/#2872 재현 여부)과 G3(Buzz 1.0 또는 승인 게이트 executor 완성)는 이번 스파이크 범위 밖이며 여전히 미검증이다. task-0047은 S8(Desktop 접속)을 지침에 따라 실행하지 않았으므로 G1은 이 문서 기준으로 여전히 미확정이다.
+- **이것은 jarvis-core에 대한 실제 Agent Bridge 구현이 아니다.** task-0047의 S7 bridge 코드는 jarvis-core 저장소 밖 1회성 검증 스크립트이며 애플리케이션에 통합되지 않았다.
+- **§8 최종 Verdict("✅ INTEGRATE BUZZ + JARVIS, 단 조건부·단계적 통합")와 §7의 금지 사항(포크 금지, 자체 채팅 UI 금지, 승인 게이트 외부 위임 금지 등)은 이 실측으로 전혀 바뀌지 않는다.** G2 PASS는 "Phase 2 착수 가능성 중 하나의 기술적 전제가 실기동으로 성립함"을 의미할 뿐, Phase 2 통합 자체의 착수 승인이 아니다. Phase 2 착수는 G1·G3 검증과 별개의 Owner 결정을 그대로 요구한다.
+
+상세 실행 로그·프로토콜 실측 근거(kind 번호, 프레임 원문 등)는 `memory/tasks/task-0047-local-buzz-relay-handson-spike.md`와 `memory/tasks/task-0046-local-buzz-relay-agent-bridge-feasibility.md`의 각 append 섹션을 참조.
