@@ -354,6 +354,248 @@ test("task_lock_is_independent_per_taskid", () => {
   }
 });
 
+// --- P2-3: append output must never break Jarvis's task lifecycle -------
+//
+// orchestrator/discord-intake/task_file_writer.py owns the real Jarvis
+// task metadata parser (_transition_metadata / transition_task_file_status
+// / record_task_completion_evidence). It is Python; this suite is Node, so
+// rather than shelling out to a second interpreter (a new runtime
+// dependency this offline suite does not otherwise have) or importing
+// Python from JS (not possible), the tests below re-implement ONLY the
+// specific line-scan rule and the three exactly-one-match patterns that
+// module uses to decide "safe to parse" vs "hold". No new npm dependency.
+// jarvis_task_parser_contract_mirror_matches_source (below) is the guard
+// that keeps this mirror honest: it fails loudly if the real source ever
+// changes these markers without this file being updated to match.
+
+const TASK_FILE_WRITER_PATH = path.join(__dirname, "..", "discord-intake", "task_file_writer.py");
+const JARVIS_METADATA_LINE_PATTERN = /^- ([a-z][a-z0-9_]*): `([^`\r\n]*)`$/;
+const JARVIS_ALLOWED_METADATA_FIELDS = new Set([
+  "id",
+  "title",
+  "status",
+  "repo",
+  "created_at",
+  "updated_at",
+  "summary",
+  "completion_evidence",
+  "source_command",
+  "execution_request",
+  "execution_result",
+  "execution_summary",
+  "execution_candidate",
+  "executed",
+  "success",
+  "dry_run",
+  "execution_updated_at",
+]);
+const JARVIS_STATUS_LINE_PATTERN = /^- status: `[^`\r\n]*`$/gm;
+const JARVIS_UPDATED_AT_LINE_PATTERN = /^- updated_at: `[^`\r\n]*`$/gm;
+const JARVIS_SUMMARY_LINE_PATTERN = /^- summary: `[^`\r\n]*`$/gm;
+
+/**
+ * Re-implements only the pass/fail outcome of task_file_writer.py's
+ * _transition_metadata() line-scan loop (the precondition every real
+ * transition/evidence-recording call shares).
+ */
+function mirrorTransitionMetadataParse(content) {
+  const metadata = {};
+  for (const rawLine of content.split(/\r?\n/)) {
+    if (!rawLine.replace(/^\s+/, "").startsWith("- ")) continue;
+    const m = JARVIS_METADATA_LINE_PATTERN.exec(rawLine);
+    if (!m) return { ok: false, error: "task_file_invalid_metadata" };
+    const field = m[1];
+    if (!JARVIS_ALLOWED_METADATA_FIELDS.has(field)) return { ok: false, error: "task_file_unsupported_metadata" };
+    if (field in metadata) return { ok: false, error: "task_file_duplicate_metadata" };
+    metadata[field] = m[2];
+  }
+  return { ok: true, metadata };
+}
+
+function countMatches(globalPattern, text) {
+  return (text.match(globalPattern) || []).length;
+}
+
+function makeScratchTaskContent(taskId, status) {
+  return [
+    `# ${taskId}`,
+    "",
+    `- id: \`${taskId}\``,
+    "- title: `P2-3 smoke scratch`",
+    `- status: \`${status}\``,
+    "- repo: `jarvis-core`",
+    "- created_at: `2026-08-29 00:00 UTC`",
+    "- updated_at: `2026-08-29 00:00 UTC`",
+    "- summary: `smoke-test scratch task file for P2-3, deleted at end of run_smoke_tests.js`",
+    "",
+  ].join("\n");
+}
+
+test("jarvis_task_parser_contract_mirror_matches_source", () => {
+  // Low-fragility anchors: literal ASCII substrings that only disappear
+  // from task_file_writer.py if its metadata contract actually changed.
+  const source = fs.readFileSync(TASK_FILE_WRITER_PATH, "utf8");
+  assert.ok(source.includes("[a-z][a-z0-9_]*"), "task metadata field-name pattern changed - update the JS mirror above");
+  for (const field of JARVIS_ALLOWED_METADATA_FIELDS) {
+    assert.ok(source.includes(`"${field}"`), `allowed metadata field "${field}" not found in task_file_writer.py - update the JS mirror`);
+  }
+  assert.ok(source.includes("^- status: `"), "status metadata line marker changed - update the JS mirror");
+  assert.ok(source.includes("^- updated_at: `"), "updated_at metadata line marker changed - update the JS mirror");
+  assert.ok(source.includes("^- summary: `"), "summary metadata line marker changed - update the JS mirror");
+});
+
+test("task_append_A_original_task_metadata_parses_cleanly", () => {
+  const scratchId = "task-0000-buzz-bridge-p2-3-smoke-transition";
+  const original = makeScratchTaskContent(scratchId, "DOING");
+  const before = mirrorTransitionMetadataParse(original);
+  assert.strictEqual(before.ok, true, `expected clean parse, got: ${before.error}`);
+  assert.strictEqual(before.metadata.status, "DOING");
+});
+
+test("task_append_BC_append_preserves_transition_preconditions", () => {
+  const scratchId = "task-0000-buzz-bridge-p2-3-smoke-transition";
+  const scratchPath = resolveTaskFilePath(scratchId);
+  const original = makeScratchTaskContent(scratchId, "DOING");
+  assert.strictEqual(fs.existsSync(scratchPath), false, "precondition: scratch file must not pre-exist");
+  try {
+    fs.writeFileSync(scratchPath, original, "utf8");
+
+    appendRunRecord(scratchId, {
+      channelName: "jarvis-buzz-bridge-slice1",
+      channelId: "channel-abc",
+      runId: "run-p2-3-transition",
+      outgoingEventId: "event-out-1",
+      status: "OK",
+      responseEventId: "event-resp-1",
+      agentPubkey: "agentpubkeyhex",
+    });
+    const afterContent = fs.readFileSync(scratchPath, "utf8");
+
+    // B: the SAME file still parses cleanly under the real parser's rules.
+    const after = mirrorTransitionMetadataParse(afterContent);
+    assert.strictEqual(after.ok, true, `expected clean parse after append, got: ${after.error}`);
+    assert.strictEqual(after.metadata.status, "DOING", "the task's own status metadata must be untouched by the append");
+
+    // C: transition_task_file_status()'s exact preconditions (exactly one
+    // "- status:" line, exactly one "- updated_at:" line) still hold.
+    assert.strictEqual(countMatches(JARVIS_STATUS_LINE_PATTERN, afterContent), 1, "transition_task_file_status() requires exactly one - status: line");
+    assert.strictEqual(countMatches(JARVIS_UPDATED_AT_LINE_PATTERN, afterContent), 1, "transition_task_file_status() requires exactly one - updated_at: line");
+  } finally {
+    fs.rmSync(scratchPath, { force: true });
+  }
+});
+
+test("task_append_D_append_preserves_completion_evidence_preconditions", () => {
+  const scratchId = "task-0000-buzz-bridge-p2-3-smoke-evidence";
+  const scratchPath = resolveTaskFilePath(scratchId);
+  const original = makeScratchTaskContent(scratchId, "DOING");
+  assert.strictEqual(fs.existsSync(scratchPath), false, "precondition: scratch file must not pre-exist");
+  try {
+    fs.writeFileSync(scratchPath, original, "utf8");
+
+    appendRunRecord(scratchId, {
+      channelName: "jarvis-buzz-bridge-slice1",
+      channelId: "channel-abc",
+      runId: "run-p2-3-evidence",
+      outgoingEventId: "event-out-2",
+      status: "TIMEOUT",
+      reason: "no valid response within 1000ms",
+    });
+    const afterContent = fs.readFileSync(scratchPath, "utf8");
+
+    const after = mirrorTransitionMetadataParse(afterContent);
+    assert.strictEqual(after.ok, true, `expected clean parse after append, got: ${after.error}`);
+    assert.strictEqual(after.metadata.status, "DOING");
+    assert.ok(!("completion_evidence" in after.metadata), "no completion_evidence must exist yet - real precondition for recording it");
+
+    // record_task_completion_evidence()'s exact preconditions.
+    assert.strictEqual(countMatches(JARVIS_SUMMARY_LINE_PATTERN, afterContent), 1, "record_task_completion_evidence() requires exactly one - summary: line");
+    assert.strictEqual(countMatches(JARVIS_UPDATED_AT_LINE_PATTERN, afterContent), 1, "record_task_completion_evidence() requires exactly one - updated_at: line");
+  } finally {
+    fs.rmSync(scratchPath, { force: true });
+  }
+});
+
+test("task_append_E_output_never_produces_a_metadata_shaped_line", () => {
+  const scratchId = "task-0000-buzz-bridge-p2-3-smoke-shape";
+  const scratchPath = resolveTaskFilePath(scratchId);
+  const original = makeScratchTaskContent(scratchId, "DOING");
+  assert.strictEqual(fs.existsSync(scratchPath), false, "precondition: scratch file must not pre-exist");
+  try {
+    fs.writeFileSync(scratchPath, original, "utf8");
+
+    const variants = [
+      { runId: "run-shape-1", outgoingEventId: "o1", status: "OK", responseEventId: "r1", agentPubkey: "pk1" },
+      { runId: "run-shape-2", outgoingEventId: "o2", status: "TIMEOUT", reason: "no valid response within 1000ms" },
+      { runId: "run-shape-3", outgoingEventId: "o3", status: "RUN_FAILED", reason: "claude exited 1" },
+    ];
+    for (const record of variants) {
+      appendRunRecord(scratchId, { channelName: "jarvis-buzz-bridge-slice1", channelId: "channel-abc", ...record });
+    }
+    const finalContent = fs.readFileSync(scratchPath, "utf8");
+    const appended = finalContent.slice(original.length);
+
+    for (const line of appended.split(/\r?\n/)) {
+      assert.ok(
+        !line.replace(/^\s+/, "").startsWith("- "),
+        `appended line looks like Jarvis task metadata and would break the parser: "${line}"`
+      );
+    }
+    // And the whole combined file must still parse cleanly overall.
+    const parsed = mirrorTransitionMetadataParse(finalContent);
+    assert.strictEqual(parsed.ok, true, `expected clean parse after 3 appends, got: ${parsed.error}`);
+  } finally {
+    fs.rmSync(scratchPath, { force: true });
+  }
+});
+
+test("task_append_F_output_never_contains_approval_or_grant_keywords", () => {
+  const scratchId = "task-0000-buzz-bridge-p2-3-smoke-keywords";
+  const scratchPath = resolveTaskFilePath(scratchId);
+  const original = makeScratchTaskContent(scratchId, "DOING");
+  assert.strictEqual(fs.existsSync(scratchPath), false, "precondition: scratch file must not pre-exist");
+  try {
+    fs.writeFileSync(scratchPath, original, "utf8");
+    for (const status of ["OK", "TIMEOUT", "RUN_FAILED"]) {
+      appendRunRecord(scratchId, {
+        channelName: "jarvis-buzz-bridge-slice1",
+        channelId: "channel-abc",
+        runId: `run-kw-${status}`,
+        outgoingEventId: `o-${status}`,
+        status,
+        reason: status === "OK" ? undefined : "some failure reason",
+      });
+    }
+    const appended = fs.readFileSync(scratchPath, "utf8").slice(original.length).toLowerCase();
+    for (const forbidden of ["needs_approval", "request_approval", "approved", "grant", "deny"]) {
+      assert.ok(!appended.includes(forbidden), `append output must never contain "${forbidden}"`);
+    }
+  } finally {
+    fs.rmSync(scratchPath, { force: true });
+  }
+});
+
+test("task_append_G_buzz_bridge_source_never_calls_jarvis_task_lifecycle_functions", () => {
+  const filesToCheck = [
+    "orchestrator.js",
+    "bridge.js",
+    "claude_adapter.js",
+    path.join("lib", "nostr.js"),
+    path.join("lib", "identities.js"),
+    path.join("lib", "constants.js"),
+    path.join("lib", "dedupe.js"),
+    path.join("lib", "env.js"),
+    path.join("lib", "task_append.js"),
+  ];
+  const forbidden = ["transition_task_file_status(", "record_task_completion_evidence(", "task_file_writer"];
+  for (const rel of filesToCheck) {
+    const content = fs.readFileSync(path.join(__dirname, rel), "utf8");
+    for (const needle of forbidden) {
+      assert.ok(!content.includes(needle), `${rel} must not reference "${needle}" - buzz-bridge must stay decoupled from Jarvis's task lifecycle code`);
+    }
+  }
+});
+
 function main() {
   const results = cases.map(({ name, fn }) => {
     try {

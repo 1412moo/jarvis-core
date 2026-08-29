@@ -14,6 +14,17 @@
  * with no existing file is rejected, not auto-created. It never touches
  * the `- status:` line or any other existing line.
  *
+ * Appended run-correlation fields (channel/run_id/status/...) are
+ * deliberately rendered as `* field: \`value\`` (asterisk), never
+ * `- field: \`value\`` (dash). Jarvis's task metadata parser treats every
+ * line in the WHOLE file that starts with "- " (after stripping leading
+ * whitespace) as a metadata candidate and rejects the file outright if it
+ * does not match its fixed field allowlist - so a dash-bulleted run record
+ * would make every later task-file metadata read/transition fail closed
+ * for that task. The asterisk marker is invisible to that scan while
+ * staying valid, readable Markdown. This is the one formatting rule this
+ * module must never regress.
+ *
  * acquireTaskLock() is a single exclusive marker file per taskId
  * (fs "wx" flag - atomic create-if-absent on NTFS and POSIX alike),
  * created and released entirely inside one process's try/finally. It does
@@ -71,22 +82,25 @@ function appendRunRecord(taskId, record) {
   }
 
   const timestamp = formatUtcTimestamp();
+  // Asterisk bullets, not dash bullets - see the module docstring above.
+  // This is run-correlation data, not task lifecycle metadata: it never
+  // changes, and must never be mistaken for, this task's own `- status:`.
   const lines = [
     "",
     "---",
     "",
     `## [${timestamp}] Buzz Bridge 실행 기록 — run ${record.runId}`,
     "",
-    "이 섹션은 append-only 기록이다. 기존 내용은 수정하지 않았다. 이 항목은 task 상태를 변경하지 않으며, Buzz 메시지/응답을 승인으로 취급하지 않는다(orchestrator/buzz-bridge/README.md 보안 불변식 참고).",
+    "이 섹션은 append-only 기록이다. 기존 내용은 수정하지 않았다. 이 항목은 task 상태를 변경하지 않으며, Buzz 메시지/응답을 승인으로 취급하지 않는다(orchestrator/buzz-bridge/README.md 보안 불변식 참고). 아래 값은 이 task의 상태(metadata)가 아니라 이번 Buzz 실행 1회의 상관관계 정보다.",
     "",
-    `- channel: \`${record.channelName}\` (id \`${record.channelId}\`)`,
-    `- run_id: \`${record.runId}\``,
-    `- outgoing_event_id: \`${record.outgoingEventId}\``,
-    `- status: \`${record.status}\``,
+    `* channel: \`${record.channelName}\` (id \`${record.channelId}\`)`,
+    `* run_id: \`${record.runId}\``,
+    `* outgoing_event_id: \`${record.outgoingEventId}\``,
+    `* status: \`${record.status}\``,
   ];
-  if (record.responseEventId) lines.push(`- response_event_id: \`${record.responseEventId}\``);
-  if (record.agentPubkey) lines.push(`- agent_pubkey: \`${record.agentPubkey}\``);
-  if (record.reason) lines.push(`- reason: \`${record.reason}\``);
+  if (record.responseEventId) lines.push(`* response_event_id: \`${record.responseEventId}\``);
+  if (record.agentPubkey) lines.push(`* agent_pubkey: \`${record.agentPubkey}\``);
+  if (record.reason) lines.push(`* reason: \`${record.reason}\``);
   lines.push("");
 
   fs.appendFileSync(filePath, lines.join("\n"), { encoding: "utf8" });
