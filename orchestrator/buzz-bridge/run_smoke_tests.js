@@ -596,6 +596,92 @@ test("task_append_G_buzz_bridge_source_never_calls_jarvis_task_lifecycle_functio
   }
 });
 
+// --- P2-5: outbound notification publisher stays outbound --------------
+// These do not modify or relax any test above; they cover the new
+// publish_notification.js only.
+const notifier = require("./publish_notification");
+
+test("notification_event_cannot_pass_bridge_inbound_execution_gate", () => {
+  // Build the real notification event exactly as the publisher does, sign
+  // it with the orchestrator key (the ONE sender bridge.js accepts), and
+  // prove the real passesInboundGate still refuses to run it as work.
+  const input = {
+    task_id: "task-0001-notify-smoke",
+    from: "NEEDS_APPROVAL",
+    to: "DOING",
+    execution_status_transition_applied: true,
+    ts: "2026-08-29 00:00 UTC",
+  };
+  const event = wireCopy(
+    finalizeEvent(
+      {
+        kind: 9,
+        created_at: 1000,
+        tags: [["h", "notification-channel"], ...notifier.buildNotificationTags(input.task_id)],
+        content: notifier.buildNotificationContent(input),
+      },
+      orchSk
+    )
+  );
+  const gate = passesInboundGate(event, { ownPubkey: AGENT, orchestratorPubkey: ORCH });
+  assert.strictEqual(gate.ok, false, "a notification must never be accepted as executable work");
+  assert.strictEqual(gate.reason, "no [p, own_pubkey] mention tag");
+
+  // The tag builder is the only tag source, so the two forbidden tags
+  // cannot be introduced through any input.
+  const tags = notifier.buildNotificationTags("task-0001-notify-smoke");
+  assert.ok(!tags.some((t) => t[0] === "p"), "notification tags must never contain a p mention tag");
+  assert.ok(!tags.some((t) => t[0] === "jarvis-run"), "notification tags must never contain a jarvis-run tag");
+});
+
+test("notification_publisher_rejects_malformed_stdin_with_structured_error", () => {
+  const badInputs = [
+    "",
+    "not json",
+    "[]",
+    "null",
+    '"a string"',
+    JSON.stringify({ from: "NEEDS_APPROVAL", to: "DOING", ts: "t", execution_status_transition_applied: true }),
+    JSON.stringify({ task_id: "t", from: "NEEDS_APPROVAL", to: "DOING", ts: "t" }),
+    JSON.stringify({ task_id: "t", from: "NEEDS_APPROVAL", to: "DOING", ts: "t", execution_status_transition_applied: "yes" }),
+    JSON.stringify({ task_id: "", from: "NEEDS_APPROVAL", to: "DOING", ts: "t", execution_status_transition_applied: true }),
+  ];
+  for (const raw of badInputs) {
+    assert.throws(
+      () => notifier.parseNotificationInput(raw),
+      (err) => err instanceof Error && typeof err.message === "string" && err.message.length > 0,
+      `malformed stdin must be rejected: ${JSON.stringify(raw)}`
+    );
+  }
+  const good = notifier.parseNotificationInput(
+    JSON.stringify({
+      task_id: "task-0001-x",
+      from: "NEEDS_APPROVAL",
+      to: "FAILED",
+      execution_status_transition_applied: false,
+      ts: "2026-08-29 00:00 UTC",
+    })
+  );
+  assert.strictEqual(good.task_id, "task-0001-x");
+  assert.strictEqual(good.to, "FAILED");
+});
+
+test("notification_publisher_source_never_subscribes_or_uses_other_entrypoints", () => {
+  const source = fs.readFileSync(path.join(__dirname, "publish_notification.js"), "utf8");
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const needle of ["subscribeLive", "queryOnce(", "require(\"./orchestrator\")", "require(\"./bridge\")"]) {
+    assert.ok(!code.includes(needle), `publish_notification.js must not reference "${needle}" - it is outbound only`);
+  }
+});
+
+test("notification_publisher_source_never_touches_jarvis_task_lifecycle", () => {
+  const source = fs.readFileSync(path.join(__dirname, "publish_notification.js"), "utf8");
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const needle of ["transition_task_file_status(", "record_task_completion_evidence(", "task_file_writer", "task_append", "appendRunRecord", "memory/tasks"]) {
+    assert.ok(!code.includes(needle), `publish_notification.js must not reference "${needle}" - it never reads or writes task state`);
+  }
+});
+
 function main() {
   const results = cases.map(({ name, fn }) => {
     try {

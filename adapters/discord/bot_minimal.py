@@ -123,6 +123,23 @@ EXECUTION_SCRIPT_WHITELIST: dict[tuple[str, str], tuple[str, ...]] = {
 EXECUTION_TIMEOUT_SECONDS = 10
 EXECUTION_OUTPUT_MAX_CHARS = 220
 
+# Commands that change task state or reach _run_execution_flow() (which spawns
+# a whitelisted subprocess). Only an Owner may run these. Read-only commands
+# (/status, /report, /help, /plan, /review-task, /retro) stay open to everyone
+# and are deliberately absent from this set.
+PRIVILEGED_COMMANDS = frozenset({"/approve", "/run", "/retry", "/task"})
+# Name of the env var holding the Owner allowlist. The NAME is safe to log;
+# the VALUE never is (see _load_owner_ids).
+OWNER_IDS_ENV = "JARVIS_OWNER_DISCORD_USER_IDS"
+
+# Outbound-only Buzz notification publisher (P2-5). Deliberately a separate
+# constant from EXECUTION_SCRIPT_WHITELIST: publishing a notification is not
+# task execution and must never become reachable from /run or /retry.
+NOTIFICATION_PUBLISHER_COMMAND = ("node", "orchestrator/buzz-bridge/publish_notification.js")
+# A cold publish is connect + NIP-42 auth + channel lookup + publish, each
+# with its own 10s relay timeout, plus channel creation on first use.
+NOTIFICATION_PUBLISH_TIMEOUT_SECONDS = 60
+
 
 # ---------------------------------------------------------------------------
 # Common / shared helpers
@@ -145,6 +162,175 @@ def _load_env_file(env_path: Path) -> None:
 
 def _error_payload(reason: str) -> dict[str, Any]:
     return {"result_type": "error", "reason": reason}
+
+
+# ---------------------------------------------------------------------------
+# Owner authorization (P2-4)
+#
+# The approval boundary lives in exactly one place: the single gate in
+# on_message() just before _run_command(). The approval pipeline itself
+# (_run_approve_parse and everything under it) is deliberately left unchanged
+# and unaware of identity -- adding a second gate inside it would create two
+# boundaries that can drift apart.
+# ---------------------------------------------------------------------------
+def _load_owner_ids() -> frozenset[str]:
+    """Parse the Owner allowlist from the environment. Never logs its value.
+
+    Missing, empty, or fully malformed configuration yields an EMPTY set, and
+    every caller treats an empty set as "deny every privileged command" -- an
+    unset variable must never read as "allow everyone".
+    """
+
+    raw = os.getenv(OWNER_IDS_ENV, "")
+    # Discord user IDs are numeric snowflakes. A non-numeric entry is a typo,
+    # not an identity: dropping it here means a malformed allowlist fails
+    # closed at startup instead of silently matching nobody at runtime.
+    return frozenset(part.strip() for part in raw.split(",") if part.strip().isdigit())
+
+
+def _command_name(command_text: str) -> str:
+    parts = command_text.strip().split()
+    return parts[0] if parts else ""
+
+
+def _is_privileged_command(command_text: str) -> bool:
+    name = _command_name(command_text)
+    if name in PRIVILEGED_COMMANDS:
+        return True
+    # _run_command() routes with str.startswith(), so a first token that merely
+    # STARTS WITH a privileged name (e.g. "/approvex") still reaches that
+    # handler. Classify those as privileged too rather than relying on each
+    # handler's own exact-name recheck to catch them.
+    return any(name.startswith(privileged) for privileged in PRIVILEGED_COMMANDS)
+
+
+def _authorize_command(command_text: str, author_id: str) -> tuple[bool, str | None]:
+    """Decide whether `author_id` may run `command_text`.
+
+    Returns (True, None) to allow, (False, "unauthorized") to deny. Any
+    unexpected error denies -- there is no path through this function that
+    falls back to allow. The denial reason is deliberately generic: it never
+    reveals who the Owner is, or whether an allowlist is configured at all.
+    """
+
+    try:
+        if not _is_privileged_command(command_text):
+            return True, None
+        owner_ids = _load_owner_ids()
+        if not owner_ids:
+            return False, "unauthorized"
+        if not isinstance(author_id, str):
+            # Exact string identity only. An int id (discord.py's native type)
+            # must be converted by the caller, never coerced here, so that
+            # 123 can never be mistaken for "123".
+            return False, "unauthorized"
+        if author_id not in owner_ids:
+            return False, "unauthorized"
+        return True, None
+    except Exception:  # noqa: BLE001 - fail closed on any unexpected error
+        return False, "unauthorized"
+
+
+# ---------------------------------------------------------------------------
+# Buzz task-status notification (P2-5, outbound only)
+#
+# Jarvis owns the approval decision; Buzz is a notification surface and
+# nothing else. Everything below runs AFTER the approval is already
+# committed to disk and already reported to the Owner, so it can only ever
+# report a fact - it can never influence, delay, or reverse one. A failure
+# here is a failed notification, never a failed approval.
+# ---------------------------------------------------------------------------
+def _notification_payload_for_result(result: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the payload to publish, or None when nothing may be published.
+
+    Only a CONFIRMED approve/reject qualifies: the one result shape that
+    means a task file was actually transitioned. Usage errors, holds,
+    applied=False, and every non-approve command return None.
+    """
+
+    if not isinstance(result, dict):
+        return None
+    if result.get("result_type") != "approve_file_write_result":
+        return None
+    if result.get("applied") is not True:
+        return None
+
+    applied_transition = result.get("applied_transition")
+    if not isinstance(applied_transition, dict):
+        return None
+    transition_from = applied_transition.get("from")
+    transition_to = applied_transition.get("to")
+    task_id = result.get("task_id")
+    if not isinstance(task_id, str) or not task_id:
+        return None
+    if not isinstance(transition_from, str) or not isinstance(transition_to, str):
+        return None
+    if not transition_from or not transition_to:
+        return None
+
+    # Status transition FACT only. The decision verb (approve/reject) stays
+    # on the Jarvis side of the boundary; Buzz is told what changed, never
+    # what it means or what to do about it.
+    return {
+        "task_id": task_id,
+        "from": transition_from,
+        "to": transition_to,
+        "execution_status_transition_applied": bool(result.get("execution_status_transition_applied")),
+        "ts": _utc_now_minutes(),
+    }
+
+
+def _utc_now_minutes() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _run_notification_publisher(payload: dict[str, Any]) -> dict[str, Any]:
+    """Run the outbound publisher. Returns a structured outcome, never raises.
+
+    Mirrors the repo's existing python->node subprocess pattern: fixed
+    argument list (no shell), explicit utf-8, bounded timeout, check=False,
+    and every exception mapped to a structured result. This is deliberately
+    NOT routed through EXECUTION_SCRIPT_WHITELIST - notification is not task
+    execution, and must not become reachable from /run or /retry.
+    """
+
+    try:
+        completed = subprocess.run(
+            list(NOTIFICATION_PUBLISHER_COMMAND),
+            cwd=str(CODEBASE_ROOT),
+            input=json.dumps(payload, ensure_ascii=False),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=NOTIFICATION_PUBLISH_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "reason": "notification_publish_timeout"}
+    except OSError:
+        return {"ok": False, "reason": "notification_publisher_start_failed"}
+
+    if completed.returncode != 0:
+        detail = _summarize_execution_output(completed.stdout or "", completed.stderr or "")
+        return {"ok": False, "reason": f"notification_publish_failed:exit_code:{completed.returncode}", "detail": detail}
+    return {"ok": True, "reason": "", "detail": _summarize_execution_output(completed.stdout or "", "")}
+
+
+def _publish_approval_notification(result: dict[str, Any]) -> dict[str, Any] | None:
+    """Best-effort publish. Returns None when nothing was eligible.
+
+    Never mutates `result`, never raises, and its return value is never fed
+    back into the approval result. The caller may use it only to tell the
+    Owner that the NOTIFICATION failed - never that the approval did.
+    """
+
+    try:
+        payload = _notification_payload_for_result(result)
+        if payload is None:
+            return None
+        return _run_notification_publisher(payload)
+    except Exception as exc:  # noqa: BLE001 - a notification must never escalate
+        return {"ok": False, "reason": "notification_unexpected_error", "detail": type(exc).__name__}
 
 
 # ---------------------------------------------------------------------------
@@ -1450,6 +1636,293 @@ def _run_self_check_suite() -> dict[str, Any]:
     def _record(name: str, ok: bool, detail: str) -> None:
         checks.append({"name": name, "ok": ok, "detail": detail})
 
+    # --- P2-4 Owner authorization boundary -------------------------------
+    # These cases need no repo/task fixtures, so they run before the temp repo
+    # block. The env var is restored afterwards no matter what happens.
+    owner_env_original = os.environ.get(OWNER_IDS_ENV)
+
+    def _set_owner_env(value: str | None) -> None:
+        if value is None:
+            os.environ.pop(OWNER_IDS_ENV, None)
+        else:
+            os.environ[OWNER_IDS_ENV] = value
+
+    try:
+        owner_id = "111111111111111111"
+        other_id = "222222222222222222"
+        _set_owner_env(f"  {owner_id} , {other_id} ,, ")
+
+        allowed, reason = _authorize_command("/approve task-0001-self-check approve", owner_id)
+        _record("owner_id_allows_privileged", allowed and reason is None, f"reason={reason}")
+
+        denied, reason = _authorize_command("/approve task-0001-self-check approve", "999999999999999999")
+        _record(
+            "non_owner_denies_privileged",
+            (not denied) and reason == "unauthorized",
+            f"reason={reason}",
+        )
+
+        readonly_results = {
+            command: _authorize_command(command, "999999999999999999")
+            for command in ("/status task-0001-self-check", "/report", "/report today", "/help", "/plan x", "/review-task task-0001-self-check", "/retro today")
+        }
+        _record(
+            "non_owner_allows_readonly",
+            all(ok and why is None for ok, why in readonly_results.values()),
+            f"results={ {k: v[0] for k, v in readonly_results.items()} }",
+        )
+
+        empty_config_results = {}
+        for empty_value in (None, "", "   ", ",,,", "not-a-snowflake"):
+            _set_owner_env(empty_value)
+            empty_config_results[repr(empty_value)] = {
+                command: _authorize_command(command, owner_id)[0]
+                for command in ("/approve task-0001-x approve", "/run task-0001-x", "/retry task-0001-x", "/task something")
+            }
+        _record(
+            "empty_owner_config_denies_all",
+            all(not allowed for per_value in empty_config_results.values() for allowed in per_value.values()),
+            f"results={empty_config_results}",
+        )
+
+        _set_owner_env(owner_id)
+        exact_cases = {
+            "prefix_of_owner": _authorize_command("/approve task-0001-x approve", owner_id[:-1])[0],
+            "owner_is_prefix_of": _authorize_command("/approve task-0001-x approve", owner_id + "9")[0],
+            "int_instead_of_str": _authorize_command("/approve task-0001-x approve", int(owner_id))[0],  # type: ignore[arg-type]
+            "whitespace_padded": _authorize_command("/approve task-0001-x approve", f" {owner_id} ")[0],
+            "exact_match": _authorize_command("/approve task-0001-x approve", owner_id)[0],
+        }
+        _record(
+            "owner_id_comparison_is_exact_string",
+            exact_cases == {
+                "prefix_of_owner": False,
+                "owner_is_prefix_of": False,
+                "int_instead_of_str": False,
+                "whitespace_padded": False,
+                "exact_match": True,
+            },
+            f"cases={exact_cases}",
+        )
+
+        token_original = os.environ.get("DISCORD_BOT_TOKEN")
+        try:
+            os.environ["DISCORD_BOT_TOKEN"] = "self-check-placeholder"
+            _set_owner_env(None)
+            missing_ok, missing_reason = _validate_required_env()
+            _set_owner_env("   ")
+            blank_ok, blank_reason = _validate_required_env()
+            _set_owner_env(owner_id)
+            present_ok, present_reason = _validate_required_env()
+        finally:
+            if token_original is None:
+                os.environ.pop("DISCORD_BOT_TOKEN", None)
+            else:
+                os.environ["DISCORD_BOT_TOKEN"] = token_original
+        _record(
+            "missing_owner_env_fails_startup",
+            (not missing_ok)
+            and missing_reason == f"missing_env:{OWNER_IDS_ENV}"
+            and (not blank_ok)
+            and blank_reason == f"missing_env:{OWNER_IDS_ENV}"
+            and present_ok
+            and present_reason is None,
+            f"missing={missing_reason} blank={blank_reason} present={present_reason}",
+        )
+
+        # The NL branch rewrites `content` into this exact shape before the
+        # gate runs (see intent_dispatcher.dispatch's approve_task branch), so
+        # gating that string is gating the NL path. This deliberately does not
+        # invoke the NL resolver helpers here: orchestrator/discord-nl-intent/
+        # run_smoke_tests.py asserts each of them has exactly one call site in
+        # this file, and a second one would break that structural contract.
+        _set_owner_env(owner_id)
+        nl_synthesized = "/approve task-0029-research-council-live-augmentation approve"
+        nl_denied, nl_reason = _authorize_command(nl_synthesized, "999999999999999999")
+        nl_allowed, _ = _authorize_command(nl_synthesized, owner_id)
+        _record(
+            "nl_resolved_approve_is_also_gated",
+            (not nl_denied) and nl_reason == "unauthorized" and nl_allowed,
+            f"reason={nl_reason}",
+        )
+
+        run_command_calls = {"n": 0}
+        original_run_command = globals()["_run_command"]
+
+        def _counting_run_command(command_text: str) -> dict[str, Any]:
+            run_command_calls["n"] += 1
+            return original_run_command(command_text)
+
+        globals()["_run_command"] = _counting_run_command
+        try:
+            # Mirror on_message()'s exact order: authorize, and only call
+            # _run_command() when the gate allowed the command.
+            for blocked in ("/approve task-0001-x approve", "/run task-0001-x", "/retry task-0001-x", "/task something"):
+                gate_ok, _ = _authorize_command(blocked, "999999999999999999")
+                if gate_ok:
+                    _run_command(blocked)
+        finally:
+            globals()["_run_command"] = original_run_command
+        _record(
+            "denied_command_never_reaches_run_command",
+            run_command_calls["n"] == 0,
+            f"run_command_calls={run_command_calls['n']}",
+        )
+
+        privileged_denials = {
+            command: _authorize_command(command, "999999999999999999")
+            for command in (
+                "/approve task-0001-x approve",
+                "/run task-0001-x",
+                "/retry task-0001-x",
+                "/task 새 작업 하나",
+            )
+        }
+        _record(
+            "non_owner_denied_for_every_privileged_command",
+            all((not ok) and why == "unauthorized" for ok, why in privileged_denials.values()),
+            f"results={ {k: v[0] for k, v in privileged_denials.items()} }",
+        )
+
+        prefix_bypass = {
+            command: _authorize_command(command, "999999999999999999")[0]
+            for command in ("/approvex task-0001-x approve", "/taskfoo bar", "/runx task-0001-x", "/retryx task-0001-x")
+        }
+        _record(
+            "privileged_prefix_bypass_is_denied",
+            not any(prefix_bypass.values()),
+            f"results={prefix_bypass}",
+        )
+    finally:
+        _set_owner_env(owner_env_original)
+
+    # --- P2-5 outbound notification boundary -----------------------------
+    # Pure-function checks: no relay, no subprocess, no Discord. The real
+    # publisher is stubbed where a failure needs to be observed.
+    def _applied_approve_result(transition_to: str = "DOING") -> dict[str, Any]:
+        return {
+            "result_type": "approve_file_write_result",
+            "task_id": "task-0001-self-check",
+            "applied": True,
+            "error": False,
+            "reason": "",
+            "applied_transition": {"from": "NEEDS_APPROVAL", "to": transition_to},
+            "execution_status_transition_applied": True,
+            "execution_status_transition_reason": "",
+        }
+
+    approve_payload = _notification_payload_for_result(_applied_approve_result("DOING"))
+    reject_payload = _notification_payload_for_result(_applied_approve_result("FAILED"))
+    _record(
+        "notify_only_on_applied_approve",
+        isinstance(approve_payload, dict)
+        and approve_payload.get("task_id") == "task-0001-self-check"
+        and approve_payload.get("from") == "NEEDS_APPROVAL"
+        and approve_payload.get("to") == "DOING"
+        and isinstance(reject_payload, dict)
+        and reject_payload.get("to") == "FAILED",
+        f"approve={approve_payload} reject={reject_payload}",
+    )
+
+    not_publishable = {
+        "usage_error": _error_payload("usage:/approve <task-id> approve|reject"),
+        "hold": _approve_writer_result_fail(task_id="task-0001-x", reason="apply_not_ready", kind="hold"),
+        "error": _approve_writer_result_fail(task_id="task-0001-x", reason="task_file_write_failed", kind="error"),
+        "applied_false": {**_applied_approve_result(), "applied": False},
+        "missing_transition": {k: v for k, v in _applied_approve_result().items() if k != "applied_transition"},
+        "blank_transition": {**_applied_approve_result(), "applied_transition": {"from": "", "to": ""}},
+    }
+    _record(
+        "notify_skips_error_hold_and_not_applied",
+        all(_notification_payload_for_result(r) is None for r in not_publishable.values()),
+        f"results={ {k: _notification_payload_for_result(v) for k, v in not_publishable.items()} }",
+    )
+
+    non_approve_results = {
+        "run": {"result_type": "run_result", "task_id": "task-0001-x", "run_attempted": True},
+        "retry": {"result_type": "retry_result", "task_id": "task-0001-x", "retried": True},
+        "task": {"result_type": "success", "task_id": "task-0001-x", "file_name": "task-0001-x.md"},
+        "status": {"result_type": "status", "id": "task-0001-x", "status": "DOING"},
+        "report": {"result_type": "report", "total": 1},
+        "help": {"result_type": "help", "lines": []},
+        "not_a_dict": "approve_file_write_result",
+    }
+    _record(
+        "notify_skips_non_approve_results",
+        all(_notification_payload_for_result(r) is None for r in non_approve_results.values()),
+        f"results={ {k: _notification_payload_for_result(v) for k, v in non_approve_results.items()} }",
+    )
+
+    payload_keys = set(approve_payload or {})
+    serialized_payload = json.dumps(approve_payload, ensure_ascii=False).lower()
+    _record(
+        "notify_payload_has_no_p_or_run_tag",
+        payload_keys == {"task_id", "from", "to", "execution_status_transition_applied", "ts"}
+        and not any(k in payload_keys for k in ("p", "tags", "jarvis_run", "jarvis-run"))
+        and "jarvis-run" not in serialized_payload
+        and "jarvis_run" not in serialized_payload,
+        f"keys={sorted(payload_keys)}",
+    )
+
+    _record(
+        "notify_payload_carries_transition_not_instruction",
+        approve_payload is not None
+        and approve_payload.get("from") == "NEEDS_APPROVAL"
+        and approve_payload.get("to") in ("DOING", "FAILED")
+        and not any(word in serialized_payload for word in ("approve", "reject", "grant", "deny")),
+        f"payload={approve_payload}",
+    )
+
+    original_publisher = globals()["_run_notification_publisher"]
+
+    def _failing_publisher(_payload: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": False, "reason": "notification_publish_failed:exit_code:1", "detail": "stub"}
+
+    def _raising_publisher(_payload: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("stub publisher blew up")
+
+    approve_result_obj = _applied_approve_result()
+    before_snapshot = json.dumps(approve_result_obj, sort_keys=True, ensure_ascii=False)
+    globals()["_run_notification_publisher"] = _failing_publisher
+    try:
+        failure_outcome = _publish_approval_notification(approve_result_obj)
+        globals()["_run_notification_publisher"] = _raising_publisher
+        raised_outcome = _publish_approval_notification(approve_result_obj)
+    finally:
+        globals()["_run_notification_publisher"] = original_publisher
+    after_snapshot = json.dumps(approve_result_obj, sort_keys=True, ensure_ascii=False)
+
+    _record(
+        "notify_failure_never_mutates_approve_result",
+        before_snapshot == after_snapshot
+        and approve_result_obj.get("applied") is True
+        and approve_result_obj.get("error") is False
+        and "notification" not in after_snapshot.lower(),
+        f"mutated={before_snapshot != after_snapshot}",
+    )
+
+    _record(
+        "notify_failure_is_reported_separately",
+        isinstance(failure_outcome, dict)
+        and failure_outcome.get("ok") is False
+        and str(failure_outcome.get("reason", "")).startswith("notification_publish_failed")
+        and isinstance(raised_outcome, dict)
+        and raised_outcome.get("ok") is False
+        and raised_outcome.get("reason") == "notification_unexpected_error"
+        and _publish_approval_notification({"result_type": "status"}) is None,
+        f"failure={failure_outcome} raised={raised_outcome}",
+    )
+
+    _record(
+        "notify_uses_dedicated_constant_not_execution_whitelist",
+        NOTIFICATION_PUBLISHER_COMMAND == ("node", "orchestrator/buzz-bridge/publish_notification.js")
+        and all(NOTIFICATION_PUBLISHER_COMMAND != command for command in EXECUTION_SCRIPT_WHITELIST.values())
+        and not any("publish_notification" in str(command) for command in EXECUTION_SCRIPT_WHITELIST.values())
+        and len(EXECUTION_SCRIPT_WHITELIST) == 1
+        and ("plan_script_execution", "discord_intake_smoke_tests") in EXECUTION_SCRIPT_WHITELIST,
+        f"whitelist={dict(EXECUTION_SCRIPT_WHITELIST)}",
+    )
+
     original_repo_root = REPO_ROOT
     with tempfile.TemporaryDirectory(prefix="jarvis-self-check-") as temp_dir:
         temp_repo = Path(temp_dir)
@@ -1984,6 +2457,10 @@ def _validate_required_env() -> tuple[bool, str | None]:
     token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
     if not token:
         return False, "missing_env:DISCORD_BOT_TOKEN"
+    # Refuse to start rather than run with no approval boundary. Only the env
+    # var NAME appears in the reason - never any configured id.
+    if not _load_owner_ids():
+        return False, f"missing_env:{OWNER_IDS_ENV}"
     return True, None
 
 
@@ -2039,8 +2516,30 @@ async def _start_discord_bot() -> None:
             )
             return
 
+        # Single authorization gate for the whole adapter. It sits here, after
+        # the natural-language branch has already rewritten `content` into a
+        # concrete command, so an NL-synthesized "/approve ..." is gated by the
+        # exact same check as a typed one.
+        authorized, denial_reason = _authorize_command(content, str(message.author.id))
+        if not authorized:
+            await message.reply(_format_reply(_error_payload(denial_reason or "unauthorized")))
+            return
+
         result = _run_command(content)
+        # The approval result is authoritative and reaches the Owner FIRST.
+        # Nothing below can change it, delay it, or make it look failed.
         await message.reply(_format_reply(result))
+
+        # Best-effort outbound notification. Runs off the event loop so a
+        # slow relay cannot stall this handler, and its outcome is reported
+        # separately - never folded back into `result`.
+        publication = await asyncio.to_thread(_publish_approval_notification, result)
+        if publication is not None and not publication.get("ok"):
+            print(f"[notify] task-status notification failed: {publication.get('reason')} {publication.get('detail', '')}")
+            await message.reply(
+                "ℹ️ 승인 처리는 정상 완료되었습니다. 위 결과가 확정된 상태입니다.\n"
+                f"다만 Buzz 알림 발행에는 실패했습니다 (`{publication.get('reason')}`). 승인 결과에는 영향이 없습니다."
+            )
 
     token = os.environ["DISCORD_BOT_TOKEN"].strip()
     try:
