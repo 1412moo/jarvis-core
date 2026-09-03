@@ -1,0 +1,21 @@
+{
+  "$comment": "Role-based Ed25519 public key registry (task-0042). Public keys and status only - never a secret value. Private keys live outside the repository under the signing-keys state directory; see docs/task-0042-role-based-signing-keys-design.md.",
+  "keys": [
+    {
+      "role": "reviewer",
+      "key_id": "57f0f37d7406691f6154d0ec4d461c69",
+      "public_key": "709cb4b7c25e405667b118fffa02d06186f53582471f22f6bf8132f9a31d2d92",
+      "status": "active",
+      "created_at": "2026-09-03T05:30:24Z",
+      "retired_at": null
+    },
+    {
+      "role": "qa",
+      "key_id": "5dd9c475bb0002fe4e68ab5b1c98140a",
+      "public_key": "e309979c7dd12993c0fd84b30bd64f81f48ecb2edf3e549829195ce52dab3909",
+      "status": "active",
+      "created_at": "2026-09-03T05:30:27Z",
+      "retired_at": null
+    }
+  ]
+}

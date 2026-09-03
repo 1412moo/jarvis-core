@@ -1,0 +1,10 @@
+{
+  "name": "jarvis-role-signing",
+  "private": true,
+  "version": "0.1.0",
+  "description": "task-0042: role-based Ed25519 signing keys for Reviewer/QA records. Node stdlib crypto only - no dependencies by design (Owner decision 2).",
+  "type": "commonjs",
+  "scripts": {
+    "smoke": "node run_smoke_tests.js"
+  }
+}

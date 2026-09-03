@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 apps/research-council/artifacts/
 node_modules/
+
+# task-0042 signing keys. They are stored outside the repository by
+# construction and a fail-closed guard refuses any in-repo path; this line is
+# a second net, not the primary defence. See orchestrator/role-signing/README.md
+*.key
