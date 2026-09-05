@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import UTC, datetime
+import hashlib
 import json
 import os
 import re
@@ -41,10 +42,27 @@ NL_INTENT_DIR = REPO_ROOT / "orchestrator" / "discord-nl-intent"
 if str(NL_INTENT_DIR) not in sys.path:
     sys.path.insert(0, str(NL_INTENT_DIR))
 
+# task-0052. The directory name has a hyphen, so it can never be a Python package -
+# absolute imports off sys.path, the same convention the two directories above use.
+AUDIT_CHAIN_DIR = REPO_ROOT / "orchestrator" / "audit-chain"
+if str(AUDIT_CHAIN_DIR) not in sys.path:
+    sys.path.insert(0, str(AUDIT_CHAIN_DIR))
+
 from intake_parser import parse_intake
 from task_draft_builder import build_task_draft
-from task_file_writer import write_task_file
+from task_file_writer import (
+    TASK_STATUS_TRANSITIONS,
+    transition_task_file_status,
+    write_task_file,
+)
 from intent_router import resolve_intent, resolve_llm_fallback
+from audit_entry import AuditChainError
+from audit_store import (
+    record_execution_result,
+    record_owner_approval,
+    resolve_audit_chain_paths,
+)
+from audit_verifier import verify_audit_chain
 
 TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
@@ -331,6 +349,101 @@ def _publish_approval_notification(result: dict[str, Any]) -> dict[str, Any] | N
         return _run_notification_publisher(payload)
     except Exception as exc:  # noqa: BLE001 - a notification must never escalate
         return {"ok": False, "reason": "notification_unexpected_error", "detail": type(exc).__name__}
+
+
+# ---------------------------------------------------------------------------
+# Audit hash chain (task-0052)
+#
+# Read this next to _publish_approval_notification() above: the two look alike and
+# are opposites. A notification is best-effort and its failure must never look like
+# a failed approval (P2-2/P2-5). An audit append is the reverse - task-0044 section
+# 6.1 forbids fire-and-forget, so its failure DOES fail the approval.
+#
+# Ordering is decision 1 (ii-b): the transition is applied first, the append second,
+# and a failed append is NOT rolled back. The approval then answers as a failure
+# with the task left in DOING and no record - a visible, stuck state that cannot be
+# retried (status_mismatch blocks it), which is what prevents a double execution.
+#
+# This adds no second identity boundary. The approval pipeline stays unaware of who
+# the caller is, exactly as the P2-4 note above requires, and the payload schema
+# rejects owner identity outright (FORBIDDEN_PAYLOAD_KEYS).
+# ---------------------------------------------------------------------------
+AUDIT_APPEND_FAILED = "audit_append_failed"
+
+
+def _record_audit_event(record_fn: Any, **fields: Any) -> str | None:
+    """Append one audit entry. Returns None on success, a stable code on failure.
+
+    Decision 7: only the stable code leaves this function. The detail - paths,
+    hashes, OS errors - goes to stderr for local diagnosis and never into a reply.
+    """
+
+    try:
+        record_fn(**fields)
+        return None
+    except AuditChainError as exc:
+        print(f"[audit] append failed: {exc.code} detail={exc.detail}", file=sys.stderr)
+        return exc.code
+    except Exception as exc:  # noqa: BLE001 - an audit failure must never crash the bot
+        print(f"[audit] append failed: unexpected {type(exc).__name__}", file=sys.stderr)
+        return AUDIT_APPEND_FAILED
+
+
+def _audit_owner_approval(
+    *,
+    command: str,
+    decision: str,
+    transition_from: str,
+    transition_to: str,
+    applied: bool,
+    reason: str,
+) -> str | None:
+    """Record one /approve decision, applied or refused (decision 3)."""
+
+    return _record_audit_event(
+        record_owner_approval,
+        task_id=_audit_task_id(command),
+        command=command,
+        decision=decision,
+        transition_from=transition_from,
+        transition_to=transition_to,
+        applied=applied,
+        reason=reason,
+    )
+
+
+def _audit_task_id(command: str) -> str:
+    parts = command.strip().split()
+    return parts[1].strip().lower() if len(parts) > 1 else ""
+
+
+def _audit_execution_result(
+    *,
+    task_id: str,
+    source: str,
+    execution_result: dict[str, Any] | None,
+    applied: bool,
+    reason: str,
+) -> str | None:
+    """Record one execution outcome (decision 4).
+
+    result_kind stays on the existing {success, failure} values and the finer
+    distinction rides the existing reason vocabulary - "policy refused it" already
+    arrives as execution_not_executed. No new vocabulary is invented here.
+    """
+
+    executed = bool((execution_result or {}).get("executed", False))
+    succeeded = bool((execution_result or {}).get("success", False))
+    return _record_audit_event(
+        record_execution_result,
+        task_id=task_id,
+        source=source,
+        execution_status_transition_applied=applied,
+        # Strip any value the reason carries: task-0044 decision 5 keeps codes free
+        # of values, and the payload is a record, not a diagnostic channel.
+        execution_status_transition_reason=str(reason or "").split(":", 1)[0],
+        result_kind="success" if (executed and succeeded) else "failure",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -723,6 +836,11 @@ def _build_approve_draft(parse_result: dict[str, Any]) -> dict[str, Any]:
         "result_type": "approve_draft",
         "draft_type": "approve_status_transition_draft",
         "task_id": task_id,
+        # task-0052: owner_approval requires both of these, and decision 5-b needs
+        # `decision` to keep a rejection out of the execution flow. One wiring, two
+        # uses - which is why 5-b is cheap to include here.
+        "command": str(parse_result.get("command") or ""),
+        "decision": decision,
         "proposed_transition": {"from": "NEEDS_APPROVAL", "to": transition_to},
         "apply_ready": True,
         "hold_reason": None,
@@ -737,6 +855,8 @@ def _build_approve_writer_input(approve_draft: dict[str, Any]) -> dict[str, Any]
         "result_type": "approve_writer_input",
         "draft_type": str(approve_draft.get("draft_type") or ""),
         "task_id": str(approve_draft.get("task_id") or ""),
+        "command": str(approve_draft.get("command") or ""),
+        "decision": str(approve_draft.get("decision") or ""),
         "proposed_transition": approve_draft.get("proposed_transition") or {},
         "apply_ready": bool(approve_draft.get("apply_ready", False)),
         "hold_reason": approve_draft.get("hold_reason"),
@@ -790,10 +910,95 @@ def _validate_approve_transition_contract_sync() -> tuple[bool, list[str]]:
     ):
         reasons.append("approve_contract_required_transition_missing")
 
+    # task-0052. Until now this check compared only this module's own tables, so
+    # task_file_writer's transition set could drift from what this path performs
+    # and nobody would notice until a transition was refused at runtime - which is
+    # exactly how the missing FAILED->TODO pair was found. Assert the writer's set
+    # stays a superset of every transition this module can perform.
+    local_transitions = frozenset(
+        (source, target)
+        for source, targets in ALLOWED_STATUS_TRANSITIONS.items()
+        for target in targets
+    )
+    if not local_transitions.issubset(TASK_STATUS_TRANSITIONS):
+        reasons.append("approve_contract_writer_transition_missing")
+
     return not reasons, reasons
 
 
+# task-0052 decision 2, narrowed by section 10.3. Only these two transitions go
+# through task_file_writer's durable writer. The rest run *after*
+# _write_execution_review_metadata() has added execution fields that the writer's
+# metadata validator rejects by design, and that validator is deliberately not
+# being loosened - so those transitions keep the inline path below. This split is
+# a known residual risk, recorded in the design document rather than hidden here.
+DURABLE_STATUS_TRANSITIONS = frozenset(
+    {("NEEDS_APPROVAL", "DOING"), ("NEEDS_APPROVAL", "FAILED")}
+)
+
+
 def _apply_task_status_transition(task_id: str, transition_from: str, transition_to: str) -> tuple[bool, str]:
+    """Apply one task status transition, durably where that is possible.
+
+    The (bool, reason) contract and its vocabulary are unchanged, so no caller has
+    to know about the split: "task_not_found", "status_mismatch" and "write_failed"
+    mean exactly what they meant before.
+    """
+
+    if (transition_from, transition_to) in DURABLE_STATUS_TRANSITIONS:
+        return _apply_task_status_transition_durable(task_id, transition_from, transition_to)
+    return _apply_task_status_transition_inline(task_id, transition_from, transition_to)
+
+
+def _apply_task_status_transition_durable(task_id: str, transition_from: str, transition_to: str) -> tuple[bool, str]:
+    """Approval transition via task_file_writer.transition_task_file_status().
+
+    This is the transition the audit chain is laid over, so it is the one that has
+    to be atomic: fsync, os.replace and an expected_digest concurrency check, none
+    of which the inline path has. A chain over a write that can tear cannot tell
+    corruption from tampering (task-0044 section 6.3).
+    """
+
+    tasks_dir = REPO_ROOT / "memory" / "tasks"
+    task_file = tasks_dir / f"{task_id}.md"
+    if not task_file.exists() or not task_file.is_file():
+        return False, "task_not_found"
+
+    try:
+        original = task_file.read_bytes()
+    except OSError:
+        return False, "write_failed"
+
+    # Pre-check the current status so the familiar "status_mismatch" still fires for
+    # the ordinary case; a "stale" result from the writer then means a genuine
+    # concurrent modification between our read and its write.
+    current_status = ""
+    for line in original.decode("utf-8", errors="replace").splitlines():
+        matched = TASK_META_LINE_PATTERN.match(line.strip())
+        if matched and matched.group(1) == "status":
+            current_status = matched.group(2).strip()
+    if current_status != transition_from:
+        return False, "status_mismatch"
+
+    result = transition_task_file_status(
+        tasks_dir=tasks_dir,
+        task_id=task_id,
+        expected_digest=hashlib.sha256(original).hexdigest(),
+        current_status=transition_from,
+        target_status=transition_to,
+        planned_updated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+    )
+
+    if result.result_type == "updated":
+        return True, ""
+    if result.result_type == "stale":
+        # Reuse the existing code rather than invent vocabulary (decision 4). The
+        # writer's own reason is investigation detail and stays out of the return.
+        return False, "status_mismatch"
+    return False, "write_failed"
+
+
+def _apply_task_status_transition_inline(task_id: str, transition_from: str, transition_to: str) -> tuple[bool, str]:
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
     if not task_file.exists() or not task_file.is_file():
         return False, "task_not_found"
@@ -978,6 +1183,22 @@ def _run_execution_flow(task_id: str, source: str) -> dict[str, Any]:
         execution_status_transition_applied, execution_status_transition_reason = _apply_execution_result_status_transition(
             task_id, execution_result
         )
+    # task-0052 E2. One hook, inside the flow - NOT at the three call sites. /approve,
+    # /run and /retry all pass through here, and a fourth caller added later is covered
+    # automatically; per-call-site hooks would let that fourth one slip out of the audit
+    # silently, which is the same shape of gap that lets /run and /retry bypass /approve.
+    #
+    # Unlike the approval hook, a failure here cannot fail the work: the subprocess has
+    # already run and nothing can un-run it (design section 9.1). So it is reported
+    # loudly and carried out to the caller instead of being swallowed.
+    audit_error = _audit_execution_result(
+        task_id=task_id,
+        source=source,
+        execution_result=execution_result,
+        applied=execution_status_transition_applied,
+        reason=execution_status_transition_reason,
+    )
+
     return {
         "execution_candidate": execution_candidate,
         "execution_request": execution_request,
@@ -985,6 +1206,7 @@ def _run_execution_flow(task_id: str, source: str) -> dict[str, Any]:
         "execution_result": execution_result,
         "execution_status_transition_applied": execution_status_transition_applied,
         "execution_status_transition_reason": execution_status_transition_reason,
+        "audit_error": audit_error,
     }
 
 
@@ -1045,6 +1267,7 @@ def _run_retry(command_text: str) -> dict[str, Any]:
         "execution_result": execution_result,
         "execution_status_transition_applied": execution_flow.get("execution_status_transition_applied"),
         "execution_status_transition_reason": execution_flow.get("execution_status_transition_reason"),
+        "audit_error": execution_flow.get("audit_error"),
     }
 
 
@@ -1097,6 +1320,7 @@ def _run_run(command_text: str) -> dict[str, Any]:
         "execution_result": execution_result,
         "execution_status_transition_applied": execution_flow.get("execution_status_transition_applied"),
         "execution_status_transition_reason": execution_flow.get("execution_status_transition_reason"),
+        "audit_error": execution_flow.get("audit_error"),
     }
 
 
@@ -1280,13 +1504,71 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
             kind="error",
         )
 
-    if not apply_ready:
-        return _approve_writer_result_fail(task_id=task_id, reason="apply_not_ready", kind="hold")
+    command = str(approve_writer_input.get("command") or "")
+    decision = str(approve_writer_input.get("decision") or "")
 
+    if not apply_ready:
+        # Decision 3: a refused attempt is evidence too. The transition pair is
+        # already valid here, so the payload can be built.
+        audit_error = _audit_owner_approval(
+            command=command,
+            decision=decision,
+            transition_from=transition_from,
+            transition_to=transition_to,
+            applied=False,
+            reason="apply_not_ready",
+        )
+        result = _approve_writer_result_fail(task_id=task_id, reason="apply_not_ready", kind="hold")
+        result["audit_error"] = audit_error
+        return result
+
+    # Decision 1 (ii-b): transition first, audit second, and no rollback.
     applied, reason = _apply_task_status_transition(task_id, transition_from, transition_to)
+    audit_error = _audit_owner_approval(
+        command=command,
+        decision=decision,
+        transition_from=transition_from,
+        transition_to=transition_to,
+        applied=applied,
+        reason=reason,
+    )
+
     if not applied:
         reason_kind = "hold" if reason in ("task_not_found", "status_mismatch") else "error"
-        return _approve_writer_result_fail(task_id=task_id, reason=reason, kind=reason_kind)
+        result = _approve_writer_result_fail(task_id=task_id, reason=reason, kind=reason_kind)
+        result["audit_error"] = audit_error
+        return result
+
+    if audit_error is not None:
+        # The file already moved and is deliberately not rolled back, so say exactly
+        # that instead of reporting a clean failure the Owner would misread. This is
+        # the stuck state section 10.1 describes; recovery is a manual edit.
+        result = _approve_writer_result_fail(task_id=task_id, reason=audit_error, kind="error")
+        result["audit_error"] = audit_error
+        result["applied_transition"] = {"from": transition_from, "to": transition_to}
+        result["transition_applied_without_audit"] = True
+        return result
+
+    if decision == "reject":
+        # Decision 5-b. A rejection must not reach _run_execution_flow(): it used to,
+        # and a whitelisted target would then run a subprocess for a task the Owner
+        # had just refused, after which the DOING-based transition failed silently as
+        # status_mismatch. This is a semantics fix, separate from the audit wiring.
+        return {
+            "result_type": "approve_file_write_result",
+            "task_id": task_id,
+            "applied": True,
+            "error": False,
+            "reason": "",
+            "applied_transition": {"from": transition_from, "to": transition_to},
+            "execution_candidate": None,
+            "execution_request": None,
+            "execution_result_dry_run": None,
+            "execution_result": None,
+            "execution_status_transition_applied": False,
+            "execution_status_transition_reason": "execution_skipped_on_reject",
+            "audit_error": None,
+        }
 
     execution_flow = _run_execution_flow(task_id, "approve_file_write_result")
     return {
@@ -1302,6 +1584,7 @@ def _build_approve_writer_result(approve_writer_input: dict[str, Any]) -> dict[s
         "execution_result": execution_flow.get("execution_result"),
         "execution_status_transition_applied": execution_flow.get("execution_status_transition_applied"),
         "execution_status_transition_reason": execution_flow.get("execution_status_transition_reason"),
+        "audit_error": execution_flow.get("audit_error"),
     }
 
 
@@ -1319,7 +1602,12 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
     if decision not in ("approve", "reject"):
         return _error_payload("usage:/approve <task-id> approve|reject")
 
-    parse_result = {"result_type": "approve_parse", "task_id": task_id, "decision": decision}
+    parse_result = {
+        "result_type": "approve_parse",
+        "task_id": task_id,
+        "decision": decision,
+        "command": command_text.strip(),
+    }
     approve_draft = _build_approve_draft(parse_result)
     if approve_draft.get("result_type") != "approve_draft":
         return approve_draft
@@ -1924,8 +2212,14 @@ def _run_self_check_suite() -> dict[str, Any]:
     )
 
     original_repo_root = REPO_ROOT
+    # task-0052. The approval and execution paths now append to the audit chain, and
+    # the chain resolves its own location from the environment - so without this the
+    # self-check would write test entries into the Owner's real, append-only chain,
+    # which cannot be undone. Point it at throwaway state for the duration.
+    original_state_dir = os.environ.get("JARVIS_LOCAL_STATE_DIR")
     with tempfile.TemporaryDirectory(prefix="jarvis-self-check-") as temp_dir:
         temp_repo = Path(temp_dir)
+        os.environ["JARVIS_LOCAL_STATE_DIR"] = str(temp_repo / "audit-state")
         tasks_dir = temp_repo / "memory" / "tasks"
         tasks_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2444,8 +2738,179 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and "report visible item" in report_reply
             )
             _record("report_recent_title_visible", report_recent_title_visible_ok, f"reply={report_reply}")
+
+            # --- task-0052 audit chain integration -----------------------------
+            # The chain is isolated to throwaway state for this whole block, so
+            # these append to a temp chain and never touch the Owner's real one.
+            audit_paths = resolve_audit_chain_paths()
+
+            def _chain_entries() -> list[dict[str, Any]]:
+                if not audit_paths.chain_file.exists():
+                    return []
+                return [
+                    json.loads(line)
+                    for line in audit_paths.chain_file.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+
+            task_id_audit = "task-0020-self-check"
+            _write_task(task_id_audit, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            audit_before = len(_chain_entries())
+            audit_approve = _run_approve_parse(f"/approve {task_id_audit} approve")
+            audit_entries = _chain_entries()
+            approval_entry = next(
+                (e for e in audit_entries if e["kind"] == "owner_approval" and e["task_id"] == task_id_audit),
+                None,
+            )
+            execution_entry = next(
+                (e for e in audit_entries if e["kind"] == "execution_result" and e["task_id"] == task_id_audit),
+                None,
+            )
+            _record(
+                "audit_owner_approval_recorded",
+                approval_entry is not None
+                and approval_entry["payload"]["decision"] == "approve"
+                and approval_entry["payload"]["applied"] is True
+                and audit_approve.get("audit_error") is None,
+                f"entry={approval_entry} audit_error={audit_approve.get('audit_error')}",
+            )
+            _record(
+                "audit_execution_result_recorded",
+                execution_entry is not None and execution_entry["payload"]["source"] == "approve_file_write_result",
+                f"entry={execution_entry}",
+            )
+            # The approval pipeline stays unaware of identity (P2-4) and the schema
+            # refuses it outright - assert the recorded payload really has none.
+            _record(
+                "audit_payload_has_no_owner_identity",
+                approval_entry is not None
+                and not ({"user_id", "author_id", "discord_user_id", "owner_id"} & set(approval_entry["payload"])),
+                f"payload_keys={sorted(approval_entry['payload']) if approval_entry else None}",
+            )
+            chain_state = verify_audit_chain(audit_paths.chain_file)
+            _record(
+                "audit_chain_verifies_after_approval",
+                chain_state.get("valid") is True and chain_state.get("length", 0) > audit_before,
+                f"chain={chain_state}",
+            )
+
+            # --- decision 5-b: a rejection must not reach the execution flow ----
+            task_id_no_exec = "task-0021-self-check"
+            _write_task(task_id_no_exec, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
+            reject_exec = _run_approve_parse(f"/approve {task_id_no_exec} reject")
+            reject_status = _run_status_lookup(f"/status {task_id_no_exec}")
+            reject_entries = [e for e in _chain_entries() if e["task_id"] == task_id_no_exec]
+            _record(
+                "reject_skips_execution_flow",
+                reject_exec.get("applied") is True
+                and reject_exec.get("execution_result") is None
+                and reject_exec.get("execution_candidate") is None
+                and reject_exec.get("execution_status_transition_reason") == "execution_skipped_on_reject"
+                and reject_status.get("status") == "FAILED",
+                f"result={reject_exec} status={reject_status}",
+            )
+            # The title matches the whitelisted target, so before this fix the
+            # rejection ran the subprocess and left execution metadata behind.
+            _record(
+                "reject_leaves_no_execution_metadata",
+                str(reject_status.get("execution_status") or "") == ""
+                and str(reject_status.get("execution_result") or "") == "",
+                f"status={reject_status}",
+            )
+            _record(
+                "reject_records_no_execution_audit_entry",
+                len(reject_entries) == 1 and reject_entries[0]["kind"] == "owner_approval",
+                f"entries={[e['kind'] for e in reject_entries]}",
+            )
+
+            # --- decision 1: an append failure fails the approval, without rollback
+            task_id_audit_fail = "task-0022-self-check"
+            _write_task(task_id_audit_fail, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="plain task", summary="self-check summary")
+            original_record_owner_approval = globals()["record_owner_approval"]
+
+            def _failing_record(**_fields: Any) -> None:
+                raise AuditChainError("audit_store_lock_timeout", detail="C:/secret/path/chain.jsonl")
+
+            globals()["record_owner_approval"] = _failing_record
+            try:
+                audit_fail_result = _run_approve_parse(f"/approve {task_id_audit_fail} approve")
+            finally:
+                globals()["record_owner_approval"] = original_record_owner_approval
+            audit_fail_status = _run_status_lookup(f"/status {task_id_audit_fail}")
+            _record(
+                "audit_failure_refuses_approval",
+                audit_fail_result.get("applied") is False
+                and audit_fail_result.get("error") is True
+                and audit_fail_result.get("reason") == "audit_store_lock_timeout"
+                and audit_fail_result.get("transition_applied_without_audit") is True,
+                f"result={audit_fail_result}",
+            )
+            # Decision 1 (ii-b): the transition is NOT rolled back, and the task is
+            # left visibly stuck rather than quietly reported as fine.
+            _record(
+                "audit_failure_does_not_roll_back",
+                audit_fail_status.get("status") == "DOING",
+                f"status={audit_fail_status}",
+            )
+            # Decision 7: the reply carries the stable code only - the detail that
+            # accompanied the error (a path, here) must not travel with it.
+            _record(
+                "audit_failure_reason_carries_no_detail",
+                ":" not in str(audit_fail_result.get("reason") or "")
+                and "secret" not in str(audit_fail_result.get("reason") or ""),
+                f"reason={audit_fail_result.get('reason')}",
+            )
+            # And the stuck task cannot be silently retried into a second execution.
+            audit_retry_result = _run_approve_parse(f"/approve {task_id_audit_fail} approve")
+            _record(
+                "audit_failure_retry_blocked",
+                audit_retry_result.get("applied") is False
+                and audit_retry_result.get("reason") == "status_mismatch",
+                f"result={audit_retry_result}",
+            )
+
+            # --- decision 3: refused attempts are recorded too -------------------
+            missing_before = len([e for e in _chain_entries() if e["task_id"] == "task-0023-self-check"])
+            missing_result = _run_approve_parse("/approve task-0023-self-check approve")
+            missing_entries = [e for e in _chain_entries() if e["task_id"] == "task-0023-self-check"]
+            _record(
+                "failed_approval_attempt_recorded",
+                missing_before == 0
+                and missing_result.get("applied") is False
+                and len(missing_entries) == 1
+                and missing_entries[0]["payload"]["applied"] is False
+                and missing_entries[0]["payload"]["reason"] == "task_not_found",
+                f"result={missing_result} entries={missing_entries}",
+            )
+
+            # --- decision 2: approval transitions go through the durable writer --
+            _record(
+                "approval_transition_is_durable",
+                DURABLE_STATUS_TRANSITIONS == frozenset(
+                    {("NEEDS_APPROVAL", "DOING"), ("NEEDS_APPROVAL", "FAILED")}
+                )
+                and DURABLE_STATUS_TRANSITIONS.issubset(TASK_STATUS_TRANSITIONS),
+                f"durable={sorted(DURABLE_STATUS_TRANSITIONS)}",
+            )
+            # The drift between the two modules' transition tables is what hid the
+            # missing FAILED->TODO pair, so assert the guard actually catches it.
+            original_writer_transitions = globals()["TASK_STATUS_TRANSITIONS"]
+            globals()["TASK_STATUS_TRANSITIONS"] = frozenset({("TODO", "DOING")})
+            try:
+                drift_ok, drift_reasons = _validate_approve_transition_contract_sync()
+            finally:
+                globals()["TASK_STATUS_TRANSITIONS"] = original_writer_transitions
+            _record(
+                "writer_transition_drift_detected",
+                drift_ok is False and "approve_contract_writer_transition_missing" in drift_reasons,
+                f"reasons={drift_reasons}",
+            )
         finally:
             globals()["REPO_ROOT"] = original_repo_root
+            if original_state_dir is None:
+                os.environ.pop("JARVIS_LOCAL_STATE_DIR", None)
+            else:
+                os.environ["JARVIS_LOCAL_STATE_DIR"] = original_state_dir
 
     failed = [check for check in checks if not check["ok"]]
     if failed:

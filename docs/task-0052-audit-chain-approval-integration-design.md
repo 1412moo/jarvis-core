@@ -273,6 +273,9 @@ task-0044 §10 결정 중 **1·2·5·6·7은 그대로 승계**한다(독립 체
 - **수동 복구 명령** — append 실패 후 고착 해제는 Owner의 수동 편집으로 남는다(§10.1의 알려진 공백)
 - **전이 쌍 확정 전 실패의 기록** — 스키마상 표현 불가(§9.3). 담으려면 task-0044 결정 2 재개방이 필요하다
 - 서명 부착 — 결정 ⑥
+- **실행결과 전이의 내구성 개선** — writer의 metadata 검증과 비호환이라 §10.3이 범위에서 뺐다.
+  해소하려면 `_write_execution_review_metadata`의 형식을 writer 스키마에 맞추는 별도 task가 필요하다
+- **`task_file_writer` metadata 검증 완화** — 명시적으로 금지(§10.3)
 
 ## 9. Owner 결정 (7건) — 선택지와 확정 근거
 
@@ -344,7 +347,7 @@ E1(승인)은 전이만 남기므로 (ii-b)의 "작업 실패로 보고" 가 성
 축소된다. 실행 사실 자체는 task 파일의 실행 메타데이터(쓰기 ②)에 남으므로 완전한 유실은
 아니다. **이 비대칭을 문서에 남기지 않으면 "왜 E2는 롤백하지 않는가"라는 질문이 반복된다.**
 
-### 9.2 결정 ② — 상태 파일 내구성 개선 범위 → **(d) 확정**
+### 9.2 결정 ② — 상태 파일 내구성 개선 범위 → **(d) 채택, 단 범위 축소(2026-09-05 재결정)**
 
 현재 `_apply_task_status_transition`(796)의 쓰기는 `task_file.write_text(...)` 한 줄이다.
 fsync도, atomic replace도, `expected_digest`도 없다.
@@ -361,24 +364,74 @@ fsync도, atomic replace도, `expected_digest`도 없다.
 | (a) 범위 밖 — 현행 유지 | ❌ 체인이 찢어질 수 있는 쓰기 위에 놓인다. task-0044 §6.3의 "체인은 장식" 상태 |
 | (b) fsync + `os.replace`만 자체 추가 | ❌ read-then-write 경합 창이 남아 "깨진 건지 공격인지" 여전히 구분 못 함 |
 | (c) (b) + `expected_digest` 자체 구현 | ❌ **내구성 원시코드를 두 벌 갖게 된다.** 갈라지는 순간 어느 쪽이 진실인지 알 수 없다 |
-| **(d) `transition_task_file_status` 재사용** | ✅ **확정.** 별도 내구성 구현은 만들지 않는다 |
+| **(d) `transition_task_file_status` 재사용** | ✅ **채택.** 별도 내구성 구현은 만들지 않는다 |
 
-**(c)를 배제한 근거**: AGENTS.md 원칙 6이 막는 "불필요한 리팩터링"이 아니라, 오히려
-**중복을 새로 만드는 쪽이 (c)** 다. 이미 검증된 함수가 있는데 두 번째 구현을 두는 것은
-task-0042 registry.js 주석이 경고한 "dormant drift"를 자초하는 일이다.
+#### 🔴 초판 §9.2의 두 가지 오류 (구현 착수 후 발견, 2026-09-05)
 
-#### 구현 시 반드시 동반해야 하는 변경
+이 절의 초판은 아래 두 가지를 **틀리게** 적었고, Owner 결정 ②는 그 틀린 근거 위에서
+내려졌다. 정정해 기록한다.
+
+**오류 1 — 전이는 3쌍이 아니라 4쌍이다.**
+초판은 "`FAILED→TODO`는 이 경로들이 안 쓰므로 추가하지 않는다(최소 확장)"고 했다.
+**틀렸다.** `_run_retry`(1054)가 재실행 전 준비 단계로 `FAILED→TODO`를 수행한다. 이 누락
+때문에 첫 구현에서 retry 계열 self-check가 실패했다.
+
+**오류 2 — "추가일 뿐 완화가 아니다"는 실행결과 전이에 대해 성립하지 않는다.**
+초판은 전이 표 확장이 "추가(additive)이지 완화가 아니며 제거되는 제약이 없다"고 했다.
+**승인 전이에 대해서는 맞지만 실행결과 전이에 대해서는 틀렸다.**
+
+`transition_task_file_status`는 전이 전에 `_transition_metadata`로 파일 전체를 검증하고,
+**허용 목록에 없는 메타데이터 필드가 하나라도 있으면 거부한다**(`task_file_unsupported_metadata`).
+그런데 `_write_execution_review_metadata`(852)가 **두 전이 사이에** 실행 메타데이터를 쓴다.
+
+```text
+승인 전이 NEEDS_APPROVAL→DOING     ← 파일이 깨끗해 통과
+  → 실행 → _write_execution_review_metadata   ← 13개 필드 기록
+  → 실행결과 전이 DOING→DONE        ← 거부됨
+```
+
+실측 대조:
+
+| 비호환 | 내용 |
+| --- | --- |
+| 미허용 필드 5개 | `error`, `mode`, `reason`, `message`, `execution_status` — writer의 `TASK_ALLOWED_METADATA`에 없다 |
+| 타입 불일치 | `execution_candidate`를 writer는 **boolean**으로 분류하는데 bot_minimal은 **JSON**을 쓴다 |
+| 빈 값 거부 | `error`/`reason`은 빈 문자열로 기록되는데 writer의 text 검증은 `allow_empty=False` |
+| 길이 상한 | writer text 필드 상한 **500자**, `execution_result` 실측 **419자** — 오늘은 통과하나 여유가 거의 없다 |
+
+실행결과 전이까지 (d)를 적용하려면 **필드 추가 · 타입 재분류 · 빈 값 허용 · 길이 상향**의
+네 가지 완화가 필요하다. 이는 다른 모듈이 소유한 task 파일 검증기를 **실질적으로 약화**시키는
+일이며, 초판이 내세운 "제거되는 제약이 없다"는 근거와 정면으로 어긋난다.
+
+이 발견은 **승인 경로가 애초에 왜 이 writer를 쓰지 않았는지**도 설명한다.
+
+#### 재결정 — 범위 축소 (Owner 승인, 2026-09-05)
+
+| 전이 | writer | 근거 |
+| --- | --- | --- |
+| `NEEDS_APPROVAL→DOING` | ✅ **durable** | 감사 체인이 놓이는 토대. §2.3이 지목한 지점이다 |
+| `NEEDS_APPROVAL→FAILED` | ✅ **durable** | 위와 같음 |
+| `DOING→DONE` | ⬜ 현행 유지 | 실행 메타데이터 기록 뒤라 writer 스키마와 비호환 |
+| `DOING→FAILED` | ⬜ 현행 유지 | 위와 같음 |
+| `FAILED→TODO`(retry 준비) | ⬜ 현행 유지 | 이전 실행 메타데이터가 이미 파일에 있어 같은 이유 |
+| `TODO→DOING`(retry 준비) | ⬜ 현행 유지 | 위와 같음 |
+
+**`task_file_writer`의 기존 metadata 검증은 완화하지 않는다** — 필드 추가, 타입 재분류,
+빈 문자열 허용 확대, 길이 제한 완화를 모두 하지 않는다(Owner 재결정 4항).
+
+실행결과 전이는 여전히 `write_text()` 위에 남는다. **이것은 알려진 잔여 위험이며**, 해소하려면
+`_write_execution_review_metadata`의 메타데이터 형식을 writer 스키마에 맞추는 별도 task가
+필요하다(§8).
+
+#### 구현 시 동반해야 하는 변경
 
 | # | 변경 | 이유 |
 | --- | --- | --- |
-| 1 | `task_file_writer.TASK_STATUS_TRANSITIONS`에 **3쌍 추가** — `NEEDS_APPROVAL→DOING`, `NEEDS_APPROVAL→FAILED`, `DOING→FAILED` | 현재 표는 `TODO→DOING`, `DOING→DONE` 2쌍뿐이라 승인 경로의 전이가 `invalid_task_transition`으로 거부된다 |
-| 2 | `_validate_approve_transition_contract_sync()`(775) 확장 | 현재 이 검사는 `bot_minimal` 내부 표만 대조하고 **`task_file_writer` 쪽 표는 보지 않는다.** 두 표가 다시 조용히 갈라지지 않도록, writer의 전이 표가 승인 경로가 수행하는 전이의 **상위집합인지** 검사에 포함한다 |
-| 3 | `expected_digest` 산출 지점 | `_apply_task_status_transition`이 현재 read 후 write 하므로, **read 시점의 digest**를 계산해 전달한다 |
-| 4 | 반환 타입 매핑 | `TaskStatusTransitionResult(outcome, reason)` → 기존 `(bool, str)` 시그니처로 변환. 호출부 계약을 바꾸지 않는다 |
-
-**전이 표 확장은 추가(additive)이지 완화가 아니다.** 제거되는 제약이 없고, 승인 경로가
-**오늘 이미 수행하고 있는** 전이를 더 안전한 writer가 받아들이게 할 뿐이다. 보안 표면이
-넓어지지 않는다. `FAILED→TODO`는 이 경로들이 쓰지 않으므로 **추가하지 않는다**(최소 확장).
+| 1 | `task_file_writer.TASK_STATUS_TRANSITIONS`에 **4쌍 추가** — `NEEDS_APPROVAL→DOING`, `NEEDS_APPROVAL→FAILED`, `DOING→FAILED`, `FAILED→TODO` | 현재 표는 `TODO→DOING`, `DOING→DONE` 2쌍뿐이다. durable 경로가 실제로 쓰는 것은 앞의 2쌍이지만, 표를 승인 경로 전체의 상위집합으로 유지해 2번 검사가 의미를 갖게 한다 |
+| 2 | `_validate_approve_transition_contract_sync()`(775) 확장 | 현재 이 검사는 `bot_minimal` 내부 표만 대조하고 **`task_file_writer` 쪽 표는 보지 않는다.** 두 표가 조용히 갈라진 것이 오류 1의 원인이다. writer의 전이 표가 `ALLOWED_STATUS_TRANSITIONS`의 **상위집합인지** 검사에 포함한다 |
+| 3 | `expected_digest` 산출 지점 | read 시점의 digest를 계산해 전달한다 |
+| 4 | 반환 타입 매핑 | `TaskStatusTransitionResult(result_type, reason)` → 기존 `(bool, str)` 시그니처로 변환. `"updated"`→성공, `"stale"`→`status_mismatch`, 나머지→`write_failed`. **호출부 계약과 사유 어휘를 바꾸지 않는다** |
+| 5 | 전이 쌍에 따른 분기 | `_apply_task_status_transition`이 승인 전이 2쌍에만 durable writer를 쓰고 나머지는 기존 경로를 탄다. **분기 이유를 코드 주석에 남긴다** — 그러지 않으면 다음 사람이 "왜 반만 쓰지"라고 묻는다 |
 
 `planned_updated_at` 형식은 양쪽 모두 `%Y-%m-%d %H:%M UTC`로 **이미 일치**함을 확인했다.
 
@@ -527,7 +580,7 @@ task-0044 결정 5(B)의 `code`/`detail` 2계층을 승인 경로 응답까지 �
 | # | 질문 | 결정 | 반영 위치 |
 | --- | --- | --- | --- |
 | 1 | append와 전이의 순서 | **(ii-b) 전이 먼저 → 감사. append 실패 시 롤백하지 않는다.** 고착·복구·재시도·중복 방지 정책을 명시하고 **감사 실패를 조용히 삼키지 않는다** | §9.1 |
-| 2 | 상태 파일 내구성 | **(d) `transition_task_file_status()` 재사용** + 승인 경로가 실제 쓰는 전이 3쌍을 transition table에 추가. `_validate_approve_transition_contract_sync()`도 함께 갱신. **별도 내구성 구현은 만들지 않는다** | §9.2 |
+| 2 | 상태 파일 내구성 | **(d) `transition_task_file_status()` 재사용, 단 승인 전이에만**(2026-09-05 범위 축소 재결정). 전이 표에 **4쌍** 추가, `_validate_approve_transition_contract_sync()` 갱신, **별도 내구성 구현을 만들지 않고 writer의 metadata 검증도 완화하지 않는다** | §9.2, §10.3 |
 | 3 | 실패한 승인 시도 | **기록한다.** 성공/실패 구분(`applied`)과 기록 시점을 명시. 스키마상 기록 불가한 조기 실패 범위도 명시 | §9.3 |
 | 4 | `result_kind` | **기존 `failure`를 사용**하고 세부 구분은 stable reason code로 표현. **새 vocabulary를 임의로 만들지 않는다** | §9.4 |
 | 5 | `reject`의 실행 진입 | **(⑤-b) 최소 범위로 차단.** `_run_execution_flow()`에 진입하지 않게 한다. 전역 status gate(⑤-c)는 이번 task에서 하지 않는다 | §9.5, §10.2 |
@@ -555,7 +608,31 @@ E2(실행 결과)는 서브프로세스가 이미 돈 뒤라 되돌릴 수 없�
 필수로 요구하므로 그 배선은 감사 연동만으로도 필요하고, **배선이 들어간 뒤 ⑤-b는 한 줄
 검사로 끝난다.**
 
-### 10.3 이 결정들이 바꾸지 않는 것
+### 10.3 결정 2의 범위 축소 (2026-09-05 재결정)
+
+구현 착수 후 초판 §9.2의 근거 두 가지가 **틀린 것으로 확인**되어 Owner가 범위를 축소했다.
+
+1. **"전이 3쌍"이 틀렸다.** `_run_retry`(1054)가 `FAILED→TODO`를 쓴다 → **4쌍**으로 정정.
+2. **"추가일 뿐 완화가 아니다"가 실행결과 전이에 대해 틀렸다.** `transition_task_file_status`는
+   허용 목록 밖 metadata 필드를 거부하는데, `_write_execution_review_metadata`가 두 전이
+   사이에 쓰는 13개 필드 중 **5개가 미허용**이고, `execution_candidate`는 **타입이 어긋나며**,
+   `error`/`reason`은 **빈 값**이고, text 상한 **500자**에 `execution_result`가 419자로 붙는다.
+   적용하려면 검증기를 네 군데 완화해야 한다.
+
+**확정된 축소**:
+
+| 항목 | 결정 |
+| --- | --- |
+| 승인 전이(`NEEDS_APPROVAL→DOING`/`FAILED`) | durable writer 재사용 |
+| 실행결과 전이(`DOING→DONE`/`FAILED`) | **이번 task에서 durable writer를 적용하지 않는다.** 현행 경로 유지 |
+| retry 준비 전이(`FAILED→TODO`, `TODO→DOING`) | 현행 경로 유지(같은 비호환) |
+| `task_file_writer` metadata 검증 | **완화하지 않는다** — 필드 추가·타입 재분류·빈 문자열 허용·길이 완화 모두 금지 |
+| 전이 표 | **4쌍 추가**(표를 승인 경로의 상위집합으로 유지해 드리프트 검사가 의미를 갖게 한다) |
+
+실행결과 전이가 `write_text()` 위에 남는 것은 **알려진 잔여 위험**이다. 해소하려면
+`_write_execution_review_metadata`의 형식을 writer 스키마에 맞추는 별도 task가 필요하다.
+
+### 10.4 이 결정들이 바꾸지 않는 것
 
 task-0044 §10의 결정 1·2·5·6·7(독립 체인 / A+B / code+detail / 무제한+status 보고 / Python)은
 **그대로 승계**한다. 재협의 대상이 아니다.

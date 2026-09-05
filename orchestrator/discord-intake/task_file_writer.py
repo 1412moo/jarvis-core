@@ -36,7 +36,24 @@ MAX_REPO_CHARS = 80
 MAX_SUMMARY_CHARS = 500
 MAX_COMPLETION_EVIDENCE_CHARS = 500
 MAX_SOURCE_COMMAND_CHARS = 80
-TASK_STATUS_TRANSITIONS = frozenset({("TODO", "DOING"), ("DOING", "DONE")})
+TASK_STATUS_TRANSITIONS = frozenset(
+    {
+        ("TODO", "DOING"),
+        ("DOING", "DONE"),
+        # task-0052. The approval path in adapters/discord/bot_minimal.py performs
+        # these four today through a writer with no fsync, no atomic replace and no
+        # expected_digest check. Listing them is purely additive - no existing
+        # constraint is removed - and keeps this set a superset of that path, which
+        # is what bot_minimal._validate_approve_transition_contract_sync() asserts.
+        # Only the two NEEDS_APPROVAL pairs actually route through this writer today
+        # (task-0052 section 10.3): the rest run after execution metadata has been
+        # written, which this module's metadata validator rejects by design.
+        ("NEEDS_APPROVAL", "DOING"),
+        ("NEEDS_APPROVAL", "FAILED"),
+        ("DOING", "FAILED"),
+        ("FAILED", "TODO"),
+    }
+)
 TASK_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M UTC"
 TASK_METADATA_PATTERN = re.compile(
     r"^- (?P<field>[a-z][a-z0-9_]*): `(?P<value>[^`\r\n]*)`$"

@@ -3670,9 +3670,19 @@ def _test_task_transition_vertical_slice() -> None:
         )
         for source_status in all_statuses:
             for target_status in all_statuses:
+                # task-0052 widened task_file_writer.TASK_STATUS_TRANSITIONS so the
+                # Discord approval path can use this durable writer instead of a bare
+                # write_text(). This stays an explicit contract test - the set is
+                # spelled out rather than imported - so any further widening has to
+                # be made deliberately here too. The console's own surface is
+                # unchanged: TASK_TRANSITION_ACTIONS still offers only start/complete.
                 if (source_status, target_status) in {
                     ("TODO", "DOING"),
                     ("DOING", "DONE"),
+                    ("NEEDS_APPROVAL", "DOING"),
+                    ("NEEDS_APPROVAL", "FAILED"),
+                    ("DOING", "FAILED"),
+                    ("FAILED", "TODO"),
                 }:
                     continue
                 invalid_result = run_web_app.transition_task_file_status(
