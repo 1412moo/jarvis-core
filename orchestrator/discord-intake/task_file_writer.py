@@ -465,9 +465,33 @@ def _transition_metadata(
         return None, "task_file_invalid_utf8"
     metadata: dict[str, str] = {}
     metadata_line_indexes: dict[str, int] = {}
+    # task-0054: metadata is the header block, not "every line starting with -".
+    #
+    # The previous rule tested line.lstrip().startswith("- "), so it claimed every
+    # bullet anywhere in the file - a prose list in the body, and the indented
+    # "- 규칙:" note this repository's own task-template.md puts under each field.
+    # That rejected the documented template and most real task records, which only
+    # surfaced once task-0052 routed approvals through this writer.
+    #
+    # Only the boundary moves here. Every field inside the block is validated
+    # exactly as before: vocabulary, types, lengths, allow_empty and the control
+    # character rules below are untouched, and a malformed field inside the block
+    # still fails.
+    in_header = False
     for line_index, line in enumerate(text.splitlines()):
-        if not line.lstrip().startswith("- "):
+        # An indented line continues the field above it, so it is neither a metadata
+        # line nor a terminator.
+        if line[:1].isspace():
             continue
+        if not in_header:
+            if not line.startswith("- "):
+                # Title, HTML comments and blank lines sit above the block.
+                continue
+            in_header = True
+        elif not line.startswith("- "):
+            # The first column-0 line that is not a field closes the header block.
+            # Everything after it is document body and is not task metadata.
+            break
         matched = TASK_METADATA_PATTERN.fullmatch(line)
         if matched is None:
             return None, "task_file_invalid_metadata"
