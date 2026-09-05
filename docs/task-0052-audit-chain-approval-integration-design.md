@@ -2,8 +2,8 @@
 
 - task: `task-0052-audit-chain-approval-integration`
 - 선행: `task-0044`(감사 해시체인 코어, commit `116fe2d`)
-- 상태: **설계 단계. 구현 없음. 착수는 Owner 승인 대상**(§5)
-- 작성: 2026-09-05
+- 상태: **설계 확정. 구현 없음.** Owner 결정 7건 승인 완료(§10). **구현 착수는 여전히 Owner 승인 대상**(§5.4)
+- 작성: 2026-09-05 / 결정 반영: 2026-09-05
 
 ## 1. 목적/배경
 
@@ -62,7 +62,7 @@ task-0044의 payload 스키마는 바로 이 지점들을 보고 설계됐다. �
 | `execution_result.source` | `_run_execution_flow(source=...)` | ✅ |
 | `execution_result.execution_status_transition_applied` | 반환 dict 동일 키 | ✅ |
 | `execution_result.execution_status_transition_reason` | 반환 dict 동일 키 | ✅ |
-| `execution_result.result_kind` | `execution_result.executed/success`에서 파생 | ⚠ 매핑 규칙 필요(§9-4) |
+| `execution_result.result_kind` | `execution_result.executed/success`에서 파생 | ⚠ 매핑 규칙 필요(§9.4) |
 
 `ALLOWED_EXECUTION_SOURCES = {approve_file_write_result, run, retry}`가 실제 호출부의
 source 문자열 3개와 **정확히 일치**함을 실측 확인했다.
@@ -120,9 +120,12 @@ task-0044의 요점(fire-and-forget 금지)을 정확히 잃는다.
 실제 피해는 제한적이다. 그러나 이것은 우연한 안전이며, 화이트리스트가 하나만 늘어도 곧바로
 커진다.
 
-**이 결함을 이 task에서 고칠지는 Owner 결정 사항이다(§9-5).** 승인 의미론을 바꾸는 일이라
-임의로 처리하지 않는다. 다만 이 사례는 **왜 감사 체인이 필요한지**를 가장 선명하게 보여준다 —
-지금은 이런 일이 일어나도 남는 기록이 없다.
+**결정 ⑤-b로 이 결함을 이번 task에서 고치기로 확정됐다**(§9.5) — `reject`가
+`_run_execution_flow()`에 진입하지 않게 하는 최소 차단이다. 승인 의미론을 바꾸는 일이므로
+감사 연동과 **구분해** 기술한다(§10.2).
+
+이 사례는 **왜 감사 체인이 필요한지**를 가장 선명하게 보여준다 — 지금은 이런 일이 일어나도
+남는 기록이 없다.
 
 ## 3. 범위 — 이벤트 생성 지점
 
@@ -145,23 +148,30 @@ task-0044의 요점(fire-and-forget 금지)을 정확히 잃는다.
 - `/task` 명령 — `PRIVILEGED_COMMANDS`에 포함되지만 상태 전이도 실행도 아니다.
 - 읽기 전용 명령(`/status`, `/report`, `/help`, `/plan`, `/review-task`, `/retro`).
 
+### 3.3 감사 외 범위 — `reject` 실행 차단 (결정 ⑤-b)
+
+결정 ⑤-b에 따라 **`/approve <id> reject`가 `_run_execution_flow()`에 진입하지 않게 하는
+최소 수정**이 이번 task 범위에 포함된다. 이는 감사 연동이 아니라 **의미론 버그 수정**이며,
+같은 승인 경로에서 실제 실행을 방지하기 위해 함께 처리한다(§9.5, §10.2).
+
+`_build_execution_candidate`에 전역 status 게이트를 두는 ⑤-c는 **범위 밖**이다 —
+`/run`·`/retry` 동작까지 바꾼다.
+
 ## 4. 실패 처리 계약과 순서 문제
 
 task-0044 §6.1이 정한 계약은 **감사 기록 실패 = 작업 실패**다. 그런데 연동 시점에
 순서 문제가 생긴다. 전이(쓰기 ①)와 감사 append는 서로 다른 파일에 대한 두 번의 쓰기다.
 
-| 순서 | 감사 append 실패 시 | 문제 |
-| --- | --- | --- |
-| (i) 감사 먼저 → 전이 | 전이 안 됨. 깨끗함 | **일어나지 않은 전이가 기록**된다. 전이가 뒤이어 실패하면 체인이 거짓말을 한다 |
-| (ii) 전이 먼저 → 감사 | 전이는 이미 적용됨 | 되돌릴 것인가? 되돌리기도 실패할 수 있다 |
-| (iii) 2단계(의도 기록 → 전이 → 확정 기록) | 중간 상태가 체인에 남음 | 스키마에 `applied` 필드가 이미 있어 표현은 가능. 항목 수가 2배 |
+순서 후보는 셋이다 — (i) 감사 먼저 → 전이, (ii) 전이 먼저 → 감사, (iii) 2단계(의도 기록 →
+전이 → 확정 기록). 어느 것을 골라도 **한쪽만 성공하는 조합이 반드시 남는다.**
 
-`owner_approval` 스키마에 **`applied: bool`이 이미 있다**는 점이 중요하다 — (i)에서 전이가
-실패해도 `applied: false`로 정직하게 기록할 수 있다. 다만 그러려면 전이 결과를 안 상태에서
-기록해야 하므로 실질은 (ii)에 가깝다.
+`owner_approval` 스키마에 **`applied: bool`이 이미 있다**는 점이 중요하다 — 전이가 실패해도
+`applied: false`로 정직하게 기록할 수 있다. 다만 그러려면 전이 결과를 안 상태에서 기록해야
+하므로 실질은 (ii)에 가깝다.
 
-**이것이 이 task의 핵심 미해결 질문이다(§9-1).** §2.3의 쓰기 내구성 개선과 묶어서 정해야
-한다 — atomic replace가 있으면 (ii)의 "되돌리기" 부담이 크게 줄기 때문이다.
+**세 순서의 전체 failure matrix와 권장안은 §9.1에 있다.** 여기서 표를 중복하지 않는다 —
+두 벌을 두면 갈라진다. §2.3의 쓰기 내구성(§9.2)과 묶어서 정해야 하며, atomic replace가
+있으면 (ii)의 잔여 위험이 크게 줄어든다.
 
 ## 5. 🔴 `bot_minimal.py` 직접 수정 여부와 안전 계약
 
@@ -193,14 +203,21 @@ protected file이 아닌 것과 승인이 필요 없는 것은 다르다. 근거
    이 파일은 실제로 도는 Discord 봇 런타임이다. §4의 계약을 적용하면 **감사 append가
    실패할 때 `/approve`가 거부된다.** 이는 의도된 설계지만 명백한 가용성 영향이며, Owner가
    그 트레이드오프를 알고 승인해야 한다.
-3. **§2.5를 함께 고친다면** 그것은 "거부가 실행을 유발하는가"라는 **승인 의미론 변경**이다.
-   이론의 여지 없이 Owner 결정 사항이다.
+3. **§2.5를 함께 고친다** — 결정 ⑤-b로 확정됐다. "거부가 실행을 유발하는가"라는
+   **승인 의미론 변경**이므로, 감사 연동과 별개로 그 자체가 Owner 승인 사항이다.
+   이 항목이 확정되면서 이 task는 기록 추가에 그치지 않고 **동작을 바꾸는 변경**이 됐다 —
+   착수 승인의 필요성이 더 분명해진 것이지 약해진 것이 아니다.
 
 ### 5.4 결론
 
-> `bot_minimal.py`는 protected file이 아니므로 규정상 수정 자체가 금지되지는 않는다.
-> 그러나 이 task의 변경은 **AGENTS.md의 즉시 escalation gate(안전 계약 충돌 · 운영 영향)에
-> 해당하므로, 착수 전 Owner의 명시적 승인이 필요하다.** 이 문서가 그 승인을 구하는 근거다.
+> `bot_minimal.py`는 **protected file이 아니다** — 운영 규칙 §6이 명시하는 protected file은
+> `jarvis.bat` 하나뿐이므로, 규정을 근거로 수정 자체가 금지되지는 않는다.
+>
+> **그러나 구현 착수 전 Owner의 명시적 승인이 필요하다.** 이 파일에는 **P2-4가 세운 Owner
+> 인가 게이트**(`PRIVILEGED_COMMANDS` / `_authorize_command` / `_load_owner_ids`)가 들어
+> 있고 이 task는 그 게이트가 감싸는 경로의 실패 계약을 바꾸며(안전 계약 충돌), 감사 append
+> 실패가 `/approve`를 거부하게 되므로 **운영 영향**이 있다. 둘 다 AGENTS.md의 budget과
+> 무관한 즉시 escalation gate에 해당한다. 이 문서가 그 승인을 구하는 근거다.
 
 승인 없이 진행 가능한 부분은 없다 — 이벤트 지점이 전부 이 파일 안에 있어 "안전한 일부만
 먼저" 하는 분할이 성립하지 않는다.
@@ -212,7 +229,7 @@ task-0044 §10 결정 중 **1·2·5·6·7은 그대로 승계**한다(독립 체
 
 - **결정 3**이 미룬 것이 이 task다.
 - **결정 4(서명 미부착)** 는 여기서 재검토 대상이다. 서명을 붙이려면 `orchestrator` 역할 키
-  발급이 필요하고 이는 task-0042 결정 5(reviewer/qa만 발급)의 확장이다(§9-6).
+  발급이 필요하고 이는 task-0042 결정 5(reviewer/qa만 발급)의 확장이다(§9.6).
 
 코어 API는 그대로 쓴다 — `record_owner_approval(...)`, `record_execution_result(...)`가
 이미 이 용도로 존재한다(`audit_store.py` 257 / 288). 새 함수를 만들 필요가 없다.
@@ -226,8 +243,16 @@ task-0044 §10 결정 중 **1·2·5·6·7은 그대로 승계**한다(독립 체
 - `adapters/discord/bot_minimal.py`의 자체 검사 스위트(`_run_self_check_suite`, 1633)에
   감사 관련 항목 추가 — 이 파일은 이미 자체 검사를 갖고 있다
 - 승인 1건 → 체인 길이 1, `verify-chain` valid, payload에 owner user ID **부재** 확인
-- 감사 append 실패 주입 시 `/approve`가 **거부**되는지(계약 §4)
+- 감사 append 실패 주입 시 `/approve`가 **거부**되는지, 그리고 응답에 **stable code만**
+  나가고 `detail`이 새지 않는지(결정 ①·⑦)
+- append 실패 후 재시도가 `status_mismatch`로 막히는지 — 중복 기록 방지의 실증(§10.1)
+- 실패한 승인 시도가 `applied:false` + reason으로 기록되는지(결정 ③)
+- **`/approve <id> reject`가 서브프로세스를 실행하지 않는지**(결정 ⑤-b) — 화이트리스트에
+  걸리는 task로 수정 전 동작(실행됨)과 수정 후 동작(미실행)을 대조한다
+- reject 시 `execution_result` 항목이 **생기지 않는지**
 - `/run`·`/retry` 각각이 `execution_result` 항목을 남기는지
+- `transition_task_file_status` 재사용 후 승인 경로 전이 3쌍이 실제로 통과하는지(결정 ②)
+- `_validate_approve_transition_contract_sync()`가 두 모듈의 전이 표 드리프트를 잡는지
 - 기존 회귀 10종 + audit-chain 6/6 유지
 - `check_no_secrets.py --staged`
 
@@ -243,33 +268,304 @@ task-0044 §10 결정 중 **1·2·5·6·7은 그대로 승계**한다(독립 체
 - task-0041 구현
 - C~F 대상 확대(Review/QA/Buzz 기록) — task-0044 결정 2가 A+B로 한정했다
 - 기존 승인 이력의 소급 기록 — 원본이 없어 재구성 불가능하며 추정을 감사 기록으로 승격하지 않는다
+- **⑤-c 전역 status 게이트** — `/run`·`/retry` 동작까지 바꾸므로 별도 task(결정 ⑤)
+- **불일치 탐지 도구** — "`DOING`인데 승인 기록이 없는 task" 조회. 필요성은 §9.1이 인정하나 이번 범위 밖
+- **수동 복구 명령** — append 실패 후 고착 해제는 Owner의 수동 편집으로 남는다(§10.1의 알려진 공백)
+- **전이 쌍 확정 전 실패의 기록** — 스키마상 표현 불가(§9.3). 담으려면 task-0044 결정 2 재개방이 필요하다
+- 서명 부착 — 결정 ⑥
 
-## 9. 미해결 질문 (Owner 결정 필요)
+## 9. Owner 결정 (7건) — 선택지와 확정 근거
 
-1. 🔴 **감사 append와 상태 전이의 순서**(§4). (i) 감사 먼저 / (ii) 전이 먼저 / (iii) 2단계.
-   §2.3의 쓰기 내구성 개선과 묶어서 정해야 한다.
-2. 🔴 **§2.3 쓰기 내구성 개선을 이 task에 포함하는가.** `_apply_task_status_transition`을
-   `task_file_writer.py` 수준(fsync + `os.replace` + `expected_digest`)으로 올릴 것인가.
-   **포함하지 않으면 체인은 장식**이라는 것이 task-0044 §6.3의 판단이다.
-3. **실패한 승인 시도도 기록하는가.** `apply_not_ready`, `status_mismatch`,
-   `approve_contract_mismatch`, `task_not_found` 등으로 거부된 시도. 기록하면 "누가 무엇을
-   시도했는가"까지 남지만 체인이 잡음으로 커진다. 기록하지 않으면 실패한 승인 시도는
-   여전히 흔적이 없다.
-4. **`result_kind` 매핑 규칙.** 스키마는 `{dry_run, success, failure}`인데 실제 실행 결과는
-   `executed`/`success` 두 불리언이다. `executed=False`(화이트리스트 미등록 등)를
-   `failure`로 볼 것인가, 별도로 볼 것인가.
-5. 🔴 **§2.5의 reject 결함을 이 task에서 고치는가.** 거부가 실행 흐름에 도달하는 것을
-   막을 것인가(승인 의미론 변경), 아니면 감사 기록만 붙여 **드러나게만** 할 것인가.
-   후자도 유효한 선택이다 — 이 task의 목적은 기록이지 수정이 아니다.
-6. **감사 체인에 서명을 붙이는가**(task-0044 결정 4의 재검토). 붙이려면 `orchestrator`
-   역할 키 발급이 필요하고 이는 task-0042 결정 5의 확장이다.
-7. **감사 실패 시 Owner에게 보이는 메시지.** task-0044 결정 5(B)가 `code`/`detail`
-   2계층을 정했으므로 어휘는 있다. 남은 것은 `/approve` 거부 사유로 **어느 code까지**
-   노출할지다. P2-4는 인가 실패를 `unauthorized` 하나로 일반화했다.
+**7건 모두 2026-09-05에 확정됐다.** 정본 요약은 §10에 있고, 이 절은 각 결정의 선택지와
+확정 근거, 구현 시 따라오는 제약을 남긴다. 선택되지 않은 안도 지운다 — **왜 그것이 아닌지가
+나중에 같은 논의를 반복하지 않게 한다.**
 
-## 10. 다음 단계
+①②⑤는 서로 얽혀 있다. ②(내구성)가 ①(순서)의 잔여 위험을 줄이고, ⑤(reject 차단)는 ①이
+무엇을 기록하게 되는지를 바꾼다.
 
-1. Owner가 §5.4의 착수 승인 여부를 결정한다 — **이것 없이는 §9의 나머지도 의미가 없다**
-2. 승인되면 §9의 7건을 결정한다(1·2·5가 서로 얽혀 있으므로 함께)
-3. 결정을 이 문서 §10에 정본으로 기록한다(task-0042/0044와 같은 형식)
-4. 구현 → 검증 → 커밋
+### 9.1 결정 ① — 감사 append와 상태 전이의 순서 → **(ii-b) 확정**
+
+전이(`T`, task 파일)와 감사 append(`A`, 체인 파일)는 **서로 다른 파일에 대한 두 번의 쓰기**다.
+둘 사이에 원자성이 없으므로 한쪽만 성공하는 조합이 반드시 존재한다.
+
+#### (i) 감사 먼저 → 전이 — **배제**
+
+| `A` | `T` | 실제 task 파일 | 체인이 주장하는 것 | 판정 |
+| --- | --- | --- | --- | --- |
+| 실패 | 미실행 | 변화 없음 | 없음 | ✅ 승인 거부. 아무 일도 일어나지 않음 |
+| 성공 | 성공 | 전이됨 | 전이됨 | ✅ 일치 |
+| 성공 | **실패** | **변화 없음** | **전이됨** | 🔴 **체인이 허위를 기록** |
+
+체인은 **append-only여서 지울 수 없고**, 보상 항목을 덧붙이는 것도 그 append가 또 실패할 수
+있다. "기록이 없을 수 있다"는 복구 가능한 결함이지만 **"기록이 거짓일 수 있다"는 복구
+불가능하다.** 배제한다.
+
+#### (ii) 전이 먼저 → 감사 — **채택**
+
+| `T` | `A` | 실제 task 파일 | 체인이 주장하는 것 | 판정 |
+| --- | --- | --- | --- | --- |
+| 실패 | 미실행 | 변화 없음 | 없음 | ✅ 안전. 실패 시도로 기록(§9.3) |
+| 성공 | 성공 | 전이됨 | 전이됨 | ✅ 일치 |
+| 성공 | **실패** | **전이됨** | **없음** | ⚠ 기록 누락. 아래 운영 계약으로 처리 |
+
+- **(ii-a) 롤백 시도** — 배제. 롤백 자체가 실패할 수 있고, 그 사이 다른 프로세스가 이미
+  읽었을 수 있으며, **롤백에 성공해도 그 사실 역시 기록되지 않는다.**
+- **(ii-b) 롤백 없이 실패 보고** — **채택.**
+
+#### (iii) 2단계(의도 → 전이 → 확정) — 배제
+
+계약상 가장 정직하지만 `owner_approval` 스키마에 **두 항목을 짝지을 필드가 없다.**
+`task_id`는 여러 승인에 재사용되고 `entry_id`는 항목마다 다르다. 짝짓기를 하려면 스키마에
+상관 필드를 추가해야 하고 이는 **task-0044 결정 2의 재개방**이다. 항목 수와 `seq` 소비도
+2배가 된다.
+
+#### (ii-b) 운영 계약 — 감사 실패를 조용히 삼키지 않는다
+
+`T` 성공 / `A` 실패 조합에서 지켜야 할 것을 명시한다.
+
+| 항목 | 계약 |
+| --- | --- |
+| **응답** | `/approve`는 **반드시 실패로 답한다.** 성공으로 보고하지 않고, 무응답으로 삼키지 않는다. 사유는 Q7에 따라 **stable code만** 노출하고 `detail`은 로컬 로그에만 남긴다 |
+| **고착 상태** | task 파일은 `DOING`, 체인에는 기록 없음. 이 불일치가 **의도된 가시적 상태**다 |
+| **재시도** | `/approve <id> approve` 재실행은 `_validate_approve_transition`이 `NEEDS_APPROVAL→DOING`만 허용하므로 현재 `DOING`에서는 `status_mismatch`로 거부된다. **자동 재시도는 구조적으로 불가능하다** — 이는 결함이 아니라 이중 실행과 중복 기록을 막는 안전장치다 |
+| **복구** | Owner의 수동 개입만이 경로다. task 파일 `status`를 `NEEDS_APPROVAL`로 되돌린 뒤 재승인한다. **이 수동 편집 자체는 체인에 남지 않는다** — 알려진 공백이며 §8의 비범위다 |
+| **중복 방지** | 정상 경로에서 같은 전이가 두 번 기록될 수 없다(재시도가 위와 같이 막히므로). Owner가 수동 복구 후 재승인해 두 번째 항목이 생기는 경우, 그것은 **실제로 두 번 일어난 승인 행위**이므로 중복이 아니라 정확한 기록이다. 체인은 두 시도를 모두 보여준다 |
+| **탐지** | `status`가 `DOING`인데 `owner_approval` 기록이 없는 task가 불일치 신호다. **탐지 도구는 이번 task에서 만들지 않는다**(§8) |
+
+**잔여 위험은 결정 ②로 줄어든다.** `transition_task_file_status`의 atomic replace가 들어가면
+`T`의 실패 자체가 드물어지고, 남는 창은 "쓰기는 성공했는데 append가 실패한" 좁은 구간뿐이다.
+
+#### E2(실행 결과)의 비대칭 — 되돌릴 수 없다
+
+E1(승인)은 전이만 남기므로 (ii-b)의 "작업 실패로 보고" 가 성립한다. **그러나 E2 지점에서는
+서브프로세스가 이미 실행된 뒤다.** 감사 append가 실패해도 실행을 되돌릴 수 없다.
+
+따라서 E2에서 계약은 "작업 실패"가 아니라 **"크게 보고하고 체인에 구멍이 있음을 알린다"** 로
+축소된다. 실행 사실 자체는 task 파일의 실행 메타데이터(쓰기 ②)에 남으므로 완전한 유실은
+아니다. **이 비대칭을 문서에 남기지 않으면 "왜 E2는 롤백하지 않는가"라는 질문이 반복된다.**
+
+### 9.2 결정 ② — 상태 파일 내구성 개선 범위 → **(d) 확정**
+
+현재 `_apply_task_status_transition`(796)의 쓰기는 `task_file.write_text(...)` 한 줄이다.
+fsync도, atomic replace도, `expected_digest`도 없다.
+
+**실측 사실 두 가지.**
+
+- `orchestrator/discord-intake/task_file_writer.py`에 **상태 전이 전용 내구성 함수**
+  `transition_task_file_status(...)`(524)가 이미 있다. `expected_digest` 인자, `os.replace`(521),
+  `os.fsync`를 갖췄고 테스트용 주입 seam(`_open_temp_file`/`_replace_file`/`_fsync_file`)까지 있다.
+- `bot_minimal.py`는 **이미 이 모듈을 임포트하고 있다**(46행, `write_task_file`만).
+
+| 선택지 | 판정 |
+| --- | --- |
+| (a) 범위 밖 — 현행 유지 | ❌ 체인이 찢어질 수 있는 쓰기 위에 놓인다. task-0044 §6.3의 "체인은 장식" 상태 |
+| (b) fsync + `os.replace`만 자체 추가 | ❌ read-then-write 경합 창이 남아 "깨진 건지 공격인지" 여전히 구분 못 함 |
+| (c) (b) + `expected_digest` 자체 구현 | ❌ **내구성 원시코드를 두 벌 갖게 된다.** 갈라지는 순간 어느 쪽이 진실인지 알 수 없다 |
+| **(d) `transition_task_file_status` 재사용** | ✅ **확정.** 별도 내구성 구현은 만들지 않는다 |
+
+**(c)를 배제한 근거**: AGENTS.md 원칙 6이 막는 "불필요한 리팩터링"이 아니라, 오히려
+**중복을 새로 만드는 쪽이 (c)** 다. 이미 검증된 함수가 있는데 두 번째 구현을 두는 것은
+task-0042 registry.js 주석이 경고한 "dormant drift"를 자초하는 일이다.
+
+#### 구현 시 반드시 동반해야 하는 변경
+
+| # | 변경 | 이유 |
+| --- | --- | --- |
+| 1 | `task_file_writer.TASK_STATUS_TRANSITIONS`에 **3쌍 추가** — `NEEDS_APPROVAL→DOING`, `NEEDS_APPROVAL→FAILED`, `DOING→FAILED` | 현재 표는 `TODO→DOING`, `DOING→DONE` 2쌍뿐이라 승인 경로의 전이가 `invalid_task_transition`으로 거부된다 |
+| 2 | `_validate_approve_transition_contract_sync()`(775) 확장 | 현재 이 검사는 `bot_minimal` 내부 표만 대조하고 **`task_file_writer` 쪽 표는 보지 않는다.** 두 표가 다시 조용히 갈라지지 않도록, writer의 전이 표가 승인 경로가 수행하는 전이의 **상위집합인지** 검사에 포함한다 |
+| 3 | `expected_digest` 산출 지점 | `_apply_task_status_transition`이 현재 read 후 write 하므로, **read 시점의 digest**를 계산해 전달한다 |
+| 4 | 반환 타입 매핑 | `TaskStatusTransitionResult(outcome, reason)` → 기존 `(bool, str)` 시그니처로 변환. 호출부 계약을 바꾸지 않는다 |
+
+**전이 표 확장은 추가(additive)이지 완화가 아니다.** 제거되는 제약이 없고, 승인 경로가
+**오늘 이미 수행하고 있는** 전이를 더 안전한 writer가 받아들이게 할 뿐이다. 보안 표면이
+넓어지지 않는다. `FAILED→TODO`는 이 경로들이 쓰지 않으므로 **추가하지 않는다**(최소 확장).
+
+`planned_updated_at` 형식은 양쪽 모두 `%Y-%m-%d %H:%M UTC`로 **이미 일치**함을 확인했다.
+
+### 9.3 결정 ③ — 실패한 승인 시도도 기록한다 → **확정**
+
+승인 게이트가 자산이라면 **거부된 시도야말로 남겨야 할 증거**다. 넓게 시작해 좁히는 것은
+가능하지만 그 반대는 소급 복구가 불가능하다.
+
+#### 성공/실패의 구분
+
+| | `applied` | `reason` | 기록 시점 |
+| --- | --- | --- | --- |
+| **성공** | `true` | `""` | `_apply_task_status_transition`이 성공을 반환한 **직후** |
+| **실패** | `false` | 거부 사유의 stable code | 거부가 확정된 **직후**, 응답을 반환하기 전 |
+
+`owner_approval` 스키마의 `applied: bool`이 이미 이 구분을 담는다 — **스키마 변경이 필요 없다.**
+
+#### 🔴 기록 가능 범위의 경계 (스키마 제약)
+
+`owner_approval` payload는 `transition{from,to}`를 요구하고 두 값이 모두
+`ALLOWED_STATUSES`에 있어야 한다. 따라서 **전이 쌍이 확정되기 전에 발생하는 실패는 현재
+스키마로 표현할 수 없다.**
+
+| 실패 | 기록 | 사유 |
+| --- | --- | --- |
+| `_apply_task_status_transition` 실패(`task_not_found`, `status_mismatch`, `write_failed`) | ✅ 기록 | 전이 쌍이 확정된 뒤다 |
+| `apply_not_ready`(hold) | ✅ 기록 | 전이 쌍 확정 뒤다 |
+| `_validate_approve_transition` 실패 | ❌ 불가 | 전이 쌍이 **유효하지 않아** payload를 만들 수 없다 |
+| `invalid_writer_input`, `approve_contract_mismatch` | ❌ 불가 | 같은 이유 |
+| `/approve` 파싱 실패(`usage:...`) | ❌ 불가 | `decision`·전이 쌍이 아직 없다 |
+
+**이번 task는 기록 가능한 범위만 기록한다.** 나머지를 담으려면 스키마 확장이 필요한데,
+그것은 task-0044 결정 2의 재개방이자 결정 ④가 정한 "새 vocabulary를 임의로 만들지 않는다"에
+어긋난다. **기록 불가 범위가 있다는 사실 자체를 문서와 task 기록에 남긴다**(원칙 8).
+
+### 9.4 결정 ④ — `result_kind`는 기존 `failure`를 쓴다 → **확정**
+
+새 vocabulary를 만들지 않는다. 세부 구분은 **이미 존재하는 stable reason code**로 표현한다.
+
+| `executed` | `success` | 사례 | `result_kind` | `execution_status_transition_reason` |
+| --- | --- | --- | --- | --- |
+| `true` | `true` | 스크립트 exit 0 | `success` | `""` |
+| `true` | `false` | exit≠0, timeout | `failure` | `""` (전이는 `FAILED`로 적용됨) |
+| `false` | `false` | 화이트리스트 미등록, `execution_type_not_allowed`, `execution_start_failed` | `failure` | **`execution_not_executed`** |
+
+**핵심**: `_apply_execution_result_status_transition`(1205)이 이미
+`execution_not_executed`를 반환하므로, **"정책이 막았다"와 "실행했는데 실패했다"는 기존
+어휘만으로 구분된다.** 새 값을 만들 필요가 없다.
+
+- 기존 reason 어휘를 그대로 채택한다 — `execution_result_missing`,
+  `execution_not_executed`, `execution_executed_not_boolean`,
+  `execution_success_not_boolean`, `transition_not_applied`.
+- `transition_not_applied:{reason}`처럼 **값을 싣는 형태는 payload에 넣지 않는다.**
+  task-0044 결정 5의 code/detail 원칙에 따라 **code 부분만** 넣는다(결정 ⑦과 일관).
+- `dry_run`은 `_build_execution_result_dry_run` 전용이므로 이 자리에 쓰지 않는다.
+
+**잃는 것**: 실행 거부의 *구체적* 사유(화이트리스트 미등록 / 타입 불허 / 시작 실패)는
+체인에 남지 않고 task 파일 실행 메타데이터에만 남는다. 이는 새 필드를 만들지 않기로 한
+결정의 대가이며, 필요해지면 그때 별도 결정으로 넓힌다.
+
+### 9.5 결정 ⑤ — `reject`의 실행 흐름 진입을 차단한다 → **(⑤-b) 확정**
+
+#### 수정 전 (현재, `116fe2d`)
+
+```text
+/approve task-XXXX-... reject
+ → _build_approve_draft(709)           decision=reject → transition_to="FAILED", apply_ready=True
+ → _apply_task_status_transition       NEEDS_APPROVAL → FAILED        ✅ 적용됨
+ → _run_execution_flow(1291)           ← decision을 보지 않고 무조건 호출
+    → _build_execution_candidate(920)  ← status를 보지 않고 title/summary 키워드만 확인
+    → _build_execution_result_real(1137)
+       → (action,target)이 EXECUTION_SCRIPT_WHITELIST(117)에 있으면  subprocess.run 실행  ⚠
+    → _apply_execution_result_status_transition(1205)
+       → _apply_task_status_transition(DOING → …) 요구, 현재 status는 FAILED
+       → status_mismatch 로 조용히 실패
+```
+
+**결과: 실행은 일어났고, 상태 전이는 안 됐고, 아무 기록도 남지 않는다.**
+
+#### 수정 후 (⑤-b)
+
+```text
+/approve task-XXXX-... reject
+ → _build_approve_draft                decision=reject → transition_to="FAILED"
+ → _apply_task_status_transition        NEEDS_APPROVAL → FAILED        ✅ 적용됨
+ → decision == "reject" → _run_execution_flow 를 호출하지 않는다     ⛔ 차단
+ → owner_approval(decision=reject, applied=true) 1건 기록
+```
+
+`execution_result` 항목은 생기지 않는다 — **실행이 일어나지 않았으므로 기록할 실행 결과가
+없다.** 체인에는 거부 사실만 남는다.
+
+| | 선택지 | 판정 |
+| --- | --- | --- |
+| ⑤-a | 기록만 붙이고 동작은 유지 | ❌ 결함을 알면서 실행을 계속 허용한다 |
+| **⑤-b** | **거부 시 실행 흐름 차단 (최소 범위)** | ✅ **확정** |
+| ⑤-c | `_build_execution_candidate`에 전역 status 게이트 | ❌ **이번 task에서 하지 않는다.** `/run`·`/retry`에도 적용돼 `NEEDS_APPROVAL` task에 대한 `/run` 동작까지 바뀐다 — 범위를 명백히 넘는다 |
+
+#### 🔑 ⑤-b가 최소 범위인 이유 — 감사 연동과 전제를 공유한다
+
+`_build_approve_writer_result`(1225)는 현재 **`decision`도 `command`도 받지 않는다.**
+`_build_approve_writer_input`(732)이 `draft_type`/`task_id`/`proposed_transition`/
+`apply_ready`/`hold_reason`만 전달하기 때문이다.
+
+그런데 `owner_approval` payload는 **`command`와 `decision`을 필수 필드로 요구한다.** 즉
+감사 연동만으로도 두 값을 writer 단계까지 전달해야 한다. **그 배선이 들어가고 나면 ⑤-b는
+`decision == "reject"` 한 줄 검사로 끝난다.**
+
+두 변경이 같은 전제를 공유하므로, ⑤-b를 이번 task에 포함하는 것이 오히려 배선을 두 번
+하지 않는 길이다.
+
+`transition_to == "FAILED"`로 추론하는 방법도 있으나 **채택하지 않는다.** 감사 payload가
+어차피 `decision`을 요구하므로 명시적 전달이 정직하고, 추론은 나중에 전이 표가 바뀌면
+조용히 깨진다.
+
+#### 성격 명시
+
+이 수정은 **감사 연동과는 별개의 의미론 버그 수정**이다. 같은 승인 경로에서 실제 실행을
+방지하기 위해 이번 task에 포함하되, 커밋 메시지와 task 기록에서 **감사 연동과 구분해
+기술한다** — 나중에 문제가 생겼을 때 어느 쪽이 원인인지 가려낼 수 있어야 한다.
+
+### 9.6 결정 ⑥ — 서명은 이번 task에서 부착하지 않는다 → **확정**
+
+task-0044 결정 4를 그대로 유지한다. 부착하려면 `orchestrator` 역할 키 발급이 필요하고
+이는 **task-0042 결정 5**(reviewer/qa만 발급)의 확장이라 별도 승인 사안이다. 체인 자체가
+이미 변조 탐지를 제공하고, 이 단계에서 기록 주체는 여전히 하나(봇 프로세스)이므로 서명이
+추가할 "누가 썼는가"의 실익이 낮다.
+
+### 9.7 결정 ⑦ — 외부 노출은 stable code만 → **확정**
+
+task-0044 결정 5(B)의 `code`/`detail` 2계층을 승인 경로 응답까지 그대로 연장한다.
+
+| 계층 | 내용 | 노출 |
+| --- | --- | --- |
+| `code` | 값을 담지 않는 고정 어휘 | `/approve` 실패 응답에 **노출한다** |
+| `detail` | 경로·해시·OS 오류 | **로컬 진단용.** Discord 메시지로 내보내지 않는다 |
+
+단일 일반화(`audit_write_failed` 하나)는 배제한다 — P2-4의 `unauthorized`는 **적대적
+상대에게 판별 정보를 주지 않으려는 것**이지만, 감사 실패는 **Owner 자신이 조사해야 하는
+내부 사건**이다. `code`는 설계상 값을 담지 않으므로 노출해도 유출이 없다.
+
+## 10. Owner 결정 (2026-09-05 승인)
+
+§9의 7건은 모두 결정되었다. 아래가 확정된 계약이다.
+
+| # | 질문 | 결정 | 반영 위치 |
+| --- | --- | --- | --- |
+| 1 | append와 전이의 순서 | **(ii-b) 전이 먼저 → 감사. append 실패 시 롤백하지 않는다.** 고착·복구·재시도·중복 방지 정책을 명시하고 **감사 실패를 조용히 삼키지 않는다** | §9.1 |
+| 2 | 상태 파일 내구성 | **(d) `transition_task_file_status()` 재사용** + 승인 경로가 실제 쓰는 전이 3쌍을 transition table에 추가. `_validate_approve_transition_contract_sync()`도 함께 갱신. **별도 내구성 구현은 만들지 않는다** | §9.2 |
+| 3 | 실패한 승인 시도 | **기록한다.** 성공/실패 구분(`applied`)과 기록 시점을 명시. 스키마상 기록 불가한 조기 실패 범위도 명시 | §9.3 |
+| 4 | `result_kind` | **기존 `failure`를 사용**하고 세부 구분은 stable reason code로 표현. **새 vocabulary를 임의로 만들지 않는다** | §9.4 |
+| 5 | `reject`의 실행 진입 | **(⑤-b) 최소 범위로 차단.** `_run_execution_flow()`에 진입하지 않게 한다. 전역 status gate(⑤-c)는 이번 task에서 하지 않는다 | §9.5, §10.2 |
+| 6 | 감사 체인 서명 | **부착하지 않는다**(task-0044 결정 4 유지) | §9.6 |
+| 7 | 실패 사유 노출 | **stable code만 외부 노출**, `detail`은 내부 진단용 | §9.7 |
+
+### 10.1 결정 1의 운영 계약 요약
+
+`T` 성공 / `A` 실패에서 — `/approve`는 **실패로 답하고**(성공으로 보고하지 않는다), task는
+`DOING`으로 고착되며, 자동 재시도는 `status_mismatch`로 **구조적으로 막힌다**(이중 실행·중복
+기록 방지). 복구는 Owner의 수동 개입뿐이고 **그 수동 편집은 체인에 남지 않는다**(알려진 공백).
+정상 경로에서 같은 전이가 두 번 기록되는 일은 없으며, 수동 복구 후 재승인으로 생기는 두 번째
+항목은 **실제로 두 번 일어난 승인**이므로 정확한 기록이다.
+
+E2(실행 결과)는 서브프로세스가 이미 돈 뒤라 되돌릴 수 없으므로, 계약이 "작업 실패"가 아니라
+**"크게 보고한다"** 로 축소된다(§9.1 말미).
+
+### 10.2 결정 5의 성격 — 감사 연동과 구분해 기술한다
+
+⑤-b는 **감사 연동이 아니라 의미론 버그 수정**이다. 동일한 승인 경로에서 실제 실행을
+방지하기 위해 이번 task에 포함하지만, 커밋 메시지·task 기록에서 두 변경을 **구분해 적는다.**
+문제가 생겼을 때 감사 훅이 원인인지 실행 차단이 원인인지 가려낼 수 있어야 한다.
+
+포함이 정당한 실무적 근거는 §9.5에 있다 — `owner_approval` payload가 `command`와 `decision`을
+필수로 요구하므로 그 배선은 감사 연동만으로도 필요하고, **배선이 들어간 뒤 ⑤-b는 한 줄
+검사로 끝난다.**
+
+### 10.3 이 결정들이 바꾸지 않는 것
+
+task-0044 §10의 결정 1·2·5·6·7(독립 체인 / A+B / code+detail / 무제한+status 보고 / Python)은
+**그대로 승계**한다. 재협의 대상이 아니다.
+
+## 11. 다음 단계
+
+§9의 7건은 §10에 정본으로 기록되어 **결정이 끝났다.** 남은 것은 하나다.
+
+1. 🔴 **Owner가 §5.4의 구현 착수 승인 여부를 결정한다.** 결정 ⑤-b가 포함되면서 이 task는
+   기록 추가에 그치지 않고 **승인 경로의 동작을 바꾸는 변경**이 됐다. 안전 계약 충돌과
+   운영 영향이 모두 해당하므로 이 승인 없이는 구현을 시작하지 않는다.
+2. 승인되면 task 기록(`memory/tasks/task-0052-*.md`)을 만들고 구현에 착수한다.
+3. 구현 → §7 검증 → 커밋. 커밋 메시지는 **감사 연동과 ⑤-b 버그 수정을 구분해** 기술한다(§10.2).
