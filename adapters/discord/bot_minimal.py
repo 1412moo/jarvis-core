@@ -17,6 +17,7 @@ import asyncio
 from datetime import UTC, datetime
 import hashlib
 import json
+import unicodedata
 import os
 import re
 import subprocess
@@ -68,35 +69,26 @@ TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
 TASK_STATUS_REQUIRED_FIELDS = ("id", "title", "status", "updated_at", "summary")
 TASK_EXECUTION_REVIEW_FIELDS = (
+    # task-0053: only fields the canonical schema in task_file_writer already knows.
+    # error / mode / reason / message / execution_status used to live here too, but
+    # each was a duplicate, a constant or derivable from these, and none of them is
+    # part of the canonical vocabulary. They are now derived when the file is read
+    # (see _derive_execution_metadata) so /status and /review-task output is
+    # unchanged while the file itself stays inside the schema.
     "execution_candidate",
     "execution_request",
     "execution_result",
     "executed",
     "success",
     "dry_run",
-    "error",
-    "mode",
-    "reason",
-    "message",
-    "execution_status",
     "execution_updated_at",
     "execution_summary",
 )
-TASK_EXECUTION_STATUS_FIELDS = (
-    "execution_candidate",
-    "execution_request",
-    "execution_result",
-    "executed",
-    "success",
-    "dry_run",
-    "error",
-    "mode",
-    "reason",
-    "message",
-    "execution_status",
-    "execution_updated_at",
-    "execution_summary",
-)
+TASK_EXECUTION_STATUS_FIELDS = TASK_EXECUTION_REVIEW_FIELDS
+# Values _derive_execution_metadata() reconstructs on read. They are not stored in
+# the task file and are not canonical fields; they exist so /status keeps printing
+# exactly what it printed before task-0053 removed them from disk.
+TASK_EXECUTION_DERIVED_FIELDS = ("error", "mode", "reason", "message", "execution_status")
 RETRY_ALLOWED_STATUSES = frozenset({"FAILED", "DOING"})
 RUN_ALLOWED_STATUSES = frozenset({"DOING"})
 REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
@@ -514,7 +506,7 @@ def _run_status_lookup(command_text: str) -> dict[str, Any]:
         "updated_at": metadata["updated_at"],
         "summary": metadata["summary"],
     }
-    for key in TASK_EXECUTION_STATUS_FIELDS:
+    for key in TASK_EXECUTION_STATUS_FIELDS + TASK_EXECUTION_DERIVED_FIELDS:
         value = execution_metadata.get(key)
         if value:
             payload[key] = value
@@ -549,7 +541,7 @@ def _read_execution_review_metadata(task_file: Path) -> dict[str, str]:
         key, value = matched.groups()
         if key in TASK_EXECUTION_REVIEW_FIELDS:
             metadata[key] = value.strip()
-    return metadata
+    return _derive_execution_metadata(metadata)
 
 
 def _read_execution_status_metadata(task_file: Path) -> dict[str, str]:
@@ -561,7 +553,7 @@ def _read_execution_status_metadata(task_file: Path) -> dict[str, str]:
         key, value = matched.groups()
         if key in TASK_EXECUTION_STATUS_FIELDS:
             metadata[key] = value.strip()
-    return metadata
+    return _derive_execution_metadata(metadata)
 
 
 def _build_report_payload(parsed_tasks: list[dict[str, str]]) -> dict[str, Any]:
@@ -932,9 +924,24 @@ def _validate_approve_transition_contract_sync() -> tuple[bool, list[str]]:
 # metadata validator rejects by design, and that validator is deliberately not
 # being loosened - so those transitions keep the inline path below. This split is
 # a known residual risk, recorded in the design document rather than hidden here.
-DURABLE_STATUS_TRANSITIONS = frozenset(
-    {("NEEDS_APPROVAL", "DOING"), ("NEEDS_APPROVAL", "FAILED")}
-)
+# task-0053 decision A, unit U1: every transition this module performs now goes
+# through the durable writer, not just the approval pair. Before this, /run wrote
+# twice and /retry four times, all of them a bare write_text() with no fsync, no
+# atomic replace and no concurrency check. The execution fields the task file
+# carries are canonical now (decision 2) and sit inside the header block
+# (decision C), so the writer accepts these files.
+#
+# This is U1 - each individual write is atomic - not U2. The execution metadata
+# write and the execution-result transition remain two separate replaces, so the
+# window between them stays open and is reported rather than repaired, exactly as
+# task-0052 settled. Closing that window is a separate Owner decision.
+#
+# The set is task_file_writer's own table rather than ALLOWED_STATUS_TRANSITIONS,
+# because the two are not the same: _apply_execution_result_status_transition()
+# performs DOING -> FAILED on an execution failure, and that pair is absent from
+# ALLOWED_STATUS_TRANSITIONS even though the code has always performed it. Keying
+# off the writer's table routes every pair the writer accepts, this one included.
+DURABLE_STATUS_TRANSITIONS = TASK_STATUS_TRANSITIONS
 
 
 def _apply_task_status_transition(task_id: str, transition_from: str, transition_to: str) -> tuple[bool, str]:
@@ -1054,6 +1061,117 @@ def _metadata_bool(value: bool) -> str:
     return "true" if value else "false"
 
 
+def _execution_metadata_values(
+    execution_result: dict[str, Any],
+    execution_candidate: dict[str, Any] | None,
+    execution_request: dict[str, Any] | None,
+) -> dict[str, str]:
+    """Build the canonical execution fields written to a task file.
+
+    task-0053 decision 2 and 6. Only fields the canonical schema knows, and the
+    duplicates are gone: error and reason both carried execution_result's
+    error_reason, message carried its output_summary, mode was the constant "real"
+    and execution_status was derivable from executed and success. output_summary is
+    also dropped from the execution_result JSON, since execution_summary already
+    holds it - that duplication was what pushed the line to 485 of its 500
+    character budget. Nothing is lost: _derive_execution_metadata() reconstructs
+    every removed value on read.
+    """
+
+    executed = bool(execution_result.get("executed", False))
+    success = bool(execution_result.get("success", False))
+    reason = str(execution_result.get("error_reason") or "")
+    message = str(execution_result.get("output_summary") or "")
+
+    stored_result = {k: v for k, v in execution_result.items() if k != "output_summary"}
+
+    return {
+        # The canonical schema types this as a boolean - "was there a candidate" -
+        # not as the candidate itself, which is why it never fitted before.
+        "execution_candidate": _metadata_bool(execution_candidate is not None),
+        "execution_request": _metadata_json(execution_request),
+        "execution_result": _metadata_json(stored_result),
+        "executed": _metadata_bool(executed),
+        "success": _metadata_bool(success),
+        "dry_run": "false",
+        "execution_updated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        "execution_summary": message or reason,
+    }
+
+
+def _derive_execution_metadata(metadata: dict[str, str]) -> dict[str, str]:
+    """Re-create the fields task-0053 stopped storing, so output never changed.
+
+    Decision 5 keeps /status and /review-task identical, and decision 2 forbids new
+    canonical fields, so the five removed values are computed here instead. Each is
+    exact rather than approximate:
+
+    - error and reason are execution_result's error_reason, which is still stored.
+    - message is execution_summary whenever the run actually executed. That holds
+      because _build_execution_result_real() always produces a non-empty
+      output_summary when executed is true ("no_output" at minimum) and an empty one
+      when it is false, and execution_summary is "message or reason".
+    - mode is the constant this write path has always used.
+    - execution_status is the same three-way split the writer used to compute.
+    """
+
+    if not metadata:
+        return metadata
+
+    derived = dict(metadata)
+    executed = metadata.get("executed") == "true"
+    success = metadata.get("success") == "true"
+
+    reason = ""
+    raw_result = metadata.get("execution_result") or ""
+    if raw_result:
+        try:
+            parsed = json.loads(raw_result)
+        except (TypeError, ValueError):
+            parsed = None
+        if isinstance(parsed, dict):
+            reason = str(parsed.get("error_reason") or "")
+
+    derived["error"] = reason
+    derived["reason"] = reason
+    derived["message"] = metadata.get("execution_summary", "") if executed else ""
+    derived["mode"] = "real"
+    if executed and success:
+        derived["execution_status"] = "success"
+    elif executed:
+        derived["execution_status"] = "failed"
+    else:
+        derived["execution_status"] = "not_executed"
+    return derived
+
+
+def _header_block_end(lines: list[str]) -> int:
+    """Index just past the metadata header block, using task-0054's boundary.
+
+    Execution fields are written inside the block rather than appended at the end of
+    the file. Before this, placement depended on the document's shape: in a
+    metadata-only file the appended fields landed inside the header and blocked the
+    durable writer, while in a file with a body they landed outside it and were
+    never validated at all - visible to /status, invisible to the writer. Same file,
+    same fields, opposite treatment.
+    """
+
+    started = False
+    end = len(lines)
+    for index, line in enumerate(lines):
+        if line[:1].isspace():
+            continue
+        if not started:
+            if not line.startswith("- "):
+                continue
+            started = True
+        elif not line.startswith("- "):
+            end = index
+            break
+        end = index + 1
+    return end
+
+
 def _write_execution_review_metadata(
     task_id: str,
     execution_result: dict[str, Any],
@@ -1064,38 +1182,18 @@ def _write_execution_review_metadata(
     if not task_file.exists() or not task_file.is_file():
         return False, "task_not_found"
 
-    executed = bool(execution_result.get("executed", False))
-    success = bool(execution_result.get("success", False))
-    reason = str(execution_result.get("error_reason") or "")
-    message = str(execution_result.get("output_summary") or "")
-    if executed and success:
-        execution_status = "success"
-    elif executed and not success:
-        execution_status = "failed"
-    else:
-        execution_status = "not_executed"
-
-    execution_summary = message or reason
-    execution_updated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    values_by_key = {
-        "execution_candidate": _metadata_json(execution_candidate),
-        "execution_request": _metadata_json(execution_request),
-        "execution_result": _metadata_json(execution_result),
-        "executed": _metadata_bool(executed),
-        "success": _metadata_bool(success),
-        "dry_run": "false",
-        "error": reason,
-        "mode": "real",
-        "reason": reason,
-        "message": message,
-        "execution_status": execution_status,
-        "execution_updated_at": execution_updated_at,
-        "execution_summary": execution_summary,
-    }
+    values_by_key = _execution_metadata_values(
+        execution_result, execution_candidate, execution_request
+    )
 
     task_text = task_file.read_text(encoding="utf-8")
     has_trailing_newline = task_text.endswith("\n")
     lines = task_text.splitlines()
+
+    # Existing fields are still searched across the whole file, not just the header.
+    # A file written before this change may hold a copy below its body, and
+    # inserting a second one in the header would make the task file fail validation
+    # with task_file_duplicate_metadata.
     existing_indexes: dict[str, int] = {}
     for idx, line in enumerate(lines):
         matched = TASK_META_LINE_PATTERN.match(line.strip())
@@ -1105,12 +1203,15 @@ def _write_execution_review_metadata(
         if key in TASK_EXECUTION_REVIEW_FIELDS:
             existing_indexes[key] = idx
 
+    inserted: list[str] = []
     for key in TASK_EXECUTION_REVIEW_FIELDS:
         new_line = f"- {key}: `{values_by_key[key]}`"
         if key in existing_indexes:
             lines[existing_indexes[key]] = new_line
         else:
-            lines.append(new_line)
+            inserted.append(new_line)
+    if inserted:
+        lines[_header_block_end(lines) : _header_block_end(lines)] = inserted
 
     new_text = "\n".join(lines)
     if has_trailing_newline:
@@ -1352,7 +1453,18 @@ def _summarize_execution_output(stdout: str, stderr: str) -> str:
         merged.append(f"stderr={stderr.strip()}")
     if not merged:
         return "no_output"
-    normalized = " | ".join(merged).replace("\n", " ").replace("\r", " ")
+    joined = " | ".join(merged)
+    # task-0053 decision 7: normalise every control character here, where the
+    # summary is built, instead of loosening the canonical validator that rejects
+    # them. Newline and carriage return were already handled; a tab survived and
+    # made the whole task file fail validation. Each control character becomes one
+    # space and nothing else changes - collapsing runs of spaces here would alter
+    # the summary text itself, which decision 5 keeps identical.
+    normalized = "".join(
+        " " if unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"} else character
+        for character in joined
+    )
+
     if len(normalized) <= EXECUTION_OUTPUT_MAX_CHARS:
         return normalized
     return f"{normalized[:EXECUTION_OUTPUT_MAX_CHARS]}..."
@@ -2884,11 +2996,25 @@ def _run_self_check_suite() -> dict[str, Any]:
             )
 
             # --- decision 2: approval transitions go through the durable writer --
+            # task-0052 pinned this to the approval pair only, because execution
+            # metadata did not fit the canonical schema then. task-0053 removed that
+            # obstacle, so every transition this module performs is now durable -
+            # including DOING -> FAILED, which ALLOWED_STATUS_TRANSITIONS never
+            # listed even though _apply_execution_result_status_transition performs
+            # it. Keying off the writer's own table is what catches that.
+            performed_transitions = frozenset(
+                {
+                    ("NEEDS_APPROVAL", "DOING"),
+                    ("NEEDS_APPROVAL", "FAILED"),
+                    ("DOING", "DONE"),
+                    ("DOING", "FAILED"),
+                    ("FAILED", "TODO"),
+                    ("TODO", "DOING"),
+                }
+            )
             _record(
-                "approval_transition_is_durable",
-                DURABLE_STATUS_TRANSITIONS == frozenset(
-                    {("NEEDS_APPROVAL", "DOING"), ("NEEDS_APPROVAL", "FAILED")}
-                )
+                "every_performed_transition_is_durable",
+                performed_transitions.issubset(DURABLE_STATUS_TRANSITIONS)
                 and DURABLE_STATUS_TRANSITIONS.issubset(TASK_STATUS_TRANSITIONS),
                 f"durable={sorted(DURABLE_STATUS_TRANSITIONS)}",
             )
