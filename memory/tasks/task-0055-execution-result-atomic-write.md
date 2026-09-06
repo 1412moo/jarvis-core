@@ -5,7 +5,7 @@
 - status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-05 18:00 UTC`
-- updated_at: `2026-09-06 09:20 UTC`
+- updated_at: `2026-09-06 11:05 UTC`
 - summary: `task-0053이 U1로 모든 상태 전이를 durable writer로 보냈지만 실행 메타데이터 쓰기 1회가 명령마다 비원자로 남았다. 두 쓰기 사이에서 중단되면 실행은 성공으로 기록되고 task는 DOING인 자기모순 상태가 남는 것을 실측으로 재현했다. U2는 두 쓰기를 하나의 os.replace로 합쳐 그 창을 닫는다. 전이가 일어나지 않는 정상 조합도 지원해야 하며, durable 꼬리가 이미 두 벌이라 세 번째 복제를 피하는 구현 형태가 핵심 결정이다. Owner가 C(꼬리 추출 후 새 함수)와 추천안 전부를 승인해 구현·검증까지 완료했다. 실행 경로의 비원자 쓰기가 0이 됐다.`
 - source_command: `task-0053 §10.2 결정 A가 별도 결정으로 남긴 U2`
 
@@ -218,13 +218,59 @@ self-check의 `execution_status_transition_failure_non_blocking`은 주입 지�
 `_apply_task_status_transition`에서 새 writer의 replace seam으로 옮겼다. **단언은 그대로다** —
 실행결과 전이 실패가 성공한 승인을 실패로 바꾸지 않는다.
 
+
+## 후속 정정 — `DOING → FAILED` 전이표 등재 (2026-09-06)
+
+task-0053 구현 중 발견해 보류했던 불일치를 최소 범위로 정정했다.
+
+`_apply_execution_result()`는 실행이 실패하면 task를 `FAILED`로 옮기는데, 그 전이가
+`ALLOWED_STATUS_TRANSITIONS`에는 **없었다.** task-0053은 `DURABLE_STATUS_TRANSITIONS`를
+`task_file_writer`의 전이표 기준으로 잡아 우회했고, 그 우회는 **그대로 두었다.**
+
+### 변경
+
+| 항목 | 내용 |
+| --- | --- |
+| 전이표 | `"DOING": ("DONE",)` → `("DONE", "FAILED")` |
+| 우회 로직 | **제거하지 않음** — `DURABLE_STATUS_TRANSITIONS = TASK_STATUS_TRANSITIONS` 유지 |
+| 두 표의 관계 | 이제 **완전히 일치**한다(6쌍). 이전에는 겹치기만 했다 |
+
+### 테스트
+
+`DOING → FAILED`의 **실경로는 이미 검증되고 있었다** — `execution_status_transition_failed`가
+실행 실패를 주입해 상태가 `FAILED`가 되는 것을 확인한다. 누락된 것은 검증표 등재뿐이었다.
+
+다만 기존 `invalid_transition` 테스트가 **`DOING → FAILED`를 무효의 반례로 쓰고 있었다.**
+표와 코드가 어긋난 채 유지된 이유가 바로 이것이다. 반례를 실제로 표에 없는 `DONE → DOING`으로
+바꾸고 최소 검증 2건을 더했다.
+
+| 신규 테스트 | 내용 |
+| --- | --- |
+| `execution_failure_transition_allowed` | `DOING → FAILED`가 검증을 통과하는지 |
+| `transition_tables_agree` | 우회 로직이 표와 **일치**하는지(보상하는 게 아니라) |
+
+self-check 77 → **79/79**.
+
+### 동작 불변 확인 (`3f76d6d` 대비)
+
+| 경로 | 기준선 | 현재 |
+| --- | --- | --- |
+| `/approve` | `NEEDS_APPROVAL → DONE` | 동일 |
+| `/approve reject` | `NEEDS_APPROVAL → FAILED`, 실행 미진입 | 동일 |
+| `/run` | `DOING → DONE` | 동일 |
+| `/retry` | `FAILED → DONE` | 동일 |
+| `/run` 실행 실패 | `DOING → FAILED` | 동일 |
+
+`/status`·`/review-task` 4종 응답도 **완전 일치**. discord-intake 78/78, audit-chain 6/6,
+기존 회귀 8종 + SOP 전건 PASS.
+
 ## 이번 단계 비범위
 
 - canonical validation 완화 / `allow_empty` 확대 / max length 확대 / 타입 검증 우회
 - 새 canonical 필드 추가(task-0053 결정 2 유지), audit event schema 변경(task-0052 계약 유지)
 - **명령 전체 원자성(U3)** — 서브프로세스가 중간에 있어 구조적으로 불가능
 - 불일치 탐지 도구 / 수동 복구 명령
-- backtick 8건, `ALLOWED_STATUS_TRANSITIONS`의 `DOING→FAILED` 누락 — Owner 보류
+- backtick 8건 — Owner 보류 (`DOING→FAILED` 누락은 위 후속 정정에서 해소)
 - `/run`·`/retry` 의미론 변경, ⑤-c 전역 status gate
 
 ## 남은 것

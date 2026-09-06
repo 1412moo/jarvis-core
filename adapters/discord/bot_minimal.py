@@ -96,7 +96,13 @@ RUN_ALLOWED_STATUSES = frozenset({"DOING"})
 REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "TODO": ("DOING",),
-    "DOING": ("DONE",),
+    # DOING -> FAILED was missing here while the code performed it all along:
+    # _apply_execution_result() moves a task to FAILED whenever the execution
+    # returns unsuccessfully. task-0053 worked around the gap by keying
+    # DURABLE_STATUS_TRANSITIONS off task_file_writer's table instead of this one;
+    # that indirection stays, and this entry makes the two agree rather than
+    # merely overlap.
+    "DOING": ("DONE", "FAILED"),
     "FAILED": ("TODO",),
     "NEEDS_APPROVAL": ("DOING", "FAILED"),
 }
@@ -2368,11 +2374,36 @@ def _run_self_check_suite() -> dict[str, Any]:
             transition_ok, transition_reason = _validate_status_transition("NEEDS_APPROVAL", "DOING")
             _record("allowed_transition", transition_ok and transition_reason == "", f"reason={transition_reason}")
 
-            invalid_ok, invalid_reason = _validate_status_transition("DOING", "FAILED")
+            # DOING -> FAILED used to be the counter-example here, which is exactly
+            # how the table stayed out of step with the code: the execution path has
+            # always performed that transition. A pair that is genuinely absent from
+            # the table takes its place.
+            invalid_ok, invalid_reason = _validate_status_transition("DONE", "DOING")
             _record(
                 "invalid_transition",
                 (not invalid_ok) and invalid_reason == "invalid_transition",
                 f"reason={invalid_reason}",
+            )
+
+            execution_failure_ok, execution_failure_reason = _validate_status_transition(
+                "DOING", "FAILED"
+            )
+            _record(
+                "execution_failure_transition_allowed",
+                execution_failure_ok and execution_failure_reason == "",
+                f"reason={execution_failure_reason}",
+            )
+            # The workaround task-0053 introduced is kept; this asserts it now agrees
+            # with the table rather than compensating for it.
+            _record(
+                "transition_tables_agree",
+                ("DOING", "FAILED") in DURABLE_STATUS_TRANSITIONS
+                and frozenset(
+                    (source, target)
+                    for source, targets in ALLOWED_STATUS_TRANSITIONS.items()
+                    for target in targets
+                ).issubset(TASK_STATUS_TRANSITIONS),
+                f"durable={sorted(DURABLE_STATUS_TRANSITIONS)}",
             )
 
             old_updated_at = "2026-04-01 00:00 UTC"
