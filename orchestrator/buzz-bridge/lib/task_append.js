@@ -16,14 +16,38 @@
  *
  * Appended run-correlation fields (channel/run_id/status/...) are
  * deliberately rendered as `* field: \`value\`` (asterisk), never
- * `- field: \`value\`` (dash). Jarvis's task metadata parser treats every
- * line in the WHOLE file that starts with "- " (after stripping leading
- * whitespace) as a metadata candidate and rejects the file outright if it
- * does not match its fixed field allowlist - so a dash-bulleted run record
- * would make every later task-file metadata read/transition fail closed
- * for that task. The asterisk marker is invisible to that scan while
- * staying valid, readable Markdown. This is the one formatting rule this
- * module must never regress.
+ * `- field: \`value\`` (dash). The reason is a field-name collision, not
+ * the metadata scan - this record carries a field literally named
+ * `status`.
+ *
+ * Since task-0054, Jarvis's task metadata parser looks for metadata only
+ * inside the canonical header block at the top of the file: the run of
+ * column-0 "- " lines, where an indented line continues the field above it
+ * instead of ending the block, and the first column-0 line that is not
+ * "- " closes it for good. Every append below starts with a blank line,
+ * "---" and a "## " heading, so the header block is already closed before
+ * the first bullet. A dash-bulleted run record would therefore still READ
+ * fine - the parse passes and yields the same header fields it did before
+ * the append.
+ *
+ * What dashes would break is the writers. Jarvis's status-transition
+ * writer and its execution-result writer each require exactly one column-0
+ * `- status:` line in the whole file. A `- status: \`OK\`` in an appended
+ * record makes two, and both then fail closed with
+ * task_file_invalid_status_metadata - which stops /approve, /run and
+ * /retry for that task. (The completion-evidence writer keys off
+ * `- summary:`, which this record does not carry, so it is unaffected.)
+ * Renaming just that one field would make dashes safe again, which is why
+ * the marker - not the parser - is the thing this module controls.
+ *
+ * Those writers are described here rather than named on purpose: the
+ * decoupling guard in run_smoke_tests.js proves by plain source search that
+ * this module never calls Jarvis's task lifecycle, and spelling the names
+ * out in a comment would defeat that proof. Do not "helpfully" add them.
+ *
+ * The asterisk sidesteps the collision while staying valid, readable
+ * Markdown. This is the one formatting rule this module must never
+ * regress.
  *
  * acquireTaskLock() is a single exclusive marker file per taskId
  * (fs "wx" flag - atomic create-if-absent on NTFS and POSIX alike),
