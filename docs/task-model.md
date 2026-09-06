@@ -81,23 +81,64 @@
 - `NEEDS_APPROVAL`: 어떤 항목의 승인이 필요한지(대상), 왜 필요한지(사유), 승인되면 바로 할 다음 작업을 반드시 남긴다.
 
 ## 10) Optional Execution Metadata
-Execution-related fields are optional. They may be appended to a task markdown file only after the existing execution flow records a result.
+Execution-related fields are optional. The canonical writer
+(`record_task_execution_result` in `orchestrator/discord-intake/task_file_writer.py`)
+records them after the execution flow produces a result, in the same atomic replace
+that applies the resulting status transition (task-0055). They live **inside the
+metadata header block** — the contiguous run of metadata lines at the top of the file —
+not appended at the end of the document (task-0054).
 
-- `execution_candidate`: compact JSON metadata for the candidate selected by the execution flow.
-- `execution_request`: compact JSON metadata for the request built from the candidate.
-- `execution_result`: compact JSON metadata for the recorded execution result.
-- `executed`: `true` or `false`.
-- `success`: `true` or `false`.
-- `dry_run`: `true` or `false`.
-- `error`: error reason, when one exists.
-- `mode`: execution mode recorded by the current flow.
-- `reason`: reason or error reason, when one exists.
-- `message`: output summary, when one exists.
-- `execution_status`: `success`, `failed`, or `not_executed`.
-- `execution_updated_at`: metadata update time in UTC, `YYYY-MM-DD HH:MM UTC`.
-- `execution_summary`: short output or error summary.
+### Stored fields
+Exactly these eight fields are stored on disk. Any other `- name:` line inside the
+header block is rejected as `task_file_unsupported_metadata`.
 
-These fields do not replace the required task fields. If no execution result has been recorded, these fields may be absent.
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `execution_candidate` | boolean | Whether the execution flow selected a candidate. It is **not** the candidate itself. |
+| `execution_request` | text | Compact JSON for the request built from the candidate. |
+| `execution_result` | text | Compact JSON for the recorded execution result. Its `output_summary` is not repeated here, because `execution_summary` already carries it. |
+| `executed` | boolean | Whether the run actually happened. |
+| `success` | boolean | Whether the run succeeded. |
+| `dry_run` | boolean | Whether the run was a dry run. |
+| `execution_updated_at` | timestamp | Metadata update time in UTC, `YYYY-MM-DD HH:MM UTC`. |
+| `execution_summary` | text | Short output or error summary. |
+
+The three types are the canonical ones, enforced on every write and re-checked on
+every read:
+
+- **boolean**: the literal `true` or `false`, and nothing else — not `True`, not `1`, not an empty value.
+- **text**: at most 500 characters, no control/format/surrogate characters, and not empty. A field with no value is omitted rather than written blank.
+- **timestamp**: exactly `%Y-%m-%d %H:%M UTC`.
+- No value of any type may contain a backtick, which is the value delimiter itself.
+
+Note that `execution_candidate` here is the task-file field. The payload of the
+same name in `docs/execution-contract.md` — `approve_file_write_result.execution_candidate`,
+an object or `null` — is a different thing. Only the boolean derived from it, whether a
+candidate existed at all, reaches the file.
+
+### Derived fields — reconstructed on read, never stored
+`error`, `mode`, `reason`, `message` and `execution_status` were once stored here
+too. task-0053 removed them from disk: each was a duplicate of, a constant beside,
+or computable from the eight fields above, and none of them belongs to the canonical
+vocabulary. **Writing any of the five into a task file now fails canonical
+validation** (`task_file_unsupported_metadata`).
+
+Command output did not change, because each value is reconstructed exactly when the
+file is read:
+
+| Derived value | Reconstructed from |
+| --- | --- |
+| `error`, `reason` | `error_reason` inside the stored `execution_result` JSON |
+| `message` | `execution_summary` when `executed` is `true`; empty otherwise |
+| `mode` | the constant `real` — the only mode this write path has ever used |
+| `execution_status` | `success` when `executed` and `success`; `failed` when `executed` alone; `not_executed` otherwise |
+
+### How the fields surface
+- `/status` prints, in this order and skipping every empty value: `executed`, `success`, `dry_run`, `mode`, `reason`, `error`, `message`, `execution_status`, `execution_updated_at`, `execution_summary`. So stored and derived values appear side by side, indistinguishable in the output. `execution_candidate`, `execution_request` and `execution_result` are carried in the result payload but are not printed.
+- `/review-task` reports `execution_status`, `execution_updated_at` and `execution_summary` only.
+- A task with no execution metadata shows no execution section in either command.
+
+These fields do not replace the required task fields. If no execution result has been recorded, all of them are absent.
 
 ## 11) Optional Completion Evidence
 
