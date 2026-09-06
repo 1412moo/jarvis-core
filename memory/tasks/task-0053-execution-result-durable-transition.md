@@ -13,7 +13,7 @@
 
 - HEAD `38b9027` = `origin/main` (task-0054 hotfix 반영 후)
 - 선행: `a6c4ef3`(task-0052 승인 전이 durable), `116fe2d`(task-0044 감사 체인 코어)
-- 이 단계 산출물: 설계 문서 + 이 기록. **코드 변경 없음**
+- 변경: `adapters/discord/bot_minimal.py`, 설계 문서, 이 기록 (커밋 `41501a5`)
 
 지시받은 기준선 목록 중 `docs/task-0044-audit-chain-design.md`는 존재하지 않는다. 실제
 파일명은 `docs/task-0044-audit-hash-chain-design.md`이며 그것을 읽었다.
