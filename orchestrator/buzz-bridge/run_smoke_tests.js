@@ -397,11 +397,32 @@ const JARVIS_SUMMARY_LINE_PATTERN = /^- summary: `[^`\r\n]*`$/gm;
  * Re-implements only the pass/fail outcome of task_file_writer.py's
  * _transition_metadata() line-scan loop (the precondition every real
  * transition/evidence-recording call shares).
+ *
+ * The loop below follows task-0054's header-block boundary statement for
+ * statement, because this mirror silently drifted from it once already: it
+ * kept scanning the WHOLE file for "- " after stripping leading whitespace -
+ * the exact rule task-0054 removed - and so rejected 13 of the 59 real task
+ * records the canonical parser accepts. Nothing caught that, because every
+ * fixture in this file is header-only. Two tests below now do, and the drift
+ * detector anchors on the boundary's own expressions. If the Python loop
+ * changes again, change this one with it rather than the tests.
  */
 function mirrorTransitionMetadataParse(content) {
   const metadata = {};
+  let inHeader = false;
   for (const rawLine of content.split(/\r?\n/)) {
-    if (!rawLine.replace(/^\s+/, "").startsWith("- ")) continue;
+    // An indented line continues the field above it, so it is neither a
+    // metadata line nor a terminator (Python: line[:1].isspace()).
+    if (/^\s/.test(rawLine)) continue;
+    if (!inHeader) {
+      // Title, HTML comments and blank lines sit above the block.
+      if (!rawLine.startsWith("- ")) continue;
+      inHeader = true;
+    } else if (!rawLine.startsWith("- ")) {
+      // The first column-0 line that is not a field closes the header block.
+      // Everything after it is document body and is not task metadata.
+      break;
+    }
     const m = JARVIS_METADATA_LINE_PATTERN.exec(rawLine);
     if (!m) return { ok: false, error: "task_file_invalid_metadata" };
     const field = m[1];
@@ -442,6 +463,75 @@ test("jarvis_task_parser_contract_mirror_matches_source", () => {
   assert.ok(source.includes("^- status: `"), "status metadata line marker changed - update the JS mirror");
   assert.ok(source.includes("^- updated_at: `"), "updated_at metadata line marker changed - update the JS mirror");
   assert.ok(source.includes("^- summary: `"), "summary metadata line marker changed - update the JS mirror");
+  // task-0054 moved the boundary: metadata is the header block, not every
+  // "- " line in the file. The field vocabulary, the field-name pattern and
+  // the line markers above all survived that change unaltered, so none of
+  // them noticed it. These two expressions are the boundary's own, and they
+  // disappear only if the header-block rule itself is rewritten.
+  assert.ok(source.includes("in_header"), "header block boundary flag changed - update the JS mirror above");
+  assert.ok(source.includes("line[:1].isspace()"), "indented-continuation rule changed - update the JS mirror above");
+});
+
+// Same charset as task_file_writer.py's TASK_FILE_PATTERN, so this picks up
+// exactly the files the canonical parser treats as task records - and skips
+// task-template.md, which is a placeholder the real parser rejects on its id.
+const JARVIS_TASK_FILE_PATTERN = /^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
+
+// The task-0054 boundary in one fixture. These two shapes are the whole
+// difference between the real parser and a whole-file "- " scan: an indented
+// line continues the field above it (task-template.md writes its "- 규칙:"
+// notes exactly that way) and a column-0 "- " line after the block is
+// document body. A whole-file scan rejects both; the real parser accepts
+// both. Keeping it here pins the contract even if no record in memory/tasks
+// happens to use these shapes.
+const TASK_0054_BOUNDARY_FIXTURE = [
+  "# task-0000-boundary-contract",
+  "",
+  "- id: `task-0000-boundary-contract`",
+  "  - 규칙: 들여쓴 줄은 위 필드의 continuation이며 블록을 끝내지 않는다",
+  "- title: `boundary contract fixture`",
+  "- status: `DOING`",
+  "- repo: `jarvis-core`",
+  "- created_at: `2026-09-06 00:00 UTC`",
+  "- updated_at: `2026-09-06 00:00 UTC`",
+  "- summary: `header block boundary fixture`",
+  "",
+  "## 본문",
+  "",
+  "- 이 bullet 은 header block 밖이므로 metadata 후보가 아니다",
+  "",
+].join("\n");
+
+test("mirror_honours_task_0054_header_block_boundary", () => {
+  const parsed = mirrorTransitionMetadataParse(TASK_0054_BOUNDARY_FIXTURE);
+  assert.strictEqual(parsed.ok, true, `mirror must accept the task-0054 boundary shape, got: ${parsed.error}`);
+  // It must also stop at the block: nothing from the body may be collected.
+  assert.deepStrictEqual(
+    Object.keys(parsed.metadata).sort(),
+    ["created_at", "id", "repo", "status", "summary", "title", "updated_at"],
+    "mirror collected metadata from outside the canonical header block"
+  );
+});
+
+test("mirror_accepts_every_real_task_record", () => {
+  // Every fixture above is header-only, so none of them can tell a
+  // header-block scan from a whole-file scan. Real records can, and this is
+  // the assertion that keeps the mirror honest as the parser evolves.
+  const records = fs.readdirSync(TASKS_DIR).filter((name) => JARVIS_TASK_FILE_PATTERN.test(name));
+  assert.ok(
+    records.length >= 10,
+    `expected the repository's task records, found ${records.length} - this assertion must never pass vacuously`
+  );
+  const rejected = [];
+  for (const name of records) {
+    const parsed = mirrorTransitionMetadataParse(fs.readFileSync(path.join(TASKS_DIR, name), "utf8"));
+    if (!parsed.ok) rejected.push(`${name} (${parsed.error})`);
+  }
+  assert.deepStrictEqual(
+    rejected,
+    [],
+    `mirror rejects ${rejected.length} of ${records.length} real task records that the canonical parser accepts: ${rejected.join(", ")}`
+  );
 });
 
 test("task_append_A_original_task_metadata_parses_cleanly", () => {
