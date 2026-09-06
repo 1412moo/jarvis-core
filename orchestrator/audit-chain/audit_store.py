@@ -180,6 +180,18 @@ def read_chain_head(chain_file: Path) -> tuple[int, str | None]:
     try:
         with chain_file.open("r", encoding="utf-8", errors="strict") as stream:
             for line_no, line in enumerate(stream, start=1):
+                # task-0061. Same predicate, same position in the loop and the same
+                # open mode as verify_audit_chain's missing_trailing_newline check,
+                # so both functions reach the same verdict on the same bytes.
+                # Without it a torn final write is invisible here, and the O_APPEND
+                # below writes the next entry onto that unterminated line - merging
+                # two entries into one that nothing can parse afterwards, which
+                # leaves every later approval running with no audit record at all.
+                if not line.endswith("\n"):
+                    raise AuditChainError(
+                        "audit_chain_corrupt_missing_trailing_newline",
+                        detail=f"line_{line_no}",
+                    )
                 stripped = line.rstrip("\r\n")
                 if not stripped:
                     raise AuditChainError(

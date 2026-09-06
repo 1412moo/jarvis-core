@@ -345,6 +345,86 @@ def test_tamper_and_corruption_detection() -> None:
         )
 
 
+def test_truncated_final_line_blocks_append() -> None:
+    """task-0061: a torn final write must fail closed before the next append.
+
+    verify_audit_chain has always reported missing_trailing_newline, but the append
+    path did not check it. O_APPEND then wrote the next entry straight onto the
+    unterminated line, merging two entries into one - after which the whole chain
+    was unparseable and every later approval ran with no audit record at all. Both
+    functions must now reach the same verdict on the same bytes.
+    """
+    with tempfile.TemporaryDirectory(prefix="jarvis-audit-smoke-") as temp_state:
+        paths = resolve_audit_chain_paths(
+            env={"JARVIS_LOCAL_STATE_DIR": temp_state},
+            repo_root=REPO_ROOT,
+        )
+
+        for index in (1, 2):
+            record_owner_approval(
+                task_id=f"task-000{index}-truncation",
+                command=f"/approve task-000{index}-truncation approve",
+                decision="approve",
+                transition_from="TODO",
+                transition_to="DOING",
+                applied=True,
+                paths=paths,
+            )
+        intact = paths.chain_file.read_bytes()
+        _assert(verify_audit_chain(paths.chain_file)["valid"] is True, "precondition: chain must start valid")
+
+        # The state a crash mid-append leaves behind: a final line with no terminator.
+        truncated = intact.rstrip(b"\r\n")
+        paths.chain_file.write_bytes(truncated)
+
+        verified = verify_audit_chain(paths.chain_file)
+        _assert(verified["valid"] is False, "verifier missed the truncated final line")
+        _assert(
+            verified["reason"] == "missing_trailing_newline",
+            f"Unexpected verifier reason: {verified}",
+        )
+
+        # The append path must now reach that same verdict instead of concatenating.
+        _assert_error(
+            lambda: read_chain_head(paths.chain_file),
+            "audit_chain_corrupt_missing_trailing_newline",
+            expected_detail="line_2",
+        )
+        _assert_error(
+            lambda: record_owner_approval(
+                task_id="task-0003-truncation",
+                command="/approve task-0003-truncation approve",
+                decision="approve",
+                transition_from="TODO",
+                transition_to="DOING",
+                applied=True,
+                paths=paths,
+            ),
+            "audit_chain_corrupt_missing_trailing_newline",
+        )
+        # Fail closed means nothing was written, not "written and then reported".
+        _assert(
+            paths.chain_file.read_bytes() == truncated,
+            "a refused append must leave the chain file byte-identical",
+        )
+
+        # A properly terminated chain keeps working on both terminators. The store
+        # writes \r\n on Windows (os.open text mode) and \n elsewhere, and
+        # neither may be mistaken for truncation.
+        crlf = intact if b"\r\n" in intact else intact.replace(b"\n", b"\r\n")
+        for label, payload in (("lf", crlf.replace(b"\r\n", b"\n")), ("crlf", crlf)):
+            paths.chain_file.write_bytes(payload)
+            _assert(
+                verify_audit_chain(paths.chain_file)["valid"] is True,
+                f"{label} chain was rejected by the verifier",
+            )
+            length, head = read_chain_head(paths.chain_file)
+            _assert(
+                length == 2 and head is not None,
+                f"{label} chain was rejected by the append path: length={length}",
+            )
+
+
 def test_cli_interface() -> None:
     """Test CLI verify-chain and status execution via subprocess."""
     with tempfile.TemporaryDirectory(prefix="jarvis-audit-smoke-") as temp_state:
@@ -403,6 +483,7 @@ def main() -> int:
         test_path_policy_and_isolation,
         test_chaining_and_append_lifecycle,
         test_tamper_and_corruption_detection,
+        test_truncated_final_line_blocks_append,
         test_cli_interface,
     ]
     print("Running task-0044 audit hash chain smoke tests...")
