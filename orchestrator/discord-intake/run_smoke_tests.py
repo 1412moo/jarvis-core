@@ -169,31 +169,14 @@ def _repository_task_validation_cases() -> list[dict[str, object]]:
     """task-0054: validate the real records under memory/tasks, not a fixture.
 
     task-0052's regression hid behind minimal fixtures with no document body, so
-    this checks the files the approval path actually writes to. Records whose
-    summary quotes a path or hash in backticks stay failing on purpose - that is a
-    content contract violation left to a separate decision, not a boundary bug.
+    this checks the files the approval path actually writes to. Every record has to
+    validate; task-0056 cleared the last exceptions, so there is no allowlist left
+    to hide behind.
     """
 
     from pathlib import Path
 
     from task_file_writer import _transition_metadata
-
-    # These records quote a path or a commit hash inside their summary, and the
-    # value delimiter is the backtick, so the value cannot contain one. That is a
-    # content contract violation, not a boundary bug, and task-0054 deliberately
-    # leaves it to a separate decision (design document section 3.2). Listing them
-    # explicitly keeps this a real contract test: any OTHER record that starts
-    # failing - including a newly written one - fails this suite.
-    KNOWN_BACKTICK_IN_SUMMARY = {
-        "task-0037-gemini-cli-local-dev-environment.md",
-        "task-0039-buzz-integration-phase1-architecture-borrow.md",
-        "task-0041-task-model-append-only-event-log.md",
-        "task-0043-no-secrets-enforcement.md",
-        "task-0045-acp-feasibility-research.md",
-        "task-0048-buzz-bridge-phase2-slice1.md",
-        "task-0049-buzz-bridge-p2-2-p2-3-completion.md",
-        "task-0050-buzz-bridge-p2-4-p2-5-p2-6-completion.md",
-    }
 
     # task-template.md is a template, not a task: its id, timestamps and filename are
     # placeholders (task-####-slug, YYYY-MM-DD), so it can never satisfy the id,
@@ -209,14 +192,14 @@ def _repository_task_validation_cases() -> list[dict[str, object]]:
         if path.name in TEMPLATE_WITH_PLACEHOLDERS:
             continue
         metadata, error = _transition_metadata(path.read_bytes(), path.name)
-        expected_known_failure = path.name in KNOWN_BACKTICK_IN_SUMMARY
+        # task-0056 cleared the last eight exceptions, so every record must now
+        # validate. No allowlist: a record that starts failing - including a newly
+        # written one - fails this suite.
         results.append(
             {
                 "name": "repo_task_validation:" + path.name,
                 "error": error,
-                "passed": (metadata is not None) != expected_known_failure
-                if metadata is None or not expected_known_failure
-                else False,
+                "passed": metadata is not None,
             }
         )
     return results

@@ -4,9 +4,9 @@
 - title: `Phase 2 Buzz Bridge Slice 1 — Jarvis Orchestrator ↔ 로컬 Buzz Relay ↔ Claude CLI Agent 최소 왕복 구현 (provenance 기록)`
 - status: `DONE`
 - repo: `jarvis-core`
-- created_at: `2026-08-29 UTC`
-- updated_at: `2026-08-29 UTC`
-- summary: `이 문서는 commit \`a54316f4956c13fe0710fabd831f6e6d0e1959cb\`("feat(buzz-bridge): add Phase 2 first slice - Claude agent bridge over local Buzz relay")로 이미 origin/main에 병합된 Phase 2 첫 구현 슬라이스의 provenance를 사후 기록한다. 이 커밋은 task 파일 없이 병합되어 이 문서 작성 전까지 memory/tasks/에 대응 기록이 없었다 — 이 문서가 그 공백을 메운다. 이 문서 작성(P2-1) 자체는 문서 전용 작업이며 orchestrator/buzz-bridge/*.js를 포함한 애플리케이션 코드는 전혀 수정하지 않았다.
+- created_at: `2026-08-29 11:49 UTC`
+- updated_at: `2026-08-29 11:49 UTC`
+- summary: `이 문서는 commit a54316f(feat(buzz-bridge): add Phase 2 first slice - Claude agent bridge over local Buzz relay)로 이미 origin/main에 병합된 Phase 2 첫 구현 슬라이스의 provenance를 사후 기록한다. 그 커밋은 task 파일 없이 병합되어 이 문서 작성 전까지 memory/tasks에 대응 기록이 없었고, 이 문서가 그 공백을 메운다. 이 문서 작성(P2-1) 자체는 문서 전용 작업이며 buzz-bridge를 포함한 애플리케이션 코드는 전혀 수정하지 않았다. 전체 원문은 아래 요약(원문) 절에 보존했다.`
 
 구현된 범위(a54316f, orchestrator/buzz-bridge/): (1) **Nostr/Relay client**(lib/nostr.js) — WS 연결, NIP-42 인증, verifyEvent 이중검증, 채널 이름 기반 discover/ensure(findChannelByName/ensureChannel), publish, live subscribe(subscribeLive)/일회성 query(queryOnce), reconnect cursor(nextSinceFilter). (2) **Buzz identity**(lib/identities.js + configs/buzz-agent-identities.json) — jarvis-orchestrator/jarvis-agent-claude 2개 identity, pubkey는 tracked json, privkey는 untracked .env(private_key_env 이름 참조 방식, 이 문서는 .env/deploy/.env 내용을 읽거나 인용하지 않았다). (3) **Claude CLI adapter**(claude_adapter.js) — `--permission-mode plan --restricted --disallowedTools Edit,Write,NotebookEdit,Bash` 하드코딩(설정 불가, `--dangerously-skip-permissions` 계열 부재), stdin으로 프롬프트 전달(argv 특수문자 문제 회피, task-0047 S7에서 발견한 workaround 적용), sandbox cwd(repo 밖 OS temp 디렉터리), 서브프로세스 env 화이트리스트(privkey/DB 비밀번호 등은 목록에 없음). (4) **inbound/outbound bridge**(bridge.js) — passesInboundGate(서명 + 발신자 pubkey(JARVIS_ORCHESTRATOR_PUBKEY) + p-tag 멘션 + jarvis-task/jarvis-run 태그, 4가지 전부 확인) → Claude CLI 호출 → 서명된 응답 발행, 순차 큐(1건씩 처리), self-loop guard, 개별 이벤트 처리 실패가 프로세스를 죽이지 않음. (5) **orchestrator response gate**(orchestrator.js) — passesResponseGate(서명 + e-tag(원본 이벤트 id) + jarvis-run tag + 응답자 pubkey(위임했던 agent) 4가지 전부 확인), 1회성 질문 위임 + timeout 대기 CLI, 실제 task 상태/승인은 소유하지 않음. (6) **오프라인 결정론적 smoke test**(run_smoke_tests.js) — 서명 위조/변조 시나리오를 실제 finalizeEvent로 만든 이벤트로 검증하는 15개 테스트. 이 문서 작성 중 relay/Docker/CLI 없이 재실행하여 15건 전부 PASS 확인했고(추적 파일 변경 없음), 이는 이 문서가 만든 결과가 아니라 a54316f가 이미 갖추고 있던 결정성을 재확인한 것이다. (7) **로컬 전용 배포 스택**(deploy/compose.yml, deploy/.env.example) — relay/postgres/redis/minio 모두 이미지 digest pin, `127.0.0.1`만 바인딩(LAN 노출 방지), headless 전용이라 CORS 설정 불필요(G1 참고, deploy/.env.example 6번째 줄에 이미 명문화됨).
 
@@ -16,3 +16,9 @@
 
 이 문서는 향후 **P2-2**(실제 task-file 연결)와 **P2-3**(승인 경계 회귀 테스트)의 기준점(baseline)으로 쓰인다. P2-2/P2-3 착수, Codex/agy 확장, supervisor 도입은 전부 이 문서 작성과 별개로 Owner의 명시적 승인을 요구하며, **이 문서(P2-1) 작성 자체가 그 어떤 것도 자동으로 승인하지 않는다.** 마찬가지로 이 문서는 Director Dashboard v0.1B 보류 결정에도 영향을 주지 않는다.`
 - source_command: `Owner 직접 지시 (2026-08-29): "P2-1만 실행한다. P2-2/P2-3 코드 변경은 아직 하지 마라... 변경 범위는 정확히 docs/master-plan.md와 memory/tasks/task-0048-buzz-bridge-phase2-slice1.md 두 파일로 제한한다."`
+
+## 요약 (원문)
+
+이 절은 task-0056에서 옮긴 원본 summary 전문이다. summary 필드가 값 구분자인 backtick을 포함했고 일부는 500자 상한도 넘어 canonical 검증에 실패했기 때문이며, 내용은 한 글자도 줄이지 않고 그대로 보존했다.
+
+이 문서는 commit \`a54316f4956c13fe0710fabd831f6e6d0e1959cb\`("feat(buzz-bridge): add Phase 2 first slice - Claude agent bridge over local Buzz relay")로 이미 origin/main에 병합된 Phase 2 첫 구현 슬라이스의 provenance를 사후 기록한다. 이 커밋은 task 파일 없이 병합되어 이 문서 작성 전까지 memory/tasks/에 대응 기록이 없었다 — 이 문서가 그 공백을 메운다. 이 문서 작성(P2-1) 자체는 문서 전용 작업이며 orchestrator/buzz-bridge/*.js를 포함한 애플리케이션 코드는 전혀 수정하지 않았다.

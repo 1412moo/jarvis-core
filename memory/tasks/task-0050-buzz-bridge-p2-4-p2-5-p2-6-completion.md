@@ -4,9 +4,9 @@
 - title: `Discord 승인 경계 강화 P2-4 / 아웃바운드 Buzz 상태 알림 P2-5 / Relay 실통합 검증 P2-6 완료 (provenance 기록)`
 - status: `DONE`
 - repo: `jarvis-core`
-- created_at: `2026-09-03 UTC`
-- updated_at: `2026-09-03 UTC`
-- summary: `이 문서는 \`memory/tasks/task-0049-buzz-bridge-p2-2-p2-3-completion.md\`(P2-2/P2-3, commit \`5cf9930\`/\`11e74e6\`) 이후 진행된 P2-4/P2-5(commit \`b270f63c6b3a1e3727ecdfbd7b75a568654ce030\`)와 P2-6(코드 변경 없는 Relay 실통합 검증)의 provenance를 기록한다. task-0049는 "task-0038 §6의 남은 단계는 전부 미착수"라고 기록했는데 그 이후 ③(승인 게시 흐름)의 아웃바운드 절반이 실제로 구현·검증되었으므로 이 문서가 그 변화를 메운다. task-0048/task-0049의 기존 내용은 수정하지 않았다.
+- created_at: `2026-09-03 00:07 UTC`
+- updated_at: `2026-09-03 00:07 UTC`
+- summary: `이 문서는 task-0049(P2-2/P2-3, commit 5cf9930과 11e74e6) 이후 진행된 P2-4·P2-5(commit b270f63)와 P2-6(코드 변경 없는 Relay 실통합 검증)의 provenance를 기록한다. task-0049는 task-0038 §6의 남은 단계가 전부 미착수라고 기록했는데 그 이후 승인 게시 흐름의 아웃바운드 절반이 실제로 구현·검증되었으므로 이 문서가 그 변화를 메운다. task-0048과 task-0049의 기존 내용은 수정하지 않았다. 전체 원문은 아래 요약(원문) 절에 보존했다.`
 
 **P2-4 완료** — commit \`b270f63\`("feat(discord): Owner-only privileged commands (P2-4) + outbound Buzz status notification (P2-5)"). \`adapters/discord/bot_minimal.py\`의 \`on_message\`에서 \`_run_command(content)\` **호출 직전 한 곳에만** 인가 게이트를 추가했다. 위치가 자연어 분기가 \`content\`를 구체 명령으로 재작성한 **뒤**이므로 NL 경로가 합성한 \`/approve ...\`도 타이핑된 것과 동일하게 게이트된다(\`orchestrator/discord-nl-intent/intent_dispatcher.py\`가 approve_task intent에서 그 문자열을 만들 수 있다). privileged 명령은 \`/approve\`/\`/run\`/\`/retry\`/\`/task\` 4종이며 — \`/approve\`만 막으면 \`/run\`·\`/retry\`가 같은 \`_run_execution_flow\` subprocess 실행에 도달하고 \`/task\`는 파일 생성 권한이므로 Owner가 4종을 동일 권한군으로 확정했다 — read-only 6종(\`/status\`,\`/report\`,\`/help\`,\`/plan\`,\`/review-task\`,\`/retro\`)은 기존대로 개방된다. Owner allowlist는 환경변수 \`JARVIS_OWNER_DISCORD_USER_IDS\`(comma-separated, 숫자 snowflake만 채택)에서 오고, 미설정이거나 유효 id가 하나도 없으면 \`_validate_required_env()\`가 기동을 거부한다(기존 \`DISCORD_BOT_TOKEN\` fail-closed 패턴과 동일). \`_authorize_command\`는 전체를 try/except로 감싸 **allow로 되돌아가는 경로가 존재하지 않으며**, 거부 사유는 일반화된 \`unauthorized\` 하나뿐이라 Owner가 누구인지도 allowlist 설정 여부도 노출하지 않는다. Owner id 값은 로그·에러에 절대 나타나지 않고 환경변수 *이름*만 나타난다. \`_run_command\` 시그니처와 승인 파이프라인(\`_build_approve_draft\`/\`_build_approve_writer_input\`/\`_build_approve_writer_result\`/\`_run_approve_parse\`/\`_apply_task_status_transition\`/\`_run_execution_flow\`)은 무수정이라 경계가 두 곳으로 갈라지지 않는다. \`_run_command\`가 \`str.startswith()\`로 라우팅하므로 첫 토큰이 privileged 이름으로 시작만 해도(\`/approvex\`, \`/taskfoo\`) privileged로 분류해 거부한다. 신규 self-check 8건 추가.
 
@@ -18,3 +18,9 @@
 
 **아직 하지 않은 것 / 이 문서가 승인하지 않는 것** — task-0038 §6 통합 순서 중 ②(\`@jarvis\` 멘션 → 기존 \`intake_parser\` 재사용 → task 이벤트 생성), ④(Reviewer/QA를 별도 키의 Buzz agent로 등록 + git worktree 격리), ⑤(Discord intake 최소 3개월 병행)는 **전부 미착수이며 착수에 별도의 명시적 Owner 결정이 필요하다 — 이 문서는 그 어떤 것도 승인하지 않는다.** ③(승인 게시 흐름)은 아웃바운드 절반만 완료됐고 **Buzz -> Jarvis 인바운드 승인 입력은 Owner가 명시적으로 범위 밖으로 결정**했으므로 ③ 전체가 완료된 것이 아니다. 감사 기록에 승인자 ID를 남기는 작업은 P2-4에서 의도적으로 분리한 별건이며 미착수다(현재 \`_write_execution_review_metadata\`에 행위자 필드가 없어 사후 추적이 불가하다). Codex/agy agent bridge 확장, bridge/relay 프로세스 supervisor 도입, Director Dashboard v0.1B 재개도 마찬가지로 미착수이고 이 문서가 승인하지 않는다. Phase 1 잔여 항목 \`task-0042-role-based-signing-keys\`(역할별 Ed25519 서명키)와 \`task-0044-audit-hash-chain\`(감사 해시체인)은 **여전히 TODO**이며, 두 항목은 §6 착수 승인 없이도 진행 가능한 선택적 잔여 항목이라는 기존 위치를 그대로 유지한다. 특히 task-0042는 §6 ④가 요구하는 "별도 키의 Buzz 에이전트"의 선행조건이라는 점만 사실로 기록해 두되, 그것이 ④ 착수를 승인한다는 뜻은 아니다. 이 문서는 다음 증분의 기준점(baseline)으로 쓰인다.`
 - source_command: `Owner 직접 지시 (2026-09-03): "provenance 보류를 해제한다. 이번 작업은 문서 전용 provenance 동기화로 진행한다 — task-0050 작성 + docs/master-plan.md의 stale 위치 동기화"`
+
+## 요약 (원문)
+
+이 절은 task-0056에서 옮긴 원본 summary 전문이다. summary 필드가 값 구분자인 backtick을 포함했고 일부는 500자 상한도 넘어 canonical 검증에 실패했기 때문이며, 내용은 한 글자도 줄이지 않고 그대로 보존했다.
+
+이 문서는 \`memory/tasks/task-0049-buzz-bridge-p2-2-p2-3-completion.md\`(P2-2/P2-3, commit \`5cf9930\`/\`11e74e6\`) 이후 진행된 P2-4/P2-5(commit \`b270f63c6b3a1e3727ecdfbd7b75a568654ce030\`)와 P2-6(코드 변경 없는 Relay 실통합 검증)의 provenance를 기록한다. task-0049는 "task-0038 §6의 남은 단계는 전부 미착수"라고 기록했는데 그 이후 ③(승인 게시 흐름)의 아웃바운드 절반이 실제로 구현·검증되었으므로 이 문서가 그 변화를 메운다. task-0048/task-0049의 기존 내용은 수정하지 않았다.

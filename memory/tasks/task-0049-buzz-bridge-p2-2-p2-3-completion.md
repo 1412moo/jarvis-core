@@ -4,9 +4,9 @@
 - title: `Phase 2 Buzz Bridge Slice 1 다음 증분 P2-2(task-file 연결)/P2-3(lifecycle parser 충돌 수정) 완료 (provenance 기록)`
 - status: `DONE`
 - repo: `jarvis-core`
-- created_at: `2026-08-29 UTC`
-- updated_at: `2026-08-29 UTC`
-- summary: `이 문서는 \`memory/tasks/task-0048-buzz-bridge-phase2-slice1.md\`(Slice 1, commit \`a54316f\`) 이후 진행된 P2-2와 P2-3의 provenance를 기록한다. task-0048은 스스로 "이 문서는 향후 P2-2/P2-3의 기준점으로 쓰인다"고 명시했고, 그 P2-2/P2-3이 이미 완료됐으므로 이 문서가 그 완료 사실을 별도로 추적한다. task-0048의 기존 내용은 수정하지 않았다.
+- created_at: `2026-08-29 13:04 UTC`
+- updated_at: `2026-08-29 13:04 UTC`
+- summary: `이 문서는 task-0048(Slice 1, commit a54316f) 이후 진행된 P2-2와 P2-3의 provenance를 기록한다. task-0048이 스스로 향후 P2-2/P2-3의 기준점으로 쓰인다고 명시했고 그 둘이 이미 완료됐으므로 이 문서가 완료 사실을 별도로 추적한다. task-0048의 기존 내용은 수정하지 않았다. 전체 원문은 아래 요약(원문) 절에 보존했다.`
 
 **P2-2 완료** — commit \`5cf9930654fc3b398f04d9c5dd89fa72c45d0f23\`("feat(buzz-bridge): P2-2 wire orchestrator.js to real task files"). \`orchestrator.js\`의 \`delegateOneQuestion\`에 optional 3번째 인자 \`realTaskId\`를 추가해, 주어지면 기존 \`memory/tasks/<taskId>.md\`(반드시 사전 존재, 신규 생성 안 함)에 run 상관관계 기록(channel/run_id/outgoing_event_id/status/response_event_id/agent_pubkey/reason)을 \`fs.appendFileSync\`로만 append한다. taskId 미지정 시 기존 placeholder(\`task-buzz-slice-manual\`) 동작과 완전히 동일(하위호환). taskId 형식 검증(\`^task-\\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$\`, path traversal 방어 겸용)과 동일 taskId 동시 실행 방어(OS temp \`wx\` 배타적 lock 파일, 큐잉/재시도 없이 즉시 거부)를 신규 \`lib/task_append.js\`에 구현. \`bridge.js\`/\`claude_adapter.js\`/\`lib/nostr.js\`/\`lib/identities.js\`/\`lib/constants.js\`는 무변경. 오프라인 테스트 24/24 PASS(기존 18 + 신규 6: invalid taskId 거부/path traversal 거부/미존재 task 파일 거부/append가 기존 내용 보존/중복 lock 거부/taskId별 lock 독립성).
 
@@ -16,3 +16,9 @@
 
 **아직 하지 않은 것 / 이 문서가 승인하지 않는 것**: task-0038 §6이 정의한 Phase 2 통합의 남은 단계(② \`@jarvis\` 멘션 → 기존 \`intake_parser\` 재사용 → task 이벤트 생성, ③ 승인 요청을 Buzz 채널에 게시하되 Jarvis가 별도 검증, ④ Reviewer/QA를 별도 키의 Buzz agent로 등록 + git worktree 격리, ⑤ Discord intake 최소 3개월 병행 유지)는 이 문서 작성 시점까지 전부 미착수다. Codex/agy agent bridge, bridge/relay 프로세스 supervisor, Director Dashboard v0.1B 재개도 마찬가지로 미착수다. 이들은 전부 유의미한 scope 확장이며 **이 provenance 기록이 그 어떤 것도 자동으로 승인하지 않는다** — 착수에는 별도의 명시적 Owner 결정이 필요하다. 회귀 재검토에서 "선택적 hardening"으로 제안된 테스트 3건(동시 taskId 통합 테스트, lock 거부 시 relay 미접속 확인, append 실패가 run outcome을 변형하지 않음 검증)도 이 문서 작성으로 추가되지 않았다 — 향후 코드 확장 이전에 필요 여부를 다시 판단한다.`
 - source_command: `Owner 직접 지시 (2026-08-29): "docs/master-plan.md에 남아 있는 P2-2/P2-3 착수 대기 stale 상태를 실제 완료 상태로 동기화하고, memory/tasks/에 P2-2/P2-3의 provenance 기록을 남긴다"`
+
+## 요약 (원문)
+
+이 절은 task-0056에서 옮긴 원본 summary 전문이다. summary 필드가 값 구분자인 backtick을 포함했고 일부는 500자 상한도 넘어 canonical 검증에 실패했기 때문이며, 내용은 한 글자도 줄이지 않고 그대로 보존했다.
+
+이 문서는 \`memory/tasks/task-0048-buzz-bridge-phase2-slice1.md\`(Slice 1, commit \`a54316f\`) 이후 진행된 P2-2와 P2-3의 provenance를 기록한다. task-0048은 스스로 "이 문서는 향후 P2-2/P2-3의 기준점으로 쓰인다"고 명시했고, 그 P2-2/P2-3이 이미 완료됐으므로 이 문서가 그 완료 사실을 별도로 추적한다. task-0048의 기존 내용은 수정하지 않았다.
