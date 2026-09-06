@@ -369,6 +369,91 @@ def _publish_approval_notification(result: dict[str, Any]) -> dict[str, Any] | N
 # rejects owner identity outright (FORBIDDEN_PAYLOAD_KEYS).
 # ---------------------------------------------------------------------------
 AUDIT_APPEND_FAILED = "audit_append_failed"
+# task-0066. One stable code for anything that stops us from reading the chain at
+# all, so the user-facing surface never has to show a path or an OS error.
+AUDIT_CHAIN_UNAVAILABLE = "audit_chain_unavailable"
+# Byte literals the self-check uses to build a torn write and a tampered
+# entry, kept here so the test body carries no escape sequences.
+_SELF_CHECK_EOL_BYTES = bytes([13, 10])
+_SELF_CHECK_DECISION_APPROVE = b'"decision":"approve"'
+_SELF_CHECK_DECISION_REJECT = b'"decision":"reject"'
+
+
+def _audit_chain_state() -> dict[str, Any]:
+    """Read the chain's current state. Creates nothing, changes nothing.
+
+    Read-only by construction: resolve_audit_chain_paths() only resolves and
+    validates a location, and verify_audit_chain() only reads. Neither creates the
+    audit directory - that stays the append path's job. A bot that has never
+    approved anything must leave no audit trace behind it, because manufacturing
+    history is exactly what task-0044 section 9 forbids.
+
+    The shape mirrors verify_audit_chain's own contract so there is one vocabulary,
+    not two: {valid, length, head_hash} when the chain reads cleanly, {valid,
+    reason} when it does not. Only the stable code travels; first_bad_seq, paths
+    and OS errors go to stderr for local diagnosis (task-0044 decision 5).
+    """
+
+    try:
+        paths = resolve_audit_chain_paths()
+    except AuditChainError as exc:
+        print(f"[audit] chain location unavailable: {exc.code} detail={exc.detail}", file=sys.stderr)
+        return {"valid": False, "reason": exc.code}
+    except Exception as exc:  # noqa: BLE001 - reading the chain must never crash the bot
+        print(f"[audit] chain location unavailable: unexpected {type(exc).__name__}", file=sys.stderr)
+        return {"valid": False, "reason": AUDIT_CHAIN_UNAVAILABLE}
+
+    try:
+        result = verify_audit_chain(paths.chain_file)
+    except Exception as exc:  # noqa: BLE001 - same
+        print(f"[audit] chain read failed: unexpected {type(exc).__name__}", file=sys.stderr)
+        return {"valid": False, "reason": AUDIT_CHAIN_UNAVAILABLE}
+
+    if not result.get("valid"):
+        print(
+            f"[audit] chain verification failed: {result.get('reason')} "
+            f"first_bad_seq={result.get('first_bad_seq')} detail={result.get('detail')}",
+            file=sys.stderr,
+        )
+        return {"valid": False, "reason": str(result.get("reason") or AUDIT_CHAIN_UNAVAILABLE)}
+
+    # length 0 covers three different situations - never written, written then
+    # emptied, written then deleted - and verify_audit_chain cannot tell them
+    # apart (task-0065). Report the number as it is rather than calling it "first
+    # boot", which would assert something this function cannot know.
+    return {
+        "valid": True,
+        "length": int(result.get("length") or 0),
+        "head_hash": result.get("head_hash"),
+    }
+
+
+def _report_audit_chain_at_startup() -> dict[str, Any]:
+    """Owner decision (task-0066): warn, never refuse to start.
+
+    Audit corruption must not hold the bot hostage - task-0044 decision 6 settled
+    that shape when it refused a fail-closed retention cap, and refusing to boot is
+    a stronger hostage than that. The read-only commands P2-4 deliberately left
+    open to everyone would die with it, and they are the ones an Owner needs while
+    diagnosing. The approval path protects itself independently: append still fails
+    closed on a corrupt chain, so a damaged chain can never let an unaudited
+    approval through quietly.
+    """
+
+    state = _audit_chain_state()
+    if state.get("valid"):
+        length = state.get("length", 0)
+        if length:
+            print(f"[audit] chain ok: length={length}")
+        else:
+            print("[audit] chain ok: empty (no audit entries recorded yet)")
+    else:
+        print(
+            f"[audit] WARNING: chain verification failed ({state.get('reason')}). "
+            "The bot will start and read-only commands keep working; approvals "
+            "still fail closed. Check /status for the current chain state."
+        )
+    return state
 
 
 def _record_audit_event(record_fn: Any, **fields: Any) -> str | None:
@@ -518,6 +603,10 @@ def _run_status_lookup(command_text: str) -> dict[str, Any]:
         value = execution_metadata.get(key)
         if value:
             payload[key] = value
+    # task-0066 (B). Nested on purpose: the chain is global while everything above
+    # is about one task, and a nested key cannot collide with a task field now or
+    # when a new one is added. Read-only - /status never repairs or rewrites.
+    payload["audit_chain"] = _audit_chain_state()
     return payload
 
 
@@ -1861,6 +1950,18 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         )
         if execution_text:
             reply += f"\n\nexecution:\n{execution_text}"
+        chain = pipeline_result.get("audit_chain")
+        if isinstance(chain, dict):
+            if chain.get("valid"):
+                head = str(chain.get("head_hash") or "")
+                reply += "\n\naudit chain:\n- valid: `true`"
+                reply += f"\n- length: `{chain.get('length', 0)}`"
+                # An empty chain is a normal state, not a failure - say so rather
+                # than leaving the reader to guess what length 0 means.
+                reply += f"\n- head_hash: `{head}`" if head else "\n- note: `empty`"
+            else:
+                reply += "\n\naudit chain:\n- valid: `false`"
+                reply += f"\n- reason: `{chain.get('reason')}`"
         return reply
     if result_type == "not_found":
         return f"⚠️ not found: `{pipeline_result.get('task_id')}`"
@@ -2944,6 +3045,166 @@ def _run_self_check_suite() -> dict[str, Any]:
                 f"chain={chain_state}",
             )
 
+            # --- task-0066: startup chain read is warning-only and read-only ----
+            # The chain here is already isolated to throwaway state by the block
+            # above, so every case below builds on that temp chain and the Owner's
+            # real one is never opened.
+            chain_file = audit_paths.chain_file
+            healthy_bytes = chain_file.read_bytes()
+
+            healthy_state = _audit_chain_state()
+            _record(
+                "audit_state_reports_healthy_chain",
+                healthy_state.get("valid") is True
+                and healthy_state.get("length", 0) > 0
+                and isinstance(healthy_state.get("head_hash"), str),
+                f"state={healthy_state}",
+            )
+
+            # Reading must not create, extend or rewrite anything.
+            _audit_chain_state()
+            _report_audit_chain_at_startup()
+            _record(
+                "audit_state_never_writes_to_chain",
+                chain_file.read_bytes() == healthy_bytes,
+                "bytes unchanged after two reads",
+            )
+
+            # A chain that has never been written is a normal state, not a failure.
+            moved_aside = chain_file.with_suffix(".jsonl.self-check-bak")
+            chain_file.rename(moved_aside)
+            first_boot_state = _audit_chain_state()
+            _record(
+                "audit_state_first_boot_is_valid_and_empty",
+                first_boot_state.get("valid") is True
+                and first_boot_state.get("length") == 0
+                and first_boot_state.get("head_hash") is None,
+                f"state={first_boot_state}",
+            )
+            _record(
+                "audit_state_read_does_not_create_chain_file",
+                not chain_file.exists(),
+                f"exists={chain_file.exists()}",
+            )
+
+            # An existing but empty file reads the same way.
+            chain_file.write_bytes(b"")
+            empty_state = _audit_chain_state()
+            _record(
+                "audit_state_empty_file_is_valid_and_empty",
+                empty_state.get("valid") is True and empty_state.get("length") == 0,
+                f"state={empty_state}",
+            )
+
+            # Tampering: the reported reason is the verifier's stable code, and no
+            # value from the chain rides along with it (decision 5).
+            tampered = healthy_bytes.replace(_SELF_CHECK_DECISION_APPROVE, _SELF_CHECK_DECISION_REJECT, 1)
+            chain_file.write_bytes(tampered)
+            tampered_state = _audit_chain_state()
+            _record(
+                "audit_state_reports_tampered_chain",
+                tampered_state.get("valid") is False
+                and tampered_state.get("reason") == "hash_mismatch"
+                and "length" not in tampered_state
+                and "detail" not in tampered_state
+                and "first_bad_seq" not in tampered_state,
+                f"state={tampered_state}",
+            )
+
+            # A torn final write reports the verifier's own code too (task-0061).
+            chain_file.write_bytes(healthy_bytes.rstrip(_SELF_CHECK_EOL_BYTES))
+            truncated_state = _audit_chain_state()
+            _record(
+                "audit_state_reports_truncated_final_line",
+                truncated_state.get("valid") is False
+                and truncated_state.get("reason") == "missing_trailing_newline",
+                f"state={truncated_state}",
+            )
+
+            # A corrupt chain must not stop the bot: the startup hook returns the
+            # same state instead of raising or exiting.
+            startup_state = _report_audit_chain_at_startup()
+            _record(
+                "audit_startup_warns_without_refusing_to_start",
+                startup_state.get("valid") is False
+                and startup_state.get("reason") == "missing_trailing_newline",
+                f"state={startup_state}",
+            )
+
+            # Every bad JARVIS_LOCAL_STATE_DIR must surface as a stable code, never
+            # as an exception escaping into the startup path.
+            state_dir_now = os.environ.get("JARVIS_LOCAL_STATE_DIR")
+            # THIS_DIR, unlike REPO_ROOT, is not monkeypatched above - and the
+            # store judges "inside the repo" against its own real repo root, not
+            # this module's, so the temp tree would not trip the guard.
+            real_repo_root = THIS_DIR.parent.parent
+            bad_dirs = (
+                ("relative", "relative/state/dir", "local_state_dir_must_be_absolute"),
+                ("inside_repo", str(real_repo_root), "local_state_dir_inside_repo"),
+                ("inside_repo_subdir", str(real_repo_root / "memory"), "local_state_dir_inside_repo"),
+            )
+            bad_dir_results = []
+            for label, value, expected in bad_dirs:
+                os.environ["JARVIS_LOCAL_STATE_DIR"] = value
+                try:
+                    bad_state = _audit_chain_state()
+                finally:
+                    if state_dir_now is None:
+                        os.environ.pop("JARVIS_LOCAL_STATE_DIR", None)
+                    else:
+                        os.environ["JARVIS_LOCAL_STATE_DIR"] = state_dir_now
+                bad_dir_results.append(
+                    (label, bad_state.get("valid") is False and bad_state.get("reason") == expected, bad_state)
+                )
+            _record(
+                "audit_state_bad_state_dir_returns_stable_code",
+                all(ok for _, ok, _ in bad_dir_results),
+                f"results={bad_dir_results}",
+            )
+
+            chain_file.write_bytes(healthy_bytes)
+            moved_aside.unlink(missing_ok=True)
+
+            # /status carries the chain state without disturbing the task fields.
+            status_with_chain = _run_status_lookup(f"/status {task_id_success}")
+            chain_in_status = status_with_chain.get("audit_chain")
+            _record(
+                "status_reports_valid_audit_chain",
+                isinstance(chain_in_status, dict)
+                and chain_in_status.get("valid") is True
+                and chain_in_status.get("length", 0) > 0
+                and status_with_chain.get("id") == task_id_success
+                and status_with_chain.get("execution_status") == "success",
+                f"audit_chain={chain_in_status}",
+            )
+            _record(
+                "status_reply_shows_audit_chain",
+                "audit chain:" in _format_reply(status_with_chain),
+                f"reply={_format_reply(status_with_chain)}",
+            )
+
+            chain_file.write_bytes(tampered)
+            status_corrupt = _run_status_lookup(f"/status {task_id_success}")
+            corrupt_in_status = status_corrupt.get("audit_chain")
+            _record(
+                "status_reports_corrupt_audit_chain",
+                isinstance(corrupt_in_status, dict)
+                and corrupt_in_status.get("valid") is False
+                and corrupt_in_status.get("reason") == "hash_mismatch"
+                and status_corrupt.get("id") == task_id_success,
+                f"audit_chain={corrupt_in_status}",
+            )
+            chain_file.write_bytes(healthy_bytes)
+
+            # /status must not repair, extend or rewrite the chain.
+            before_status_bytes = chain_file.read_bytes()
+            _run_status_lookup(f"/status {task_id_success}")
+            _record(
+                "status_never_writes_to_chain",
+                chain_file.read_bytes() == before_status_bytes,
+                "bytes unchanged after /status",
+            )
+
             # --- decision 5-b: a rejection must not reach the execution flow ----
             task_id_no_exec = "task-0021-self-check"
             _write_task(task_id_no_exec, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
@@ -3197,6 +3458,12 @@ def main() -> None:
     if not is_valid:
         print(json.dumps(_error_payload(str(reason)), ensure_ascii=False))
         raise SystemExit(2)
+
+    # task-0066 (A). Read-only, and deliberately NOT inside _validate_required_env:
+    # that function's contract is "refuse to start", and the Owner decided audit
+    # damage is not a reason to refuse. Keeping it separate also lets the policy
+    # change later without moving the call.
+    _report_audit_chain_at_startup()
 
     try:
         asyncio.run(_start_discord_bot())
