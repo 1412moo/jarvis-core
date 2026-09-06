@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 from datetime import UTC, datetime
 import hashlib
 import json
@@ -53,6 +54,7 @@ from intake_parser import parse_intake
 from task_draft_builder import build_task_draft
 from task_file_writer import (
     TASK_STATUS_TRANSITIONS,
+    record_task_execution_result,
     transition_task_file_status,
     write_task_file,
 )
@@ -1172,57 +1174,6 @@ def _header_block_end(lines: list[str]) -> int:
     return end
 
 
-def _write_execution_review_metadata(
-    task_id: str,
-    execution_result: dict[str, Any],
-    execution_candidate: dict[str, Any] | None = None,
-    execution_request: dict[str, Any] | None = None,
-) -> tuple[bool, str]:
-    task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
-    if not task_file.exists() or not task_file.is_file():
-        return False, "task_not_found"
-
-    values_by_key = _execution_metadata_values(
-        execution_result, execution_candidate, execution_request
-    )
-
-    task_text = task_file.read_text(encoding="utf-8")
-    has_trailing_newline = task_text.endswith("\n")
-    lines = task_text.splitlines()
-
-    # Existing fields are still searched across the whole file, not just the header.
-    # A file written before this change may hold a copy below its body, and
-    # inserting a second one in the header would make the task file fail validation
-    # with task_file_duplicate_metadata.
-    existing_indexes: dict[str, int] = {}
-    for idx, line in enumerate(lines):
-        matched = TASK_META_LINE_PATTERN.match(line.strip())
-        if not matched:
-            continue
-        key, _ = matched.groups()
-        if key in TASK_EXECUTION_REVIEW_FIELDS:
-            existing_indexes[key] = idx
-
-    inserted: list[str] = []
-    for key in TASK_EXECUTION_REVIEW_FIELDS:
-        new_line = f"- {key}: `{values_by_key[key]}`"
-        if key in existing_indexes:
-            lines[existing_indexes[key]] = new_line
-        else:
-            inserted.append(new_line)
-    if inserted:
-        lines[_header_block_end(lines) : _header_block_end(lines)] = inserted
-
-    new_text = "\n".join(lines)
-    if has_trailing_newline:
-        new_text += "\n"
-    try:
-        task_file.write_text(new_text, encoding="utf-8")
-    except OSError:
-        return False, "write_failed"
-    return True, ""
-
-
 def _build_execution_candidate(task_id: str) -> dict[str, Any] | None:
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
     if not task_file.exists() or not task_file.is_file():
@@ -1280,9 +1231,9 @@ def _run_execution_flow(task_id: str, source: str) -> dict[str, Any]:
         execution_request["source"] = source
         execution_result_dry_run = _build_execution_result_dry_run(execution_request)
         execution_result = _build_execution_result_real(execution_request)
-        _write_execution_review_metadata(task_id, execution_result, execution_candidate, execution_request)
-        execution_status_transition_applied, execution_status_transition_reason = _apply_execution_result_status_transition(
-            task_id, execution_result
+        # task-0055 (U2): metadata and the resulting transition are one atomic write.
+        execution_status_transition_applied, execution_status_transition_reason = _apply_execution_result(
+            task_id, execution_result, execution_candidate, execution_request
         )
     # task-0052 E2. One hook, inside the flow - NOT at the three call sites. /approve,
     # /run and /retry all pass through here, and a fourth caller added later is covered
@@ -1538,23 +1489,73 @@ def _build_execution_result_real(execution_request: dict[str, Any]) -> dict[str,
     }
 
 
-def _apply_execution_result_status_transition(task_id: str, execution_result: dict[str, Any] | None) -> tuple[bool, str]:
+def _apply_execution_result(
+    task_id: str,
+    execution_result: dict[str, Any],
+    execution_candidate: dict[str, Any] | None,
+    execution_request: dict[str, Any] | None,
+) -> tuple[bool, str]:
+    """Record the execution metadata and its status transition in one atomic write.
+
+    task-0055 (U2). These were two writes - a bare write_text() for the metadata and
+    a durable transition after it - and being interrupted between them left the file
+    claiming a finished execution on an unfinished task: execution_status "success"
+    with the task still DOING, which a completed flow cannot produce and which
+    nothing detects, because such a file validates fine. One replace, or nothing.
+
+    Returns the (applied, reason) pair the caller already expected, where applied
+    refers to the status transition. Writing metadata without a transition is a
+    success here, not a failure: an execution that never ran has nothing to
+    transition to, and its metadata still has to be recorded.
+    """
+
     if not isinstance(execution_result, dict):
         return False, "execution_result_missing"
 
     executed = execution_result.get("executed")
     success = execution_result.get("success")
-    if not isinstance(executed, bool):
-        return False, "execution_executed_not_boolean"
-    if not executed:
-        return False, "execution_not_executed"
-    if not isinstance(success, bool):
-        return False, "execution_success_not_boolean"
 
-    transition_to = "DONE" if success else "FAILED"
-    applied, reason = _apply_task_status_transition(task_id, "DOING", transition_to)
-    if not applied:
-        return False, f"transition_not_applied:{reason}"
+    transition: tuple[str, str] | None = None
+    reason = ""
+    if not isinstance(executed, bool):
+        reason = "execution_executed_not_boolean"
+    elif not executed:
+        reason = "execution_not_executed"
+    elif not isinstance(success, bool):
+        reason = "execution_success_not_boolean"
+    else:
+        transition = ("DOING", "DONE" if success else "FAILED")
+
+    tasks_dir = REPO_ROOT / "memory" / "tasks"
+    task_file = tasks_dir / f"{task_id}.md"
+    if not task_file.exists() or not task_file.is_file():
+        return False, "task_not_found"
+    try:
+        original = task_file.read_bytes()
+    except OSError:
+        return False, "write_failed"
+
+    result = record_task_execution_result(
+        tasks_dir=tasks_dir,
+        task_id=task_id,
+        expected_digest=hashlib.sha256(original).hexdigest(),
+        execution_fields=_execution_metadata_values(
+            execution_result, execution_candidate, execution_request
+        ),
+        planned_updated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        current_status=transition[0] if transition else None,
+        target_status=transition[1] if transition else None,
+    )
+
+    if result.result_type != "recorded":
+        # The write is atomic, so nothing was written. Report against the existing
+        # vocabulary; the writer's own reason is investigation detail.
+        if transition is None:
+            return False, reason or "execution_result_missing"
+        return False, f"transition_not_applied:{'status_mismatch' if result.result_type == 'stale' else 'write_failed'}"
+
+    if transition is None:
+        return False, reason
     return True, ""
 
 
@@ -2487,17 +2488,23 @@ def _run_self_check_suite() -> dict[str, Any]:
 
             task_id_transition_fail = "task-0007-self-check"
             _write_task(task_id_transition_fail, "NEEDS_APPROVAL", "2026-04-01 00:00 UTC", title="run demo", summary="self-check summary")
-            original_apply_task_status_transition = _apply_task_status_transition
-            try:
-                def _patched_apply_status_transition(task_id: str, transition_from: str, transition_to: str) -> tuple[bool, str]:
-                    if transition_from == "DOING":
-                        return False, "write_failed"
-                    return original_apply_task_status_transition(task_id, transition_from, transition_to)
+            # task-0055 moved this injection point. The execution-result transition no
+            # longer goes through _apply_task_status_transition; it is part of the
+            # single atomic write, so the failure is injected at that write's replace
+            # seam instead. The assertion is unchanged: a failed execution-result
+            # transition must not turn a successful approval into a failure.
+            original_record_execution = record_task_execution_result
 
-                globals()["_apply_task_status_transition"] = _patched_apply_status_transition
+            def _failing_replace(_temp: Path, _target: Path) -> None:
+                raise OSError("injected replace failure")
+
+            try:
+                globals()["record_task_execution_result"] = functools.partial(
+                    original_record_execution, _replace_file=_failing_replace
+                )
                 transition_fail_result = _run_approve_parse(f"/approve {task_id_transition_fail} approve")
             finally:
-                globals()["_apply_task_status_transition"] = original_apply_task_status_transition
+                globals()["record_task_execution_result"] = original_record_execution
             transition_fail_status_after = _run_status_lookup(f"/status {task_id_transition_fail}")
             execution_status_transition_failure_non_blocking_ok = (
                 transition_fail_result.get("result_type") == "approve_file_write_result"

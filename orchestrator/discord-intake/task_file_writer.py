@@ -562,6 +562,115 @@ def _replace_transition_file(temp_path: Path, target_path: Path) -> None:
     os.replace(temp_path, target_path)
 
 
+def _atomically_replace_task_file(
+    *,
+    target_path: Path,
+    updated: bytes,
+    expected_digest: str,
+    temp_suffix: str,
+    open_temp_file: Callable[[Path], BinaryIO],
+    replace_file: Callable[[Path, Path], None],
+    fsync_file: Callable[[int], None],
+    temp_token_factory: Callable[[], str],
+    before_final_check: Callable[[Path], None] | None = None,
+) -> tuple[bool, str | None]:
+    """Write `updated` over `target_path` atomically, or leave the file untouched.
+
+    task-0055: extracted from transition_task_file_status() and
+    record_task_completion_evidence(), which carried the same 78 and 91 line tail at
+    73% similarity - the differences were the temp suffix, the result type and the
+    reason prefix. A third copy was about to appear for the execution-result writer,
+    and three copies of a durability primitive drift; the drifting copy is the one
+    nobody notices.
+
+    Returns (True, None) on success, or (False, key) where key is one of
+    "temp_create_failed", "temp_allocation_failed", "write_failed", "flush_failed",
+    "fsync_failed", "close_failed", "replace_failed" or "stale". Callers add their
+    own prefix, so their reason codes are unchanged.
+
+    One behaviour is deliberately levelled up rather than preserved twice over:
+    record_task_completion_evidence() checked for a short write and
+    transition_task_file_status() did not. The helper keeps the check, so the
+    transition path gains it. That is a strengthening, not a regression, and it is
+    called out here rather than buried.
+    """
+
+    temp_path: Path | None = None
+    temp_file: BinaryIO | None = None
+    for _ in range(8):
+        token = str(temp_token_factory())
+        if not re.fullmatch(r"[a-f0-9]{16,64}", token):
+            continue
+        candidate_path = target_path.parent / f".{target_path.name}.{token}.{temp_suffix}.tmp"
+        try:
+            temp_file = open_temp_file(candidate_path)
+        except FileExistsError:
+            continue
+        except OSError:
+            return False, "temp_create_failed"
+        temp_path = candidate_path
+        break
+    if temp_path is None or temp_file is None:
+        return False, "temp_allocation_failed"
+
+    failure_reason: str | None = None
+    try:
+        try:
+            written = temp_file.write(updated)
+            if written != len(updated):
+                failure_reason = "write_failed"
+        except (OSError, UnicodeError):
+            failure_reason = "write_failed"
+        if failure_reason is None:
+            try:
+                temp_file.flush()
+            except OSError:
+                failure_reason = "flush_failed"
+        if failure_reason is None:
+            try:
+                fsync_file(temp_file.fileno())
+            except OSError:
+                failure_reason = "fsync_failed"
+        try:
+            temp_file.close()
+        except OSError:
+            failure_reason = failure_reason or "close_failed"
+        if failure_reason is not None:
+            return False, failure_reason
+
+        if before_final_check is not None:
+            before_final_check(target_path)
+        # The digest is compared once more here, immediately before the replace, so a
+        # file changed since the caller read it is never overwritten.
+        try:
+            final_original = target_path.read_bytes()
+        except OSError:
+            return False, "stale"
+        if not hmac.compare_digest(
+            hashlib.sha256(final_original).hexdigest(),
+            expected_digest,
+        ):
+            return False, "stale"
+        try:
+            replace_file(temp_path, target_path)
+        except OSError:
+            return False, "replace_failed"
+        temp_path = None
+    finally:
+        try:
+            if temp_file is not None and not temp_file.closed:
+                temp_file.close()
+        except OSError:
+            pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    return True, None
+
+
 def transition_task_file_status(
     *,
     tasks_dir: Path,
@@ -634,80 +743,248 @@ def transition_task_file_status(
         count=1,
     )
 
-    temp_path: Path | None = None
-    temp_file: BinaryIO | None = None
-    for _ in range(8):
-        token = str(_temp_token_factory())
-        if not re.fullmatch(r"[a-f0-9]{16,64}", token):
-            continue
-        candidate_path = target_path.parent / f".{target_path.name}.{token}.transition.tmp"
-        try:
-            temp_file = _open_temp_file(candidate_path)
-        except FileExistsError:
-            continue
-        except OSError:
-            return TaskStatusTransitionResult("error", "task_transition_temp_create_failed")
-        temp_path = candidate_path
-        break
-    if temp_path is None or temp_file is None:
-        return TaskStatusTransitionResult("error", "task_transition_temp_allocation_failed")
-
-    failure_reason: str | None = None
-    try:
-        try:
-            temp_file.write(updated)
-        except (OSError, UnicodeError):
-            failure_reason = "task_transition_write_failed"
-        if failure_reason is None:
-            try:
-                temp_file.flush()
-            except OSError:
-                failure_reason = "task_transition_flush_failed"
-        if failure_reason is None:
-            try:
-                _fsync_file(temp_file.fileno())
-            except OSError:
-                failure_reason = "task_transition_fsync_failed"
-        try:
-            temp_file.close()
-        except OSError:
-            failure_reason = failure_reason or "task_transition_close_failed"
-        if failure_reason is not None:
-            return TaskStatusTransitionResult("error", failure_reason)
-
-        if _before_final_check is not None:
-            _before_final_check(target_path)
-        try:
-            final_original = target_path.read_bytes()
-        except OSError:
+    ok, failure = _atomically_replace_task_file(
+        target_path=target_path,
+        updated=updated,
+        expected_digest=expected_digest,
+        temp_suffix="transition",
+        open_temp_file=_open_temp_file,
+        replace_file=_replace_file,
+        fsync_file=_fsync_file,
+        temp_token_factory=_temp_token_factory,
+        before_final_check=_before_final_check,
+    )
+    if not ok:
+        if failure == "stale":
             return TaskStatusTransitionResult("stale", "task_changed_since_preview")
-        if not hmac.compare_digest(
-            hashlib.sha256(final_original).hexdigest(),
-            expected_digest,
-        ):
-            return TaskStatusTransitionResult("stale", "task_changed_since_preview")
-        try:
-            _replace_file(temp_path, target_path)
-        except OSError:
-            return TaskStatusTransitionResult("error", "task_transition_replace_failed")
-        temp_path = None
-    finally:
-        try:
-            if temp_file is not None and not temp_file.closed:
-                temp_file.close()
-        except OSError:
-            pass
-        if temp_path is not None:
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+        return TaskStatusTransitionResult("error", f"task_transition_{failure}")
 
     return TaskStatusTransitionResult(
         "updated",
         task_id=task_id,
         previous_status=current_status,
         current_status=target_status,
+        updated_at=planned_updated_at,
+        file_path=str(target_path),
+    )
+
+
+@dataclass(frozen=True)
+class TaskExecutionResultWriteResult:
+    result_type: str
+    reason: str | None = None
+    task_id: str | None = None
+    previous_status: str | None = None
+    current_status: str | None = None
+    updated_at: str | None = None
+    file_path: str | None = None
+
+
+TASK_EXECUTION_METADATA_FIELDS = (
+    "execution_candidate",
+    "execution_request",
+    "execution_result",
+    "executed",
+    "success",
+    "dry_run",
+    "execution_updated_at",
+    "execution_summary",
+)
+
+
+def _execution_field_line_pattern(field_name: str) -> re.Pattern[bytes]:
+    return re.compile(
+        rb"(?m)^- " + re.escape(field_name.encode("ascii")) + rb": `[^`\r\n]*`(?=\r?$)"
+    )
+
+
+def _execution_header_block_end(raw: bytes) -> int:
+    """Byte offset just past the metadata header block.
+
+    Mirrors _transition_metadata()'s boundary from task-0054: indented lines
+    continue the field above them, the block opens at the first column-0 field and
+    closes at the first column-0 line that is not one. Execution fields belong
+    inside it, because outside it they are invisible to the validator while still
+    visible to /status - the asymmetry task-0053 closed.
+    """
+
+    offset = 0
+    started = False
+    end = len(raw)
+    for line in raw.splitlines(keepends=True):
+        stripped = line.rstrip(b"\r\n")
+        if stripped[:1].isspace():
+            offset += len(line)
+            continue
+        if not started:
+            if not stripped.startswith(b"- "):
+                offset += len(line)
+                continue
+            started = True
+        elif not stripped.startswith(b"- "):
+            return offset
+        offset += len(line)
+        end = offset
+    return end
+
+
+def record_task_execution_result(
+    *,
+    tasks_dir: Path,
+    task_id: str,
+    expected_digest: str,
+    execution_fields: Mapping[str, str],
+    planned_updated_at: str,
+    current_status: str | None = None,
+    target_status: str | None = None,
+    _open_temp_file: Callable[[Path], BinaryIO] = _open_transition_temp_file,
+    _replace_file: Callable[[Path, Path], None] = _replace_transition_file,
+    _fsync_file: Callable[[int], None] = os.fsync,
+    _temp_token_factory: Callable[[], str] = lambda: secrets.token_hex(8),
+    _before_final_check: Callable[[Path], None] | None = None,
+) -> TaskExecutionResultWriteResult:
+    """Write the execution metadata and, optionally, the resulting status in one replace.
+
+    task-0055 (U2). These used to be two writes: a bare write_text() for the metadata
+    and a durable transition after it. Interrupted between them, the file kept a
+    finished execution beside an unfinished task - measured as execution_status
+    "success" while the task still read DOING, a combination a completed flow cannot
+    produce and which nothing detects, because the file validates fine.
+
+    target_status is optional on purpose. An execution that never ran - a target that
+    is not whitelisted, say - writes its metadata and performs no transition, and
+    that pairing (execution_status "not_executed" with the task still DOING) is
+    correct rather than broken. Forcing a transition here would break the ordinary
+    case in order to fix the rare one.
+
+    The whole file is validated before the write, and the execution values are
+    validated too, because unlike a status enum they arrive from subprocess output.
+    Nothing about the canonical rules is relaxed to let them through.
+    """
+
+    if not TASK_FILE_PATTERN.fullmatch(f"{task_id}.md"):
+        return TaskExecutionResultWriteResult("hold", "invalid_task_id")
+    if not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
+        return TaskExecutionResultWriteResult("hold", "invalid_expected_digest")
+    if (target_status is None) != (current_status is None):
+        return TaskExecutionResultWriteResult("hold", "invalid_transition_pair")
+    if target_status is not None and (current_status, target_status) not in TASK_STATUS_TRANSITIONS:
+        return TaskExecutionResultWriteResult("hold", "invalid_task_transition")
+    try:
+        parsed_time = datetime.strptime(planned_updated_at, TASK_TIMESTAMP_FORMAT)
+    except ValueError:
+        return TaskExecutionResultWriteResult("hold", "invalid_planned_updated_at")
+    if parsed_time.strftime(TASK_TIMESTAMP_FORMAT) != planned_updated_at:
+        return TaskExecutionResultWriteResult("hold", "invalid_planned_updated_at")
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return TaskExecutionResultWriteResult("error", "tasks_dir_not_found")
+
+    resolved_tasks_dir = tasks_dir.resolve()
+    target_path = (tasks_dir / f"{task_id}.md").resolve()
+    if target_path.parent != resolved_tasks_dir:
+        return TaskExecutionResultWriteResult("hold", "task_path_not_direct_child")
+
+    unknown = [name for name in execution_fields if name not in TASK_EXECUTION_METADATA_FIELDS]
+    if unknown:
+        return TaskExecutionResultWriteResult("hold", "unsupported_execution_field")
+
+    try:
+        original = target_path.read_bytes()
+    except OSError:
+        return TaskExecutionResultWriteResult("stale", "task_changed_since_preview")
+    if not hmac.compare_digest(hashlib.sha256(original).hexdigest(), expected_digest):
+        return TaskExecutionResultWriteResult("stale", "task_changed_since_preview")
+
+    metadata, metadata_error = _transition_metadata(original, target_path.name)
+    if metadata is None:
+        return TaskExecutionResultWriteResult("hold", metadata_error)
+    if metadata["id"] != task_id:
+        return TaskExecutionResultWriteResult("hold", "task_id_path_mismatch")
+    if current_status is not None and metadata["status"] != current_status:
+        return TaskExecutionResultWriteResult("stale", "task_changed_since_preview")
+
+    # Validate the values before writing them. transition_task_file_status can skip
+    # this because a status enum and a timestamp are already checked by the time it
+    # runs; an execution summary is whatever the subprocess printed.
+    for field_name, value in execution_fields.items():
+        if field_name in TASK_OPTIONAL_BOOLEAN_METADATA:
+            if value not in {"true", "false"}:
+                return TaskExecutionResultWriteResult("hold", "task_file_invalid_text")
+            continue
+        if field_name in TASK_OPTIONAL_TIMESTAMP_METADATA:
+            if not _transition_timestamp_is_valid(value):
+                return TaskExecutionResultWriteResult("hold", "task_file_invalid_updated_at")
+            continue
+        valid, reason = _transition_text_is_valid(value, max_chars=500, allow_empty=False)
+        if not valid:
+            return TaskExecutionResultWriteResult("hold", reason)
+
+    updated = original
+    insertions: list[bytes] = []
+    for field_name in TASK_EXECUTION_METADATA_FIELDS:
+        if field_name not in execution_fields:
+            continue
+        line = f"- {field_name}: `{execution_fields[field_name]}`".encode("utf-8")
+        pattern = _execution_field_line_pattern(field_name)
+        matches = pattern.findall(updated)
+        if len(matches) > 1:
+            return TaskExecutionResultWriteResult("hold", "task_file_duplicate_metadata")
+        if matches:
+            # Replace wherever it already sits, including below the body in a file
+            # written before task-0053 moved the insertion point. Inserting a second
+            # copy in the header would make the file fail validation outright.
+            updated = pattern.sub(line, updated, count=1)
+        else:
+            insertions.append(line)
+
+    if insertions:
+        eol = b"\r\n" if b"\r\n" in original else b"\n"
+        block = b"".join(insertion + eol for insertion in insertions)
+        end = _execution_header_block_end(updated)
+        updated = updated[:end] + block + updated[end:]
+
+    if target_status is not None:
+        status_pattern = re.compile(rb"(?m)^- status: `[^`\r\n]*`(?=\r?$)")
+        if len(status_pattern.findall(updated)) != 1:
+            return TaskExecutionResultWriteResult("hold", "task_file_invalid_status_metadata")
+        updated = status_pattern.sub(
+            f"- status: `{target_status}`".encode("ascii"), updated, count=1
+        )
+
+    updated_pattern = re.compile(rb"(?m)^- updated_at: `[^`\r\n]*`(?=\r?$)")
+    if len(updated_pattern.findall(updated)) != 1:
+        return TaskExecutionResultWriteResult("hold", "task_file_invalid_updated_at_metadata")
+    updated = updated_pattern.sub(
+        f"- updated_at: `{planned_updated_at}`".encode("ascii"), updated, count=1
+    )
+
+    # The result must satisfy the same validator the original did - the write is
+    # atomic, so a file that would not validate must never reach disk.
+    result_metadata, result_error = _transition_metadata(updated, target_path.name)
+    if result_metadata is None:
+        return TaskExecutionResultWriteResult("hold", result_error)
+
+    ok, failure = _atomically_replace_task_file(
+        target_path=target_path,
+        updated=updated,
+        expected_digest=expected_digest,
+        temp_suffix="execution",
+        open_temp_file=_open_temp_file,
+        replace_file=_replace_file,
+        fsync_file=_fsync_file,
+        temp_token_factory=_temp_token_factory,
+        before_final_check=_before_final_check,
+    )
+    if not ok:
+        if failure == "stale":
+            return TaskExecutionResultWriteResult("stale", "task_changed_since_preview")
+        return TaskExecutionResultWriteResult("error", f"task_execution_{failure}")
+
+    return TaskExecutionResultWriteResult(
+        "recorded",
+        task_id=task_id,
+        previous_status=current_status or metadata["status"],
+        current_status=target_status or metadata["status"],
         updated_at=planned_updated_at,
         file_path=str(target_path),
     )
@@ -817,86 +1094,21 @@ def record_task_completion_evidence(
         count=1,
     )
 
-    temp_path: Path | None = None
-    temp_file: BinaryIO | None = None
-    for _ in range(8):
-        token = str(_temp_token_factory())
-        if not re.fullmatch(r"[a-f0-9]{16,64}", token):
-            continue
-        candidate_path = target_path.parent / f".{target_path.name}.{token}.evidence.tmp"
-        try:
-            temp_file = _open_temp_file(candidate_path)
-        except FileExistsError:
-            continue
-        except OSError:
-            return CompletionEvidenceWriteResult(
-                "error", "completion_evidence_temp_create_failed"
-            )
-        temp_path = candidate_path
-        break
-    if temp_path is None or temp_file is None:
-        return CompletionEvidenceWriteResult(
-            "error", "completion_evidence_temp_allocation_failed"
-        )
-
-    failure_reason: str | None = None
-    try:
-        try:
-            written = temp_file.write(updated)
-            if written != len(updated):
-                failure_reason = "completion_evidence_write_failed"
-        except (OSError, UnicodeError):
-            failure_reason = "completion_evidence_write_failed"
-        if failure_reason is None:
-            try:
-                temp_file.flush()
-            except OSError:
-                failure_reason = "completion_evidence_flush_failed"
-        if failure_reason is None:
-            try:
-                _fsync_file(temp_file.fileno())
-            except OSError:
-                failure_reason = "completion_evidence_fsync_failed"
-        try:
-            temp_file.close()
-        except OSError:
-            failure_reason = failure_reason or "completion_evidence_close_failed"
-        if failure_reason is not None:
-            return CompletionEvidenceWriteResult("error", failure_reason)
-
-        if _before_final_check is not None:
-            _before_final_check(target_path)
-        try:
-            final_original = target_path.read_bytes()
-        except OSError:
-            return CompletionEvidenceWriteResult(
-                "stale", "task_changed_since_preview"
-            )
-        if not hmac.compare_digest(
-            hashlib.sha256(final_original).hexdigest(),
-            expected_digest,
-        ):
-            return CompletionEvidenceWriteResult(
-                "stale", "task_changed_since_preview"
-            )
-        try:
-            _replace_file(temp_path, target_path)
-        except OSError:
-            return CompletionEvidenceWriteResult(
-                "error", "completion_evidence_replace_failed"
-            )
-        temp_path = None
-    finally:
-        try:
-            if temp_file is not None and not temp_file.closed:
-                temp_file.close()
-        except OSError:
-            pass
-        if temp_path is not None:
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+    ok, failure = _atomically_replace_task_file(
+        target_path=target_path,
+        updated=updated,
+        expected_digest=expected_digest,
+        temp_suffix="evidence",
+        open_temp_file=_open_temp_file,
+        replace_file=_replace_file,
+        fsync_file=_fsync_file,
+        temp_token_factory=_temp_token_factory,
+        before_final_check=_before_final_check,
+    )
+    if not ok:
+        if failure == "stale":
+            return CompletionEvidenceWriteResult("stale", "task_changed_since_preview")
+        return CompletionEvidenceWriteResult("error", f"completion_evidence_{failure}")
 
     return CompletionEvidenceWriteResult(
         "recorded",
