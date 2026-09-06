@@ -132,6 +132,36 @@ task 파일에 쓰는 경로가 **최소 5개** 존재하고, 내구성이 서�
 
 C~F는 **2차 이후**로 미룬다. G는 task-0041 소관이며 §7에서 관계를 정리한다.
 
+### 3.3 콘솔의 상태 전이는 A가 아니라 G다
+
+> 이 절은 task-0064에서 추가됐다. 새 결정을 담지 않는다 — §3.1의 분류를
+> `apps/jarvis-console/run_web_app.py`에 적용한 결과를 한곳에 적어 둘 뿐이다.
+
+콘솔도 task 파일의 `status`를 바꾼다(§2.2의 경로 #2). 그래서 "승인 경로인데 감사 기록이
+없다"로 읽히기 쉽지만, §3.1 기준으로는 **A가 아니라 G**다.
+
+| | 봇 `/approve` | 콘솔 transition |
+| --- | --- | --- |
+| 수행 전이 | `NEEDS_APPROVAL → DOING` / `→ FAILED` | `TODO → DOING` / `DOING → DONE` |
+| §3.1 분류 | **A** — "`/approve`로 인한 상태 전이" | **G** — task 상태 전이 일반 |
+| 감사 kind | `owner_approval` | 없음 |
+
+A의 정의가 `/approve`로 한정돼 있고, 콘솔은 `NEEDS_APPROVAL`을 **출발 상태로도 도착
+상태로도 갖지 않는다** — `TASK_TRANSITION_ACTIONS`가 `start`(`TODO → DOING`)와
+`complete`(`DOING → DONE`) 둘뿐이다. 즉 콘솔에서는 승인성 전이가 발생할 수 없다.
+
+G는 §7.1이 정리한 대로 task-0041 소관이고, task-0041은 Owner 결정 ③으로 구현이 보류
+중이다("실제 이벤트 append 함수/마이그레이션 구현은 보류"). **따라서 콘솔 전이가 체인에
+없는 것은 누락이 아니라 현행 설계상 의도된 범위다.**
+
+콘솔의 `Record Completion Evidence`는 여기에 섞지 않는다. `completion_evidence` 필드를
+덧붙일 뿐 `status`를 바꾸지 않으므로(`docs/task-model.md` §11) 상태 전이가 아니고, 따라서
+감사 범위 논의의 대상도 아니다.
+
+이 절은 **결정 2(A+B 한정, §10)를 재개방하지 않는다.** 일반 task 전이까지 감사 대상으로
+넓히려면 결정 2와 `ALLOWED_KINDS`를 함께 여는 별도 Owner 설계 결정이 필요하며, 그 판단은
+이 문서의 범위 밖이다.
+
 ## 4. 체인 스키마
 
 ### 4.1 레코드
