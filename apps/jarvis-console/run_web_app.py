@@ -5081,8 +5081,8 @@ def run_self_test() -> None:
     registry = load_registry()
     assert registry["read_only"] is True
     assert "jarvis.bat" in registry["protected_paths"]
-    assert len(registry["skills"]) == 6
-    assert len({skill["skill_id"] for skill in registry["skills"]}) == 6
+    assert len(registry["skills"]) == 5
+    assert len({skill["skill_id"] for skill in registry["skills"]}) == 5
     for skill in registry["skills"]:
         assert REQUIRED_SKILL_FIELDS.issubset(skill)
         assert skill["status"] in ALLOWED_STATUSES
@@ -5181,7 +5181,7 @@ def run_self_test() -> None:
     assert suggest_skill("idea MVP validation")["recommended_skill"] == "research_council"
     assert suggest_skill("Codex commit review")["recommended_skill"] == "hermes_manager"
     assert suggest_skill("MCP Agent Skills new technology")["recommended_skill"] == "daily_ai_radar"
-    assert suggest_skill("remember this repeated workflow as a skill")["recommended_skill"] == "memory_skills"
+    assert suggest_skill("remember this repeated workflow as a skill")["recommended_skill"] == "unknown"
     assert suggest_skill("make this better somehow")["recommended_skill"] == "unknown"
     assert suggest_skill("\uc544\uc774\ub514\uc5b4 MVP \uac80\uc99d")["recommended_skill"] == "research_council"
     assert suggest_skill("\uc81c\uc870\uc7a5\ube44 \uc2dc\ubbac\ub808\uc774\uc158 \uc544\uc774\ub514\uc5b4 \uac80\uc99d\ud574\uc918")["recommended_skill"] == "research_council"
@@ -5190,7 +5190,7 @@ def run_self_test() -> None:
     assert suggest_skill("\uacc4\uc57d\uc11c \uac80\ud1a0 \uc571 \ucf54\ub4dc \uc218\uc815\ud574\uc918")["recommended_skill"] != "research_council"
     assert suggest_skill("Codex \ucee4\ubc0b \ub9ac\ubdf0")["recommended_skill"] == "hermes_manager"
     assert suggest_skill("MCP Agent Skills \uc0c8 \uae30\uc220")["recommended_skill"] == "daily_ai_radar"
-    assert suggest_skill("\ubc18\ubcf5 \uc791\uc5c5 skill\ub85c \uae30\uc5b5")["recommended_skill"] == "memory_skills"
+    assert suggest_skill("\ubc18\ubcf5 \uc791\uc5c5 skill\ub85c \uae30\uc5b5")["recommended_skill"] == "tasks_reports"
 
     assert clean_voice_transcript("코덱스 케어노트 헤르메스") == "Codex CareNote Hermes"
     assert clean_voice_transcript("엠씨피 에이전트 스킬 데일리 레이더") == "MCP Agent Skills Daily AI Radar"
@@ -5244,7 +5244,7 @@ def run_self_test() -> None:
         {"transcript": "이 반복 작업 skill 후보로 기억해줘"},
     )
     assert voice_memory_code == HTTPStatus.OK
-    assert voice_memory["task_candidate"]["suggested_skill"] == "memory_skills"
+    assert voice_memory["task_candidate"]["suggested_skill"] == "tasks_reports"
     assert voice_memory["task_candidate"]["needs_confirmation"] is True
     assert "saved" not in voice_memory
     voice_unknown_code, voice_unknown = handle_post_api(
@@ -5303,7 +5303,7 @@ def run_self_test() -> None:
     status = status_payload()
     skill_ids = {skill["skill_id"] for skill in status["skills"]}
     assert {"research_council", "daily_ai_radar", "hermes_manager"}.issubset(skill_ids)
-    assert len(status["skills"]) == 6
+    assert len(status["skills"]) == 5
     assert "jarvis.bat" in status["protected_paths"]
     assert status["safety"][0] == (
         "Task discovery and basic details are read-only. Create Local Task "

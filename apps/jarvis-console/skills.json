@@ -263,65 +263,6 @@
       ]
     },
     {
-      "skill_id": "memory_skills",
-      "display_name": "Memory / Skills",
-      "status": "planned",
-      "category": "memory",
-      "purpose": "Manage repeated workflow and skill candidates.",
-      "short_description": "Future area for repeated workflows, approved skills, and Jarvis operating rules.",
-      "safe_next_action": "Capture the workflow as a proposal only; do not install or update a skill automatically.",
-      "when_to_use": "Use later when repeated workflows should become reviewed skill proposals.",
-      "primary_next_action_label": "Capture a proposal",
-      "primary_next_action_description": "Keep repeated workflows as proposals until a human approves skill creation.",
-      "action_guide": [
-        "Review repeated workflows.",
-        "Capture skill candidates as proposals.",
-        "Do not auto-install skills.",
-        "Wait for human approval before turning a proposal into a skill."
-      ],
-      "commands": {
-        "git_bash": "",
-        "powershell": ""
-      },
-      "local_url": "",
-      "app_path": "",
-      "docs": [
-        "docs/jarvis-console.md",
-        "apps/jarvis-console/contracts/skill-registry-v0.1.md"
-      ],
-      "tests": [
-        "python -B apps/jarvis-console/run_smoke_tests.py"
-      ],
-      "examples": [],
-      "tags": [
-        "memory",
-        "skill",
-        "workflow"
-      ],
-      "route_keywords": [
-        "memory",
-        "skill",
-        "skills",
-        "repeated task",
-        "routine",
-        "workflow",
-        "operating rule",
-        "personal context",
-        "\uae30\uc5b5",
-        "\ubc18\ubcf5",
-        "\ubc18\ubcf5\uc791\uc5c5",
-        "\uc2a4\ud0ac",
-        "\uc6b4\uc601 \uaddc\uce59"
-      ],
-      "safety_notes": [
-        "Skill candidates are proposals, not automatically installed skills."
-      ],
-      "non_goals": [
-        "No automatic skill installation.",
-        "No automatic memory write."
-      ]
-    },
-    {
       "skill_id": "tasks_reports",
       "display_name": "Tasks / Reports",
       "status": "planned",

@@ -97,9 +97,35 @@ def _test_tasks_reports_registry_copy() -> None:
         errors="replace",
     )
     baseline_raw = baseline_result.stdout
+    # task-0074 removed the memory_skills object from the registry. Cut the same
+    # object out of the baseline bytes so the byte-level comparison below keeps
+    # its full strength for every skill that still exists, instead of being
+    # weakened or dropped.
+    baseline_lines = baseline_raw.decode("utf-8").split("\n")
+    _start = next(
+        index
+        for index, line in enumerate(baseline_lines)
+        if '"skill_id": "memory_skills"' in line
+    ) - 1
+    _depth = 0
+    for _end in range(_start, len(baseline_lines)):
+        _depth += baseline_lines[_end].count("{") - baseline_lines[_end].count("}")
+        if _depth == 0:
+            break
+    baseline_raw = ("\n".join(
+        baseline_lines[:_start] + baseline_lines[_end + 1:]
+    )).encode("utf-8")
     current_raw = registry_path.read_bytes()
     baseline_registry = json.loads(baseline_raw.decode("utf-8"))
     current_registry = json.loads(current_raw.decode("utf-8"))
+    # task-0074 removed memory_skills from the registry. Drop it from the
+    # baseline too, so this stays a copy-drift guard over the skills that still
+    # exist instead of failing on every positional path after the removal.
+    baseline_registry["skills"] = [
+        skill
+        for skill in baseline_registry["skills"]
+        if skill["skill_id"] != "memory_skills"
+    ]
 
     baseline_index = next(
         index
@@ -7211,7 +7237,7 @@ def main() -> None:
     assert status["console"] == "jarvis-console"
     assert status["mode"] == "local-only"
     assert status["registry_read_only"] is True
-    assert len(status["skills"]) == 6
+    assert len(status["skills"]) == 5
     assert {skill["skill_id"] for skill in status["skills"]}.issuperset(
         {"research_council", "daily_ai_radar", "hermes_manager"}
     )
@@ -7518,7 +7544,7 @@ def main() -> None:
     assert run_web_app.suggest_skill("\uac04\ubcd1 \uc571 \uc544\uc774\ub514\uc5b4 MVP \uac80\uc99d\ud574\uc918")["recommended_skill"] == "research_council"
     assert run_web_app.suggest_skill("Codex \ucee4\ubc0b \ub9ac\ubdf0 \ub3c4\uc640\uc918")["recommended_skill"] == "hermes_manager"
     assert run_web_app.suggest_skill("MCP Agent Skills \uc0c8 \uae30\uc220 \ucc3e\uc544\ubd10")["recommended_skill"] == "daily_ai_radar"
-    assert run_web_app.suggest_skill("\ubc18\ubcf5 \uc791\uc5c5 skill\ub85c \uae30\uc5b5\ud574\uc918")["recommended_skill"] == "memory_skills"
+    assert run_web_app.suggest_skill("\ubc18\ubcf5 \uc791\uc5c5 skill\ub85c \uae30\uc5b5\ud574\uc918")["recommended_skill"] == "tasks_reports"
     assert run_web_app.suggest_skill("\uc624\ub298 \ubb50\ud558\uc9c0")["recommended_skill"] == "unknown"
     assert run_web_app.suggest_skill("\uc2dc\ubbac\ub808\uc774\uc158 \uac8c\uc784 \ucd94\ucc9c\ud574\uc918")["recommended_skill"] == "unknown"
 
@@ -7573,7 +7599,7 @@ def main() -> None:
         {"transcript": "이 반복 작업 skill 후보로 기억해줘"},
     )
     assert voice_memory_code == HTTPStatus.OK
-    assert voice_memory["task_candidate"]["suggested_skill"] == "memory_skills"
+    assert voice_memory["task_candidate"]["suggested_skill"] == "tasks_reports"
     assert voice_memory["task_candidate"]["needs_confirmation"] is True
     assert "saved" not in voice_memory
     voice_unknown_code, voice_unknown = run_web_app.handle_post_api(
