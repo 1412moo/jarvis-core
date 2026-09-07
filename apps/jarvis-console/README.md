@@ -90,10 +90,6 @@ Included:
 - Skill detail usage cards for what it does, when to use it, next action,
   commands, docs, safety notes, and non-goals.
 - Copy command buttons that never execute commands.
-- A `Codex Review` tab that accepts one copy-only Hermes handoff or an already
-  scope-approved raw queue and displays a freshly revalidated review session.
-- A write-free `POST /api/codex-review/preview` route fixed to the Jarvis-Core
-  repository root.
 - An **Evaluate Idea** form in the Research Council tab that accepts Idea, Goal,
   optional Context, and bounded Provided Evidence, then shows five deterministic
   in-memory result sections.
@@ -267,30 +263,6 @@ http://127.0.0.1:8787/
 ```
 
 Jarvis Console does not start Hermes Manager automatically.
-
-### Codex Review
-
-Purpose: show one current Codex work package only after the committed Hermes
-evidence chain confirms that the supplied review handoff still matches the local
-working tree.
-
-Hermes Manager can produce one exact `queue + item_id` JSON envelope after the
-user confirms scope and pastes a Codex result. The user copies that envelope
-manually; Jarvis fills the item ID in the browser. A raw, already scope-approved
-queue plus manually entered item ID remains supported. Jarvis Console normalizes
-the queue, collects bounded local evidence, evaluates the observed item,
-performs C0C-6a fresh revalidation, builds the C0C-6b review-only `SessionState`,
-and returns a bounded presentation payload.
-
-The preview route is local-only and write-free. It fixes filesystem authority to
-the Jarvis-Core root and does not return raw file contents, evidence bytes,
-approval digests, a rendered prompt, or a commit message. Invalid, stale,
-out-of-scope, staged, or otherwise blocked handoffs display blocking reasons and
-no review session.
-
-The tab does not persist the pasted queue, evidence, session, or result. It does
-not create approval, render or execute a prompt, invoke Codex/ChatGPT/Hermes,
-stage, commit, push, or call an external service.
 
 ### Project Control
 
@@ -483,8 +455,6 @@ Jarvis Console v0.1 is a shell, not an autonomous executor.
   approval.
 - It treats Research Council reports as decision support, not final proof.
 - It treats Hermes Manager as workflow coordination, not a Codex replacement.
-- It treats a fresh Codex review session as inspection data, not review approval
-  or execution authority.
 - Jarvis Console itself has no implementation, commit, push, or external-action
   authority.
 
@@ -507,9 +477,5 @@ Possible later phases:
    review.
 
 See also [../../docs/jarvis-console.md](../../docs/jarvis-console.md).
-See the read-only review design at
-[../../docs/codex-review-read-only-v0.1-design.md](../../docs/codex-review-read-only-v0.1-design.md).
-See the copy-only handoff design at
-[../../docs/codex-review-copy-handoff-v0.1-design.md](../../docs/codex-review-copy-handoff-v0.1-design.md).
 See the registry contract at
 [contracts/skill-registry-v0.1.md](contracts/skill-registry-v0.1.md).

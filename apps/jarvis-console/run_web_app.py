@@ -30,7 +30,6 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 import webbrowser
 
-from codex_review import CODEX_REVIEW_PREVIEW_ENDPOINT, build_codex_review_preview
 from owner_decision import owner_decision_to_dict
 from owner_decision_data import OwnerDecisionDataError, build_owner_decision_from_snapshot
 from recent_milestone_evidence import (
@@ -38,6 +37,13 @@ from recent_milestone_evidence import (
     parse_recent_milestone_log,
     recent_milestone_evidence_to_dict,
 )
+# The deleted codex_review adapter used to be what put hermes-manager-pilot on
+# sys.path; director and manager reporting import from it too, so the path
+# setup belongs here rather than inside any one feature's module (task-0073).
+HERMES_APP_ROOT = Path(__file__).resolve().parent.parent / "hermes-manager-pilot"
+if str(HERMES_APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(HERMES_APP_ROOT))
+
 from hermes_manager_pilot.director_reporting import (  # noqa: E402
     DirectorReportingError,
     build_director_report,
@@ -4706,8 +4712,6 @@ def handle_post_api(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
             return prepare_voice_inbox_task(payload)
         if path == EVALUATE_IDEA_ENDPOINT:
             return evaluate_idea(payload)
-        if path == CODEX_REVIEW_PREVIEW_ENDPOINT:
-            return build_codex_review_preview(payload, REPO_ROOT)
     except RegistryError as exc:
         return HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)}
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
@@ -4784,7 +4788,6 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             "/api/suggest-skill",
             "/api/voice-inbox/prepare",
             EVALUATE_IDEA_ENDPOINT,
-            CODEX_REVIEW_PREVIEW_ENDPOINT,
         }:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
@@ -5593,10 +5596,8 @@ def run_self_test() -> None:
     assert "Voice Inbox" in html
     assert "Skills" in html
     assert "Hermes Manager" in html
-    assert "Codex Review" in html
     assert "Project Control" in html
     assert "Owner-facing local project dashboard" in html
-    assert "Load Read-Only Review" in html
     assert "Research Council" in html
     assert "Daily AI Radar" in html
     assert "Project Control" in html
@@ -5666,10 +5667,7 @@ def run_self_test() -> None:
         "confirmed status transitions only."
     ) in app_js
     assert "/api/history" in app_js
-    assert "/api/codex-review/preview" in app_js
     assert "/api/voice-inbox/prepare" in app_js
-    assert "renderCodexReview" in app_js
-    assert "loadCodexReview" in app_js
     assert "renderOverview" in app_js
     assert "renderHistory" in app_js
     assert "renderRecentCommits" in app_js
@@ -5772,15 +5770,12 @@ def run_self_test() -> None:
     assert "overview-list" in styles
     assert "overview-badge" in styles
     assert "normalized-overview-item" in styles
-    assert "codex-review-card" in styles
-    assert "codex-review-safety-grid" in styles
     assert "secondary-action" in styles
     assert "http://" not in styles
     assert "https://" not in styles
 
     assert handle_get_api("/api/missing")[0] == HTTPStatus.NOT_FOUND
     assert handle_post_api("/api/missing", {})[0] == HTTPStatus.NOT_FOUND
-    assert handle_post_api(CODEX_REVIEW_PREVIEW_ENDPOINT, {})[0] == HTTPStatus.BAD_REQUEST
     assert parse_json_body(b"{not json")[0] == HTTPStatus.BAD_REQUEST
 
     forbidden_source_patterns = (
