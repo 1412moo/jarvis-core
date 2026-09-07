@@ -154,8 +154,8 @@ def _test_tasks_reports_registry_copy() -> None:
         (
             "Review the refined input.",
             (
-                "In Jarvis Console, review a successful Evaluate Idea "
-                "recommendation before using Preview as Local Task."
+                "Review the evidence gaps, risks, and minimum experiments "
+                "in the launcher output."
             ),
             (
                 "skills",
@@ -167,8 +167,8 @@ def _test_tasks_reports_registry_copy() -> None:
         (
             "Run the report.",
             (
-                "Review the local TODO preview, then explicitly Confirm Create "
-                "Local Task if the handoff is correct."
+                "Bring any follow-up work into Jarvis yourself; the console "
+                "creates no Task from this report."
             ),
             (
                 "skills",
@@ -180,9 +180,8 @@ def _test_tasks_reports_registry_copy() -> None:
         (
             "Jarvis Console does not run Research Council automatically.",
             (
-                "Jarvis Console does not run Research Council automatically; "
-                "Evaluate Idea and Preview as Local Task are write-free, and "
-                "only explicit Confirm Create Local Task writes one local TODO."
+                "Jarvis Console does not run Research Council and creates no "
+                "Task from its report."
             ),
             (
                 "skills",
