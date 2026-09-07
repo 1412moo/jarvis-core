@@ -996,6 +996,10 @@ code {
   font-family: "SFMono-Regular", Consolas, monospace;
 }
 
+.manual-copy-fallback button {
+  justify-self: start;
+}
+
 .manual-copy-fallback.hidden {
   display: none;
 }

@@ -178,6 +178,14 @@
         <li>Commit and push always require separate approval.</li>
         <li>External actions are out of scope for v0.1.</li>
       </ul>
+      <div id="manualCopyFallback" class="manual-copy-fallback hidden" aria-live="polite">
+        <h4>Manual copy fallback</h4>
+        <p>Clipboard was not available. Copy the text below manually.</p>
+        <label for="manualCopyFallbackText">Copy-only text</label>
+        <textarea id="manualCopyFallbackText" readonly></textarea>
+        <button id="manualCopyFallbackClose" class="secondary-action" type="button">Close</button>
+        <p class="muted">Nothing was created, executed, or sent.</p>
+      </div>
     </aside>
   </main>
 

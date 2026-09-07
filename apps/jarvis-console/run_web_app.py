@@ -4416,6 +4416,16 @@ def run_self_test() -> None:
     assert "navigator.clipboard.writeText" in app_js
     assert "copy-command" in app_js
     assert "copy-text" in app_js
+    for fallback_element_id in (
+        "manualCopyFallback",
+        "manualCopyFallbackText",
+        "manualCopyFallbackClose",
+    ):
+        assert f'getElementById("{fallback_element_id}")' in app_js
+        assert f'id="{fallback_element_id}"' in html
+    assert "showManualCopyFallback(" in app_js
+    assert "hideManualCopyFallback(" in app_js
+    assert "readonly" in html
     assert "Copy Cleaned Task" in app_js
     assert "Copy As Jarvis Command" in app_js
     assert "Save Candidate" not in app_js

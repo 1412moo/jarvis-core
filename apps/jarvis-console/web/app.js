@@ -2278,24 +2278,28 @@ function clearVoiceTranscript() {
 async function copyCommand(command, nextAction = "") {
   try {
     await navigator.clipboard.writeText(command);
+    hideManualCopyFallback();
     statusText.textContent = nextAction
       ? `Command copied. ${nextAction} Jarvis Console does not run it for you.`
       : "Command copied. Jarvis Console did not run it.";
   } catch (error) {
-    statusText.textContent = `Copy failed: ${error.message}`;
+    const fallbackShown = showManualCopyFallback("Copy Command", command);
+    statusText.textContent = fallbackShown
+      ? "Clipboard was not available. Copy the command below manually."
+      : `Copy failed: ${error.message}`;
   }
 }
 
 function hideManualCopyFallback() {
-  const fallback = document.getElementById("memoryCopyFallback");
+  const fallback = document.getElementById("manualCopyFallback");
   if (fallback) {
     fallback.classList.add("hidden");
   }
 }
 
 function showManualCopyFallback(label, text) {
-  const fallback = document.getElementById("memoryCopyFallback");
-  const fallbackText = document.getElementById("memoryCopyFallbackText");
+  const fallback = document.getElementById("manualCopyFallback");
+  const fallbackText = document.getElementById("manualCopyFallbackText");
   if (!fallback || !fallbackText) {
     return false;
   }
@@ -2307,6 +2311,7 @@ function showManualCopyFallback(label, text) {
   fallback.classList.remove("hidden");
   fallbackText.focus();
   fallbackText.select();
+  fallbackText.setSelectionRange(0, String(text).length);
   return true;
 }
 
@@ -2432,7 +2437,9 @@ document.addEventListener("click", (event) => {
     copyPlainText(
       copyTextButton.dataset.copyText || "",
       "Text copied. Jarvis Console did not run anything.",
-      copyTextButton.dataset.manualCopyLabel || "",
+      copyTextButton.dataset.manualCopyLabel
+        || copyTextButton.getAttribute("aria-label")
+        || "Copy Text",
     );
     return;
   }
@@ -2443,5 +2450,13 @@ document.addEventListener("click", (event) => {
   }
   copyCommand(button.dataset.command || "", button.dataset.copyNextAction || "");
 });
+
+const manualCopyFallbackClose = document.getElementById("manualCopyFallbackClose");
+if (manualCopyFallbackClose) {
+  manualCopyFallbackClose.addEventListener("click", () => {
+    hideManualCopyFallback();
+    statusText.textContent = "Manual copy fallback closed.";
+  });
+}
 
 registryLoadPromise = loadRegistryStatus();
