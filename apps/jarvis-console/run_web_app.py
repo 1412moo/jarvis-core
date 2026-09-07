@@ -4454,6 +4454,7 @@ def run_self_test() -> None:
     assert handle_post_api("/api/missing", {})[0] == HTTPStatus.NOT_FOUND
     assert parse_json_body(b"{not json")[0] == HTTPStatus.BAD_REQUEST
 
+    source = Path(__file__).read_text(encoding="utf-8")
     forbidden_source_patterns = (
         "shell" + "=True",
         "os." + "system",
@@ -4471,6 +4472,10 @@ def run_self_test() -> None:
         "invoke-" + "webrequest",
         "invoke-" + "restmethod",
     )
+    assert all(pattern not in source for pattern in forbidden_source_patterns)
+    assert ("shell" + "=True") not in source
+    assert "READ_ONLY_GIT_COMMANDS" in source
+    assert "run_read_only_git" in source
     assert inspect.getsource(run_server).count(DEFAULT_HOST) >= 1
     print("Jarvis Console browser shell self-test passed")
 
