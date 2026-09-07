@@ -5252,16 +5252,11 @@ def main() -> None:
     assert "This view is read-only." in history["notes"]
     assert "It does not create commits or checkpoints." in history["notes"]
 
-    assert not run_web_app.APP_ROOT.joinpath("state").exists()
-    assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
-
     assert run_web_app.parse_json_body(b"{not json")[0] == HTTPStatus.BAD_REQUEST
-    assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
 
     assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
     assert not run_web_app.APP_ROOT.joinpath("state").exists()
     assert not run_web_app.APP_ROOT.joinpath("examples", "memory-skills-sample.json").exists()
-    assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
     assert not run_web_app.REPO_ROOT.joinpath("memory", "skills").exists()
     for args in (
         ("add", "."),

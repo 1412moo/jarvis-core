@@ -4113,18 +4113,6 @@ def run_self_test() -> None:
     assert is_history_candidate_name(REPO_ROOT / "docs" / "jarvis-console-v0.1-checkpoint.md") is True
     assert is_history_candidate_name(REPO_ROOT / "docs" / "sample.md") is False
 
-    before_memory_status = run_read_only_git(("status", "--short"))
-    after_memory_status = run_read_only_git(("status", "--short"))
-    assert before_memory_status == after_memory_status
-    assert not APP_ROOT.joinpath("state").exists()
-    assert not REPO_ROOT.joinpath(".jarvis-local").exists()
-
-    before_preview_status = run_read_only_git(("status", "--short"))
-    after_preview_status = run_read_only_git(("status", "--short"))
-    assert before_preview_status == after_preview_status
-    assert not REPO_ROOT.joinpath(".jarvis-local").exists()
-
-    assert not (REPO_ROOT / ".jarvis-local").exists()
     assert parse_json_body(b"{not json")[0] == HTTPStatus.BAD_REQUEST
     assert not (APP_ROOT / "state").exists()
     assert not (APP_ROOT / "examples" / "memory-skills-sample.json").exists()
