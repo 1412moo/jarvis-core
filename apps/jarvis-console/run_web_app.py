@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import base64
 from collections.abc import Callable, Mapping
 import hashlib
 import hmac
 import inspect
 import json
-import math
 import os
 import re
 import secrets
@@ -17,14 +15,12 @@ import sys
 import threading
 import time
 import unicodedata
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from subprocess import CalledProcessError, TimeoutExpired, run as run_process
-from tempfile import TemporaryDirectory
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 import webbrowser

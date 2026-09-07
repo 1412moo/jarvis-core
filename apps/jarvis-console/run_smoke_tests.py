@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 from dataclasses import FrozenInstanceError, replace
 import hashlib
 from http.client import HTTPConnection
@@ -16,7 +15,6 @@ import subprocess
 import shutil
 from tempfile import TemporaryDirectory
 import threading
-from types import SimpleNamespace
 from typing import Any
 
 import run_web_app
@@ -61,7 +59,6 @@ from recent_milestone_evidence import (
     recent_milestone_evidence_to_dict,
     serialize_recent_milestone_evidence,
 )
-from hermes_manager_pilot.approval_binding import build_scope_approval_binding
 from hermes_manager_pilot.director_reporting import (
     AUTHORITY_BOUNDARY as DIRECTOR_AUTHORITY_BOUNDARY,
     CONTRACT_TYPE as DIRECTOR_CONTRACT_TYPE,
@@ -73,11 +70,6 @@ from hermes_manager_pilot.manager_reporting import (
     VERSION as MANAGER_REPORTING_VERSION,
     normalize_manager_report,
 )
-from hermes_manager_pilot.prompt_queue import (
-    REQUIRED_FORBIDDEN_ACTIONS,
-    normalize_prompt_queue,
-)
-from hermes_manager_pilot.schemas import ValidationError
 
 
 def _test_tasks_reports_registry_copy() -> None:
