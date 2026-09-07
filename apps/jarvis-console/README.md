@@ -331,52 +331,15 @@ Jarvis Console does not fetch sources or run Daily AI Radar automatically.
 
 ### Memory / Skills
 
-Purpose: review repeated workflow candidates and future Jarvis operating rules
-without turning proposals into automatic memory or executable skills.
-
-Status: Phase 2B provides a read-only sample inbox and write-free candidate
-preview. Phase 2C-0/1/2/3a/3b adds internal/tests-only path, validation,
-hardened writer, request-guard, session, canonical snapshot/digest, and preview
-token primitives. Phase 2C-3c completed the design/reopen-conditions review
-with a `keep locked` verdict. Phase 2C-4a records the safer privacy default and
-adds a route-free internal/tests-only guarded save coordinator: preview-token
-issuance requires explicit privacy review, the final payload is token-only with
-an exact confirmation literal, and persisted test candidates omit
-`original_text_preview`. Phase 2C-4b adds a route-free internal/tests-only raw
-HTTP metadata adapter. It requires duplicate-preserving header pairs, exactly
-one Host, Origin, Content-Type, Cookie, CSRF, and Content-Length value, rejects
-Transfer-Encoding and malformed or oversized lengths, and emits bounded input
-for the existing request guard. The save endpoint remains disabled/non-success;
-no live session/token issuance, UI Save/Confirm, Voice Inbox Memory save, or saved
-candidates dashboard is enabled.
-
-Phase 2C-4c completes the design-only session-bootstrap contract review. It
-defines a future explicit same-origin/no-body bootstrap, bounded atomic session
-issue/rotation, separate Cookie/CSRF delivery, restart invalidation, and
-deterministic test obligations. It adds no application behavior.
-
-Phase 2C-4d implements that bootstrap contract as route-free internal/tests-only
-code. The coordinator owns raw transport validation before allocation, session
-rotation is atomic and bounded, full-capacity behavior does not reveal hint
-existence, and private Cookie material is separated from the public CSRF
-payload. It remains absent from HTTP dispatch.
-
-Phase 2C-4e composes raw-header adaptation, exact body framing, request guard,
-explicit privacy review, server canonicalization, and session-bound preview
-token issue behind one route-free internal/tests-only coordinator. Duplicate
-JSON keys and body-length mismatches fail closed, and its redacted private
-result exposes only bounded token/display metadata when explicitly converted.
-
-Phase 2C-4f completes the design/review-only live-integration readiness
-checkpoint with a `keep locked` verdict. The generic live handler, registry
-lifecycle, confirmation/recovery UX, and real HTTP/browser test gaps remain
-activation blockers. See
+Removed from Jarvis Console in task-0071. The candidate inbox, write-free
+preview, and every route-free save/session primitive were deleted; no
+`memory_skills` entry remains in `skills.json`. Memory / Skills continues as a
+Jarvis-Core workstream with its live save `keep locked`, tracked in
+[`../../docs/master-plan.md`](../../docs/master-plan.md). The design and
+readiness records are kept for history:
+[`../../docs/memory-skills-v0.1-design.md`](../../docs/memory-skills-v0.1-design.md),
+[`../../docs/memory-skills-session-bootstrap-v0.1-design.md`](../../docs/memory-skills-session-bootstrap-v0.1-design.md),
 [`../../docs/memory-skills-live-integration-readiness-v0.1.md`](../../docs/memory-skills-live-integration-readiness-v0.1.md).
-
-The owner chose to defer live save and return to the Jarvis/Hermes Prompt Queue /
-Project Control Panel workstream. The save endpoint and all user-facing save
-surfaces remain locked; a guarded local-save vertical slice still requires a
-separate explicit approval.
 
 ## Safety Boundary
 

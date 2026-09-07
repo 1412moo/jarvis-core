@@ -221,6 +221,35 @@ def _test_tasks_reports_registry_copy() -> None:
             "No Task work execution or report persistence from this console.",
             ("skills", current_index, "non_goals", 0),
         ),
+        (
+            "Use later when Jarvis Console has a local task and report queue.",
+            (
+                "Use when reviewing discovered local Task status, reports, "
+                "and checkpoints."
+            ),
+            ("skills", current_index, "when_to_use"),
+        ),
+        (
+            "Use this as a placeholder for future task and report visibility.",
+            (
+                "Review the Actionable Task View; every Task write needs "
+                "Preview and explicit Confirm."
+            ),
+            ("skills", current_index, "safe_next_action"),
+        ),
+        (
+            "Review placeholder",
+            "Review local Tasks",
+            ("skills", current_index, "primary_next_action_label"),
+        ),
+        (
+            "Review planned task/report concepts.",
+            (
+                "Review discovered local Task status, reports, and "
+                "checkpoints."
+            ),
+            ("skills", current_index, "action_guide", 0),
+        ),
     )
 
     def string_values(

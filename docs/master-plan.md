@@ -87,7 +87,7 @@ assignment plan을 기계적으로 실행하지만 orchestration 판단은 Manag
 운영 기반       ████░  사용자 기능
 역할별 앱       ████░  사용자 기능
 안전 작업 운영  ████░  사용자 기능 — 실제 작업 1건 검증
-Memory / Skills ██░░░  내부 coordinator 구현 — 저장 잠금
+Memory / Skills ██░░░  Console 구현 제거 — 저장 잠금 유지
 통합 Console    ████░  사용자 기능 — 단일 프로젝트 카드
 홈서버 / 모바일 █░░░░  장기 설계
 ```
@@ -200,7 +200,7 @@ Voice Inbox auto-save, saved candidates dashboard도 없다.
 | 0. 운영 기반 | 작업·승인·결과를 같은 규칙으로 지시하고 보고받음 | task, 승인, 상태 전이, 보고 계약 | 사용자 기능 | 반복 실사용 검증 |
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
 | 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff, read-only 검토 화면 | **사용자 기능 — 실제 작업 1건 검증** | 반복 사용 피드백 또는 다음 축 선택 |
-| 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | write-free preview와 안전한 저장·복구 흐름 | 2C-4f readiness review 완료, `keep locked` | 소유자가 complete vertical slice 우선순위 결정 |
+| 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | 설계·readiness 기록 (Console 구현은 task-0071에서 제거) | 2C-4f readiness review 완료, `keep locked` | 소유자가 complete vertical slice 우선순위 결정 |
 | 4. 통합 Jarvis Console | Jarvis-Core 내부 workstream의 진행·잠금·승인 필요 상태를 한 화면에서 확인함 | read-only부터 확장하는 single-repo local control panel | **사용자 기능 — v0.1D Owner Dashboard 검증** | 소유자가 다음 bounded slice 선택 |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
 
@@ -554,7 +554,7 @@ save도 계속 잠겨 있다.
 | 작업 축 | 현재 상태 | 사용자에게 보이는 기능 | 다음 안전 단계 |
 | --- | --- | --- | --- |
 | Hermes Manager | 실제 Review owner flow와 lifecycle progress v0.1G 검증 완료 | prompt drafting, local Save/list/Reopen/recovery/Delete, content-ready/legacy 표시, content-verified handoff Copy, 즉시 progress와 중복 실행 차단 | 다음 owner workstream 선택 전 안정 상태 유지 |
-| Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | write-free preview | 잠금 유지, 별도 재승인 전 변경 없음 |
+| Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | 없음 — Console 구현은 task-0071에서 제거 | 잠금 유지, 별도 재승인 전 변경 없음 |
 | Jarvis Console | Project Control v0.1E Recent Milestone Evidence와 Owner Decision 완료 | owner project card, 최근 5개 commit/변경 파일/HEAD 일치, 내부 workstream 상태, fresh read-only work review | 실제 milestone 보고에서 반복 사용 후 다음 bounded slice 선택 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
@@ -562,7 +562,7 @@ save도 계속 잠겨 있다.
 
 ## 6. 잠긴 기능
 
-다음 항목은 구현 기반이 일부 존재하더라도 사용자 기능으로 활성화되지 않았다.
+다음 항목은 사용자 기능으로 활성화되지 않았다. Memory / Skills 관련 구현은 task-0071에서 제거됐고, 나머지는 구현 기반이 남아 있다.
 
 - `POST /api/memory-skills/candidates` save endpoint
 - Memory / Skills UI Save 또는 Confirm
