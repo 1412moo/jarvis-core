@@ -971,70 +971,8 @@ code {
   overflow-wrap: anywhere;
 }
 
-.memory-preview-card {
-  border-color: #c7d7f2;
-  background: #f7fbff;
-}
-
-.memory-preview-result {
-  display: grid;
-  gap: 10px;
-}
-
-.memory-preview-result-card {
-  display: grid;
-  gap: 12px;
-}
-
-.memory-preview-result-card p {
-  margin: 0;
-}
-
-.memory-preview-summary {
-  color: var(--muted);
-}
-
-.memory-preview-main,
-.memory-preview-technical {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.memory-preview-main h5,
-.memory-preview-technical h5 {
-  margin: 0;
-  font-size: 0.98rem;
-}
-
-.memory-preview-technical {
-  background: #fbfcfd;
-}
-
 .compact-facts {
   margin: 0;
-}
-
-.memory-candidate-grid {
-  display: grid;
-  gap: 10px;
-}
-
-.memory-candidate-card {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.memory-candidate-card p {
-  margin: 0;
-  color: var(--muted);
 }
 
 .manual-copy-fallback {

@@ -11,8 +11,6 @@ const tasksDetails = document.getElementById("tasksDetails");
 const refreshOverviewButton = document.getElementById("refreshOverviewButton");
 const historyDetails = document.getElementById("historyDetails");
 const refreshHistoryButton = document.getElementById("refreshHistoryButton");
-const memoryPanel = document.getElementById("memoryPanel");
-const refreshMemoryButton = document.getElementById("refreshMemoryButton");
 const voiceTranscriptInput = document.getElementById("voiceTranscriptInput");
 const prepareVoiceButton = document.getElementById("prepareVoiceButton");
 const pasteVoiceButton = document.getElementById("pasteVoiceButton");
@@ -33,7 +31,6 @@ let registrySkills = [];
 let selectedSkillId = "";
 let recommendedSkillId = "";
 let registryLoadPromise = null;
-let memorySkillsData = null;
 let lastVoiceCandidateData = null;
 let createLocalTaskToken = "";
 let createLocalTaskConfirmation = "";
@@ -87,9 +84,6 @@ function activateTab(tabId) {
   }
   if (tabId === "history") {
     loadHistory();
-  }
-  if (tabId === "memory" && !memorySkillsData) {
-    loadMemorySkills();
   }
 }
 
@@ -1346,24 +1340,6 @@ function voiceSkillActions(data, skill) {
     : "";
   const copyNextAction = "Review the task candidate, then use the copied command manually.";
 
-  if (skillId === "memory_skills") {
-    return `
-      <div class="voice-handoff-card">
-        <h4>Memory / Skills proposal</h4>
-        <p class="muted">Voice Inbox can suggest Memory / Skills, but it does not save this candidate automatically.</p>
-        <div class="suggestion-actions">
-          <button class="secondary-action preview-voice-memory-candidate" type="button">Preview Local Candidate</button>
-          <button class="secondary-action open-memory-skills" type="button">Open Memory / Skills</button>
-          <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(skillId)}">Open Skill Details</button>
-        </div>
-        <ul class="safety-list">
-          <li>Manual review only.</li>
-          <li>No persistence, no runtime write, and no automatic skill creation.</li>
-        </ul>
-      </div>
-    `;
-  }
-
   return `
     <div class="voice-handoff-card">
       <h4>Handoff options</h4>
@@ -1398,7 +1374,6 @@ function voiceUnknownGuidance(skillId) {
         <li>Idea validation -> Research Council</li>
         <li>Codex/repo work -> Hermes Manager</li>
         <li>AI tech scouting -> Daily AI Radar</li>
-        <li>Repeated workflow -> Memory / Skills</li>
       </ul>
     </div>
   `;
@@ -2443,320 +2418,6 @@ function renderActionableTaskView(items) {
   `;
 }
 
-function memoryDraftPrompt(candidate) {
-  const tags = (candidate.tags || []).join(", ") || "none";
-  const safetyNotes = (candidate.safety_notes || []).join("; ") || "No candidate safety notes registered.";
-  return [
-    "Task: Prepare a Memory / Skills candidate draft for human review.",
-    "",
-    "Context:",
-    "- This is a proposal copied from Jarvis Console Memory / Skills.",
-    "- The user is manually pasting this into Hermes/Codex for review.",
-    "- Treat it as a candidate, not an approved skill.",
-    "- Do not create, install, run, or register a skill automatically.",
-    "",
-    "Candidate:",
-    `- Title: ${candidate.title || "Untitled candidate"}`,
-    `- Type: ${candidate.candidate_type || "candidate"}`,
-    `- Source: ${candidate.source || "sample"}`,
-    `- Confidence: ${candidate.confidence || "low"}`,
-    `- Cleaned text: ${candidate.cleaned_text || ""}`,
-    `- Suggested next action: ${candidate.next_action || "Review manually."}`,
-    `- Tags: ${tags}`,
-    `- Safety notes: ${safetyNotes}`,
-    "",
-    "Safety boundaries:",
-    "- Local-only.",
-    "- Human-approved.",
-    "- No autonomous execution.",
-    "- No automatic code modification.",
-    "- No automatic repo/file write.",
-    "- No automatic git add/commit/push.",
-    "- No external API/web/LLM calls.",
-    "- No skill registry modification unless explicitly approved later.",
-    "",
-    "Requested output:",
-    "1. Clarify the candidate into a small skill draft.",
-    "2. Identify risks and assumptions.",
-    "3. Propose the smallest safe first implementation unit.",
-    "4. List files that might change if later approved.",
-    "5. Do not implement yet.",
-    "6. Do not commit or push.",
-    "Do not create, install, or run a skill automatically.",
-  ].join("\n");
-}
-
-function memoryPreviewRequest(candidate, sourceOverride = "") {
-  return {
-    source: sourceOverride || candidate.source || "manual",
-    title: candidate.title || "Memory / Skills candidate preview",
-    cleaned_text: candidate.cleaned_text || candidate.summary || "",
-    original_text_preview: truncateText(candidate.original_text_preview || candidate.cleaned_text || "", 240),
-    candidate_type: candidate.candidate_type || "unknown",
-    confidence: candidate.confidence || "low",
-    tags: candidate.tags || [],
-    safety_notes: candidate.safety_notes || [],
-  };
-}
-
-function memoryPreviewRequestFromVoice(data) {
-  const candidate = data?.task_candidate || {};
-  return {
-    source: "voice_inbox",
-    title: candidate.title || "Voice Inbox Memory / Skills candidate preview",
-    cleaned_text: data?.cleaned_transcript || candidate.summary || "",
-    original_text_preview: truncateText(data?.raw_transcript || "", 240),
-    candidate_type: "repeated_workflow",
-    confidence: candidate.confidence || "low",
-    tags: ["voice_inbox", "memory_skills"],
-    safety_notes: [
-      "Preview only; Voice Inbox did not save this candidate.",
-      "No persistence, no runtime write, and no automatic skill creation.",
-    ],
-  };
-}
-
-function findMemoryCandidate(candidateId) {
-  const candidates = memorySkillsData?.candidates || [];
-  return candidates.find((candidate) => candidate.id === candidateId) || null;
-}
-
-function renderMemoryCandidatePreview(data) {
-  const result = document.getElementById("memoryPreviewResult");
-  if (!result) {
-    return;
-  }
-  const preview = data.candidate_preview || {};
-  const tags = preview.tags || [];
-  const safetyNotes = preview.safety_notes || [];
-  const localSaveLabel = data.save_endpoint ? "Available" : "Not available in Phase 2B";
-  result.innerHTML = `
-    <article class="memory-preview-result-card">
-      <div class="overview-section-heading">
-        <div>
-          <p class="eyebrow">Candidate preview</p>
-          <h4>Review before saving</h4>
-        </div>
-        <div class="overview-badges">
-          <span class="overview-badge read-only">Preview only</span>
-          <span class="overview-badge">Not saved</span>
-          <span class="overview-badge">No persistence</span>
-          <span class="overview-badge">No runtime write</span>
-        </div>
-      </div>
-      <p class="memory-preview-summary">This is only a preview of what could be saved later. Nothing has been saved.</p>
-      <p class="memory-preview-summary">Local save is not available in Phase 2B. This is not an approved skill and will not run automatically.</p>
-
-      <section class="memory-preview-main">
-        <h5>${escapeHtml(preview.title || "Untitled candidate")}</h5>
-        <dl class="overview-facts compact-facts">
-          <div><dt>Type</dt><dd>${escapeHtml(preview.candidate_type || "unknown")}</dd></div>
-          <div><dt>Source</dt><dd>${escapeHtml(preview.source || "manual")}</dd></div>
-          <div><dt>Confidence</dt><dd>${escapeHtml(preview.confidence || "low")}</dd></div>
-        </dl>
-        <p><strong>Cleaned text:</strong> ${escapeHtml(preview.cleaned_text || "")}</p>
-        <p><strong>Tags:</strong> ${escapeHtml(tags.length ? tags.join(", ") : "No tags")}</p>
-      </section>
-
-      <p class="safety-note"><strong>Privacy warning:</strong> ${escapeHtml(data.privacy_warning || preview.privacy_note || "")}</p>
-      ${listMarkup(safetyNotes.concat(data.safety_notes || []), "No additional safety notes.")}
-
-      <section class="memory-preview-technical">
-        <h5>Technical details</h5>
-        <dl class="overview-facts compact-facts">
-          <div><dt>Phase</dt><dd>${escapeHtml(data.phase || "phase_2b_preview_only")}</dd></div>
-          <div><dt>Status</dt><dd>${escapeHtml(preview.status || "preview_only")}</dd></div>
-          <div><dt>User approval</dt><dd>${preview.user_approved_at ? escapeHtml(preview.user_approved_at) : "none"}</dd></div>
-          <div><dt>Local save</dt><dd>${localSaveLabel}</dd></div>
-        </dl>
-        <p><strong>Original text preview:</strong> ${escapeHtml(preview.original_text_preview || "")}</p>
-        <p><strong>Next step:</strong> ${escapeHtml(data.next_step || preview.next_action || "")}</p>
-      </section>
-    </article>
-  `;
-  statusText.textContent = "Preview-only Memory / Skills candidate prepared. Nothing was saved.";
-  nextActionText.textContent = "Review the preview fields. Phase 2B has no persistence or local state write.";
-}
-
-async function previewMemoryCandidatePayload(payload) {
-  const result = document.getElementById("memoryPreviewResult");
-  if (result) {
-    result.innerHTML = "<p class=\"muted\">Preparing preview only. Nothing is being saved...</p>";
-  }
-  try {
-    const response = await fetch("/api/memory-skills/candidates/preview", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || `Request failed: ${response.status}`);
-    }
-    renderMemoryCandidatePreview(data);
-  } catch (error) {
-    if (result) {
-      result.innerHTML = `<p class="safety-note">Preview failed: ${escapeHtml(error.message)}</p>`;
-    }
-    statusText.textContent = `Memory / Skills preview failed: ${error.message}`;
-  }
-}
-
-async function previewVoiceMemoryCandidate() {
-  if (!lastVoiceCandidateData || lastVoiceCandidateData.task_candidate?.suggested_skill !== "memory_skills") {
-    statusText.textContent = "No Memory / Skills Voice Inbox candidate is ready to preview.";
-    return;
-  }
-  if (!memorySkillsData) {
-    await loadMemorySkills();
-  }
-  activateTab("memory");
-  await previewMemoryCandidatePayload(memoryPreviewRequestFromVoice(lastVoiceCandidateData));
-}
-
-function memoryCandidateCards(candidates) {
-  if (!candidates || !candidates.length) {
-    return "<p class=\"placeholder\">No sample candidates registered.</p>";
-  }
-  return `
-    <div class="memory-candidate-grid">
-      ${candidates
-        .map(
-          (candidate) => `
-        <article class="memory-candidate-card">
-          <div class="overview-item-heading">
-            <div>
-              <strong>${escapeHtml(candidate.title || "Untitled candidate")}</strong>
-              <span>${escapeHtml(candidate.candidate_type || "candidate")} · ${escapeHtml(candidate.source || "sample")}</span>
-            </div>
-            <div class="overview-badges">
-              <span class="overview-badge read-only">Read-only sample</span>
-              <span class="overview-badge">${escapeHtml(candidate.status || "candidate")}</span>
-              <span class="overview-badge">Confidence: ${escapeHtml(candidate.confidence || "low")}</span>
-            </div>
-          </div>
-          <p>${escapeHtml(candidate.cleaned_text || "")}</p>
-          <p><strong>Next action:</strong> ${escapeHtml(candidate.next_action || "")}</p>
-          <p><strong>Tags:</strong> ${escapeHtml((candidate.tags || []).join(", ") || "none")}</p>
-          ${listMarkup(candidate.safety_notes, "No candidate safety notes registered.")}
-          <div class="suggestion-actions">
-            <button class="secondary-action memory-review-candidate" type="button" data-candidate-id="${escapeHtml(candidate.id || "")}">Review Candidate</button>
-            <button class="secondary-action memory-preview-candidate" type="button" data-candidate-id="${escapeHtml(candidate.id || "")}">Preview Local Candidate</button>
-            <button class="copy-text" type="button" data-copy-text="${escapeHtml(candidate.cleaned_text || "")}" data-manual-copy-label="Copy Candidate" aria-label="Copy Candidate">Copy Candidate</button>
-            <button class="copy-text" type="button" data-copy-text="${escapeHtml(memoryDraftPrompt(candidate))}" data-manual-copy-label="Copy Skill Draft Prompt" aria-label="Copy Skill Draft Prompt">Copy Skill Draft Prompt</button>
-            <button class="secondary-action open-skill-details" type="button" data-skill-id="${escapeHtml(candidate.suggested_skill_id || "memory_skills")}">Open Skill Details</button>
-          </div>
-          <p class="muted memory-handoff-note">Copy a proposal-only prompt for manual Hermes/Codex review. Paste it yourself when ready; Jarvis does not send or run it automatically. No automatic handoff, no skill creation, no commit.</p>
-        </article>
-      `,
-        )
-        .join("")}
-    </div>
-  `;
-}
-
-function renderMemorySkills(data) {
-  if (!memoryPanel) {
-    return;
-  }
-  memorySkillsData = data;
-  memoryPanel.innerHTML = `
-    <section class="overview-card memory-phase-card">
-      <div class="overview-section-heading">
-        <div>
-          <p class="eyebrow">${escapeHtml(data.phase || "phase_2b_preview_only")}</p>
-          <h3>${escapeHtml(data.title || "Memory / Skills")}</h3>
-        </div>
-        <div class="overview-badges">
-          <span class="overview-badge read-only">Read-only sample</span>
-          <span class="overview-badge">Preview only</span>
-          <span class="overview-badge">Not saved</span>
-        </div>
-      </div>
-      <p>${escapeHtml(data.description || "")}</p>
-      <dl class="overview-facts">
-        <div><dt>Mode</dt><dd>${escapeHtml(data.mode || "read-only")}</dd></div>
-        <div><dt>Persistence</dt><dd>${data.no_persistence ? "None in Phase 2B" : "Not reported"}</dd></div>
-        <div><dt>Runtime write</dt><dd>${data.runtime_write ? "Present" : "None"}</dd></div>
-        <div><dt>Local save</dt><dd>${data.save_endpoint ? "Available" : "Not available in Phase 2B"}</dd></div>
-        <div><dt>Preview endpoint</dt><dd>${data.preview_endpoint ? "Write-free POST" : "Not reported"}</dd></div>
-      </dl>
-      ${listMarkup(data.guidance, "No Memory / Skills guidance registered.")}
-    </section>
-    <section class="overview-card memory-preview-card">
-      <div class="overview-section-heading">
-        <div>
-          <p class="eyebrow">Candidate Preview</p>
-          <h3>Preview before any future local save</h3>
-        </div>
-        <div class="overview-badges">
-          <span class="overview-badge read-only">Preview only</span>
-          <span class="overview-badge">No persistence</span>
-          <span class="overview-badge">No runtime write</span>
-        </div>
-      </div>
-      <p class="muted">Use Preview Local Candidate to see the fields that would be reviewed later. This is not a local save, not an approved skill, and not an execution.</p>
-      <div id="memoryPreviewResult" class="memory-preview-result" aria-live="polite">
-        <p class="placeholder">No candidate preview prepared yet.</p>
-      </div>
-    </section>
-    <section class="overview-card">
-      <div class="overview-section-heading">
-        <div>
-          <p class="eyebrow">Sample Candidates</p>
-          <h3>Repeated workflow proposals</h3>
-        </div>
-        <span class="overview-badge read-only">No saved user memory</span>
-      </div>
-      ${memoryCandidateCards(data.candidates || [])}
-      <div id="memoryCopyFallback" class="manual-copy-fallback hidden" aria-live="polite">
-        <h4>Manual copy fallback</h4>
-        <p>Clipboard was not available. Copy the text below manually.</p>
-        <label for="memoryCopyFallbackText">Copy-only payload</label>
-        <textarea id="memoryCopyFallbackText" readonly></textarea>
-        <p class="muted">No file was created. No action was executed.</p>
-      </div>
-    </section>
-    <section class="overview-card">
-      <div class="overview-section-heading">
-        <div>
-          <p class="eyebrow">Manual Actions</p>
-          <h3>Copy-only handoff</h3>
-        </div>
-        <span class="overview-badge read-only">No state change</span>
-      </div>
-      <div class="overview-rule-grid">
-        <div class="overview-skill-card"><h4>Allowed in Phase 1</h4>${listMarkup(data.allowed_actions, "No allowed actions registered.")}</div>
-        <div class="overview-skill-card"><h4>Unavailable in Phase 1</h4>${listMarkup(data.unavailable_actions, "No unavailable actions registered.")}</div>
-      </div>
-    </section>
-    <section class="overview-card safety-card">
-      <h3>Safety Boundary</h3>
-      ${listMarkup(data.safety_boundary, "No Memory / Skills safety notes registered.")}
-    </section>
-  `;
-}
-
-async function loadMemorySkills() {
-  if (!memoryPanel) {
-    return;
-  }
-  memoryPanel.innerHTML = "<p class=\"muted\">Loading read-only Memory / Skills samples...</p>";
-  try {
-    const response = await fetch("/api/memory-skills");
-    const data = await response.json();
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || `Request failed: ${response.status}`);
-    }
-    memorySkillsData = data;
-    renderMemorySkills(data);
-    statusText.textContent = "Read-only Memory / Skills samples refreshed.";
-  } catch (error) {
-    memoryPanel.innerHTML = `<p class="safety-note">Memory / Skills failed: ${escapeHtml(error.message)}</p>`;
-    statusText.textContent = `Memory / Skills failed: ${error.message}`;
-  }
-}
-
 function renderRecentMilestoneEvidence(evidence) {
   if (
     !evidence ||
@@ -3587,7 +3248,6 @@ function renderRegistry(status) {
   }
   renderSkillDetails("hermes_manager", "hermes");
   renderSkillDetails("daily_ai_radar", "radar");
-  renderSkillDetails("memory_skills", "memory");
   renderSkillDetails("settings", "settings");
   statusText.textContent = `Ready. Loaded ${registrySkills.length} read-only registry skills.`;
 }
@@ -3791,12 +3451,6 @@ if (refreshHistoryButton) {
   });
 }
 
-if (refreshMemoryButton) {
-  refreshMemoryButton.addEventListener("click", () => {
-    loadMemorySkills();
-  });
-}
-
 commandInput.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
     suggestSkill();
@@ -3936,38 +3590,6 @@ document.addEventListener("click", (event) => {
     if (localUrl) {
       window.open(localUrl, "_blank", "noopener,noreferrer");
       statusText.textContent = "Local URL opened. Jarvis Console did not start the server.";
-    }
-    return;
-  }
-
-  const memoryButton = event.target.closest(".open-memory-skills");
-  if (memoryButton) {
-    activateTab("memory");
-    statusText.textContent = "Showing Memory / Skills read-only sample panel.";
-    nextActionText.textContent = "Review the sample candidate guidance; nothing is saved automatically.";
-    return;
-  }
-
-  const reviewCandidateButton = event.target.closest(".memory-review-candidate");
-  if (reviewCandidateButton) {
-    statusText.textContent = "Memory / Skills candidate selected for manual review only.";
-    nextActionText.textContent = "Copy the candidate or open skill details. No state is changed.";
-    return;
-  }
-
-  const previewVoiceButton = event.target.closest(".preview-voice-memory-candidate");
-  if (previewVoiceButton) {
-    previewVoiceMemoryCandidate();
-    return;
-  }
-
-  const previewCandidateButton = event.target.closest(".memory-preview-candidate");
-  if (previewCandidateButton) {
-    const candidate = findMemoryCandidate(previewCandidateButton.dataset.candidateId || "");
-    if (candidate) {
-      previewMemoryCandidatePayload(memoryPreviewRequest(candidate, "sample"));
-    } else {
-      statusText.textContent = "Candidate preview failed: sample candidate not found.";
     }
     return;
   }
