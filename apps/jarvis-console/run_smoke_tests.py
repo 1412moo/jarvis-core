@@ -5260,15 +5260,6 @@ def main() -> None:
     assert "This view is read-only." in history["notes"]
     assert "It does not create commits or checkpoints." in history["notes"]
 
-    assert run_web_app.is_path_inside_repo(
-        run_web_app.REPO_ROOT / ".jarvis-local" / "memory-skills" / "candidates"
-    ) is True
-    fake_reparse_stat = type(
-        "FakeReparseStat",
-        (),
-        {"st_mode": 0, "st_file_attributes": 0x0400},
-    )()
-    assert run_web_app.filesystem_stat_is_reparse_point(fake_reparse_stat) is True
     assert not run_web_app.APP_ROOT.joinpath("state").exists()
     assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
 

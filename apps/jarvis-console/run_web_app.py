@@ -13,7 +13,6 @@ import math
 import os
 import re
 import secrets
-import stat
 import sys
 import threading
 import time
@@ -458,32 +457,6 @@ UNKNOWN_SUGGESTION = {
     "commands": {"git_bash": "", "powershell": ""},
     "matched_keywords": [],
 }
-def normalize_filesystem_path(path: Path) -> Path:
-    """Resolve a path for policy checks without creating it."""
-
-    return path.expanduser().resolve(strict=False)
-
-
-def filesystem_stat_is_reparse_point(path_stat: Any) -> bool:
-    """Return whether an lstat result represents a symlink or Windows reparse point."""
-
-    if stat.S_ISLNK(path_stat.st_mode):
-        return True
-    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)
-    return bool(getattr(path_stat, "st_file_attributes", 0) & reparse_flag)
-
-
-def is_path_inside_repo(path: Path, repo_root: Path = REPO_ROOT) -> bool:
-    """Return whether a path is inside the repository, without requiring it to exist."""
-
-    resolved_path = normalize_filesystem_path(path)
-    resolved_repo = normalize_filesystem_path(repo_root)
-    path_text = os.path.normcase(os.path.normpath(str(resolved_path)))
-    repo_text = os.path.normcase(os.path.normpath(str(resolved_repo)))
-    try:
-        return os.path.commonpath([path_text, repo_text]) == repo_text
-    except ValueError:
-        return False
 
 
 STATIC_ROUTES = {
@@ -4147,46 +4120,14 @@ def run_self_test() -> None:
     before_memory_status = run_read_only_git(("status", "--short"))
     after_memory_status = run_read_only_git(("status", "--short"))
     assert before_memory_status == after_memory_status
-    assert is_path_inside_repo(REPO_ROOT / ".jarvis-local" / "memory-skills" / "candidates") is True
-    fake_reparse_stat = type(
-        "FakeReparseStat",
-        (),
-        {"st_mode": stat.S_IFDIR, "st_file_attributes": 0x0400},
-    )()
-    assert filesystem_stat_is_reparse_point(fake_reparse_stat) is True
     assert not APP_ROOT.joinpath("state").exists()
     assert not REPO_ROOT.joinpath(".jarvis-local").exists()
 
-    preview_request = {
-        "source": "voice_inbox",
-        "title": "Repeated workflow preview",
-        "cleaned_text": "이 반복 작업을 Memory / Skills 후보로 검토한다.",
-        "original_text_preview": "이 반복 작업 skill 후보로 기억해줘",
-        "candidate_type": "repeated_workflow",
-        "confidence": "medium",
-        "tags": ["voice_inbox", "preview"],
-        "safety_notes": ["Preview only; no local memory is written."],
-    }
     before_preview_status = run_read_only_git(("status", "--short"))
     after_preview_status = run_read_only_git(("status", "--short"))
     assert before_preview_status == after_preview_status
-    invalid_preview_payloads = (
-        {"cleaned_text": "\ud800"},
-        {"cleaned_text": "valid", "title": "bad\udfff"},
-        {"cleaned_text": "valid", "original_text_preview": "bad\ud800"},
-        {"cleaned_text": "valid", "tags": ["bad\ud800"]},
-        {"cleaned_text": "valid", "safety_notes": ["bad\udfff"]},
-        {"cleaned_text": "valid", "candidate_type": "bad\ud800"},
-        {"cleaned_text": "valid", "confidence": "bad\ud800"},
-        {"cleaned_text": "valid", "source": "bad\ud800"},
-        {"cleaned_text": "bad\x00text"},
-    )
-    endpoint_candidate_id = "mem_111111111111"
-    endpoint_timestamp = "2026-07-08T00:00:00Z"
     assert not REPO_ROOT.joinpath(".jarvis-local").exists()
 
-    fixed_candidate_id = "mem_0123456789ab"
-    fixed_timestamp = "2026-07-08T00:00:00Z"
     assert not (REPO_ROOT / ".jarvis-local").exists()
     assert parse_json_body(b"{not json")[0] == HTTPStatus.BAD_REQUEST
     assert not (APP_ROOT / "state").exists()
