@@ -90,13 +90,6 @@ Included:
 - Skill detail usage cards for what it does, when to use it, next action,
   commands, docs, safety notes, and non-goals.
 - Copy command buttons that never execute commands.
-- An **Evaluate Idea** form in the Research Council tab that accepts Idea, Goal,
-  optional Context, and bounded Provided Evidence, then shows five deterministic
-  in-memory result sections.
-- A **Continue Evaluation as Task** handoff that creates a write-free Draft,
-  lets the user edit only Title and Summary, re-evaluates the bound input for
-  one authoritative Final Preview, and creates exactly one local `TODO` only
-  after explicit **Confirm Create Local Task**.
 - A `Project Control` tab that combines bounded master-plan fields with fixed
   read-only Git metadata for one trusted Jarvis-Core owner card.
 - A single-repo `project_control.v0.1E` payload inside the existing
@@ -124,56 +117,10 @@ Out of scope for v0.1:
 - No MCP or A2A integration.
 - No auth or user accounts.
 
-## Evaluate Idea
-
-Evaluate Idea is an explicitly triggered, write-free Research Council evaluation
-inside Jarvis Console. It requires Idea and Goal, accepts optional Context and up
-to eight Provided Evidence entries, and immediately shows Executive summary,
-Evidence gaps, Key critiques / risks, Minimum experiments, and Recommendation.
-
-The Console reuses the existing `ResearchCouncilInput`, deterministic
-`run_research_council` pipeline, and JSON serialization contract with LLM
-augmentation fixed to `off`. The response is bounded to the five visible
-sections and marks `write_free=true`, `local_only=true`, and
-`external_calls=false`. Evaluate Idea creates no report, Task, download, or
-saved state.
-
-After a successful evaluation, the Console requests a stateful, write-free
-Draft from `POST /api/evaluate-idea/create-task-draft`. The Draft carries no
-Create token, confirmation literal, or destination. It shows the server
-decision, recommended next step, canonical candidate, and immutable fields;
-only Title and Summary are editable.
-
-**Final Preview** sends the Draft ID, a higher revision, one UUID operation ID,
-the exact evaluation inputs, and the edited Title and Summary to
-`POST /api/evaluate-idea/create-task-preview`. The server re-runs Evaluate Idea,
-compares the stored evaluation fingerprint, normalizes the two editable fields,
-fixes status to `TODO`, repo to `jarvis-core`, and source command to
-`Evaluate Idea`, then returns the sole live short-lived Create token and a
-provisional destination. Repeating the exact current operation returns the same
-complete Final response. A higher revision atomically supersedes its older
-token without consuming another registry slot.
-
-Choosing **Edit Draft** or **Evaluate Again** calls
-`POST /api/evaluate-idea/create-task-preview/invalidate` with a higher revision.
-The browser keeps Evaluate inputs, Draft controls, and all Task-write controls
-locked until the matching invalidation response is acknowledged. Edit revokes
-the token and returns to the same Draft; Evaluate Again cancels it and requires
-a new evaluation and Draft. An old or superseded token cannot be reconstructed
-or confirmed.
-
-The provisional destination may change if another Task is allocated first. The
-receipt returned by **Confirm Create Local Task** is authoritative and remains
-visible across Overview refresh. A lost, invalid, or server-error Draft, Final,
-Invalidate, or Confirm response retains the exact request identity for retry.
-If an ambiguous Confirm later returns an expired or invalid token, the Console
-reports `outcome_unknown`, directs the user to inspect Tasks, and never
-automatically issues new Create authority.
-
 ## Create Local Task
 
 Create Local Task is one bounded write capability in this Console milestone.
-The user first prepares a Voice Inbox candidate or successfully runs Evaluate
+The user first prepares a Voice Inbox candidate
 Idea, edits the resulting Draft, and requests **Final Preview**, then reviews
 the Create Local Task Preview.
 The server recomputes and holds the canonical normalized Title and Summary in
@@ -191,9 +138,9 @@ receipt and never creates a second Task.
 
 Create Local Task does not:
 
-- auto-save on Voice Inbox preparation, Evaluate Idea, or Preview;
+- auto-save on Voice Inbox preparation or Preview;
 - save the raw transcript;
-- accept a client-authored Evaluate Idea decision, next step, path, ID, status,
+- accept a client-authored decision, next step, path, ID, status,
   repo, source, timestamp, completion evidence, or execution metadata;
 - edit a Task after Confirm or restore superseded/invalidated Create authority;
 - approve, start, run, retry, or change Task status;
@@ -361,16 +308,11 @@ PowerShell:
 python -B apps\research-council\run_local_app.py
 ```
 
-Jarvis Console does not run Research Council automatically. Evaluate Idea runs
-the deterministic analysis only after the user explicitly selects
-**Evaluate Idea**, and it keeps the result in memory without saving a report.
-The optional Draft and Final Preview handoff is also write-free; the user can
-edit only Title and Summary before the Final authority exists, and only explicit
-**Confirm Create Local Task** writes one local `TODO`.
 
 ### Daily AI Radar
 
 Purpose: turn curated AI and agent technology metadata into a Jarvis improvement
+Jarvis Console does not run Research Council. Use the Research Council app directly for idea evaluation; the console keeps no evaluation state.
 candidate report.
 
 Manual sample command:

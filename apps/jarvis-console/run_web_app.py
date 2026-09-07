@@ -323,86 +323,6 @@ COMPLETION_EVIDENCE_NOTICE = (
 COMPLETION_EVIDENCE_RECOMMENDATION = (
     "Review the recorded evidence, then use Complete separately when the Task is ready."
 )
-EVALUATE_IDEA_PRODUCT_NAME = "Evaluate Idea"
-EVALUATE_IDEA_ENDPOINT = "/api/evaluate-idea"
-EVALUATE_IDEA_CREATE_TASK_DRAFT_ENDPOINT = (
-    "/api/evaluate-idea/create-task-draft"
-)
-EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT = (
-    "/api/evaluate-idea/create-task-preview"
-)
-EVALUATE_IDEA_CREATE_TASK_INVALIDATE_ENDPOINT = (
-    "/api/evaluate-idea/create-task-preview/invalidate"
-)
-EVALUATE_IDEA_CREATE_TASK_ALLOWED_FIELDS = (
-    "idea",
-    "goal",
-    "context",
-    "provided_evidence",
-)
-EVALUATE_IDEA_CREATE_TASK_WARNING = (
-    "Final Preview writes nothing. Confirm creates one local TODO using exactly "
-    "the normalized title and summary shown here. Status, repo, source, ID, "
-    "path, and timestamps remain server-owned. Jarvis does not execute the Task."
-)
-EVALUATE_IDEA_CREATE_TASK_DRAFT_WARNING = (
-    "Draft writes nothing and carries no Create token. Edit only title and "
-    "summary. Final Preview is still write-free; only explicit Confirm Create "
-    "Local Task creates one local TODO. Jarvis does not execute the Task."
-)
-EVALUATE_IDEA_CREATE_TASK_IMMUTABLE_FIELDS = [
-    "status",
-    "repo",
-    "source_command",
-    "task_id",
-    "filename",
-    "storage_location",
-    "created_at",
-    "updated_at",
-    "completion_evidence",
-    "execution_metadata",
-]
-EVALUATE_IDEA_CREATE_TASK_DRAFT_FIELDS = {
-    "draft_request_id",
-    "idea",
-    "goal",
-    "context",
-    "provided_evidence",
-}
-EVALUATE_IDEA_CREATE_TASK_FINAL_FIELDS = {
-    "draft_id",
-    "draft_revision",
-    "operation_id",
-    "idea",
-    "goal",
-    "context",
-    "provided_evidence",
-    "title",
-    "summary",
-}
-EVALUATE_IDEA_CREATE_TASK_INVALIDATE_FIELDS = {
-    "draft_id",
-    "draft_revision",
-    "operation_id",
-    "action",
-}
-EVALUATE_IDEA_CREATE_TASK_INVALIDATE_ACTIONS = {
-    "edit_draft",
-    "evaluate_again",
-}
-EVALUATE_IDEA_CREATE_TASK_TITLE_MAX_CHARS = 120
-EVALUATE_IDEA_CREATE_TASK_SUMMARY_MAX_CHARS = 500
-EVALUATE_IDEA_CREATE_TASK_UUID_PATTERN = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-)
-EVALUATE_IDEA_MAX_IDEA_CHARS = 2_000
-EVALUATE_IDEA_MAX_GOAL_CHARS = 500
-EVALUATE_IDEA_MAX_CONTEXT_CHARS = 2_000
-EVALUATE_IDEA_MAX_EVIDENCE_ENTRIES = 8
-EVALUATE_IDEA_MAX_EVIDENCE_CHARS = 500
-EVALUATE_IDEA_MAX_GAPS = 8
-EVALUATE_IDEA_MAX_CRITIQUES = 8
-EVALUATE_IDEA_MAX_EXPERIMENTS = 5
 SECRET_LIKE_NAME_PARTS = ("secret", "token", "credential", "password", ".env")
 VOICE_TERM_CORRECTIONS = (
     ("데일리 AI 레이더", "Daily AI Radar"),
@@ -789,7 +709,7 @@ def status_payload() -> dict[str, Any]:
         "registry_version": registry["registry_version"],
         "registry_read_only": registry["read_only"],
         "safety": [
-            "Task discovery and basic details are read-only. Create Local Task creates one local TODO from Voice Inbox or a reviewed Evaluate Idea recommendation; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Evaluate Idea and every Task preview remain write-free. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.",
+            "Task discovery and basic details are read-only. Create Local Task creates one local TODO from Voice Inbox; Start / Complete changes only status and updated_at; Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Every Task preview remains write-free. Every write requires Preview and explicit Confirm. Evidence is not validated, status stays DOING, and no flow executes or automatically completes Task work. Jarvis does not create approvals or reports, run skills, commit, push, or make external calls.",
             "Local-only",
             "No automatic Codex / ChatGPT / Hermes invocation",
             "No commit or push",
@@ -2090,33 +2010,11 @@ class _CreateLocalTaskRecord:
     expires_at: float
     receipt: dict[str, str] | None = None
     consumed_without_receipt: bool = False
-    linked_draft_id: str | None = None
-    draft_revision: int | None = None
 
 
 @dataclass
-class _EvaluateIdeaTaskDraft:
-    draft_request_id: str
-    draft_id: str
-    request_fingerprint: str
-    evaluation_inputs: dict[str, Any]
-    evaluation: dict[str, str]
-    evaluation_fingerprint: str
-    canonical_candidate: dict[str, str]
-    expires_at: float
-    state: str = "draft"
-    current_revision: int = 0
-    current_operation_id: str | None = None
-    current_request_fingerprint: str | None = None
-    current_kind: str | None = None
-    linked_token_digest: str | None = None
-    final_response: dict[str, Any] | None = None
-    authority_response: dict[str, Any] | None = None
-    receipt: dict[str, str] | None = None
-
-
 class CreateLocalTaskRegistry:
-    """One locked authority for Voice Create records and Evaluate Task drafts."""
+    """One locked authority for Voice Create records."""
 
     def __init__(
         self,
@@ -2132,8 +2030,6 @@ class CreateLocalTaskRegistry:
         self._ttl_seconds = ttl_seconds
         self._capacity = capacity
         self._records: dict[str, _CreateLocalTaskRecord] = {}
-        self._drafts: dict[str, _EvaluateIdeaTaskDraft] = {}
-        self._draft_request_index: dict[str, str] = {}
         self._hmac_secret = hmac_secret or secrets.token_bytes(32)
         self._lock = threading.Lock()
 
@@ -2149,356 +2045,11 @@ class CreateLocalTaskRegistry:
         ]
         for digest in expired_records:
             del self._records[digest]
-        expired_drafts = [
-            draft_id
-            for draft_id, draft in self._drafts.items()
-            if draft.expires_at <= now
-        ]
-        for draft_id in expired_drafts:
-            draft = self._drafts.pop(draft_id)
-            self._draft_request_index.pop(draft.draft_request_id, None)
-            if draft.linked_token_digest:
-                self._records.pop(draft.linked_token_digest, None)
 
     def _capacity_used_locked(self) -> int:
-        standalone_records = sum(
-            record.linked_draft_id is None for record in self._records.values()
-        )
-        return standalone_records + len(self._drafts)
-
-    @staticmethod
-    def _already_created(draft: _EvaluateIdeaTaskDraft) -> tuple[int, dict[str, Any]]:
-        assert draft.receipt is not None
-        return HTTPStatus.OK, {
-            "ok": True,
-            "product_name": CREATE_LOCAL_TASK_PRODUCT_NAME,
-            "result_type": "already_created",
-            "receipt": dict(draft.receipt),
-        }
-
-    def replay_draft_request(
-        self,
-        *,
-        draft_request_id: str,
-        request_fingerprint: str,
-    ) -> tuple[int, dict[str, Any]] | None:
-        now = float(self._clock())
-        with self._lock:
-            self._purge_expired_locked(now)
-            draft_id = self._draft_request_index.get(draft_request_id)
-            if draft_id is None:
-                return None
-            draft = self._drafts[draft_id]
-            if draft.request_fingerprint != request_fingerprint:
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_request_conflict",
-                }
-            return HTTPStatus.OK, _evaluate_idea_task_draft_response(
-                draft,
-                self._ttl_seconds,
-            )
-
-    def store_draft(
-        self,
-        *,
-        draft_request_id: str,
-        request_fingerprint: str,
-        evaluation_inputs: dict[str, Any],
-        evaluation: dict[str, str],
-        evaluation_fingerprint: str,
-        canonical_candidate: dict[str, str],
-    ) -> tuple[int, dict[str, Any]]:
-        now = float(self._clock())
-        with self._lock:
-            self._purge_expired_locked(now)
-            existing_id = self._draft_request_index.get(draft_request_id)
-            if existing_id is not None:
-                existing = self._drafts[existing_id]
-                if existing.request_fingerprint != request_fingerprint:
-                    return HTTPStatus.CONFLICT, {
-                        "ok": False,
-                        "error": "evaluate_idea_create_task_draft_request_conflict",
-                    }
-                return HTTPStatus.OK, _evaluate_idea_task_draft_response(
-                    existing,
-                    self._ttl_seconds,
-                )
-            if self._capacity_used_locked() >= self._capacity:
-                return HTTPStatus.SERVICE_UNAVAILABLE, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_temporarily_unavailable",
-                }
-            draft_id = str(uuid.uuid4())
-            draft = _EvaluateIdeaTaskDraft(
-                draft_request_id=draft_request_id,
-                draft_id=draft_id,
-                request_fingerprint=request_fingerprint,
-                evaluation_inputs=dict(evaluation_inputs),
-                evaluation=dict(evaluation),
-                evaluation_fingerprint=evaluation_fingerprint,
-                canonical_candidate=dict(canonical_candidate),
-                expires_at=now + self._ttl_seconds,
-            )
-            self._drafts[draft_id] = draft
-            self._draft_request_index[draft_request_id] = draft_id
-            return HTTPStatus.OK, _evaluate_idea_task_draft_response(
-                draft,
-                self._ttl_seconds,
-            )
-
-    def _evaluate_token(
-        self,
-        *,
-        draft_id: str,
-        draft_revision: int,
-        operation_id: str,
-        content_fingerprint: str,
-    ) -> str:
-        authority = "\0".join(
-            (
-                "evaluate-idea-create-task-v1",
-                draft_id,
-                str(draft_revision),
-                operation_id,
-                content_fingerprint,
-            )
-        ).encode("utf-8")
-        digest = hmac.new(self._hmac_secret, authority, hashlib.sha256).digest()
-        return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
-
-    def finalize_draft(
-        self,
-        *,
-        draft_id: str,
-        draft_revision: int,
-        operation_id: str,
-        content_fingerprint: str,
-        evaluation_inputs: dict[str, Any],
-        candidate: dict[str, str],
-        evaluator: Any,
-        candidate_previewer: Any,
-        tasks_dir: Path,
-    ) -> tuple[int, dict[str, Any]]:
-        now = float(self._clock())
-        with self._lock:
-            self._purge_expired_locked(now)
-            draft = self._drafts.get(draft_id)
-            if draft is None:
-                return HTTPStatus.NOT_FOUND, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_not_found_or_expired",
-                }
-            if draft.receipt is not None:
-                return self._already_created(draft)
-            if draft.state == "cancelled":
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_cancelled",
-                }
-            if draft.state == "outcome_unknown":
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_outcome_unknown",
-                }
-            if draft_revision < draft.current_revision:
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_revision_stale",
-                }
-            if draft_revision == draft.current_revision:
-                if (
-                    draft.current_kind == "final"
-                    and draft.current_operation_id == operation_id
-                    and draft.current_request_fingerprint == content_fingerprint
-                    and draft.state == "final_preview"
-                    and draft.final_response is not None
-                    and draft.linked_token_digest in self._records
-                ):
-                    return HTTPStatus.OK, _deep_copy_json(draft.final_response)
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_revision_conflict",
-                }
-
-            evaluation_status, evaluated = _evaluate_idea_task_recommendation(
-                evaluation_inputs,
-                evaluator=evaluator,
-            )
-            if evaluation_status != HTTPStatus.OK:
-                return evaluation_status, evaluated
-            if evaluated["evaluation_fingerprint"] != draft.evaluation_fingerprint:
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_evaluation_changed_since_draft",
-                }
-
-            canonical_candidate = dict(candidate)
-            canonical_candidate["status"] = CREATE_LOCAL_TASK_STATUS
-            canonical_candidate["repo"] = CREATE_LOCAL_TASK_REPO
-            canonical_candidate["source_command"] = "Evaluate Idea"
-            try:
-                provisional = candidate_previewer(
-                    canonical_candidate,
-                    tasks_dir=tasks_dir,
-                )
-            except OSError:
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_storage_unavailable",
-                }
-            if provisional.result_type != "would_create" or not provisional.task_id:
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_candidate_preview_failed",
-                }
-
-            token = self._evaluate_token(
-                draft_id=draft_id,
-                draft_revision=draft_revision,
-                operation_id=operation_id,
-                content_fingerprint=content_fingerprint,
-            )
-            if not CREATE_LOCAL_TASK_TOKEN_PATTERN.fullmatch(token):
-                return HTTPStatus.SERVICE_UNAVAILABLE, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_temporarily_unavailable",
-                }
-            token_digest = self._digest(token)
-            occupied = self._records.get(token_digest)
-            if (
-                occupied is not None
-                and token_digest != draft.linked_token_digest
-            ):
-                return HTTPStatus.SERVICE_UNAVAILABLE, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_temporarily_unavailable",
-                }
-
-            final_response = {
-                "ok": True,
-                "product_name": CREATE_LOCAL_TASK_PRODUCT_NAME,
-                "result_type": "preview",
-                "source": "evaluate_idea",
-                "draft_id": draft_id,
-                "draft_revision": draft_revision,
-                "operation_id": operation_id,
-                "token": token,
-                "expires_in_seconds": self._ttl_seconds,
-                "confirmation_literal": CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
-                "evaluation": dict(evaluated["evaluation"]),
-                "candidate": dict(canonical_candidate),
-                "immutable_fields": list(
-                    EVALUATE_IDEA_CREATE_TASK_IMMUTABLE_FIELDS
-                ),
-                "destination": {
-                    "storage_location": (
-                        f"{CREATE_LOCAL_TASK_STORAGE_ROOT}/{provisional.task_id}.md"
-                    ),
-                    "provisional": True,
-                    "receipt_authoritative": True,
-                },
-                "warning": EVALUATE_IDEA_CREATE_TASK_WARNING,
-            }
-
-            if draft.linked_token_digest:
-                self._records.pop(draft.linked_token_digest, None)
-            self._records[token_digest] = _CreateLocalTaskRecord(
-                candidate=dict(canonical_candidate),
-                expires_at=now + self._ttl_seconds,
-                linked_draft_id=draft_id,
-                draft_revision=draft_revision,
-            )
-            draft.current_revision = draft_revision
-            draft.current_operation_id = operation_id
-            draft.current_request_fingerprint = content_fingerprint
-            draft.current_kind = "final"
-            draft.linked_token_digest = token_digest
-            draft.final_response = _deep_copy_json(final_response)
-            draft.authority_response = _deep_copy_json(final_response)
-            draft.state = "final_preview"
-            draft.expires_at = now + self._ttl_seconds
-            return HTTPStatus.OK, final_response
-
-    def invalidate_draft(
-        self,
-        *,
-        draft_id: str,
-        draft_revision: int,
-        operation_id: str,
-        action: str,
-        request_fingerprint: str,
-    ) -> tuple[int, dict[str, Any]]:
-        now = float(self._clock())
-        with self._lock:
-            self._purge_expired_locked(now)
-            draft = self._drafts.get(draft_id)
-            if draft is None:
-                return HTTPStatus.NOT_FOUND, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_not_found_or_expired",
-                }
-            if draft.receipt is not None:
-                return self._already_created(draft)
-            if (
-                draft_revision == draft.current_revision
-                and draft.current_kind == "invalidate"
-                and draft.current_operation_id == operation_id
-                and draft.current_request_fingerprint == request_fingerprint
-                and draft.authority_response is not None
-            ):
-                return HTTPStatus.OK, _deep_copy_json(
-                    draft.authority_response
-                )
-            if draft.state == "cancelled":
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_cancelled",
-                }
-            if draft.state == "outcome_unknown":
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_outcome_unknown",
-                }
-            if draft_revision < draft.current_revision:
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_revision_stale",
-                }
-            if draft_revision == draft.current_revision:
-                return HTTPStatus.CONFLICT, {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_draft_revision_conflict",
-                }
-
-            if draft.linked_token_digest:
-                self._records.pop(draft.linked_token_digest, None)
-            state = "draft" if action == "edit_draft" else "cancelled"
-            result_type = "invalidated" if action == "edit_draft" else "cancelled"
-            next_action = (
-                "Edit title or summary, then request a new Final Preview."
-                if action == "edit_draft"
-                else "Run Evaluate Idea again, then create a new Draft."
-            )
-            response = {
-                "ok": True,
-                "product_name": CREATE_LOCAL_TASK_PRODUCT_NAME,
-                "result_type": result_type,
-                "draft_id": draft_id,
-                "draft_revision": draft_revision,
-                "state": state,
-                "next_recommended_action": next_action,
-            }
-            draft.current_revision = draft_revision
-            draft.current_operation_id = operation_id
-            draft.current_request_fingerprint = request_fingerprint
-            draft.current_kind = "invalidate"
-            draft.linked_token_digest = None
-            draft.final_response = None
-            draft.authority_response = _deep_copy_json(response)
-            draft.state = state
-            draft.expires_at = now + self._ttl_seconds
-            return HTTPStatus.OK, response
+        # Every record is standalone now that Evaluate Idea drafts are gone
+        # (task-0075); this counted exactly the same set before.
+        return len(self._records)
 
     def issue(self, candidate: dict[str, str]) -> tuple[int, dict[str, Any]]:
         now = float(self._clock())
@@ -2572,22 +2123,8 @@ class CreateLocalTaskRegistry:
                 }
 
             record.consumed_without_receipt = True
-            linked_draft = (
-                self._drafts.get(record.linked_draft_id)
-                if record.linked_draft_id
-                else None
-            )
-            if linked_draft is not None:
-                linked_draft.state = "outcome_unknown"
-                linked_draft.final_response = None
-                linked_draft.authority_response = None
             canonical_candidate = dict(record.candidate)
             try:
-                if linked_draft is not None:
-                    canonical_candidate["status"] = CREATE_LOCAL_TASK_STATUS
-                    canonical_candidate["repo"] = CREATE_LOCAL_TASK_REPO
-                    canonical_candidate["source_command"] = "Evaluate Idea"
-                    record.candidate = dict(canonical_candidate)
                 write_result = write_task_file(
                     canonical_candidate,
                     tasks_dir=tasks_dir,
@@ -2617,10 +2154,6 @@ class CreateLocalTaskRegistry:
             }
             record.receipt = receipt
             record.expires_at = now + self._ttl_seconds
-            if linked_draft is not None:
-                linked_draft.receipt = dict(receipt)
-                linked_draft.state = "confirmed"
-                linked_draft.expires_at = now + self._ttl_seconds
             return HTTPStatus.OK, {
                 "ok": True,
                 "product_name": CREATE_LOCAL_TASK_PRODUCT_NAME,
@@ -3483,274 +3016,6 @@ def confirm_completion_evidence(
     )
 
 
-def _bounded_evaluate_idea_text(value: Any, max_chars: int) -> str:
-    text = str(value or "").strip()
-    if len(text) <= max_chars:
-        return text
-    return text[: max(0, max_chars - 3)].rstrip() + "..."
-
-
-def _validate_evaluate_idea_payload(
-    payload: dict[str, Any],
-) -> tuple[int, ResearchCouncilInput | dict[str, Any]]:
-    allowed_fields = {"idea", "goal", "context", "provided_evidence"}
-    if not set(payload).issubset(allowed_fields):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_unknown_fields",
-        }
-    if "idea" not in payload or "goal" not in payload:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_requires_idea_and_goal",
-        }
-
-    idea = payload.get("idea")
-    goal = payload.get("goal")
-    context = payload.get("context", "")
-    evidence = payload.get("provided_evidence", [])
-    if not isinstance(idea, str) or not isinstance(goal, str):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_fields_must_be_strings",
-        }
-    if context is None:
-        context = ""
-    if not isinstance(context, str):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_fields_must_be_strings",
-        }
-    if not all(
-        memory_string_has_valid_unicode(value)
-        for value in (idea, goal, context)
-    ):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "invalid_unicode",
-        }
-    if not isinstance(evidence, list):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "provided_evidence_must_be_a_list",
-        }
-
-    canonical_idea = idea.strip()
-    canonical_goal = goal.strip()
-    canonical_context = context.strip()
-    if not canonical_idea or not canonical_goal:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_requires_idea_and_goal",
-        }
-    if len(canonical_idea) > EVALUATE_IDEA_MAX_IDEA_CHARS:
-        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "idea_too_long"}
-    if len(canonical_goal) > EVALUATE_IDEA_MAX_GOAL_CHARS:
-        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "goal_too_long"}
-    if len(canonical_context) > EVALUATE_IDEA_MAX_CONTEXT_CHARS:
-        return HTTPStatus.BAD_REQUEST, {"ok": False, "error": "context_too_long"}
-    if len(evidence) > EVALUATE_IDEA_MAX_EVIDENCE_ENTRIES:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "too_many_provided_evidence_entries",
-        }
-
-    canonical_evidence: list[str] = []
-    for entry in evidence:
-        if not isinstance(entry, str):
-            return HTTPStatus.BAD_REQUEST, {
-                "ok": False,
-                "error": "provided_evidence_entries_must_be_strings",
-            }
-        if not memory_string_has_valid_unicode(entry):
-            return HTTPStatus.BAD_REQUEST, {
-                "ok": False,
-                "error": "invalid_unicode",
-            }
-        canonical_entry = entry.strip()
-        if not canonical_entry:
-            return HTTPStatus.BAD_REQUEST, {
-                "ok": False,
-                "error": "provided_evidence_entries_must_be_nonempty",
-            }
-        if len(canonical_entry) > EVALUATE_IDEA_MAX_EVIDENCE_CHARS:
-            return HTTPStatus.BAD_REQUEST, {
-                "ok": False,
-                "error": "provided_evidence_entry_too_long",
-            }
-        canonical_evidence.append(canonical_entry)
-
-    return HTTPStatus.OK, ResearchCouncilInput(
-        raw_idea=canonical_idea,
-        goal=canonical_goal,
-        context=canonical_context or None,
-        provided_evidence=tuple(canonical_evidence),
-    )
-
-
-def evaluate_idea(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-    """Run one bounded, deterministic Research Council projection in memory."""
-
-    validation_status, validated = _validate_evaluate_idea_payload(payload)
-    if validation_status != HTTPStatus.OK:
-        return validation_status, validated  # type: ignore[return-value]
-    assert isinstance(validated, ResearchCouncilInput)
-
-    try:
-        result = run_research_council(
-            validated,
-            llm_advisor_config=LLMAugmentationMode.OFF,
-        )
-        serialized = result_to_json_dict(result)
-    except (TypeError, ValueError):
-        return HTTPStatus.INTERNAL_SERVER_ERROR, {
-            "ok": False,
-            "error": "evaluate_idea_failed",
-        }
-
-    missing_entries = [
-        entry
-        for entry in serialized.get("evidence_ledger", [])
-        if entry.get("evidence_type") == "missing"
-    ][:EVALUATE_IDEA_MAX_GAPS]
-    critiques = serialized.get("reviewer_critiques", [])[
-        :EVALUATE_IDEA_MAX_CRITIQUES
-    ]
-    experiments = serialized.get("experiments", [])[
-        :EVALUATE_IDEA_MAX_EXPERIMENTS
-    ]
-    recommendation = serialized.get("recommendation", {})
-    executive_summary = " ".join(
-        part
-        for part in (
-            _bounded_evaluate_idea_text(serialized.get("input_summary"), 700),
-            _bounded_evaluate_idea_text(recommendation.get("summary"), 700),
-        )
-        if part
-    )
-
-    return HTTPStatus.OK, {
-        "ok": True,
-        "product_name": EVALUATE_IDEA_PRODUCT_NAME,
-        "executive_summary": _bounded_evaluate_idea_text(executive_summary, 1_200),
-        "evidence_gaps": [
-            {
-                "summary": _bounded_evaluate_idea_text(entry.get("summary"), 600),
-                "missing_evidence": _bounded_evaluate_idea_text(
-                    entry.get("missing_evidence"),
-                    600,
-                ),
-                "required_evidence": _bounded_evaluate_idea_text(
-                    entry.get("required_evidence"),
-                    600,
-                ),
-                "validation_experiment": _bounded_evaluate_idea_text(
-                    entry.get("validation_experiment"),
-                    800,
-                ),
-                "confidence_impact": _bounded_evaluate_idea_text(
-                    entry.get("confidence_impact"),
-                    80,
-                ),
-            }
-            for entry in missing_entries
-        ],
-        "key_critiques_risks": [
-            {
-                "reviewer_role": _bounded_evaluate_idea_text(
-                    critique.get("reviewer_role"),
-                    120,
-                ),
-                "finding": _bounded_evaluate_idea_text(
-                    critique.get("finding"),
-                    800,
-                ),
-                "severity": _bounded_evaluate_idea_text(
-                    critique.get("severity"),
-                    20,
-                ),
-                "suggested_action": _bounded_evaluate_idea_text(
-                    critique.get("suggested_action"),
-                    800,
-                ),
-            }
-            for critique in critiques
-        ],
-        "minimum_experiments": [
-            {
-                "title": _bounded_evaluate_idea_text(experiment.get("title"), 200),
-                "method": _bounded_evaluate_idea_text(
-                    experiment.get("method"),
-                    1_200,
-                ),
-                "success_metric": _bounded_evaluate_idea_text(
-                    experiment.get("success_metric"),
-                    600,
-                ),
-                "minimum_sample": _bounded_evaluate_idea_text(
-                    experiment.get("minimum_sample"),
-                    300,
-                ),
-                "risk": _bounded_evaluate_idea_text(
-                    experiment.get("risk"),
-                    600,
-                ),
-            }
-            for experiment in experiments
-        ],
-        "recommendation": {
-            "decision": _bounded_evaluate_idea_text(
-                recommendation.get("decision"),
-                120,
-            ),
-            "summary": _bounded_evaluate_idea_text(
-                recommendation.get("summary"),
-                800,
-            ),
-            "rationale": _bounded_evaluate_idea_text(
-                recommendation.get("rationale"),
-                1_200,
-            ),
-            "next_step": _bounded_evaluate_idea_text(
-                recommendation.get("next_step"),
-                800,
-            ),
-        },
-        "write_free": True,
-        "local_only": True,
-        "external_calls": False,
-    }
-
-
-def normalize_evaluate_idea_task_seed(value: str) -> tuple[str | None, str | None]:
-    """Return one Task-safe seed from a server-produced recommendation."""
-
-    try:
-        normalized = unicodedata.normalize("NFC", value)
-    except UnicodeError:
-        return None, "evaluate_idea_create_task_next_step_unsafe"
-
-    characters: list[str] = []
-    whitespace_pending = False
-    for character in normalized:
-        if character.isspace():
-            whitespace_pending = bool(characters)
-            continue
-        if character == "`":
-            continue
-        if unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}:
-            return None, "evaluate_idea_create_task_next_step_unsafe"
-        if whitespace_pending:
-            characters.append(" ")
-            whitespace_pending = False
-        characters.append(character)
-
-    task_seed = "".join(characters).strip()
-    if not task_seed:
-        return None, "evaluate_idea_create_task_next_step_empty"
-    return task_seed, None
-
-
 def _deep_copy_json(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False))
 
@@ -3764,401 +3029,12 @@ def _canonical_json_fingerprint(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _canonical_uuid4(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    if not EVALUATE_IDEA_CREATE_TASK_UUID_PATTERN.fullmatch(value):
-        return None
-    try:
-        parsed = uuid.UUID(value)
-    except ValueError:
-        return None
-    if parsed.version != 4 or str(parsed) != value:
-        return None
-    return value
-
-
 def _safe_positive_revision(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     if value <= 0 or value > (2**53 - 1):
         return None
     return value
-
-
-def _normalize_evaluate_task_candidate_field(
-    value: str,
-    *,
-    max_chars: int,
-) -> str | None:
-    for character in value:
-        if (
-            character == "`"
-            or character in {"\r", "\n", "\x85", "\u2028", "\u2029", "\x00"}
-            or unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
-        ):
-            return None
-    try:
-        normalized = unicodedata.normalize("NFC", value)
-    except UnicodeError:
-        return None
-    collapsed = " ".join(normalized.split())
-    if not 1 <= len(collapsed) <= max_chars:
-        return None
-    return collapsed
-
-
-def _evaluate_idea_create_task_validation_error(error: Any) -> str:
-    suffix = str(error or "invalid_request")
-    if suffix.startswith("evaluate_idea_"):
-        suffix = suffix[len("evaluate_idea_") :]
-    return f"evaluate_idea_create_task_{suffix}"
-
-
-def _canonical_evaluate_idea_inputs(
-    validated: ResearchCouncilInput,
-) -> dict[str, Any]:
-    return {
-        "idea": validated.raw_idea,
-        "goal": validated.goal,
-        "context": validated.context or "",
-        "provided_evidence": list(validated.provided_evidence),
-    }
-
-
-def _evaluate_idea_task_recommendation(
-    canonical_payload: dict[str, Any],
-    *,
-    evaluator: Any,
-) -> tuple[int, dict[str, Any]]:
-    try:
-        evaluation_status, evaluation = evaluator(canonical_payload)
-    except Exception:
-        return HTTPStatus.INTERNAL_SERVER_ERROR, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_preview_failed",
-        }
-    if evaluation_status == HTTPStatus.BAD_REQUEST and isinstance(evaluation, dict):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": _evaluate_idea_create_task_validation_error(
-                evaluation.get("error")
-            ),
-        }
-    if evaluation_status != HTTPStatus.OK or not isinstance(evaluation, dict):
-        return HTTPStatus.INTERNAL_SERVER_ERROR, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_preview_failed",
-        }
-    recommendation = evaluation.get("recommendation")
-    if not isinstance(recommendation, Mapping):
-        return HTTPStatus.CONFLICT, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_recommendation_unavailable",
-        }
-    decision = recommendation.get("decision")
-    if not isinstance(decision, str):
-        return HTTPStatus.CONFLICT, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_recommendation_unavailable",
-        }
-    if "next_step" not in recommendation:
-        return HTTPStatus.CONFLICT, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_next_step_unavailable",
-        }
-    next_step = recommendation.get("next_step")
-    if not isinstance(next_step, str):
-        return HTTPStatus.CONFLICT, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_next_step_invalid",
-        }
-    task_seed, seed_error = normalize_evaluate_idea_task_seed(next_step)
-    if task_seed is None:
-        return HTTPStatus.CONFLICT, {
-            "ok": False,
-            "error": seed_error
-            or "evaluate_idea_create_task_next_step_unsafe",
-        }
-    canonical_candidate = {
-        "title": voice_candidate_title(task_seed),
-        "summary": voice_candidate_summary(task_seed),
-        "status": CREATE_LOCAL_TASK_STATUS,
-        "repo": CREATE_LOCAL_TASK_REPO,
-        "source_command": "Evaluate Idea",
-    }
-    evaluation_projection = {
-        "decision": decision,
-        "next_step": next_step,
-    }
-    evaluation_fingerprint = _canonical_json_fingerprint(
-        {
-            "idea": canonical_payload["idea"],
-            "goal": canonical_payload["goal"],
-            "context": canonical_payload["context"],
-            "provided_evidence": canonical_payload["provided_evidence"],
-            "decision": decision,
-            "next_step": next_step,
-            "canonical_suggested_candidate": canonical_candidate,
-        }
-    )
-    return HTTPStatus.OK, {
-        "ok": True,
-        "evaluation": evaluation_projection,
-        "canonical_candidate": canonical_candidate,
-        "evaluation_fingerprint": evaluation_fingerprint,
-    }
-
-
-def _evaluate_idea_task_draft_response(
-    draft: _EvaluateIdeaTaskDraft,
-    ttl_seconds: int,
-) -> dict[str, Any]:
-    return {
-        "ok": True,
-        "product_name": CREATE_LOCAL_TASK_PRODUCT_NAME,
-        "result_type": "draft",
-        "source": "evaluate_idea",
-        "draft_request_id": draft.draft_request_id,
-        "draft_id": draft.draft_id,
-        "draft_revision": 0,
-        "expires_in_seconds": ttl_seconds,
-        "evaluation": dict(draft.evaluation),
-        "canonical_candidate": dict(draft.canonical_candidate),
-        "editable_fields": ["title", "summary"],
-        "immutable_fields": list(EVALUATE_IDEA_CREATE_TASK_IMMUTABLE_FIELDS),
-        "warning": EVALUATE_IDEA_CREATE_TASK_DRAFT_WARNING,
-    }
-
-
-def draft_evaluate_idea_create_task(
-    payload: dict[str, Any],
-    *,
-    registry: CreateLocalTaskRegistry = CREATE_LOCAL_TASK_REGISTRY,
-    evaluator: Any = evaluate_idea,
-) -> tuple[int, dict[str, Any]]:
-    """Create or replay one write-free editable Draft."""
-
-    if set(payload) != EVALUATE_IDEA_CREATE_TASK_DRAFT_FIELDS:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": (
-                "evaluate_idea_create_task_"
-                "draft_accepts_request_id_and_evaluation_fields_only"
-            ),
-        }
-    draft_request_id = _canonical_uuid4(payload.get("draft_request_id"))
-    if draft_request_id is None:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_draft_request_id",
-        }
-    evaluation_payload = {
-        key: payload[key]
-        for key in EVALUATE_IDEA_CREATE_TASK_ALLOWED_FIELDS
-    }
-    validation_status, validated = _validate_evaluate_idea_payload(
-        evaluation_payload
-    )
-    if validation_status != HTTPStatus.OK:
-        assert isinstance(validated, dict)
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": _evaluate_idea_create_task_validation_error(
-                validated.get("error")
-            ),
-        }
-    assert isinstance(validated, ResearchCouncilInput)
-    canonical_inputs = _canonical_evaluate_idea_inputs(validated)
-    request_fingerprint = _canonical_json_fingerprint(canonical_inputs)
-    replay = registry.replay_draft_request(
-        draft_request_id=draft_request_id,
-        request_fingerprint=request_fingerprint,
-    )
-    if replay is not None:
-        return replay
-    evaluation_status, evaluated = _evaluate_idea_task_recommendation(
-        canonical_inputs,
-        evaluator=evaluator,
-    )
-    if evaluation_status != HTTPStatus.OK:
-        return evaluation_status, evaluated
-    return registry.store_draft(
-        draft_request_id=draft_request_id,
-        request_fingerprint=request_fingerprint,
-        evaluation_inputs=canonical_inputs,
-        evaluation=evaluated["evaluation"],
-        evaluation_fingerprint=evaluated["evaluation_fingerprint"],
-        canonical_candidate=evaluated["canonical_candidate"],
-    )
-
-
-def preview_evaluate_idea_create_task(
-    payload: dict[str, Any],
-    *,
-    registry: CreateLocalTaskRegistry = CREATE_LOCAL_TASK_REGISTRY,
-    tasks_dir: Path = CREATE_LOCAL_TASKS_DIR,
-    evaluator: Any = evaluate_idea,
-    candidate_previewer: Any = preview_task_file_write,
-) -> tuple[int, dict[str, Any]]:
-    """Create or replay the one authoritative write-free Final Preview."""
-
-    if set(payload) != EVALUATE_IDEA_CREATE_TASK_FINAL_FIELDS:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": (
-                "evaluate_idea_create_task_"
-                "preview_accepts_draft_revision_operation_evaluation_"
-                "and_candidate_fields_only"
-            ),
-        }
-    draft_id = _canonical_uuid4(payload.get("draft_id"))
-    if draft_id is None:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_draft_id",
-        }
-    draft_revision = _safe_positive_revision(payload.get("draft_revision"))
-    if draft_revision is None:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_draft_revision",
-        }
-    operation_id = _canonical_uuid4(payload.get("operation_id"))
-    if operation_id is None:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_operation_id",
-        }
-    title = payload.get("title")
-    summary = payload.get("summary")
-    if not isinstance(title, str) or not isinstance(summary, str):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_preview_fields_must_be_strings",
-        }
-    normalized_title = _normalize_evaluate_task_candidate_field(
-        title,
-        max_chars=EVALUATE_IDEA_CREATE_TASK_TITLE_MAX_CHARS,
-    )
-    if normalized_title is None:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_title",
-        }
-    normalized_summary = _normalize_evaluate_task_candidate_field(
-        summary,
-        max_chars=EVALUATE_IDEA_CREATE_TASK_SUMMARY_MAX_CHARS,
-    )
-    if normalized_summary is None:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_summary",
-        }
-    evaluation_payload = {
-        key: payload[key]
-        for key in EVALUATE_IDEA_CREATE_TASK_ALLOWED_FIELDS
-    }
-    validation_status, validated = _validate_evaluate_idea_payload(
-        evaluation_payload
-    )
-    if validation_status != HTTPStatus.OK:
-        assert isinstance(validated, dict)
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": _evaluate_idea_create_task_validation_error(
-                validated.get("error")
-            ),
-        }
-    assert isinstance(validated, ResearchCouncilInput)
-    canonical_payload = _canonical_evaluate_idea_inputs(validated)
-    content_fingerprint = _canonical_json_fingerprint(
-        {
-            "idea": canonical_payload["idea"],
-            "goal": canonical_payload["goal"],
-            "context": canonical_payload["context"],
-            "provided_evidence": canonical_payload["provided_evidence"],
-            "title": normalized_title,
-            "summary": normalized_summary,
-        }
-    )
-    candidate = {
-        "title": normalized_title,
-        "summary": normalized_summary,
-        "status": CREATE_LOCAL_TASK_STATUS,
-        "repo": CREATE_LOCAL_TASK_REPO,
-        "source_command": "Evaluate Idea",
-    }
-    return registry.finalize_draft(
-        draft_id=draft_id,
-        draft_revision=draft_revision,
-        operation_id=operation_id,
-        content_fingerprint=content_fingerprint,
-        evaluation_inputs=canonical_payload,
-        candidate=candidate,
-        evaluator=evaluator,
-        candidate_previewer=candidate_previewer,
-        tasks_dir=tasks_dir,
-    )
-
-
-def invalidate_evaluate_idea_create_task(
-    payload: dict[str, Any],
-    *,
-    registry: CreateLocalTaskRegistry = CREATE_LOCAL_TASK_REGISTRY,
-) -> tuple[int, dict[str, Any]]:
-    """Atomically revoke Final authority before edit or re-evaluation."""
-
-    if set(payload) != EVALUATE_IDEA_CREATE_TASK_INVALIDATE_FIELDS:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": (
-                "evaluate_idea_create_task_"
-                "invalidate_accepts_draft_revision_operation_and_action_only"
-            ),
-        }
-    draft_id = _canonical_uuid4(payload.get("draft_id"))
-    if draft_id is None:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_draft_id",
-        }
-    draft_revision = _safe_positive_revision(payload.get("draft_revision"))
-    if draft_revision is None:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_draft_revision",
-        }
-    operation_id = _canonical_uuid4(payload.get("operation_id"))
-    if operation_id is None:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_operation_id",
-        }
-    action = payload.get("action")
-    if (
-        not isinstance(action, str)
-        or action not in EVALUATE_IDEA_CREATE_TASK_INVALIDATE_ACTIONS
-    ):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_action",
-        }
-    request_fingerprint = _canonical_json_fingerprint(
-        {
-            "draft_id": draft_id,
-            "draft_revision": draft_revision,
-            "operation_id": operation_id,
-            "action": action,
-        }
-    )
-    return registry.invalidate_draft(
-        draft_id=draft_id,
-        draft_revision=draft_revision,
-        operation_id=operation_id,
-        action=action,
-        request_fingerprint=request_fingerprint,
-    )
 
 
 def prepare_voice_inbox_task(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -4444,127 +3320,6 @@ class _DuplicateCompletionEvidenceJsonKey(ValueError):
     pass
 
 
-class _DuplicateEvaluateIdeaCreateTaskJsonKey(ValueError):
-    pass
-
-
-def parse_evaluate_idea_create_task_json_body(
-    raw_body: bytes,
-) -> tuple[int, dict[str, Any]]:
-    """Parse the exact Evaluate-to-Task request with distinct JSON errors."""
-
-    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        parsed: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in parsed:
-                raise _DuplicateEvaluateIdeaCreateTaskJsonKey
-            parsed[key] = value
-        return parsed
-
-    try:
-        decoded = raw_body.decode("utf-8")
-        payload = json.loads(decoded, object_pairs_hook=reject_duplicate_keys)
-    except _DuplicateEvaluateIdeaCreateTaskJsonKey:
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_duplicate_json_key",
-        }
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_json",
-        }
-    if not isinstance(payload, dict):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_json_must_be_object",
-        }
-    return HTTPStatus.OK, payload
-
-
-def validate_evaluate_idea_create_task_http_request(
-    *,
-    path: str,
-    query: str,
-    header_pairs: list[tuple[str, str]],
-    bound_port: int,
-) -> tuple[int, dict[str, Any]]:
-    """Validate one guarded Evaluate-to-Task workflow request."""
-
-    if path not in {
-        EVALUATE_IDEA_CREATE_TASK_DRAFT_ENDPOINT,
-        EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT,
-        EVALUATE_IDEA_CREATE_TASK_INVALIDATE_ENDPOINT,
-    } or query:
-        return HTTPStatus.NOT_FOUND, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_not_found",
-        }
-    if len(header_pairs) > 32:
-        return HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_headers_rejected",
-        }
-
-    headers: dict[str, list[str]] = {}
-    for raw_name, raw_value in header_pairs:
-        name = str(raw_name).strip().lower()
-        value = str(raw_value).strip()
-        if not name or len(name) > 80 or len(value) > 1024:
-            return HTTPStatus.BAD_REQUEST, {
-                "ok": False,
-                "error": "evaluate_idea_create_task_headers_rejected",
-            }
-        headers.setdefault(name, []).append(value)
-    if headers.get("transfer-encoding"):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": (
-                "evaluate_idea_create_task_transfer_encoding_not_allowed"
-            ),
-        }
-    if any(
-        len(headers.get(name, [])) != 1
-        for name in CREATE_LOCAL_TASK_REQUIRED_HEADERS
-    ):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_headers_rejected",
-        }
-
-    expected_authority = f"{DEFAULT_HOST}:{bound_port}"
-    if (
-        headers["host"][0] != expected_authority
-        or headers["origin"][0] != f"http://{expected_authority}"
-    ):
-        return HTTPStatus.FORBIDDEN, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_origin_rejected",
-        }
-    if (
-        headers["content-type"][0].lower()
-        not in CREATE_LOCAL_TASK_ALLOWED_CONTENT_TYPES
-    ):
-        return HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_json_required",
-        }
-
-    content_length = headers["content-length"][0]
-    if not re.fullmatch(r"[1-9][0-9]*", content_length):
-        return HTTPStatus.BAD_REQUEST, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_invalid_content_length",
-        }
-    body_length = int(content_length)
-    if body_length > MAX_JSON_BODY_BYTES:
-        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {
-            "ok": False,
-            "error": "evaluate_idea_create_task_body_size_rejected",
-        }
-    return HTTPStatus.OK, {"ok": True, "body_length": body_length}
-
-
 def parse_completion_evidence_json_body(
     raw_body: bytes,
 ) -> tuple[int, dict[str, Any]]:
@@ -4710,8 +3465,6 @@ def handle_post_api(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, 
             return HTTPStatus.OK, {"ok": True, **suggestion}
         if path == "/api/voice-inbox/prepare":
             return prepare_voice_inbox_task(payload)
-        if path == EVALUATE_IDEA_ENDPOINT:
-            return evaluate_idea(payload)
     except RegistryError as exc:
         return HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)}
     return HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"}
@@ -4760,12 +3513,6 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
 
         parsed = urlparse(self.path)
         path = parsed.path
-        if path.startswith("/api/evaluate-idea/create-task"):
-            self._handle_evaluate_idea_create_task_post(
-                parsed.path,
-                parsed.query,
-            )
-            return
         if path in {
             CREATE_LOCAL_TASK_PREVIEW_ENDPOINT,
             CREATE_LOCAL_TASK_CONFIRM_ENDPOINT,
@@ -4787,7 +3534,6 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
         if path not in {
             "/api/suggest-skill",
             "/api/voice-inbox/prepare",
-            EVALUATE_IDEA_ENDPOINT,
         }:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
@@ -4808,74 +3554,6 @@ class JarvisConsoleHandler(BaseHTTPRequestHandler):
             return
 
         response_status, response_payload = handle_post_api(path, payload)
-        self._send_json(response_status, response_payload)
-
-    def _handle_evaluate_idea_create_task_post(
-        self,
-        path: str,
-        query: str,
-    ) -> None:
-        metadata_status, metadata = (
-            validate_evaluate_idea_create_task_http_request(
-                path=path,
-                query=query,
-                header_pairs=list(self.headers.raw_items()),
-                bound_port=int(self.server.server_address[1]),
-            )
-        )
-        if metadata_status != HTTPStatus.OK:
-            self._send_json(metadata_status, metadata)
-            return
-        raw_body = self.rfile.read(metadata["body_length"])
-        if len(raw_body) != metadata["body_length"]:
-            self._send_json(
-                HTTPStatus.BAD_REQUEST,
-                {
-                    "ok": False,
-                    "error": "evaluate_idea_create_task_body_length_mismatch",
-                },
-            )
-            return
-        parse_status, payload = parse_evaluate_idea_create_task_json_body(
-            raw_body
-        )
-        if parse_status != HTTPStatus.OK:
-            self._send_json(parse_status, payload)
-            return
-        registry = getattr(
-            self.server,
-            "create_local_task_registry",
-            CREATE_LOCAL_TASK_REGISTRY,
-        )
-        evaluator = getattr(
-            self.server,
-            "evaluate_idea_create_task_evaluator",
-            evaluate_idea,
-        )
-        if path == EVALUATE_IDEA_CREATE_TASK_DRAFT_ENDPOINT:
-            response_status, response_payload = draft_evaluate_idea_create_task(
-                payload,
-                registry=registry,
-                evaluator=evaluator,
-            )
-        elif path == EVALUATE_IDEA_CREATE_TASK_PREVIEW_ENDPOINT:
-            response_status, response_payload = preview_evaluate_idea_create_task(
-                payload,
-                registry=registry,
-                tasks_dir=getattr(
-                    self.server,
-                    "create_local_tasks_dir",
-                    CREATE_LOCAL_TASKS_DIR,
-                ),
-                evaluator=evaluator,
-            )
-        else:
-            response_status, response_payload = (
-                invalidate_evaluate_idea_create_task(
-                    payload,
-                    registry=registry,
-                )
-            )
         self._send_json(response_status, response_payload)
 
     def _handle_create_local_task_post(self, path: str, query: str) -> None:
@@ -5307,14 +3985,14 @@ def run_self_test() -> None:
     assert "jarvis.bat" in status["protected_paths"]
     assert status["safety"][0] == (
         "Task discovery and basic details are read-only. Create Local Task "
-        "creates one local TODO from Voice Inbox or a reviewed Evaluate Idea "
-        "recommendation; Start / Complete changes only status and updated_at; "
-        "Record Completion Evidence appends one evidence value and updates only "
-        "updated_at for an eligible DOING Task. Evaluate Idea and every Task "
-        "preview remain write-free. Every write requires Preview and explicit "
-        "Confirm. Evidence is not validated, status stays DOING, and no flow "
-        "executes or automatically completes Task work. Jarvis does not create "
-        "approvals or reports, run skills, commit, push, or make external calls."
+        "creates one local TODO from Voice Inbox; Start / Complete changes "
+        "only status and updated_at; Record Completion Evidence appends one "
+        "evidence value and updates only updated_at for an eligible DOING "
+        "Task. Every Task preview remains write-free. Every write requires "
+        "Preview and explicit Confirm. Evidence is not validated, status "
+        "stays DOING, and no flow executes or automatically completes Task "
+        "work. Jarvis does not create approvals or reports, run skills, "
+        "commit, push, or make external calls."
     )
     assert all({"docs", "tests", "examples", "action_guide", "when_to_use"}.issubset(skill) for skill in status["skills"])
     hermes_commands = suggest_skill("Codex commit review")["commands"]
@@ -5608,11 +4286,11 @@ def run_self_test() -> None:
     assert "Select a skill to inspect commands" in html
     assert (
         "Safety mode: Task discovery and basic details are read-only. Create "
-        "Local Task creates one local TODO from Voice Inbox or a reviewed "
-        "Evaluate Idea recommendation; Start / Complete changes only status and "
+        "Local Task creates one local TODO from Voice Inbox; Start / Complete "
+        "changes only status and "
         "updated_at; Record Completion Evidence appends one evidence value and "
-        "updates only updated_at for an eligible DOING Task. Evaluate Idea and "
-        "every Task preview remain write-free. Every write requires Preview and "
+        "updates only updated_at for an eligible DOING Task. Every Task "
+        "preview remains write-free. Every write requires Preview and "
         "explicit Confirm. Evidence is not validated, status stays DOING, and "
         "no flow executes or automatically completes Task work. Jarvis does not "
         "create approvals or reports, run skills, commit, push, or make external "
@@ -5633,17 +4311,16 @@ def run_self_test() -> None:
     assert "Owner-facing local project dashboard" in html
     assert (
         "Task discovery and basic details are read-only. Create Local Task "
-        "creates one local TODO from Voice Inbox or a reviewed Evaluate Idea "
-        "recommendation; Start / Complete changes only status and updated_at; "
+        "creates one local TODO from Voice Inbox; Start / Complete changes "
+        "only status and updated_at; "
         "Record Completion Evidence appends one evidence value and updates only "
-        "updated_at for an eligible DOING Task. Evaluate Idea and every Task "
-        "preview remain write-free. Every write requires Preview and explicit "
+        "updated_at for an eligible DOING Task. Every Task "
+        "preview remains write-free. Every write requires Preview and explicit "
         "Confirm. Evidence is not validated, status stays DOING, and no flow "
         "executes or automatically completes Task work. Jarvis Console does not "
         "create approvals or reports, run skills, commit, push, or make external "
         "calls."
     ) in html
-    assert "Preview as Local Task derives one local TODO candidate" in html
     assert "does not create commits" in html
 
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
@@ -5741,7 +4418,6 @@ def run_self_test() -> None:
     assert "copy-text" in app_js
     assert "Copy Cleaned Task" in app_js
     assert "Copy As Jarvis Command" in app_js
-    assert "Nothing was saved." in app_js
     assert "Save Candidate" not in app_js
     assert "Confirm Local Save" not in app_js
     assert "Git Bash" in app_js
