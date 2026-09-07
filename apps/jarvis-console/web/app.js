@@ -16,7 +16,6 @@ const prepareVoiceButton = document.getElementById("prepareVoiceButton");
 const pasteVoiceButton = document.getElementById("pasteVoiceButton");
 const clearVoiceButton = document.getElementById("clearVoiceButton");
 const voiceResultBox = document.getElementById("voiceResultBox");
-const researchDetails = document.getElementById("researchDetails");
 
 let registrySkills = [];
 let selectedSkillId = "";
@@ -800,29 +799,6 @@ function sourceAreaLabel(item) {
 function itemTypeLabel(item) {
   const value = String(item?.item_type || "doc").replaceAll("_", " ");
   return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function overviewItemsMarkup(items, emptyText) {
-  if (!items || !items.length) {
-    return `<p class="placeholder">${escapeHtml(emptyText)}</p>`;
-  }
-  return `
-    <div class="overview-list">
-      ${items
-        .map(
-          (item) => `
-        <article class="overview-item">
-          <div>
-            <strong>${escapeHtml(item.title || item.name)}</strong>
-            <span>${escapeHtml(item.directory_label || "Local file")} · ${escapeHtml(formatModified(item.modified))} · ${escapeHtml(formatBytes(item.size_bytes))}</span>
-          </div>
-          <code>${escapeHtml(item.path)}</code>
-        </article>
-      `,
-        )
-        .join("")}
-    </div>
-  `;
 }
 
 function normalizedOverviewItemsMarkup(items, emptyText) {

@@ -307,21 +307,6 @@ def _test_tasks_reports_registry_copy() -> None:
     ]
 
 
-def _run_fixture_git(repo: Path, *args: str) -> str:
-    completed = subprocess.run(
-        ("git", *args),
-        cwd=repo,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise AssertionError(
-            f"fixture git command failed: git {' '.join(args)}: {completed.stderr}"
-        )
-    return completed.stdout.strip()
-
-
 def _test_create_local_task_vertical_slice() -> None:
     class FakeClock:
         def __init__(self) -> None:
@@ -5288,23 +5273,8 @@ def main() -> None:
     assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
 
     assert run_web_app.parse_json_body(b"{not json")[0] == HTTPStatus.BAD_REQUEST
-    invalid_preview_payloads = (
-        {"cleaned_text": "\ud800"},
-        {"cleaned_text": "valid", "title": "bad\udfff"},
-        {"cleaned_text": "valid", "original_text_preview": "bad\ud800"},
-        {"cleaned_text": "valid", "tags": ["bad\ud800"]},
-        {"cleaned_text": "valid", "safety_notes": ["bad\udfff"]},
-        {"cleaned_text": "valid", "candidate_type": "bad\ud800"},
-        {"cleaned_text": "valid", "confidence": "bad\ud800"},
-        {"cleaned_text": "valid", "source": "bad\ud800"},
-        {"cleaned_text": "bad\x00text"},
-    )
-    endpoint_candidate_id = "mem_111111111111"
-    endpoint_timestamp = "2026-07-08T00:00:00Z"
     assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
 
-    fixed_candidate_id = "mem_0123456789ab"
-    fixed_timestamp = "2026-07-08T00:00:00Z"
     assert not run_web_app.REPO_ROOT.joinpath(".jarvis-local").exists()
     assert not run_web_app.APP_ROOT.joinpath("state").exists()
     assert not run_web_app.APP_ROOT.joinpath("examples", "memory-skills-sample.json").exists()

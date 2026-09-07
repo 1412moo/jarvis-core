@@ -64,9 +64,6 @@ MASTER_PLAN_PATH = REPO_ROOT / "docs" / "master-plan.md"
 DISCORD_INTAKE_ROOT = REPO_ROOT / "orchestrator" / "discord-intake"
 if str(DISCORD_INTAKE_ROOT) not in sys.path:
     sys.path.insert(0, str(DISCORD_INTAKE_ROOT))
-RESEARCH_COUNCIL_ROOT = REPO_ROOT / "apps" / "research-council"
-if str(RESEARCH_COUNCIL_ROOT) not in sys.path:
-    sys.path.insert(0, str(RESEARCH_COUNCIL_ROOT))
 
 from task_file_writer import (  # noqa: E402
     TASK_ALLOWED_METADATA,
@@ -78,13 +75,6 @@ from task_file_writer import (  # noqa: E402
     transition_task_file_status,
     write_task_file,
 )
-from research_council import (  # noqa: E402
-    LLMAugmentationMode,
-    ResearchCouncilInput,
-    result_to_json_dict,
-    run_research_council,
-)
-
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8790
 MAX_JSON_BODY_BYTES = 64_000
@@ -435,7 +425,6 @@ ROUTING_PRIORITY = {
     "hermes_manager": 0,
     "research_council": 1,
     "daily_ai_radar": 2,
-    "memory_skills": 3,
     "tasks_reports": 4,
     "settings": 5,
 }
@@ -469,17 +458,10 @@ UNKNOWN_SUGGESTION = {
     "commands": {"git_bash": "", "powershell": ""},
     "matched_keywords": [],
 }
-JARVIS_LOCAL_STATE_DIR_ENV = "JARVIS_LOCAL_STATE_DIR"
 def normalize_filesystem_path(path: Path) -> Path:
     """Resolve a path for policy checks without creating it."""
 
     return path.expanduser().resolve(strict=False)
-
-
-def absolute_filesystem_path(path: Path) -> Path:
-    """Return a lexical absolute path without resolving symlinks or reparse points."""
-
-    return Path(os.path.abspath(os.fspath(path.expanduser())))
 
 
 def filesystem_stat_is_reparse_point(path_stat: Any) -> bool:
@@ -489,24 +471,6 @@ def filesystem_stat_is_reparse_point(path_stat: Any) -> bool:
         return True
     reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)
     return bool(getattr(path_stat, "st_file_attributes", 0) & reparse_flag)
-
-
-def existing_path_chain_has_reparse_point(path: Path) -> bool:
-    """Inspect existing lexical path components without following a detected reparse point."""
-
-    current = absolute_filesystem_path(path)
-    components = [current]
-    while current.parent != current:
-        current = current.parent
-        components.append(current)
-    for component in reversed(components):
-        try:
-            component_stat = os.lstat(component)
-        except FileNotFoundError:
-            continue
-        if filesystem_stat_is_reparse_point(component_stat):
-            return True
-    return False
 
 
 def is_path_inside_repo(path: Path, repo_root: Path = REPO_ROOT) -> bool:
@@ -1246,13 +1210,6 @@ def is_overview_candidate_path(path: Path, allowed_root: Path | None = None) -> 
     return True
 
 
-def read_overview_title(path: Path) -> str:
-    """Read a small prefix and return a display-only title or first line."""
-
-    title, _summary = read_overview_title_and_summary(path)
-    return title
-
-
 def truncate_overview_text(value: str, max_chars: int) -> str:
     """Return bounded display text for overview titles and summaries."""
 
@@ -1771,18 +1728,6 @@ def overview_payload() -> dict[str, Any]:
             "excluded": ["hidden files", ".git", "__pycache__", "secrets-like file names"],
         },
     }
-
-
-def memory_string_has_valid_unicode(value: str) -> bool:
-    """Return whether a string is NUL-free and strictly UTF-8 encodable."""
-
-    if "\x00" in value:
-        return False
-    try:
-        value.encode("utf-8", errors="strict")
-    except UnicodeEncodeError:
-        return False
-    return True
 
 
 def parse_recent_commits(raw_log: str) -> list[dict[str, Any]]:
@@ -3014,27 +2959,6 @@ def confirm_completion_evidence(
         confirmation=confirmation,
         tasks_dir=tasks_dir,
     )
-
-
-def _deep_copy_json(value: Any) -> Any:
-    return json.loads(json.dumps(value, ensure_ascii=False))
-
-
-def _canonical_json_fingerprint(value: Mapping[str, Any]) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _safe_positive_revision(value: Any) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    if value <= 0 or value > (2**53 - 1):
-        return None
-    return value
 
 
 def prepare_voice_inbox_task(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
