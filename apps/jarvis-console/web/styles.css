@@ -1004,38 +1004,12 @@ code {
   display: none;
 }
 
-.codex-review-json,
 .codex-review-status {
   font-family: "SFMono-Regular", Consolas, monospace;
 }
 
-.codex-review-summary p,
 .codex-review-status {
   overflow-wrap: anywhere;
-}
-
-.severity-badge {
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.severity-low {
-  background: #e6f4ec;
-  color: #256542;
-}
-
-.severity-medium {
-  background: #fff1cc;
-  color: #7a5100;
-}
-
-.severity-high,
-.severity-unknown {
-  background: #fde5e5;
-  color: #8a2c2c;
 }
 
 .settings-list {
