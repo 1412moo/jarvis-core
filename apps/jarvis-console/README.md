@@ -377,7 +377,9 @@ Possible later phases:
 2. Add richer registry metadata such as icons, examples, and handoff contracts.
 3. Add local report preview forms for existing deterministic renderers.
 4. Refine the read-only review surface only from repeated local-use feedback.
-5. Consider an approval queue only after a separate human-approval design.
+5. Treat human approval as a separate system, not a later console phase.
+   Jarvis Console stays a Task lifecycle screen and adds no approval queue,
+   approval action, or `NEEDS_APPROVAL` transition.
 6. Consider deeper worker handoff integration only after separate design and
    review.
 

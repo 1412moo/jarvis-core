@@ -265,10 +265,10 @@
     {
       "skill_id": "tasks_reports",
       "display_name": "Tasks / Reports",
-      "status": "planned",
+      "status": "available",
       "category": "system",
       "purpose": "Show task status, approval-needed items, reports, and checkpoints.",
-      "short_description": "Future approval and report queue for Jarvis Console.",
+      "short_description": "Local Task lifecycle status, reports, and checkpoints for Jarvis Console.",
       "safe_next_action": "Review the Actionable Task View; every Task write needs Preview and explicit Confirm.",
       "when_to_use": "Use when reviewing discovered local Task status, reports, and checkpoints.",
       "primary_next_action_label": "Review local Tasks",

@@ -250,6 +250,23 @@ def _test_tasks_reports_registry_copy() -> None:
             ),
             ("skills", current_index, "action_guide", 0),
         ),
+        (
+            "planned",
+            "available",
+            ("skills", current_index, "status"),
+            (
+                '"display_name": "Tasks / Reports",\n      "status": "planned",',
+                '"display_name": "Tasks / Reports",\n      "status": "available",',
+            ),
+        ),
+        (
+            "Future approval and report queue for Jarvis Console.",
+            (
+                "Local Task lifecycle status, reports, and checkpoints for "
+                "Jarvis Console."
+            ),
+            ("skills", current_index, "short_description"),
+        ),
     )
 
     def string_values(
@@ -270,28 +287,37 @@ def _test_tasks_reports_registry_copy() -> None:
     baseline_strings = string_values(baseline_registry)
     current_strings = string_values(current_registry)
     assert baseline_strings.keys() == current_strings.keys()
-    approved_paths = {path for _old, _new, path in replacements}
+    approved_paths = {entry[2] for entry in replacements}
+
+    def raw_anchor(entry: tuple[Any, ...]) -> tuple[str, str]:
+        # A short value such as "planned" also occurs on other skills, so an
+        # entry may supply a longer unique slice for the byte-level checks.
+        return entry[3] if len(entry) > 3 else (entry[0], entry[1])
+
     for path, baseline_value in baseline_strings.items():
         if path not in approved_paths:
             assert current_strings[path].encode("utf-8") == baseline_value.encode(
                 "utf-8"
             )
-    for obsolete, replacement, path in replacements:
+    for entry in replacements:
+        obsolete, replacement, path = entry[0], entry[1], entry[2]
         assert baseline_strings[path] == obsolete
         assert current_strings[path] == replacement
-        assert obsolete.encode("utf-8") not in current_raw
-        assert current_raw.count(replacement.encode("utf-8")) == 1
+        raw_obsolete, raw_replacement = raw_anchor(entry)
+        assert raw_obsolete.encode("utf-8") not in current_raw
+        assert current_raw.count(raw_replacement.encode("utf-8")) == 1
 
     restored_raw = current_raw
-    for obsolete, replacement, _path in replacements:
+    for entry in replacements:
+        raw_obsolete, raw_replacement = raw_anchor(entry)
         restored_raw = restored_raw.replace(
-            replacement.encode("utf-8"),
-            obsolete.encode("utf-8"),
+            raw_replacement.encode("utf-8"),
+            raw_obsolete.encode("utf-8"),
         )
     assert restored_raw == baseline_raw
 
     tasks_reports = current_registry["skills"][current_index]
-    assert tasks_reports["status"] == "planned"
+    assert tasks_reports["status"] == "available"
     assert "all Task writes require" in tasks_reports[
         "primary_next_action_description"
     ]
