@@ -329,7 +329,24 @@ python -B apps\daily-ai-radar\run_demo.py --input apps\daily-ai-radar\examples\s
 
 Jarvis Console does not fetch sources or run Daily AI Radar automatically.
 
-### Memory / Skills
+### Tasks / Reports
+
+Purpose: show task status, reports, checkpoints, and items needing attention.
+
+This is the console's Task lifecycle surface. Discovery and detail are read-only.
+Start / Complete and Record Completion Evidence each need Preview and an explicit
+Confirm, and change only `status`, `updated_at`, and one `completion_evidence`
+value.
+
+A Task with status `NEEDS_APPROVAL` is listed under Needs attention so the owner
+can see it. Jarvis Console shows that state; it does not approve, run, or
+complete Task work, and it has no approval queue. The decision is made outside
+the console.
+
+## Memory / Skills (Historical)
+
+This is not an entry in `skills.json` and not a console skill. It is kept here as
+a pointer to a separate Jarvis-Core workstream.
 
 Removed from Jarvis Console in task-0071. The candidate inbox, write-free
 preview, and every route-free save/session primitive were deleted; no

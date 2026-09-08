@@ -267,7 +267,7 @@
       "display_name": "Tasks / Reports",
       "status": "available",
       "category": "system",
-      "purpose": "Show task status, approval-needed items, reports, and checkpoints.",
+      "purpose": "Show task status, reports, checkpoints, and items needing attention.",
       "short_description": "Local Task lifecycle status, reports, and checkpoints for Jarvis Console.",
       "safe_next_action": "Review the Actionable Task View; every Task write needs Preview and explicit Confirm.",
       "when_to_use": "Use when reviewing discovered local Task status, reports, and checkpoints.",

@@ -562,12 +562,8 @@ save도 계속 잠겨 있다.
 
 ## 6. 잠긴 기능
 
-다음 항목은 사용자 기능으로 활성화되지 않았다. Memory / Skills 관련 구현은 task-0071에서 제거됐고, 나머지는 구현 기반이 남아 있다.
+다음 항목은 구현 기반이 존재하지만 사용자 기능으로 활성화되지 않았다.
 
-- `POST /api/memory-skills/candidates` save endpoint
-- Memory / Skills UI Save 또는 Confirm
-- Voice Inbox auto-save
-- Saved candidates dashboard
 - Hermes의 자동 Codex/ChatGPT 호출
 - 자동 prompt rendering 또는 실행
 - Jarvis/Hermes 앱이 촉발하는 자동 stage, commit, push, PR
@@ -576,6 +572,14 @@ save도 계속 잠겨 있다.
 - 모바일 승인 또는 홈서버 상시 실행
 
 잠긴 기능은 관련 design/reopen 조건, local validation, self-review, 사용자 승인을 모두 통과한 별도 work package에서만 재검토한다.
+
+다음 Console 구현은 task-0071에서 제거됐다. 잠긴 것이 아니라 존재하지 않는다.
+Memory / Skills workstream 자체는 §5에서 계속 추적한다.
+
+- `POST /api/memory-skills/candidates` save endpoint
+- Memory / Skills UI Save 또는 Confirm
+- Voice Inbox auto-save
+- Saved candidates dashboard
 
 ## 7. 고정 안전 원칙
 

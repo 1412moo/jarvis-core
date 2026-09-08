@@ -267,6 +267,14 @@ def _test_tasks_reports_registry_copy() -> None:
             ),
             ("skills", current_index, "short_description"),
         ),
+        (
+            "Show task status, approval-needed items, reports, and checkpoints.",
+            (
+                "Show task status, reports, checkpoints, and items needing "
+                "attention."
+            ),
+            ("skills", current_index, "purpose"),
+        ),
     )
 
     def string_values(
