@@ -308,11 +308,12 @@ PowerShell:
 python -B apps\research-council\run_local_app.py
 ```
 
+Jarvis Console does not run Research Council. Use the Research Council app
+directly for idea evaluation; the console keeps no evaluation state.
 
 ### Daily AI Radar
 
 Purpose: turn curated AI and agent technology metadata into a Jarvis improvement
-Jarvis Console does not run Research Council. Use the Research Council app directly for idea evaluation; the console keeps no evaluation state.
 candidate report.
 
 Manual sample command:
