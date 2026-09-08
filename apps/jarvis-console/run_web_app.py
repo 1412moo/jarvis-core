@@ -1784,6 +1784,22 @@ def normalize_message(message: str) -> str:
     return " ".join(str(message).strip().lower().split())
 
 
+def route_keyword_matches(normalized_message: str, keyword: str) -> bool:
+    """Match one route keyword, requiring token boundaries for ASCII terms.
+
+    A plain substring test let short keywords fire inside unrelated words: "pr"
+    inside "approval", "repo" inside "report", "idea" inside "ideal". Because a
+    substring hit ties with an exact hit and ROUTING_PRIORITY then decides, the
+    wrong skill could win over one whose keyword matched exactly. Korean has no
+    word boundary to anchor on, so non-ASCII keywords keep substring matching.
+    """
+
+    if keyword.isascii():
+        pattern = rf"(?<![0-9a-z]){re.escape(keyword)}(?![0-9a-z])"
+        return re.search(pattern, normalized_message) is not None
+    return keyword in normalized_message
+
+
 def suggest_skill(message: str) -> dict[str, Any]:
     """Suggest one skill from registry keywords with deterministic matching."""
 
@@ -1794,7 +1810,11 @@ def suggest_skill(message: str) -> dict[str, Any]:
     candidates: list[tuple[int, int, dict[str, Any], list[str]]] = []
     for skill in registry_skills():
         keywords = [keyword.lower() for keyword in skill["route_keywords"]]
-        hits = [keyword for keyword in keywords if keyword in normalized]
+        hits = [
+            keyword
+            for keyword in keywords
+            if route_keyword_matches(normalized, keyword)
+        ]
         if hits:
             priority = ROUTING_PRIORITY.get(skill["skill_id"], 99)
             candidates.append((len(hits), -priority, skill, hits))
@@ -3762,6 +3782,41 @@ def run_self_test() -> None:
     assert suggest_skill("Codex \ucee4\ubc0b \ub9ac\ubdf0")["recommended_skill"] == "hermes_manager"
     assert suggest_skill("MCP Agent Skills \uc0c8 \uae30\uc220")["recommended_skill"] == "daily_ai_radar"
     assert suggest_skill("\ubc18\ubcf5 \uc791\uc5c5 skill\ub85c \uae30\uc5b5")["recommended_skill"] == "tasks_reports"
+
+    # task-0093: short keywords such as "pr", "repo", "idea" and "task" used to
+    # fire as substrings of unrelated words, and a substring hit tied with an
+    # exact hit so ROUTING_PRIORITY handed the query to the wrong skill.
+    for routing_message, expected_skill in (
+        ("git", "hermes_manager"),
+        ("pr", "hermes_manager"),
+        ("repo", "hermes_manager"),
+        ("review", "hermes_manager"),
+        ("리뷰", "hermes_manager"),
+        ("repository", "hermes_manager"),
+        ("report", "tasks_reports"),
+        ("approval", "tasks_reports"),
+        ("preview", "unknown"),
+        ("prepare", "unknown"),
+        ("process", "unknown"),
+        ("progress", "unknown"),
+        ("priority", "unknown"),
+        ("print", "unknown"),
+        ("ideal", "unknown"),
+        ("multitask", "unknown"),
+        ("reproduce", "unknown"),
+    ):
+        assert suggest_skill(routing_message)["recommended_skill"] == expected_skill
+
+    # the Voice broad-hit filter keeps its own meaning on top of the new matching
+    for voice_message, expected_voice_skill in (
+        ("review", "unknown"),
+        ("리뷰", "unknown"),
+        ("git", "hermes_manager"),
+        ("pr", "hermes_manager"),
+        ("repo", "hermes_manager"),
+        ("Codex 커밋 리뷰", "hermes_manager"),
+    ):
+        assert voice_suggest_skill(voice_message)["recommended_skill"] == expected_voice_skill
 
     assert clean_voice_transcript("코덱스 케어노트 헤르메스") == "Codex CareNote Hermes"
     assert clean_voice_transcript("엠씨피 에이전트 스킬 데일리 레이더") == "MCP Agent Skills Daily AI Radar"

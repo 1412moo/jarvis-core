@@ -5356,6 +5356,42 @@ def main() -> None:
     assert run_web_app.suggest_skill("\uc624\ub298 \ubb50\ud558\uc9c0")["recommended_skill"] == "unknown"
     assert run_web_app.suggest_skill("\uc2dc\ubbac\ub808\uc774\uc158 \uac8c\uc784 \ucd94\ucc9c\ud574\uc918")["recommended_skill"] == "unknown"
 
+    # task-0093 regression: substring keyword hits used to beat exact hits.
+    for routing_message, expected_skill in (
+        ("git", "hermes_manager"),
+        ("pr", "hermes_manager"),
+        ("repo", "hermes_manager"),
+        ("review", "hermes_manager"),
+        ("리뷰", "hermes_manager"),
+        ("repository", "hermes_manager"),
+        ("report", "tasks_reports"),
+        ("approval", "tasks_reports"),
+        ("preview", "unknown"),
+        ("prepare", "unknown"),
+        ("process", "unknown"),
+        ("progress", "unknown"),
+        ("priority", "unknown"),
+        ("print", "unknown"),
+        ("ideal", "unknown"),
+        ("multitask", "unknown"),
+        ("reproduce", "unknown"),
+    ):
+        assert run_web_app.suggest_skill(
+            routing_message
+        )["recommended_skill"] == expected_skill
+
+    for voice_message, expected_voice_skill in (
+        ("review", "unknown"),
+        ("리뷰", "unknown"),
+        ("git", "hermes_manager"),
+        ("pr", "hermes_manager"),
+        ("repo", "hermes_manager"),
+        ("Codex 커밋 리뷰", "hermes_manager"),
+    ):
+        assert run_web_app.voice_suggest_skill(
+            voice_message
+        )["recommended_skill"] == expected_voice_skill
+
     assert run_web_app.clean_voice_transcript("코덱스 케어노트 헤르메스") == "Codex CareNote Hermes"
     assert run_web_app.clean_voice_transcript("엠씨피 에이전트 스킬 데일리 레이더") == "MCP Agent Skills Daily AI Radar"
     assert run_web_app.clean_voice_transcript("고깃집 리뷰 정리해줘") == "고깃집 리뷰 정리해줘"
