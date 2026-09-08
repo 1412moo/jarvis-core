@@ -211,11 +211,28 @@ http://127.0.0.1:8787/
 
 Jarvis Console does not start Hermes Manager automatically.
 
-### Project Control
+### Tasks / Reports
 
-Purpose: let the owner see why the current work exists, where it sits in the
-master plan, what the live repository reports, and what user-visible result is
-next before reading detailed task/report metadata.
+Registry id `tasks_reports`, status `available`. The browser tab is labelled
+**Project Control**; both names refer to this one surface, rendered from a single
+`GET /api/overview` response.
+
+Purpose: show task status, reports, checkpoints, and items needing attention.
+
+This is the console's Task lifecycle surface. Discovery and detail are read-only.
+Start / Complete and Record Completion Evidence each need Preview and an explicit
+Confirm, and change only `status`, `updated_at`, and one `completion_evidence`
+value.
+
+A Task with status `NEEDS_APPROVAL` is listed under Needs attention so the owner
+can see it. Jarvis Console shows that state; it does not approve, run, or
+complete Task work, and it has no approval queue. The decision is made outside
+the console.
+
+The same tab also carries the owner project card. It lets the owner see why the
+current work exists, where it sits in the master plan, what the live repository
+reports, and what user-visible result is next before reading detailed task/report
+metadata.
 
 Project Control v0.1A reads required fields only from the tracked
 `docs/master-plan.md` current-baseline section. The source must remain a regular
@@ -329,20 +346,6 @@ python -B apps\daily-ai-radar\run_demo.py --input apps\daily-ai-radar\examples\s
 ```
 
 Jarvis Console does not fetch sources or run Daily AI Radar automatically.
-
-### Tasks / Reports
-
-Purpose: show task status, reports, checkpoints, and items needing attention.
-
-This is the console's Task lifecycle surface. Discovery and detail are read-only.
-Start / Complete and Record Completion Evidence each need Preview and an explicit
-Confirm, and change only `status`, `updated_at`, and one `completion_evidence`
-value.
-
-A Task with status `NEEDS_APPROVAL` is listed under Needs attention so the owner
-can see it. Jarvis Console shows that state; it does not approve, run, or
-complete Task work, and it has no approval queue. The decision is made outside
-the console.
 
 ## Memory / Skills (Historical)
 
