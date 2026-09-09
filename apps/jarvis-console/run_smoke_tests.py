@@ -10,6 +10,7 @@ import inspect
 import json
 from http import HTTPStatus
 from pathlib import Path
+import os
 import socket
 import subprocess
 import shutil
@@ -2160,6 +2161,130 @@ def _test_task_transition_vertical_slice() -> None:
                 1,
             )
             assert positive_after.count(b"\r\n") == positive_before.count(b"\r\n")
+
+        # task-0103: the Actionable Task View is a capped selection, not the
+        # backlog, and the write surface is scoped to it. A Task that parses
+        # fine but falls outside OVERVIEW_MAX_ITEMS_PER_DIRECTORY has to stay
+        # unreachable from Start, Complete and Record Completion Evidence.
+        # Nothing asserted that, and widening the selection can only add
+        # selectable Tasks, so every such widening left the suite green.
+        #
+        # The same eleven records carry the second contract: Record Completion
+        # Evidence is DOING-only and was checked against a TODO record alone,
+        # so admitting one more status also passed. The in-view statuses cover
+        # the whole vocabulary, which makes an eighth status fail here.
+        scope_dir = fixture_root / "selection-scope"
+        scope_dir.mkdir()
+        scope_statuses = (
+            "BLOCKED",
+            "ON_HOLD",
+            "DONE",
+            "FAILED",
+            "NEEDS_APPROVAL",
+            "DOING",
+            "TODO",
+            "TODO",
+            "TODO",
+            "TODO",
+        )
+        assert (
+            len(scope_statuses) == run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
+        )
+        assert set(scope_statuses) == set(run_web_app.TASK_VIEW_STATUS_RULES)
+        scope_in_view: list[tuple[str, str]] = []
+        for offset, scope_status in enumerate(scope_statuses):
+            scope_id = f"task-72{offset:02d}-in-view"
+            scope_path = scope_dir / f"{scope_id}.md"
+            scope_path.write_bytes(task_bytes(scope_id, scope_status))
+            # explicit descending mtimes keep the ordering independent of the
+            # filesystem's timestamp resolution
+            scope_stamp = 2_000_000 - offset
+            os.utime(scope_path, (scope_stamp, scope_stamp))
+            scope_in_view.append((scope_id, scope_status))
+        outside_id = "task-7299-outside-view"
+        outside_path = scope_dir / f"{outside_id}.md"
+        outside_path.write_bytes(task_bytes(outside_id, "TODO"))
+        os.utime(outside_path, (1_000_000, 1_000_000))
+        outside_before = outside_path.read_bytes()
+
+        scope_selected = run_web_app.selected_task_transition_items(
+            tasks_dir=scope_dir,
+        )
+        assert (
+            len(scope_selected) == run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
+        )
+        assert all(
+            item["task_view"]["parse_state"] == "valid"
+            for item in scope_selected
+        )
+        scope_selected_ids = {
+            Path(item["path"]).stem for item in scope_selected
+        }
+        assert scope_selected_ids == {
+            scope_id for scope_id, _status in scope_in_view
+        }
+        assert outside_id not in scope_selected_ids
+
+        # the excluded record is a TODO, so Start is status-legal for it. It
+        # is refused only because it is not in the view, which is what makes
+        # the 404 below the selection gate rather than a status or path error.
+        in_view_todo = next(
+            scope_id
+            for scope_id, scope_status in scope_in_view
+            if scope_status == "TODO"
+        )
+        in_view_start = run_web_app.preview_task_transition(
+            {"task_id": in_view_todo, "action": "start"},
+            registry=run_web_app.TaskTransitionRegistry(
+                token_factory=TokenFactory("scopeinview"),
+            ),
+            tasks_dir=scope_dir,
+        )
+        assert in_view_start[0] == HTTPStatus.OK
+
+        for scope_action in ("start", "complete"):
+            outside_transition = run_web_app.preview_task_transition(
+                {"task_id": outside_id, "action": scope_action},
+                registry=run_web_app.TaskTransitionRegistry(
+                    token_factory=TokenFactory("scopeoutside"),
+                ),
+                tasks_dir=scope_dir,
+            )
+            assert outside_transition[0] == HTTPStatus.NOT_FOUND, scope_action
+            assert outside_transition[1]["error"] == (
+                "task_not_found_in_actionable_view"
+            ), scope_action
+
+        outside_evidence = run_web_app.preview_completion_evidence(
+            {"task_id": outside_id, "completion_evidence": "proof"},
+            registry=run_web_app.CompletionEvidenceRegistry(
+                token_factory=TokenFactory("scopeoutsideevidence"),
+            ),
+            tasks_dir=scope_dir,
+        )
+        assert outside_evidence[0] == HTTPStatus.NOT_FOUND
+        assert outside_evidence[1]["error"] == (
+            "completion_evidence_task_not_found_in_actionable_view"
+        )
+        assert outside_path.read_bytes() == outside_before
+
+        for scope_id, scope_status in scope_in_view:
+            if scope_status == "DOING":
+                continue
+            scope_path = scope_dir / f"{scope_id}.md"
+            scope_before = scope_path.read_bytes()
+            not_doing_result = run_web_app.preview_completion_evidence(
+                {"task_id": scope_id, "completion_evidence": "proof"},
+                registry=run_web_app.CompletionEvidenceRegistry(
+                    token_factory=TokenFactory("scopenotdoing"),
+                ),
+                tasks_dir=scope_dir,
+            )
+            assert not_doing_result[0] == HTTPStatus.CONFLICT, scope_status
+            assert not_doing_result[1]["error"] == (
+                "completion_evidence_task_not_doing"
+            ), scope_status
+            assert scope_path.read_bytes() == scope_before
 
         traversal_result = run_web_app.transition_task_file_status(
             tasks_dir=tasks_dir,
@@ -4666,6 +4791,22 @@ def _test_actionable_task_view_vertical_slice() -> None:
             1,
         )[1].split("function taskTransitionReceiptMarkup", 1)[0]
     )
+    # task-0103: these two lists are the renderer's entire status contract,
+    # and ON_HOLD ended up in neither when task-0098 widened the vocabulary,
+    # so no test ever rendered it. Their union is checked against the status
+    # rules, which makes an eighth status fail here instead of slipping past.
+    badge_guarded_statuses = ("TODO", "DOING")
+    badge_read_only_statuses = (
+        "BLOCKED",
+        "ON_HOLD",
+        "DONE",
+        "FAILED",
+        "NEEDS_APPROVAL",
+    )
+    assert not set(badge_guarded_statuses) & set(badge_read_only_statuses)
+    assert set(badge_guarded_statuses) | set(badge_read_only_statuses) == set(
+        run_web_app.TASK_VIEW_STATUS_RULES
+    )
     badge_harness = (
         f"{escape_source}\n"
         "const taskTransitionLastReceipt = null;\n"
@@ -4673,6 +4814,8 @@ def _test_actionable_task_view_vertical_slice() -> None:
         "function taskTransitionReceiptMarkup() { return \"\"; }\n"
         "function completionEvidenceReceiptMarkup() { return \"\"; }\n"
         f"{item_renderer_source}\n"
+        f"const guardedStatuses = {json.dumps(list(badge_guarded_statuses))};\n"
+        f"const readOnlyStatuses = {json.dumps(list(badge_read_only_statuses))};\n"
         """
 function fixtureItem(status, parseState = "valid") {
   const valid = parseState === "valid";
@@ -4700,19 +4843,25 @@ const guardedBadge =
   '<span class="overview-badge approval-needed">Preview + Confirm required</span>';
 const readOnlyBadge =
   '<span class="overview-badge read-only">Read-only</span>';
-for (const status of ["TODO", "DOING"]) {
+for (const status of guardedStatuses) {
   const html = actionableTaskItemMarkup(fixtureItem(status));
   if (!html.includes(guardedBadge) || html.includes(readOnlyBadge)) {
     throw new Error(`${status} did not render the guarded badge exactly`);
   }
 }
-for (const status of ["DONE", "FAILED", "BLOCKED", "NEEDS_APPROVAL"]) {
+for (const status of readOnlyStatuses) {
   const html = actionableTaskItemMarkup(fixtureItem(status));
   if (!html.includes(readOnlyBadge) || html.includes(guardedBadge)) {
     throw new Error(`${status} did not render the read-only badge exactly`);
   }
+  if (!html.includes(`<span class="overview-badge">${status}</span>`)) {
+    throw new Error(`${status} did not render its own status badge`);
+  }
   if (html.includes("preview-task-transition")) {
     throw new Error(`${status} unexpectedly rendered a transition action`);
+  }
+  if (html.includes("preview-completion-evidence")) {
+    throw new Error(`${status} unexpectedly rendered an evidence action`);
   }
 }
 const metadataHtml = actionableTaskItemMarkup(
