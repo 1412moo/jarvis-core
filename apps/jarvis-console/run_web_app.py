@@ -3858,6 +3858,25 @@ def run_self_test() -> None:
     assert is_overview_candidate_path(REPO_ROOT / "docs" / "secret-plan.md") is False
     assert is_overview_candidate_path(REPO_ROOT.parent / "outside.md") is False
     assert is_overview_candidate_path(REPO_ROOT / "docs" / "sample.md", REPO_ROOT / "reports") is False
+    # task-0099: this filter runs inside discover_recent_items before anything
+    # looks at TASK_FILE_PATTERN, so it covers memory/tasks too. Recent Tasks
+    # renders a title and summary read from the file itself and that list is
+    # not pattern-filtered, so a stray token.txt dropped there would otherwise
+    # have its content shown. A Task record whose slug happens to carry one of
+    # the words is excluded by the same rule; that over-exclusion is the
+    # accepted cost, and /api/overview discloses it as "secrets-like file
+    # names". The third case keeps the first two honest - the exclusion is
+    # driven by the name, not by the directory.
+    tasks_root = REPO_ROOT / "memory" / "tasks"
+    assert is_overview_candidate_path(
+        tasks_root / "task-0043-no-secrets-enforcement.md", tasks_root
+    ) is False
+    assert is_overview_candidate_path(
+        tasks_root / "token.txt", tasks_root
+    ) is False
+    assert is_overview_candidate_path(
+        tasks_root / "task-0500-ordinary-record.md", tasks_root
+    ) is True
 
     assert suggest_skill("idea MVP validation")["recommended_skill"] == "research_council"
     assert suggest_skill("Codex commit review")["recommended_skill"] == "hermes_manager"

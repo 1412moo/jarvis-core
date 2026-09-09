@@ -5536,6 +5536,25 @@ def main() -> None:
         run_web_app.REPO_ROOT / "docs" / "sample.md",
         run_web_app.REPO_ROOT / "reports",
     ) is False
+    # task-0099: this filter runs inside discover_recent_items before anything
+    # looks at TASK_FILE_PATTERN, so it covers memory/tasks too. Recent Tasks
+    # renders a title and summary read from the file itself and that list is
+    # not pattern-filtered, so a stray token.txt dropped there would otherwise
+    # have its content shown. A Task record whose slug happens to carry one of
+    # the words is excluded by the same rule; that over-exclusion is the
+    # accepted cost, and /api/overview discloses it as "secrets-like file
+    # names". The third case keeps the first two honest - the exclusion is
+    # driven by the name, not by the directory.
+    tasks_root = run_web_app.REPO_ROOT / "memory" / "tasks"
+    assert run_web_app.is_overview_candidate_path(
+        tasks_root / "task-0043-no-secrets-enforcement.md", tasks_root
+    ) is False
+    assert run_web_app.is_overview_candidate_path(
+        tasks_root / "token.txt", tasks_root
+    ) is False
+    assert run_web_app.is_overview_candidate_path(
+        tasks_root / "task-0500-ordinary-record.md", tasks_root
+    ) is True
     history_code, history = run_web_app.handle_get_api("/api/history")
     assert history_code == HTTPStatus.OK
     assert history["ok"] is True
