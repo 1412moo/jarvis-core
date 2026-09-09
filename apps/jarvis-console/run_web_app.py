@@ -1322,7 +1322,11 @@ def overview_file_item(path: Path, directory: dict[str, str]) -> dict[str, Any]:
     }
 
 
-def discover_recent_items(directory_keys: tuple[str, ...], name_contains: str = "") -> list[dict[str, Any]]:
+def discover_recent_items(
+    directory_keys: tuple[str, ...],
+    name_contains: str = "",
+    item_types: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Discover recent display-only file metadata from fixed safe directories."""
 
     directories = overview_directory_by_key()
@@ -1338,7 +1342,16 @@ def discover_recent_items(directory_keys: tuple[str, ...], name_contains: str = 
                 continue
             if name_contains and name_contains.lower() not in path.name.lower():
                 continue
-            directory_items.append(overview_file_item(path, directory))
+            item = overview_file_item(path, directory)
+            # task-0109: a type filter has to run before the per-directory cap,
+            # the way name_contains already does. Applied afterwards it let
+            # non-matching files spend cap slots, so a directory holding more
+            # than the cap could hide real matches - ten reports on disk showed
+            # as eight. Nothing is read twice for this: overview_file_item is
+            # already built for every candidate before the cap is applied.
+            if item_types is not None and item["item_type"] not in item_types:
+                continue
+            directory_items.append(item)
         directory_items.sort(key=lambda item: (item["modified"], item["path"]), reverse=True)
         items.extend(directory_items[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY])
     # task-0107: the per-directory cap keeps each directory's newest, but the
@@ -1740,9 +1753,9 @@ def overview_payload() -> dict[str, Any]:
     repo = repo_status_payload()
     discovered_tasks = discover_recent_items(("memory_tasks",))
     tasks = project_task_view_items(discovered_tasks)
-    reports = filter_overview_items(
-        discover_recent_items(("reports", "research_examples", "daily_ai_radar_examples")),
-        {"report"},
+    reports = discover_recent_items(
+        ("reports", "research_examples", "daily_ai_radar_examples"),
+        item_types={"report"},
     )
     checkpoints = discover_recent_items(("hermes_examples", "docs"), name_contains="checkpoint")
     docs_examples = discover_recent_items(

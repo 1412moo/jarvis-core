@@ -5625,9 +5625,107 @@ def _test_recent_item_ordering() -> None:
     assert not fixture_root.exists()
 
 
+def _test_reports_filter_before_cap() -> None:
+    """Keep the reports type filter ahead of the per-directory cap (task-0109).
+
+    A type filter applied after the cap lets non-matching files spend cap
+    slots, so a directory holding more files than the cap hides real reports:
+    ten reports on disk showed as eight. discover_recent_items now takes the
+    filter itself, the way it already takes name_contains, so the cap only ever
+    trims matches.
+    """
+
+    fixture_root = run_web_app.REPO_ROOT / "reports-filter-order-fixture"
+    assert fixture_root.resolve().parent == run_web_app.REPO_ROOT.resolve()
+    shutil.rmtree(fixture_root, ignore_errors=True)
+    original_directory_lookup = run_web_app.overview_directory_by_key
+    cap = run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
+
+    def build(key: str, names_newest_first: tuple[str, ...]) -> dict[str, dict[str, str]]:
+        shutil.rmtree(fixture_root, ignore_errors=True)
+        relative = f"reports-filter-order-fixture/{key}"
+        (run_web_app.REPO_ROOT / relative).mkdir(parents=True)
+        mapping = {key: {"key": key, "label": key, "path": relative}}
+        for offset, name in enumerate(names_newest_first):
+            path = run_web_app.REPO_ROOT / relative / name
+            path.write_text("# fixture\n", encoding="utf-8")
+            stamped = 900_000 - offset
+            os.utime(path, (stamped, stamped))
+        return mapping
+
+    reports_only = tuple(f"generated-report-{index:02d}.md" for index in range(cap))
+    try:
+        # A - reports/ over the cap, with the two newest typed as checkpoints
+        # because infer_item_type checks the stem before the directory key.
+        mapping = build(
+            "reports",
+            tuple(f"weekly-checkpoint-{index}.md" for index in range(2)) + reports_only,
+        )
+        run_web_app.overview_directory_by_key = lambda: mapping
+        found = run_web_app.discover_recent_items(("reports",), item_types={"report"})
+        assert len(found) == cap
+        assert all(item["item_type"] == "report" for item in found)
+        assert len(found) <= cap
+        stamps = [item["modified"] for item in found]
+        assert stamps == sorted(stamps, reverse=True)
+        # every report on disk survives; none was pushed out by a non-report
+        assert {item["name"] for item in found} == set(reports_only)
+
+        # the same directory read without the filter still shows the cap being
+        # spent by the non-reports, which is what used to reach the payload
+        unfiltered = run_web_app.discover_recent_items(("reports",))
+        assert len(unfiltered) == cap
+        assert sum(1 for item in unfiltered if item["item_type"] != "report") == 2
+
+        # B - an example directory, where only "report" stems are reports
+        mapping = build(
+            "research_examples",
+            tuple(f"sample-input-{index}.md" for index in range(2))
+            + tuple(f"sample-report-{index:02d}.md" for index in range(cap)),
+        )
+        run_web_app.overview_directory_by_key = lambda: mapping
+        found = run_web_app.discover_recent_items(
+            ("research_examples",),
+            item_types={"report"},
+        )
+        assert len(found) == cap
+        assert all(item["item_type"] == "report" for item in found)
+
+        # C - under the cap nothing changes
+        mapping = build("reports", reports_only[: cap - 2])
+        run_web_app.overview_directory_by_key = lambda: mapping
+        found = run_web_app.discover_recent_items(("reports",), item_types={"report"})
+        assert len(found) == cap - 2
+        assert run_web_app.discover_recent_items(("reports",)) == found
+    finally:
+        run_web_app.overview_directory_by_key = original_directory_lookup
+        shutil.rmtree(fixture_root, ignore_errors=True)
+    assert not fixture_root.exists()
+
+    # D - the other discovery paths keep their own contracts.
+    overview_code, overview = run_web_app.handle_get_api("/api/overview")
+    assert overview_code == HTTPStatus.OK
+    assert all(item["item_type"] == "report" for item in overview["reports"])
+    # checkpoints still filter by name inside discovery
+    assert all(
+        "checkpoint" in item["name"].lower() for item in overview["checkpoints"]
+    )
+    # docs_examples stays unfiltered by type
+    assert len(overview["docs_examples"]) >= 1
+    # tasks keep cap-then-validate: the recent group is the pre-validation
+    # slice and the Task View projection is drawn from it, never wider.
+    task_group = next(
+        group for group in overview["recent_groups"] if group["group_id"] == "tasks"
+    )
+    assert len(task_group["items"]) <= cap
+    assert len(overview["tasks"]) <= len(task_group["items"])
+    assert all("task_view" not in item for item in task_group["items"])
+
+
 def main() -> None:
     _test_tasks_reports_registry_copy()
     _test_recent_item_ordering()
+    _test_reports_filter_before_cap()
     _test_actionable_task_view_vertical_slice()
     _test_director_renderer_fails_closed_on_malformed_nested_data()
     _test_read_only_git_preserves_porcelain_status()
