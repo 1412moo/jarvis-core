@@ -5513,8 +5513,121 @@ def _test_open_created_task_vertical_slice() -> None:
     )
 
 
+def _test_recent_item_ordering() -> None:
+    """Keep every Recent/History list newest-first across directories (task-0107).
+
+    discover_recent_items and discover_history_items sort each directory, then
+    combine. The combined list used to be returned in directory order, so the
+    lists the UI labels "Recent" were not recency-ordered even though it prints
+    each item's modified time, and the total cap dropped whatever came last
+    rather than whatever was oldest. An early break could skip a whole
+    directory before its items were ever compared.
+    """
+
+    def assert_newest_first(label: str, items: list[dict[str, Any]]) -> None:
+        stamps = [item["modified"] for item in items]
+        assert stamps == sorted(stamps, reverse=True), label
+
+    overview_code, overview = run_web_app.handle_get_api("/api/overview")
+    assert overview_code == HTTPStatus.OK
+    for group in overview["recent_groups"]:
+        assert_newest_first(group["title"], group["items"])
+    # overview["tasks"] is deliberately excluded: it carries the Task View's
+    # own display order (task_view_sort_key), not file recency.
+    for key in ("reports", "checkpoints", "docs_examples"):
+        assert_newest_first(key, overview[key])
+    history_code, history = run_web_app.handle_get_api("/api/history")
+    assert history_code == HTTPStatus.OK
+    assert_newest_first("checkpoint_docs", history["checkpoint_docs"])
+    assert_newest_first("related_items", history["related_items"])
+
+    # Real repository data cannot prove the ordering rule: it only shows
+    # whatever order the directories happen to produce. These fixtures put the
+    # newest files in the last directory on purpose.
+    fixture_root = run_web_app.REPO_ROOT / "recent-order-test-fixture"
+    assert fixture_root.resolve().parent == run_web_app.REPO_ROOT.resolve()
+    shutil.rmtree(fixture_root, ignore_errors=True)
+    original_directory_lookup = run_web_app.overview_directory_by_key
+
+    def build(dir_count: int, files_per_dir: int, stamp: Any) -> tuple[
+        tuple[str, ...], dict[str, dict[str, str]]
+    ]:
+        mapping: dict[str, dict[str, str]] = {}
+        for index in range(dir_count):
+            key = f"orderfixture{index}"
+            relative = f"recent-order-test-fixture/{key}"
+            (run_web_app.REPO_ROOT / relative).mkdir(parents=True)
+            mapping[key] = {
+                "key": key,
+                "label": f"Order fixture {index}",
+                "path": relative,
+            }
+            for number in range(files_per_dir):
+                path = run_web_app.REPO_ROOT / relative / f"note-{number:02d}.md"
+                path.write_text(f"# fixture {index} {number}\n", encoding="utf-8")
+                stamped = stamp(index, number)
+                os.utime(path, (stamped, stamped))
+        return tuple(mapping), mapping
+
+    try:
+        # three directories, deliberately time-inverted: 100, 300, 200
+        inverted = {0: 100.0, 1: 300.0, 2: 200.0}
+        keys, mapping = build(3, 1, lambda index, _number: inverted[index])
+        run_web_app.overview_directory_by_key = lambda: mapping
+        ordered = run_web_app.discover_recent_items(keys)
+        assert [item["modified"] for item in ordered] == [300.0, 200.0, 100.0]
+        assert [item["directory_key"] for item in ordered] == [
+            "orderfixture1",
+            "orderfixture2",
+            "orderfixture0",
+        ]
+
+        run_web_app.overview_directory_by_key = original_directory_lookup
+        shutil.rmtree(fixture_root)
+
+        # the total cap must keep the newest, and the newest live in the last
+        # directory - which the removed early break never reached. Each
+        # directory holds more than the per-directory cap, so the per-directory
+        # sort has to pick that directory's newest too.
+        dir_count = 6
+        files_per_dir = run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY + 2
+        keys, mapping = build(
+            dir_count,
+            files_per_dir,
+            lambda index, number: 1000.0 + index * 100 + number,
+        )
+        run_web_app.overview_directory_by_key = lambda: mapping
+        capped = run_web_app.discover_recent_items(keys)
+        assert len(capped) == run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
+        assert_newest_first("cap fixture", capped)
+        newest_stamp = 1000.0 + (dir_count - 1) * 100 + files_per_dir - 1
+        assert capped[0]["modified"] == newest_stamp
+        assert capped[0]["directory_key"] == f"orderfixture{dir_count - 1}"
+        # the oldest directory is the one the cap drops, not the last one
+        present = {item["directory_key"] for item in capped}
+        assert "orderfixture0" not in present
+        assert f"orderfixture{dir_count - 1}" in present
+        for index in range(dir_count):
+            key = f"orderfixture{index}"
+            kept = [
+                item["modified"] for item in capped if item["directory_key"] == key
+            ]
+            dropped = [
+                1000.0 + index * 100 + number
+                for number in range(files_per_dir)
+                if 1000.0 + index * 100 + number not in kept
+            ]
+            if kept and dropped:
+                assert min(kept) > max(dropped), key
+    finally:
+        run_web_app.overview_directory_by_key = original_directory_lookup
+        shutil.rmtree(fixture_root, ignore_errors=True)
+    assert not fixture_root.exists()
+
+
 def main() -> None:
     _test_tasks_reports_registry_copy()
+    _test_recent_item_ordering()
     _test_actionable_task_view_vertical_slice()
     _test_director_renderer_fails_closed_on_malformed_nested_data()
     _test_read_only_git_preserves_porcelain_status()

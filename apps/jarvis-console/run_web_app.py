@@ -1341,8 +1341,14 @@ def discover_recent_items(directory_keys: tuple[str, ...], name_contains: str = 
             directory_items.append(overview_file_item(path, directory))
         directory_items.sort(key=lambda item: (item["modified"], item["path"]), reverse=True)
         items.extend(directory_items[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY])
-        if len(items) >= OVERVIEW_MAX_TOTAL_ITEMS:
-            break
+    # task-0107: the per-directory cap keeps each directory's newest, but the
+    # combined list used to be returned in directory order. "Recent" was then
+    # not recency-ordered across directories - a file 103 days newer sat below
+    # older ones with both times on screen - and the total cap dropped whatever
+    # came last rather than whatever was oldest. Worse, the early break could
+    # skip a whole directory before its items were ever compared. Sort the
+    # combined list before capping, the way project_task_view_items does.
+    items.sort(key=lambda item: (item["modified"], item["path"]), reverse=True)
     return items[:OVERVIEW_MAX_TOTAL_ITEMS]
 
 
@@ -1372,8 +1378,8 @@ def discover_history_items() -> list[dict[str, Any]]:
             directory_items.append(overview_file_item(path, directory))
         directory_items.sort(key=lambda item: (item["modified"], item["path"]), reverse=True)
         items.extend(directory_items[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY])
-        if len(items) >= OVERVIEW_MAX_TOTAL_ITEMS:
-            break
+    # task-0107: same combined ordering rule as discover_recent_items.
+    items.sort(key=lambda item: (item["modified"], item["path"]), reverse=True)
     return items[:OVERVIEW_MAX_TOTAL_ITEMS]
 
 
