@@ -6,7 +6,7 @@
 - repo: `jarvis-core`
 - created_at: `2026-09-09 06:13 UTC`
 - updated_at: `2026-09-09 06:13 UTC`
-- summary: `parse_task_view_text 가 파일 전체에서 - 로 시작하는 모든 줄을 metadata 로 읽어, 본문에 평범한 Markdown 목록이 있는 task 기록을 Needs metadata review 로 떨어뜨리고 있었다. 84 건 중 35 건이 오판정이었다. task-0054 가 task_file_writer 에서 같은 결함을 이미 고쳐 두었고 그 header block 경계 규칙을 그대로 이식했다. 경계만 옮겼고 필드 검증은 어휘 타입 길이 인접성 모두 그대로다. 파서 기준 84/84 valid, 회귀 0. 다만 Console 화면의 metadata_review 건수는 이 수정만으로 줄지 않는다. read_task_view_text 가 4096 byte 를 넘는 파일을 파싱 전에 거부하고 84 건 중 43 건이 여기 걸리며 파서 오판정 35 건은 그 43 건의 부분집합이라, 화면 수치는 43 에서 43 으로 그대로다. 이 크기 상한은 지시 범위 밖이라 건드리지 않았고 별도 결정으로 남긴다. regression test 를 self-test 와 smoke 양쪽에 추가했고 mutation probe 로 옛 규칙 복원 시 반드시 깨지는 것을 확인했다.`
+- summary: `parse_task_view_text 가 파일 전체에서 - 로 시작하는 모든 줄을 metadata 로 읽어, 본문에 평범한 Markdown 목록이 있는 task 기록을 Needs metadata review 로 떨어뜨리고 있었다. 84 건 중 35 건이 오판정이었다. task-0054 가 task_file_writer 에서 이미 고쳐 둔 header block 경계 규칙을 그대로 이식했다. 경계만 옮겼고 필드 검증은 어휘 타입 길이 인접성 모두 그대로다. 다만 Console 화면의 metadata_review 건수는 이 수정만으로 줄지 않는다. read_task_view_text 가 4096 byte 를 넘는 파일을 파싱 전에 거부해 화면에 보이는 10 건이 전부 metadata_review 로 남았고, 그 두 번째 원인은 task-0097 이 처리했다. regression test 를 self-test 와 smoke 양쪽에 추가했고 mutation probe 로 확인했다.`
 - source_command: `A1 감사에서 분리한 R6 Console metadata_review 버그 수정 지시`
 
 ## 기준선
@@ -119,6 +119,12 @@ for line_index, line in enumerate(text.splitlines()):
 dogfood 23 건은 본문 목록이 없어 before 에도 전부 valid 였고 after 에도 그대로다.
 **이 수정으로 상태가 나빠진 파일은 없다.**
 
+> **task-0097 정정.** 위 `after` 수치는 이 기록을 쓰던 시점의 측정이다. 그 뒤
+> 이 기록 자신의 `summary` 가 500 자를 넘겨 `field_too_long` 이 되었고, 그래서
+> task-0097 착수 시점의 전수는 `84/84 valid` 가 아니라 `83 valid / 1 invalid`
+> 였다. task-0097 에서 그 summary 를 500 자 이하로 되돌렸다. 당시 측정값 자체는
+> 고치지 않는다.
+
 ### 그러나 Console 화면 수치는 이 수정만으로 바뀌지 않는다
 
 파서를 고친 뒤에도 `/api/overview` 의 Actionable Task View 는 여전히 10 건 전부
@@ -160,6 +166,10 @@ bounded read 는 의도된 안전 장치라 임의로 완화하지 않았다. **
 남긴다.** 참고로 header block 은 항상 파일 앞부분에 있으므로, 상한을 올리지 않고도
 읽어온 prefix 안에서 header block 만 파싱하는 방식이 가능하다 — 메모리 상한은
 그대로 두면서 "큰 파일"과 "형식 불량"의 혼동만 제거하는 방향이다.
+
+> **task-0097 후속.** 이 방향이 그대로 채택됐다. task-0097 이
+> `read_task_view_text` 를 bounded prefix 안에서 header block 만 잘라 파서에
+> 넘기도록 고쳤다. `OVERVIEW_SNIPPET_BYTES` 4096 byte 상한은 그대로다.
 
 ## 검증을 약화시키지 않았다
 

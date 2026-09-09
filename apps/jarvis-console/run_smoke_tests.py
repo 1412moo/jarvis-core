@@ -3783,9 +3783,176 @@ def _test_completion_evidence_vertical_slice() -> None:
     assert production_snapshot() == before_production
 
 
+def _test_task_view_bounded_reader() -> None:
+    """Keep the bounded Task read scoped to the header block (task-0097).
+
+    OVERVIEW_SNIPPET_BYTES bounds the read, not the file. The rule this
+    replaced rejected any Task file larger than the bound before the parser saw
+    it, so a valid header with an ordinary long body failed closed into
+    metadata review and the Console displayed nothing else. These cases use the
+    real read_task_view_text on real files: every other projection test in this
+    file injects a text_reader and never reaches it.
+    """
+
+    limit = run_web_app.OVERVIEW_SNIPPET_BYTES
+    file_name = "task-0510-bounded-reader.md"
+    header = (
+        "# task-0510-bounded-reader\n"
+        "\n"
+        "- id: `task-0510-bounded-reader`\n"
+        "- title: `bounded reader probe`\n"
+        "- status: `TODO`\n"
+        "- repo: `jarvis-core`\n"
+        "- created_at: `2026-01-01 00:00 UTC`\n"
+        "- updated_at: `2026-01-01 00:00 UTC`\n"
+        "- summary: `bounded reader probe summary`\n"
+    ).encode("utf-8")
+    assert len(header) < limit
+
+    def read_probe(file_bytes: bytes) -> Any:
+        with TemporaryDirectory() as probe_dir:
+            probe_path = Path(probe_dir) / file_name
+            probe_path.write_bytes(file_bytes)
+            try:
+                text = run_web_app.read_task_view_text(probe_path)
+            except UnicodeDecodeError:
+                return "invalid_utf8"
+            except ValueError:
+                return "fail_closed"
+            assert len(text.encode("utf-8")) <= limit
+            view = run_web_app.parse_task_view_text(file_name, text)
+            assert view is not None
+            return view
+
+    # a body of ordinary column-0 Markdown bullets - the task-0096 shape - now
+    # long enough that the reader has to carry it too
+    bullet_body = b"\n## Body\n\n" + b"- an ordinary prose bullet\n" * 200
+    assert len(header + bullet_body) > limit
+    NL = b"\n"
+    CONT_A = "  - 규칙: 위 필드의 연속이다".encode("utf-8")
+    CONT_B = "  들여쓴 설명 줄도 마찬가지다".encode("utf-8")
+    # an indented line continues the field above it, the shape this
+    # repository's own task-template.md uses, and it must not close the
+    # block early and strand the required fields below it
+    continued_header = header.replace(
+        b"- status: `TODO`" + NL,
+        (b"- status: `TODO`" + NL + CONT_A + NL + CONT_B + NL),
+    )
+    for probe_bytes, expected_state, expected_reason, expected_field in (
+        (header + b"\n## Body\n", "valid", None, None),
+        (header + bullet_body, "valid", None, None),
+        (continued_header + bullet_body, "valid", None, None),
+        (
+            header.replace(b"- repo: `jarvis-core`", b"- repo: jarvis-core")
+            + bullet_body,
+            "invalid",
+            "invalid_text",
+            "repo",
+        ),
+        (
+            header.replace(b"- repo: `jarvis-core`", b"- bogus: `x`")
+            + bullet_body,
+            "invalid",
+            "unsupported_field",
+            "bogus",
+        ),
+    ):
+        view = read_probe(probe_bytes)
+        assert not isinstance(view, str), view
+        assert view["parse_state"] == expected_state
+        if expected_reason is None:
+            assert view["group_id"] != "metadata_review"
+        else:
+            assert view["reason_code"] == expected_reason
+            assert view["reason_field"] == expected_field
+            assert view["group_id"] == "metadata_review"
+
+    # the header block's terminator line decides: whole inside the prefix, or
+    # not reachable at all
+    terminator = b"## Body\n"
+    for terminator_end, expected_valid in ((limit, True), (limit + 1, False)):
+        lead = terminator_end - len(header) - len(terminator) - 8
+        assert lead >= 0
+        sweep = read_probe(
+            b"<!--" + b"p" * lead + b"-->\n"
+            + header
+            + terminator
+            + b"tail padding\n" * 400
+        )
+        if expected_valid:
+            assert not isinstance(sweep, str), terminator_end
+            assert sweep["parse_state"] == "valid"
+        else:
+            assert sweep == "fail_closed", terminator_end
+
+    # a multi-byte character split by the bound must not reach the decoder
+    multibyte_base = header + b"\n## Body\n"
+    multibyte = (
+        multibyte_base
+        + b"x" * ((limit - len(multibyte_base) - 1) % 3)
+        + "가".encode("utf-8") * 2000
+    )
+    try:
+        multibyte[:limit].decode("utf-8", errors="strict")
+        raise AssertionError("multi-byte probe must straddle the bound")
+    except UnicodeDecodeError:
+        pass
+    multibyte_view = read_probe(multibyte)
+    assert not isinstance(multibyte_view, str), multibyte_view
+    assert multibyte_view["parse_state"] == "valid"
+
+    # a header block wider than the bound, and invalid UTF-8 inside one
+    assert read_probe(
+        header + b"- source_command: `" + b"x" * limit + b"`\n" + b"\n## Body\n"
+    ) == "fail_closed"
+    assert read_probe(
+        header.replace(b"- title: `bounded reader probe`", b"- title: `\x80`")
+        + b"\n## Body\n"
+    ) == "invalid_utf8"
+
+    # the read stays bounded: one bounded prefix, never the whole file
+    reader_source = inspect.getsource(run_web_app.read_task_view_text)
+    assert "file.read(OVERVIEW_SNIPPET_BYTES + 1)" in reader_source
+    assert "read_bytes" not in reader_source
+    assert "read_text" not in reader_source
+
+    # the default reader, through the projection: a Task file that is gone
+    # still fails closed the way it always did
+    missing_projection = run_web_app.project_task_view_items(
+        [{"path": "memory/tasks/task-9999-not-on-disk.md"}]
+    )
+    assert len(missing_projection) == 1
+    missing_view = missing_projection[0]["task_view"]
+    assert missing_view["parse_state"] == "invalid"
+    assert missing_view["reason_code"] == "invalid_text"
+    assert missing_view["group_id"] == "metadata_review"
+
+    # and on the real corpus: no Task whose stored header parses may be shown
+    # as metadata review just because its body is long
+    tasks_root = run_web_app.REPO_ROOT / "memory" / "tasks"
+    corpus = sorted(
+        path
+        for path in tasks_root.rglob("*.md")
+        if path.name != "task-template.md"
+        and run_web_app.TASK_FILE_PATTERN.fullmatch(path.name)
+    )
+    assert corpus, "expected local Task records to check"
+    for path in corpus:
+        whole = run_web_app.parse_task_view_text(
+            path.name, path.read_text(encoding="utf-8")
+        )
+        assert whole is not None
+        projected = run_web_app.project_task_view_items(
+            [{"path": path.relative_to(run_web_app.REPO_ROOT).as_posix()}]
+        )[0]["task_view"]
+        assert projected["parse_state"] == whole["parse_state"], path.name
+        assert projected.get("reason_code") == whole.get("reason_code"), path.name
+
+
 def _test_actionable_task_view_vertical_slice() -> None:
     _test_task_transition_vertical_slice()
     _test_completion_evidence_vertical_slice()
+    _test_task_view_bounded_reader()
     watched_roots = (
         run_web_app.REPO_ROOT / "memory" / "tasks",
         run_web_app.REPO_ROOT / "reports",

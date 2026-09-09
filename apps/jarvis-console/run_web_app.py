@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -1588,14 +1589,69 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
     }
 
 
+def task_view_header_block_end(raw: bytes, truncated: bool) -> int | None:
+    """Return the byte offset just past the header block, or None if unclosed.
+
+    This is the task-0054 / task-0096 boundary applied to bytes: an indented
+    line continues the field above it, the block opens at the first column-0
+    "- " line, and the first column-0 line that is not one closes it. Working
+    in bytes keeps every offset on a line terminator, and a line terminator is
+    always a UTF-8 character boundary, so slicing here can never split a
+    multi-byte sequence.
+    """
+
+    lines = raw.splitlines(keepends=True)
+    if truncated and lines and not lines[-1].endswith((b"\n", b"\r")):
+        # A bounded prefix can end mid-line. That fragment says nothing about
+        # the field it belongs to, so it is not read as one.
+        lines.pop()
+    offset = 0
+    started = False
+    for line in lines:
+        stripped = line.rstrip(b"\r\n")
+        if stripped[:1].isspace():
+            offset += len(line)
+            continue
+        if not started:
+            if not stripped.startswith(b"- "):
+                offset += len(line)
+                continue
+            started = True
+        elif not stripped.startswith(b"- "):
+            return offset
+        offset += len(line)
+    # A block running to the end of a whole file is closed by the file. One
+    # running to the end of a truncated prefix may continue past it, and this
+    # read cannot see that far.
+    return None if truncated else offset
+
+
 def read_task_view_text(path: Path) -> str:
-    """Read one bounded Task file as strict UTF-8 without writing state."""
+    """Read one bounded Task header block as strict UTF-8 without writing state.
+
+    task-0097: OVERVIEW_SNIPPET_BYTES bounds the read, not the file. The old
+    rule raised on any file larger than the bound before the parser ever saw
+    it, so a task record with a valid header and an ordinary long body failed
+    closed into metadata review - 42 local records did at the time of this fix,
+    which was every Task the Console displayed, and it also left Start /
+    Complete / Record Completion Evidence with no valid Task to select. Only
+    the header block is needed here and it sits at the front of the file, so
+    the same bounded prefix is read and only that block reaches the parser.
+
+    The bound itself is unchanged: at most OVERVIEW_SNIPPET_BYTES + 1 bytes are
+    read, and a header block that does not close inside the prefix still fails
+    closed, because nothing here can see whether it continued past the cut.
+    """
 
     with path.open("rb") as file:
         raw = file.read(OVERVIEW_SNIPPET_BYTES + 1)
-    if len(raw) > OVERVIEW_SNIPPET_BYTES:
-        raise ValueError("task metadata exceeds bounded read")
-    return raw.decode("utf-8", errors="strict")
+    truncated = len(raw) > OVERVIEW_SNIPPET_BYTES
+    if truncated:
+        raw = raw[:OVERVIEW_SNIPPET_BYTES]
+    end = task_view_header_block_end(raw, truncated)
+    if end is None:
+        raise ValueError("task metadata header block exceeds bounded read")
+    return raw[:end].decode("utf-8", errors="strict")
 
 
 def task_view_sort_key(item: Mapping[str, Any]) -> tuple[int, float, str]:
@@ -3882,6 +3938,128 @@ def run_self_test() -> None:
         assert broken_view["parse_state"] == "invalid"
         assert broken_view["reason_code"] == expected_reason
         assert broken_view["group_id"] == "metadata_review"
+
+    # task-0097: OVERVIEW_SNIPPET_BYTES bounds the read, not the file. A record
+    # whose header block is valid stays valid however far its body grows, and a
+    # header block that does not close inside that prefix still fails closed.
+    # These run through the real read_task_view_text on real files, because the
+    # defect this replaced lived entirely in the reader: every projection test
+    # in this repository injects a text_reader and steps straight over it.
+    def probe_bounded_read(file_bytes: bytes) -> Any:
+        with tempfile.TemporaryDirectory() as probe_dir:
+            probe_path = Path(probe_dir) / task_view_name
+            probe_path.write_bytes(file_bytes)
+            try:
+                probe_text = read_task_view_text(probe_path)
+            except UnicodeDecodeError:
+                return "invalid_utf8"
+            except ValueError:
+                return "fail_closed"
+            assert len(probe_text.encode("utf-8")) <= OVERVIEW_SNIPPET_BYTES
+            probe = parse_task_view_text(task_view_name, probe_text)
+            assert probe is not None
+            return probe
+
+    header_bytes = task_view_header.encode("utf-8")
+    assert len(header_bytes) < OVERVIEW_SNIPPET_BYTES
+    # a body of ordinary column-0 Markdown bullets, the task-0096 shape, now
+    # carried past the bound so the reader is exercised with it too
+    bullet_body = b"\n## Body\n\n" + b"- an ordinary prose bullet\n" * 200
+    assert len(header_bytes + bullet_body) > OVERVIEW_SNIPPET_BYTES
+    NEWLINE = "\n"
+    CONT_A = "  - 규칙: 위 필드의 연속이다"
+    CONT_B = "  들여쓴 설명 줄도 마찬가지다"
+    # an indented line continues the field above it, the shape this
+    # repository's own task-template.md uses, and it must not close the
+    # block early and strand the required fields below it
+    continued_header = task_view_header.replace(
+        "- status: `DONE`" + NEWLINE,
+        ("- status: `DONE`" + NEWLINE + CONT_A + NEWLINE + CONT_B + NEWLINE),
+    ).encode("utf-8")
+    for probe_bytes, expected_state, expected_reason in (
+        (header_bytes + b"\n## Body\n", "valid", None),
+        (header_bytes + bullet_body, "valid", None),
+        (continued_header + bullet_body, "valid", None),
+        (
+            task_view_header.replace(
+                "- repo: `jarvis-core`", "- repo: jarvis-core"
+            ).encode("utf-8") + bullet_body,
+            "invalid",
+            "invalid_text",
+        ),
+        (
+            task_view_header.replace(
+                "- repo: `jarvis-core`", "- bogus: `x`"
+            ).encode("utf-8") + bullet_body,
+            "invalid",
+            "unsupported_field",
+        ),
+    ):
+        bounded_view = probe_bounded_read(probe_bytes)
+        assert not isinstance(bounded_view, str), bounded_view
+        assert bounded_view["parse_state"] == expected_state
+        if expected_reason is None:
+            assert bounded_view["group_id"] != "metadata_review"
+        else:
+            assert bounded_view["reason_code"] == expected_reason
+            assert bounded_view["group_id"] == "metadata_review"
+
+    # the terminator line decides: reachable whole inside the prefix, or not
+    terminator_line = b"## Body\n"
+    for terminator_end in range(OVERVIEW_SNIPPET_BYTES - 3, OVERVIEW_SNIPPET_BYTES + 4):
+        lead_length = terminator_end - len(header_bytes) - len(terminator_line) - 8
+        assert lead_length >= 0
+        sweep_bytes = (
+            b"<!--" + b"p" * lead_length + b"-->\n"
+            + header_bytes
+            + terminator_line
+            + b"tail padding\n" * 400
+        )
+        assert len(sweep_bytes) > OVERVIEW_SNIPPET_BYTES
+        sweep_view = probe_bounded_read(sweep_bytes)
+        if terminator_end <= OVERVIEW_SNIPPET_BYTES:
+            assert not isinstance(sweep_view, str), terminator_end
+            assert sweep_view["parse_state"] == "valid"
+        else:
+            assert sweep_view == "fail_closed", terminator_end
+
+    # a multi-byte character split by the bound must never reach the decoder:
+    # the header block closed long before it, so only that block is decoded
+    multibyte_base = header_bytes + b"\n## Body\n"
+    multibyte_bytes = (
+        multibyte_base
+        + b"x" * ((OVERVIEW_SNIPPET_BYTES - len(multibyte_base) - 1) % 3)
+        + "가".encode("utf-8") * 2000
+    )
+    assert len(multibyte_bytes) > OVERVIEW_SNIPPET_BYTES
+    try:
+        multibyte_bytes[:OVERVIEW_SNIPPET_BYTES].decode("utf-8", errors="strict")
+        raise AssertionError("multi-byte probe must straddle the bound")
+    except UnicodeDecodeError:
+        pass
+    multibyte_view = probe_bounded_read(multibyte_bytes)
+    assert not isinstance(multibyte_view, str), multibyte_view
+    assert multibyte_view["parse_state"] == "valid"
+
+    # a header block wider than the bound, and invalid UTF-8 inside one
+    assert probe_bounded_read(
+        header_bytes
+        + b"- source_command: `" + b"x" * OVERVIEW_SNIPPET_BYTES + b"`\n"
+        + b"\n## Body\n"
+    ) == "fail_closed"
+    assert probe_bounded_read(
+        task_view_header.replace("- title: `probe`", "- title: `\udc80`").encode(
+            "utf-8", errors="surrogateescape"
+        )
+        + b"\n## Body\n"
+    ) == "invalid_utf8"
+
+    with tempfile.TemporaryDirectory() as missing_dir:
+        try:
+            read_task_view_text(Path(missing_dir) / task_view_name)
+            raise AssertionError("a missing Task file must not read as text")
+        except OSError:
+            pass
 
     assert clean_voice_transcript("코덱스 케어노트 헤르메스") == "Codex CareNote Hermes"
     assert clean_voice_transcript("엠씨피 에이전트 스킬 데일리 레이더") == "MCP Agent Skills Daily AI Radar"
