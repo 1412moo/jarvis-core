@@ -258,10 +258,6 @@ TASK_VIEW_REASON_CODES = frozenset(
         "field_too_long",
     }
 )
-TASK_VIEW_DISCLOSURE = (
-    "Shows up to 10 files selected by existing Recent Tasks discovery before "
-    "task validation; this is not the full backlog."
-)
 HISTORY_MAX_COMMITS = 10
 HISTORY_DIRECTORY_KEYS = ("docs", "jarvis_console", "hermes_examples", "daily_ai_radar_examples")
 HISTORY_NAME_MARKERS = ("checkpoint", "summary", "report")

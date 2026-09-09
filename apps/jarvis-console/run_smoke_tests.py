@@ -4735,6 +4735,13 @@ def _test_actionable_task_view_vertical_slice() -> None:
         "Read-only",
     ):
         assert exact_text in app_js
+    # task-0105: the disclosure above states the cap as prose, and its number
+    # was a bare literal with nothing tying it to the constant that actually
+    # caps the list. Raising OVERVIEW_MAX_ITEMS_PER_DIRECTORY would have left
+    # the page claiming "up to 10" while showing more, with every suite green.
+    assert (
+        f"up to {run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY} files" in app_js
+    )
     for _status, (_group_id, _rank, next_action) in (
         expected_status_rules.items()
     ):
