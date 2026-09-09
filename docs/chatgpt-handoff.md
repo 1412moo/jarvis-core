@@ -62,7 +62,7 @@ Current local Git facts:
 | --- | --- | --- |
 | `apps/jarvis-console/` | Implemented | Primary local browser product, API server, UI, registry, Project Control, Task flows, and deterministic tests. |
 | `orchestrator/discord-intake/` | Implemented | Shared command parsing, Task draft creation, authoritative Task file writer, status transition writer, and completion-evidence writer. Despite the directory name, the writer is reused by Jarvis Console. |
-| `memory/tasks/` | Implemented | Markdown Task source of truth. 59 Task files are tracked, spanning `task-0001` through `task-0095`. The 23 dogfood Tasks `task-0006` through `task-0028` remain untracked pending an explicit Owner decision. |
+| `memory/tasks/` | Implemented | Markdown Task source of truth. 60 Task files are tracked, spanning `task-0001` through `task-0095`. The 23 dogfood Tasks `task-0006` through `task-0028` remain untracked pending an explicit Owner decision. |
 | `apps/hermes-manager-pilot/` | Implemented | Separately launched local workflow-management app with prompt rendering, review handoff, durable Review lifecycle, content-evidence binding, and reporting primitives. |
 | `apps/research-council/` | Implemented | Deterministic local idea-evaluation pipeline, desktop launcher, reports, profiles, golden cases, benchmark governance, and replay tools. |
 | `apps/daily-ai-radar/` | Implemented | Deterministic renderer that converts manually curated technology metadata into a bounded radar report. |
@@ -205,7 +205,7 @@ Current Project Control projection at the observed HEAD:
 
 This reporting state is intentional fail-closed behavior. Do not weaken it or replace historical hashes merely to make the card green.
 
-The `Needs metadata review: 10` figure is **not** a healthy steady state and will change once a separate defect is fixed. `parse_task_view_text` in `run_web_app.py` treats every line beginning with `- ` anywhere in a Task file as metadata, so a Task record containing an ordinary Markdown list in its body fails closed. At the current HEAD this rejects 35 of 82 local Task files. `task_file_writer.py:468` already carries the fix for the same class of defect (`# task-0054: metadata is the header block, not "every line starting with -"`), but that scoping was never applied to the Console reader. Treat the displayed group counts as reflecting this defect until it is addressed.
+The `Needs metadata review: 10` figure is **not** a healthy steady state and will change once a separate defect is fixed. `parse_task_view_text` in `run_web_app.py` treats every line beginning with `- ` anywhere in a Task file as metadata, so a Task record containing an ordinary Markdown list in its body fails closed. At the current HEAD this rejects 35 of 83 local Task files. `task_file_writer.py:468` already carries the fix for the same class of defect (`# task-0054: metadata is the header block, not "every line starting with -"`), but that scoping was never applied to the Console reader. Treat the displayed group counts as reflecting this defect until it is addressed.
 
 ## Complete User Workflows
 
@@ -372,7 +372,7 @@ The one-hour dogfood then ran from `2026-07-30T10:59:26.933Z` through `2026-07-3
 Create → Start → Evidence → Complete
 ```
 
-All 20 final Tasks are `DONE`; all 20 contain completion evidence. At the time of that run the local directory held 28 Task files, all in `DONE`. It now holds 82: `DONE` 75, `NEEDS_APPROVAL` 6, `DOING` 1. Because Actionable Task View is capped after Recent Tasks selection, the UI displays only the newest ten. At the time of that run they showed as `Completed`; today they show as `Needs metadata review` for the reason recorded under Current UI.
+All 20 final Tasks are `DONE`; all 20 contain completion evidence. At the time of that run the local directory held 28 Task files, all in `DONE`. It now holds 83: `DONE` 76, `NEEDS_APPROVAL` 6, `DOING` 1. Because Actionable Task View is capped after Recent Tasks selection, the UI displays only the newest ten. At the time of that run they showed as `Completed`; today they show as `Needs metadata review` for the reason recorded under Current UI.
 
 Only observed friction is recorded:
 
