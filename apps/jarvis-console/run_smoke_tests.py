@@ -71,6 +71,11 @@ from hermes_manager_pilot.manager_reporting import (
     normalize_manager_report,
 )
 
+# task-0101: importing run_web_app puts orchestrator/discord-intake on sys.path,
+# so the writer's own transition constant can be compared against the copy this
+# file spells out.
+from task_file_writer import TASK_STATUS_TRANSITIONS
+
 
 def _test_tasks_reports_registry_copy() -> None:
     baseline_commit = "064f82bf4806198a4e904e58b85c3c87a2ca8123"
@@ -2076,22 +2081,32 @@ def _test_task_transition_vertical_slice() -> None:
             "FAILED",
             "NEEDS_APPROVAL",
         )
+        # task-0052 widened task_file_writer.TASK_STATUS_TRANSITIONS so the
+        # Discord approval path can use this durable writer instead of a bare
+        # write_text(). This stays an explicit contract test - the set is
+        # spelled out rather than imported - so any further widening has to
+        # be made deliberately here too. The console's own surface is
+        # unchanged: TASK_TRANSITION_ACTIONS still offers only start/complete.
+        official_transitions = frozenset(
+            {
+                ("TODO", "DOING"),
+                ("DOING", "DONE"),
+                ("NEEDS_APPROVAL", "DOING"),
+                ("NEEDS_APPROVAL", "FAILED"),
+                ("DOING", "FAILED"),
+                ("FAILED", "TODO"),
+            }
+        )
+        # task-0101: spelling the set out only works if something checks it
+        # against the writer's own constant. Nothing did, so the two could
+        # drift apart in silence - the way the status vocabulary sat out of
+        # sync until task-0098. The count keeps a coordinated shrink of both
+        # sides from passing quietly.
+        assert official_transitions == TASK_STATUS_TRANSITIONS
+        assert len(official_transitions) == 6
         for source_status in all_statuses:
             for target_status in all_statuses:
-                # task-0052 widened task_file_writer.TASK_STATUS_TRANSITIONS so the
-                # Discord approval path can use this durable writer instead of a bare
-                # write_text(). This stays an explicit contract test - the set is
-                # spelled out rather than imported - so any further widening has to
-                # be made deliberately here too. The console's own surface is
-                # unchanged: TASK_TRANSITION_ACTIONS still offers only start/complete.
-                if (source_status, target_status) in {
-                    ("TODO", "DOING"),
-                    ("DOING", "DONE"),
-                    ("NEEDS_APPROVAL", "DOING"),
-                    ("NEEDS_APPROVAL", "FAILED"),
-                    ("DOING", "FAILED"),
-                    ("FAILED", "TODO"),
-                }:
+                if (source_status, target_status) in official_transitions:
                     continue
                 invalid_result = run_web_app.transition_task_file_status(
                     tasks_dir=tasks_dir,
@@ -2105,6 +2120,46 @@ def _test_task_transition_vertical_slice() -> None:
                     "hold",
                     "invalid_task_transition",
                 )
+
+        # task-0101: every official pair is also exercised positively, on a
+        # real file, rather than only skipped by the rejection loop above.
+        # Four of the six - the approval-path transitions - were asserted
+        # nowhere in any regression suite before this, so dropping one from
+        # the writer's constant left every suite green.
+        planned_positive = "2026-07-23 12:00 UTC"
+        for index, (source_status, target_status) in enumerate(
+            sorted(official_transitions),
+            start=7101,
+        ):
+            positive_id = f"task-{index:04d}-positive-transition"
+            positive_path, positive_before = write_task(
+                positive_id,
+                source_status,
+            )
+            positive_result = run_web_app.transition_task_file_status(
+                tasks_dir=tasks_dir,
+                task_id=positive_id,
+                expected_digest=hashlib.sha256(positive_before).hexdigest(),
+                current_status=source_status,
+                target_status=target_status,
+                planned_updated_at=planned_positive,
+            )
+            assert positive_result.result_type == "updated", (
+                source_status,
+                target_status,
+                positive_result,
+            )
+            positive_after = positive_path.read_bytes()
+            assert positive_after == positive_before.replace(
+                f"- status: `{source_status}`".encode("utf-8"),
+                f"- status: `{target_status}`".encode("utf-8"),
+                1,
+            ).replace(
+                b"- updated_at: `2026-07-23 10:00 UTC`",
+                f"- updated_at: `{planned_positive}`".encode("utf-8"),
+                1,
+            )
+            assert positive_after.count(b"\r\n") == positive_before.count(b"\r\n")
 
         traversal_result = run_web_app.transition_task_file_status(
             tasks_dir=tasks_dir,
