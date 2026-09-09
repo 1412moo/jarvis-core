@@ -3902,6 +3902,59 @@ def _test_actionable_task_view_vertical_slice() -> None:
         }
         assert view["read_only"] is True
 
+    # task-0096: the metadata block ends at the first column-0 line that is not
+    # a field, so an ordinary Markdown list in the body is prose. Before the fix
+    # every "- " line anywhere in the file was read as metadata and 35
+    # local Task records failed closed into metadata review.
+    header_block_base = task_markdown(
+        "task-0500-header-block-probe",
+        "DONE",
+    )
+    for body_suffix in (
+        "",
+        "\n## Body\n\n- a prose bullet\n- another bullet\n",
+        "\n## Body\n\n- valid: `true`\n",
+        "\n## Body\n\n- status: `TODO`\n",
+        "  - 규칙: indented continuation\n",
+    ):
+        body_view = run_web_app.parse_task_view_text(
+            "task-0500-header-block-probe.md",
+            header_block_base + body_suffix,
+        )
+        assert body_view is not None
+        assert body_view["parse_state"] == "valid"
+        assert body_view["group_id"] != "metadata_review"
+        assert body_view["status"] == "DONE"
+
+    # the boundary moved; the field checks inside the block did not
+    for broken_text, broken_reason in (
+        (
+            header_block_base.replace("- repo: `jarvis-core`", "- repo: jarvis-core"),
+            "invalid_text",
+        ),
+        (
+            header_block_base.replace("- repo: `jarvis-core`", "- bogus: `x`"),
+            "unsupported_field",
+        ),
+        (header_block_base + "- title: `dup`\n", "duplicate_field"),
+        (
+            header_block_base.replace("- repo: `jarvis-core`\n", ""),
+            "missing_field",
+        ),
+        (
+            header_block_base.replace("- status: `DONE`", "- status: `WEIRD`"),
+            "invalid_status",
+        ),
+    ):
+        broken_body_view = run_web_app.parse_task_view_text(
+            "task-0500-header-block-probe.md",
+            broken_text,
+        )
+        assert broken_body_view is not None
+        assert broken_body_view["parse_state"] == "invalid"
+        assert broken_body_view["reason_code"] == broken_reason
+        assert broken_body_view["group_id"] == "metadata_review"
+
     same_status_a = run_web_app.parse_task_view_text(
         "task-0201-copy-a.md",
         task_markdown(

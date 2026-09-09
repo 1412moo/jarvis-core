@@ -1465,9 +1465,31 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
 
     metadata: dict[str, str] = {}
     metadata_line_indexes: dict[str, int] = {}
+    # task-0096: metadata is the header block, not every line starting with
+    # "- ". The old rule claimed every bullet anywhere in the file, so a task
+    # record with an ordinary Markdown list in its body failed closed into
+    # metadata review; 35 local Task records did at the time of this fix. It
+    # also selected indented bullets that TASK_VIEW_METADATA_PATTERN can never
+    # match, because that pattern is anchored at column 0.
+    #
+    # This is the same boundary task_file_writer._transition_metadata already
+    # uses (task-0054). Only the boundary moves here: every field check below
+    # is unchanged, and a malformed field inside the block still fails.
+    in_header = False
     for line_index, line in enumerate(text.splitlines()):
-        if not line.lstrip().startswith("- "):
+        # An indented line continues the field above it, so it is neither a
+        # metadata line nor a terminator.
+        if line[:1].isspace():
             continue
+        if not in_header:
+            if not line.startswith("- "):
+                # Title, HTML comments and blank lines sit above the block.
+                continue
+            in_header = True
+        elif not line.startswith("- "):
+            # The first column-0 line that is not a field closes the header
+            # block. Everything after it is document body, not task metadata.
+            break
         match = TASK_VIEW_METADATA_PATTERN.fullmatch(line)
         if match is None:
             field_match = re.match(r"^\s*- ([a-z][a-z0-9_]*):", line)
@@ -3817,6 +3839,49 @@ def run_self_test() -> None:
         ("Codex 커밋 리뷰", "hermes_manager"),
     ):
         assert voice_suggest_skill(voice_message)["recommended_skill"] == expected_voice_skill
+
+    # task-0096: the Task metadata block ends at the first column-0 line that is
+    # not a field. An ordinary Markdown list in the document body is prose, not
+    # metadata, and must not fail the record closed into metadata review.
+    task_view_header = (
+        "# task-0500-header-block-probe\n"
+        "\n"
+        "- id: `task-0500-header-block-probe`\n"
+        "- title: `probe`\n"
+        "- status: `DONE`\n"
+        "- repo: `jarvis-core`\n"
+        "- created_at: `2026-01-01 00:00 UTC`\n"
+        "- updated_at: `2026-01-01 00:00 UTC`\n"
+        "- summary: `probe summary`\n"
+    )
+    task_view_name = "task-0500-header-block-probe.md"
+    for body, expected_state in (
+        ("", "valid"),
+        ("\n## Body\n\n- a prose bullet\n- another bullet\n", "valid"),
+        # a body bullet that happens to satisfy the metadata grammar is still body
+        ("\n## Body\n\n- valid: `true`\n", "valid"),
+        ("\n## Body\n\n- status: `TODO`\n", "valid"),
+        # an indented line continues the field above it
+        ("  - 규칙: anything\n", "valid"),
+    ):
+        probe_view = parse_task_view_text(task_view_name, task_view_header + body)
+        assert probe_view is not None
+        assert probe_view["parse_state"] == expected_state
+        if expected_state == "valid":
+            assert probe_view["group_id"] != "metadata_review"
+
+    for broken_header, expected_reason in (
+        (task_view_header.replace("- repo: `jarvis-core`", "- repo: jarvis-core"), "invalid_text"),
+        (task_view_header.replace("- repo: `jarvis-core`", "- bogus: `x`"), "unsupported_field"),
+        (task_view_header + "- title: `dup`\n", "duplicate_field"),
+        (task_view_header.replace("- repo: `jarvis-core`\n", ""), "missing_field"),
+        (task_view_header.replace("- status: `DONE`", "- status: `WEIRD`"), "invalid_status"),
+    ):
+        broken_view = parse_task_view_text(task_view_name, broken_header)
+        assert broken_view is not None
+        assert broken_view["parse_state"] == "invalid"
+        assert broken_view["reason_code"] == expected_reason
+        assert broken_view["group_id"] == "metadata_review"
 
     assert clean_voice_transcript("코덱스 케어노트 헤르메스") == "Codex CareNote Hermes"
     assert clean_voice_transcript("엠씨피 에이전트 스킬 데일리 레이더") == "MCP Agent Skills Daily AI Radar"
