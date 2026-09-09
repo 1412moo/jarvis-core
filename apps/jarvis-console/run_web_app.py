@@ -63,6 +63,7 @@ if str(DISCORD_INTAKE_ROOT) not in sys.path:
 
 from task_file_writer import (  # noqa: E402
     TASK_ALLOWED_METADATA,
+    TASK_ALLOWED_STATUSES,
     TASK_FILE_PATTERN,
     CompletionEvidenceWriteResult,
     TaskStatusTransitionResult,
@@ -211,6 +212,17 @@ TASK_VIEW_STATUS_RULES = {
         "needs_attention",
         20,
         "Review the summary and clear the blocker outside Jarvis Console.",
+    ),
+    # task-0098: ON_HOLD became the seventh official status by owner decision
+    # (task-0041, 2026-08-28). The model, the template and task_file_writer all
+    # took it; this table was written before that and did not, so a Task using
+    # the documented vocabulary failed closed here as invalid_status. It waits
+    # on an owner call like NEEDS_APPROVAL and BLOCKED do, and ranks after
+    # BLOCKED because the pause is already deliberate.
+    "ON_HOLD": (
+        "needs_attention",
+        25,
+        "Review the summary and make the required decision outside Jarvis Console.",
     ),
     "FAILED": (
         "needs_attention",

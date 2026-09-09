@@ -1296,7 +1296,7 @@ function renderActionableTaskView(items) {
       </div>
       <p class="muted">Discovery and basic details are read-only. Start / Complete changes only status and updated_at. Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Each write requires Preview + Confirm and never executes or automatically completes the Task.</p>
       <p class="muted">Shows up to 10 files selected by existing Recent Tasks discovery before task validation; this is not the full backlog.</p>
-      <p class="muted"><strong>Display order:</strong> metadata review, NEEDS_APPROVAL, BLOCKED, FAILED, DOING, TODO, DONE; then updated time newest first and path.</p>
+      <p class="muted"><strong>Display order:</strong> metadata review, NEEDS_APPROVAL, BLOCKED, ON_HOLD, FAILED, DOING, TODO, DONE; then updated time newest first and path.</p>
       <div class="overview-skill-grid">
         ${groups
           .map(([groupId, title]) => {

@@ -2071,6 +2071,7 @@ def _test_task_transition_vertical_slice() -> None:
             "TODO",
             "DOING",
             "BLOCKED",
+            "ON_HOLD",
             "DONE",
             "FAILED",
             "NEEDS_APPROVAL",
@@ -3161,6 +3162,14 @@ def _test_completion_evidence_vertical_slice() -> None:
     assert run_web_app.TASK_ALLOWED_METADATA == (
         run_web_app.TASK_VIEW_ALLOWED_FIELDS
     )
+    # task-0098: the Task view declares its own copy of the status vocabulary.
+    # When ON_HOLD was adopted the model, the template and task_file_writer were
+    # widened and this copy was not, so a documented status read as
+    # invalid_status for months. Compare the two sets rather than trusting the
+    # next widening to remember this file.
+    assert run_web_app.TASK_ALLOWED_STATUSES == frozenset(
+        run_web_app.TASK_VIEW_STATUS_RULES
+    )
     shutil.rmtree(fixture_root, ignore_errors=True)
     tasks_dir.mkdir(parents=True)
     try:
@@ -4016,6 +4025,11 @@ def _test_actionable_task_view_vertical_slice() -> None:
             20,
             "Review the summary and clear the blocker outside Jarvis Console.",
         ),
+        "ON_HOLD": (
+            "needs_attention",
+            25,
+            "Review the summary and make the required decision outside Jarvis Console.",
+        ),
         "FAILED": (
             "needs_attention",
             30,
@@ -4068,6 +4082,21 @@ def _test_actionable_task_view_vertical_slice() -> None:
             "read_only",
         }
         assert view["read_only"] is True
+
+    # task-0098: a record using the documented ON_HOLD status is a valid Task,
+    # not a metadata problem, and reaches Needs attention through the ordinary
+    # projection.
+    on_hold_projection = run_web_app.project_task_view_items(
+        [{"path": "memory/tasks/task-0108-on-hold.md"}],
+        text_reader=lambda _path: task_markdown("task-0108-on-hold", "ON_HOLD"),
+    )
+    assert len(on_hold_projection) == 1
+    on_hold_view = on_hold_projection[0]["task_view"]
+    assert on_hold_view["parse_state"] == "valid"
+    assert on_hold_view.get("reason_code") is None
+    assert on_hold_view["status"] == "ON_HOLD"
+    assert on_hold_view["group_id"] == "needs_attention"
+    assert on_hold_view["display_rank"] == 25
 
     # task-0096: the metadata block ends at the first column-0 line that is not
     # a field, so an ordinary Markdown list in the body is prose. Before the fix
