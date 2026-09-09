@@ -1941,6 +1941,12 @@ def _test_task_transition_vertical_slice() -> None:
 
     before_artifacts = artifact_snapshot()
     before_overview_tasks = run_web_app.overview_payload()["tasks"]
+    # task-0116: the selection-scope block below borrows the production Task
+    # discovery source so it exercises the real selection rule. Both handles
+    # are saved here and restored in this function's finally, so a failed
+    # assertion inside the block cannot leak the patch into later tests.
+    scope_original_lookup = run_web_app.overview_directory_by_key
+    scope_original_tasks_dir = run_web_app.CREATE_LOCAL_TASKS_DIR
     fixture_root.mkdir()
     tasks_dir = fixture_root / "tasks"
     tasks_dir.mkdir()
@@ -2203,9 +2209,34 @@ def _test_task_transition_vertical_slice() -> None:
             scope_in_view.append((scope_id, scope_status))
         outside_id = "task-7299-outside-view"
         outside_path = scope_dir / f"{outside_id}.md"
-        outside_path.write_bytes(task_bytes(outside_id, "TODO"))
-        os.utime(outside_path, (1_000_000, 1_000_000))
+        # task-0116: selection ranks by task_view_sort_key, not file mtime, so
+        # "outside" means lowest priority rather than oldest file. DONE is the
+        # lowest display_rank and this record loses the path tie-break to the
+        # in-view DONE, which puts it at position eleven. A TODO here would
+        # outrank that in-view DONE and be selected.
+        #
+        # Its mtime is the newest in the directory on purpose. That makes the
+        # record inside the view under the pre-task-0114 rule and outside it
+        # under the current one, so the assertions below fail if production
+        # ever goes back to capping by file recency.
+        outside_path.write_bytes(task_bytes(outside_id, "DONE"))
+        os.utime(outside_path, (3_000_000, 3_000_000))
         outside_before = outside_path.read_bytes()
+
+        # task-0116: point the production Task discovery at this fixture and
+        # make it the canonical tasks directory, so every call below takes
+        # selected_task_transition_items' default branch - the one
+        # /api/overview actually uses. Before this the block ran the
+        # non-default branch, which still caps by file mtime, so it was
+        # pinning a selection rule task-0114 had already replaced.
+        scope_mapping = dict(scope_original_lookup())
+        scope_mapping["memory_tasks"] = {
+            "key": "memory_tasks",
+            "label": "Tasks",
+            "path": scope_dir.relative_to(run_web_app.REPO_ROOT).as_posix(),
+        }
+        run_web_app.overview_directory_by_key = lambda: scope_mapping
+        run_web_app.CREATE_LOCAL_TASKS_DIR = scope_dir
 
         scope_selected = run_web_app.selected_task_transition_items(
             tasks_dir=scope_dir,
@@ -2225,9 +2256,29 @@ def _test_task_transition_vertical_slice() -> None:
         }
         assert outside_id not in scope_selected_ids
 
-        # the excluded record is a TODO, so Start is status-legal for it. It
-        # is refused only because it is not in the view, which is what makes
-        # the 404 below the selection gate rather than a status or path error.
+        # task-0116: the excluded record is DONE and so is an in-view one. The
+        # in-view DONE answers 409 because it was selected and its status is
+        # wrong; the excluded DONE answers 404 because it was never selected.
+        # Same status, different gate - that is what proves the 404 below is
+        # the selection gate rather than a status or path error.
+        in_view_done = next(
+            scope_id
+            for scope_id, scope_status in scope_in_view
+            if scope_status == "DONE"
+        )
+        in_view_done_start = run_web_app.preview_task_transition(
+            {"task_id": in_view_done, "action": "start"},
+            registry=run_web_app.TaskTransitionRegistry(
+                token_factory=TokenFactory("scopeinviewdone"),
+            ),
+            tasks_dir=scope_dir,
+        )
+        assert in_view_done_start[0] == HTTPStatus.CONFLICT
+        assert in_view_done_start[1]["error"] == (
+            "task_status_transition_not_allowed"
+        )
+
+        # an in-view TODO is startable, so the view itself blocks nothing
         in_view_todo = next(
             scope_id
             for scope_id, scope_status in scope_in_view
@@ -3282,6 +3333,8 @@ def _test_task_transition_vertical_slice() -> None:
         assert "subprocess" not in transition_source
         assert not list(tasks_dir.glob(".*.transition.tmp"))
     finally:
+        run_web_app.overview_directory_by_key = scope_original_lookup
+        run_web_app.CREATE_LOCAL_TASKS_DIR = scope_original_tasks_dir
         if fixture_root.exists():
             shutil.rmtree(fixture_root)
 
