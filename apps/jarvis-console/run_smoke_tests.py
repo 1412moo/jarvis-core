@@ -4720,7 +4720,7 @@ def _test_actionable_task_view_vertical_slice() -> None:
         "In progress",
         "Ready",
         "Completed",
-        "Shows up to 10 files selected by existing Recent Tasks discovery before task validation; this is not the full backlog.",
+        "Shows up to 10 Tasks, attention first then most recently updated; this is not the full backlog.",
         "Display order:",
         "Displayed total:",
         "Status",
@@ -4740,7 +4740,7 @@ def _test_actionable_task_view_vertical_slice() -> None:
     # caps the list. Raising OVERVIEW_MAX_ITEMS_PER_DIRECTORY would have left
     # the page claiming "up to 10" while showing more, with every suite green.
     assert (
-        f"up to {run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY} files" in app_js
+        f"up to {run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY} Tasks" in app_js
     )
     for _status, (_group_id, _rank, next_action) in (
         expected_status_rules.items()
@@ -5722,10 +5722,241 @@ def _test_reports_filter_before_cap() -> None:
     assert all("task_view" not in item for item in task_group["items"])
 
 
+def _test_task_view_attention_priority() -> None:
+    """Select Task View items by display priority, not by file recency (task-0114).
+
+    The discovery caps rank by file mtime and ran before any Task status was
+    known, so an old NEEDS_APPROVAL record fell out of the view entirely - six
+    of them plus a DOING record were invisible while the view showed ten DONE
+    Tasks and "Needs attention: 0". The Task View now sees every candidate and
+    caps its own projection, so selection follows task_view_sort_key. The
+    displayed total is unchanged, and Recent Tasks keeps meaning "newest files".
+    """
+
+    cap = run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
+    fixture_root = run_web_app.REPO_ROOT / "attention-priority-fixture"
+    assert fixture_root.resolve().parent == run_web_app.REPO_ROOT.resolve()
+    shutil.rmtree(fixture_root, ignore_errors=True)
+    original_directory_lookup = run_web_app.overview_directory_by_key
+
+    def task_markdown(
+        task_id: str,
+        status: str,
+        updated_at: str = "2026-07-23 10:00 UTC",
+    ) -> str:
+        return (
+            f"# {task_id}\n\n"
+            f"- id: `{task_id}`\n"
+            f"- title: `fixture {status}`\n"
+            f"- status: `{status}`\n"
+            "- repo: `jarvis-core`\n"
+            "- created_at: `2026-07-23 09:00 UTC`\n"
+            f"- updated_at: `{updated_at}`\n"
+            f"- summary: `fixture record for {status}`\n"
+            "\n## Body\n\nprose\n"
+        )
+
+    def build(records: tuple[tuple[str, str, float], ...], updated_at: str = "") -> dict:
+        """records: (task_id, status, mtime). Newest mtime wins recency."""
+        shutil.rmtree(fixture_root, ignore_errors=True)
+        relative = "attention-priority-fixture/tasks"
+        (run_web_app.REPO_ROOT / relative).mkdir(parents=True)
+        mapping = dict(original_directory_lookup())
+        mapping["memory_tasks"] = {
+            "key": "memory_tasks",
+            "label": "Tasks",
+            "path": relative,
+        }
+        for task_id, status, stamp in records:
+            path = run_web_app.REPO_ROOT / relative / f"{task_id}.md"
+            body = (
+                task_markdown(task_id, status, updated_at)
+                if updated_at
+                else task_markdown(task_id, status)
+            )
+            path.write_text(body, encoding="utf-8")
+            os.utime(path, (stamp, stamp))
+        return mapping
+
+    def selection(mapping):
+        """Drive the real /api/overview wiring, not just the algorithm."""
+        run_web_app.overview_directory_by_key = lambda: mapping
+        candidates = run_web_app.discover_recent_items(
+            ("memory_tasks",),
+            apply_caps=False,
+        )
+        code, payload = run_web_app.handle_get_api("/api/overview")
+        assert code == HTTPStatus.OK
+        return candidates, payload["tasks"]
+
+    try:
+        # 1 - the exact shape of the bug: ten newer DONE records hid one older
+        # NEEDS_APPROVAL record completely
+        records = tuple(
+            (f"task-90{index:02d}-recent-done", "DONE", 900_000 - index)
+            for index in range(cap)
+        ) + (("task-9099-owner-decision-waiting", "NEEDS_APPROVAL", 800_000),)
+        mapping = build(records)
+        candidates, view = selection(mapping)
+        assert len(candidates) == cap + 1
+        assert len(view) == cap
+        assert view[0]["task_view"]["status"] == "NEEDS_APPROVAL"
+        assert view[0]["task_view"]["group_id"] == "needs_attention"
+        assert sum(
+            1 for item in view if item["task_view"]["group_id"] == "needs_attention"
+        ) == 1
+        # the old selection would have kept ten DONE records and nothing else
+        recency_only = run_web_app.project_task_view_items(candidates[:cap])
+        assert all(
+            item["task_view"]["status"] == "DONE" for item in recency_only
+        )
+
+        # 2 - more attention Tasks than the cap: the total stays capped and the
+        # overflow is simply not shown
+        records = tuple(
+            (f"task-91{index:02d}-recent-done", "DONE", 900_000 - index)
+            for index in range(cap)
+        ) + tuple(
+            (f"task-92{index:02d}-waiting", "NEEDS_APPROVAL", 800_000 - index)
+            for index in range(cap + 2)
+        )
+        mapping = build(records)
+        candidates, view = selection(mapping)
+        assert len(candidates) == cap * 2 + 2
+        assert len(view) == cap
+        assert all(
+            item["task_view"]["status"] == "NEEDS_APPROVAL" for item in view
+        )
+        shown = {Path(item["path"]).stem for item in view}
+        assert len([r for r in records if r[1] == "NEEDS_APPROVAL"]) - len(shown) == 2
+
+        # 3 - every status mixed: the order is exactly task_view_sort_key
+        statuses = (
+            "DONE",
+            "TODO",
+            "DOING",
+            "FAILED",
+            "ON_HOLD",
+            "BLOCKED",
+            "NEEDS_APPROVAL",
+        )
+        assert set(statuses) == set(run_web_app.TASK_VIEW_STATUS_RULES)
+        records = tuple(
+            (f"task-93{index:02d}-mixed", status, 900_000 - index)
+            for index, status in enumerate(statuses)
+        )
+        mapping = build(records)
+        candidates, view = selection(mapping)
+        assert len(view) == len(statuses)
+        assert [item["task_view"]["status"] for item in view] == sorted(
+            statuses,
+            key=lambda status: run_web_app.TASK_VIEW_STATUS_RULES[status][1],
+        )
+        assert view == sorted(view, key=run_web_app.task_view_sort_key)
+
+        # 4 - identical updated_at falls back to path ascending
+        records = tuple(
+            (f"task-94{index:02d}-tie", "TODO", 900_000 - index) for index in range(4)
+        )
+        mapping = build(records, updated_at="2026-07-23 10:00 UTC")
+        candidates, view = selection(mapping)
+        assert [item["path"] for item in view] == sorted(
+            item["path"] for item in view
+        )
+
+        # 5 - invalid metadata keeps metadata_review at display_rank 0
+        records = tuple(
+            (f"task-95{index:02d}-recent-done", "DONE", 900_000 - index)
+            for index in range(cap)
+        ) + (("task-9599-broken-metadata", "DONE", 700_000),)
+        mapping = build(records)
+        broken = run_web_app.REPO_ROOT / mapping["memory_tasks"]["path"] / "task-9599-broken-metadata.md"
+        broken.write_text(
+            broken.read_text(encoding="utf-8").replace(
+                "- repo: `jarvis-core`", "- repo: jarvis-core"
+            ),
+            encoding="utf-8",
+        )
+        os.utime(broken, (700_000, 700_000))
+        candidates, view = selection(mapping)
+        assert view[0]["task_view"]["parse_state"] == "invalid"
+        assert view[0]["task_view"]["group_id"] == "metadata_review"
+        assert view[0]["task_view"]["display_rank"] == 0
+        assert view[0]["task_view"]["reason_code"] == "invalid_text"
+
+        # 7 - the shape the live corpus actually had: the attention record sits
+        # beyond OVERVIEW_MAX_TOTAL_ITEMS by mtime, so lifting only the
+        # per-directory cap would still have lost it
+        beyond = run_web_app.OVERVIEW_MAX_TOTAL_ITEMS + 5
+        records = tuple(
+            (f"task-97{index:02d}-recent-done", "DONE", 900_000 - index)
+            for index in range(beyond)
+        ) + (("task-9799-waiting-far-back", "NEEDS_APPROVAL", 100_000),)
+        mapping = build(records)
+        candidates, view = selection(mapping)
+        assert len(candidates) == beyond + 1
+        assert len(candidates) > run_web_app.OVERVIEW_MAX_TOTAL_ITEMS
+        assert len(view) == cap
+        assert view[0]["task_view"]["status"] == "NEEDS_APPROVAL"
+        assert Path(view[0]["path"]).stem == "task-9799-waiting-far-back"
+
+        # 6 - the secret-like filename rule still runs before any of this
+        records = (("task-9600-recent-done", "DONE", 900_000),)
+        mapping = build(records)
+        secret_path = (
+            run_web_app.REPO_ROOT
+            / mapping["memory_tasks"]["path"]
+            / "task-9601-no-secrets-here.md"
+        )
+        secret_path.write_text(
+            task_markdown("task-9601-no-secrets-here", "NEEDS_APPROVAL"),
+            encoding="utf-8",
+        )
+        os.utime(secret_path, (950_000, 950_000))
+        candidates, view = selection(mapping)
+        assert all("secret" not in Path(item["path"]).name for item in candidates)
+        assert len(view) == 1
+    finally:
+        run_web_app.overview_directory_by_key = original_directory_lookup
+        shutil.rmtree(fixture_root, ignore_errors=True)
+    assert not fixture_root.exists()
+
+    # --- the live payload keeps every neighbouring contract -----------------
+    overview_code, overview = run_web_app.handle_get_api("/api/overview")
+    assert overview_code == HTTPStatus.OK
+    assert len(overview["tasks"]) <= cap
+    assert overview["tasks"] == sorted(
+        overview["tasks"], key=run_web_app.task_view_sort_key
+    )
+
+    # 11 - Recent Tasks keeps its own meaning: newest files, still capped, and
+    # never the whole scan
+    task_group = next(
+        group for group in overview["recent_groups"] if group["group_id"] == "tasks"
+    )
+    assert len(task_group["items"]) <= cap
+    stamps = [item["modified"] for item in task_group["items"]]
+    assert stamps == sorted(stamps, reverse=True)
+    assert all("task_view" not in item for item in task_group["items"])
+
+    # 7 - the actionable surface selects exactly what the Task View shows
+    assert run_web_app.selected_task_transition_items() == overview["tasks"]
+
+    # 9 and 10 - the other discovery paths are untouched
+    for key in ("reports", "checkpoints", "docs_examples"):
+        group_stamps = [item["modified"] for item in overview[key]]
+        assert group_stamps == sorted(group_stamps, reverse=True), key
+    assert all(item["item_type"] == "report" for item in overview["reports"])
+    assert all(
+        "checkpoint" in item["name"].lower() for item in overview["checkpoints"]
+    )
+
+
 def main() -> None:
     _test_tasks_reports_registry_copy()
     _test_recent_item_ordering()
     _test_reports_filter_before_cap()
+    _test_task_view_attention_priority()
     _test_actionable_task_view_vertical_slice()
     _test_director_renderer_fails_closed_on_malformed_nested_data()
     _test_read_only_git_preserves_porcelain_status()

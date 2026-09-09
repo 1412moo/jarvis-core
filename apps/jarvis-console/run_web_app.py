@@ -1326,6 +1326,7 @@ def discover_recent_items(
     directory_keys: tuple[str, ...],
     name_contains: str = "",
     item_types: set[str] | None = None,
+    apply_caps: bool = True,
 ) -> list[dict[str, Any]]:
     """Discover recent display-only file metadata from fixed safe directories."""
 
@@ -1353,7 +1354,11 @@ def discover_recent_items(
                 continue
             directory_items.append(item)
         directory_items.sort(key=lambda item: (item["modified"], item["path"]), reverse=True)
-        items.extend(directory_items[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY])
+        items.extend(
+            directory_items[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY]
+            if apply_caps
+            else directory_items
+        )
     # task-0107: the per-directory cap keeps each directory's newest, but the
     # combined list used to be returned in directory order. "Recent" was then
     # not recency-ordered across directories - a file 103 days newer sat below
@@ -1362,7 +1367,7 @@ def discover_recent_items(
     # skip a whole directory before its items were ever compared. Sort the
     # combined list before capping, the way project_task_view_items does.
     items.sort(key=lambda item: (item["modified"], item["path"]), reverse=True)
-    return items[:OVERVIEW_MAX_TOTAL_ITEMS]
+    return items[:OVERVIEW_MAX_TOTAL_ITEMS] if apply_caps else items
 
 
 def is_history_candidate_name(path: Path) -> bool:
@@ -1743,8 +1748,24 @@ def overview_payload() -> dict[str, Any]:
 
     registry = load_registry()
     repo = repo_status_payload()
-    discovered_tasks = discover_recent_items(("memory_tasks",))
-    tasks = project_task_view_items(discovered_tasks)
+    # task-0114: the discovery caps rank by file mtime, and they used to run
+    # before any Task status was known, so an old NEEDS_APPROVAL record simply
+    # disappeared - six of them plus a DOING record were invisible at the time
+    # of this fix while the view showed ten DONE Tasks and "Needs attention:
+    # 0". The Task View now sees every candidate and applies its own cap to the
+    # projection, so selection follows task_view_sort_key - the display order
+    # this view already declares - instead of file recency. The displayed total
+    # is unchanged at OVERVIEW_MAX_ITEMS_PER_DIRECTORY, and no status priority
+    # is introduced here: project_task_view_items still owns Task semantics and
+    # discovery still only supplies candidates.
+    task_candidates = discover_recent_items(("memory_tasks",), apply_caps=False)
+    # Recent Tasks keeps its own meaning - the newest files by mtime - so it
+    # takes the capped prefix of the same candidate list rather than the
+    # priority-ordered projection.
+    discovered_tasks = task_candidates[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY]
+    tasks = project_task_view_items(task_candidates)[
+        :OVERVIEW_MAX_ITEMS_PER_DIRECTORY
+    ]
     reports = discover_recent_items(
         ("reports", "research_examples", "daily_ai_radar_examples"),
         item_types={"report"},
