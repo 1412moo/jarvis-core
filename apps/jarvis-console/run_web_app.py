@@ -1396,14 +1396,6 @@ def discover_history_items() -> list[dict[str, Any]]:
     return items[:OVERVIEW_MAX_TOTAL_ITEMS]
 
 
-def filter_overview_items(items: list[dict[str, Any]], item_types: set[str] | None = None) -> list[dict[str, Any]]:
-    """Filter already discovered read-only items without touching the filesystem."""
-
-    if item_types is None:
-        return list(items)
-    return [item for item in items if item["item_type"] in item_types]
-
-
 def recent_group(group_id: str, title: str, empty_text: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     """Return a grouped recent-item section for the overview dashboard."""
 
