@@ -1,12 +1,14 @@
 # Jarvis-Core ChatGPT Handoff
 
-Last verified: 2026-08-01
+Last verified: 2026-09-09
 
 Repository: `C:\work\jarvis-core`
 
 Branch: `main`
 
-Observed Open Created Task feature commit: `b80ed92901d0805e3064ef8f80c36654e48ee771`, `feat(console): open created task from receipt`
+Verified at HEAD: `ad59fb15fb1d9d38f73a6057f678f74bfc5d894f`
+
+Historical reference — Open Created Task feature commit: `b80ed92901d0805e3064ef8f80c36654e48ee771`, `feat(console): open created task from receipt`. That commit is no longer the tip: 72 commits have landed since it, 41 of them touching product source.
 
 This is the authoritative fast-start handoff for the repository's current implementation. It describes what the source actually does, not what an older design document intended. When this document conflicts with executable source, tests, or current local data, the source, tests, and data win and this document must be corrected.
 
@@ -25,20 +27,7 @@ Task values such as `TODO`, `DOING`, and `DONE` are data-model states, not featu
 
 Jarvis-Core is a local-first, human-confirmed personal assistant repository. Its current daily-use center is Jarvis Console v0.1: a Python standard-library HTTP server with a static HTML/CSS/JavaScript UI at `http://127.0.0.1:8790/`.
 
-The primary implemented user journey is:
-
-```text
-Evaluate Idea
-→ editable Draft
-→ Final Preview as Local Task
-→ Create Local Task
-→ Actionable Task View
-→ Start Task
-→ Record Completion Evidence
-→ Complete Task
-```
-
-A shorter Voice Inbox journey also exists:
+The primary implemented user journey is the Voice Inbox flow:
 
 ```text
 pasted transcript or rough thought
@@ -48,7 +37,12 @@ pasted transcript or rough thought
 → authoritative Receipt
 → Open Created Task
 → exact TODO card visible and focused in Project Control
+→ Start Task
+→ Record Completion Evidence
+→ Complete Task
 ```
+
+An `Evaluate Idea` entry point preceded this one. It was removed; see **Removed Console Features**.
 
 All repository writes available from Jarvis Console are bounded Task operations under `memory/tasks` and require Preview plus explicit Confirm. The Console does not execute Task work, infer completion, invoke another AI product, call an external API, or perform Git writes.
 
@@ -68,7 +62,7 @@ Current local Git facts:
 | --- | --- | --- |
 | `apps/jarvis-console/` | Implemented | Primary local browser product, API server, UI, registry, Project Control, Task flows, and deterministic tests. |
 | `orchestrator/discord-intake/` | Implemented | Shared command parsing, Task draft creation, authoritative Task file writer, status transition writer, and completion-evidence writer. Despite the directory name, the writer is reused by Jarvis Console. |
-| `memory/tasks/` | Implemented | Markdown Task source of truth. Tracked Tasks are `task-0001` through `task-0005`; later local dogfood Tasks are currently untracked. |
+| `memory/tasks/` | Implemented | Markdown Task source of truth. 59 Task files are tracked, spanning `task-0001` through `task-0095`. The 23 dogfood Tasks `task-0006` through `task-0028` remain untracked pending an explicit Owner decision. |
 | `apps/hermes-manager-pilot/` | Implemented | Separately launched local workflow-management app with prompt rendering, review handoff, durable Review lifecycle, content-evidence binding, and reporting primitives. |
 | `apps/research-council/` | Implemented | Deterministic local idea-evaluation pipeline, desktop launcher, reports, profiles, golden cases, benchmark governance, and replay tools. |
 | `apps/daily-ai-radar/` | Implemented | Deterministic renderer that converts manually curated technology metadata into a bounded radar report. |
@@ -92,8 +86,7 @@ flowchart TD
     Server --> MasterPlan["docs/master-plan.md<br/>reporting projection source"]
     Server --> Git["Allowlisted read-only Git commands"]
     Server --> Tasks["memory/tasks/*.md<br/>Task source of truth"]
-    Server --> RC["Research Council deterministic pipeline"]
-    Server --> Review["Codex Review read-only adapter"]
+    Server -. "manual launch or copy-only guidance" .-> RC["Research Council"]
     Server --> Writer["task_file_writer.py<br/>create / transition / evidence"]
     Writer --> Tasks
     Server -. "manual launch or copy-only guidance" .-> Hermes["Hermes Manager"]
@@ -134,7 +127,6 @@ flowchart TD
 - Master Plan and discovered artifacts: repository-local, read-only in Console.
 - Create/transition/evidence authority: process memory only; restart invalidates it.
 - Hermes durable Reviews: app-local state outside the repository when the user explicitly uses Hermes Save.
-- Memory / Skills candidate persistence: internal primitives exist, but live HTTP/UI save remains disabled.
 
 ## Implemented Features
 
@@ -143,9 +135,6 @@ flowchart TD
 | Jarvis Console local shell | Implemented | Localhost-only static browser UI and JSON API. |
 | Deterministic skill suggestion | Implemented | Keyword-based routing from Chat / Command; suggestions and commands never auto-run. |
 | Voice Inbox preparation | Implemented | Cleans a pasted transcript, suggests a skill, and derives a bounded Task candidate without recording audio or calling STT. |
-| Evaluate Idea | Implemented | Deterministic, write-free Research Council evaluation with summary, evidence gaps, critiques/risks, minimum experiments, and recommendation. LLM augmentation is off. |
-| Edit Before Create | Implemented | Evaluate Idea produces a token-free Draft; the user may edit only `title` and `summary`; Final Preview re-evaluates inputs and issues the sole current Create authority. |
-| Continue Evaluation as Task | Implemented | Converts a successful Evaluate recommendation into the existing Create Local Task flow without re-entry. |
 | Create Local Task | Implemented | Preview → exact `CREATE LOCAL TASK` Confirm → one `TODO` Markdown Task → authoritative Receipt. |
 | Open Created Task | Implemented | A successful authoritative Voice Create Receipt offers a user-selected GET-only action that activates Project Control and focuses the exact Receipt `task_id` card without starting it. |
 | Read-only Actionable Task View | Implemented | Validates and groups up to ten recently discovered Task files. Status-only Next Action text is deterministic. Invalid metadata fails closed into metadata review. |
@@ -153,34 +142,53 @@ flowchart TD
 | Record Completion Evidence | Implemented | Appends one safe `completion_evidence` value to an eligible `DOING` Task and updates only `updated_at`; evidence is neither evaluated nor used to auto-complete. |
 | Refresh Outcome Truthfulness | Implemented | A successful write Receipt stays authoritative even when the following Overview GET fails or is superseded. Last-good Overview remains visible, retry performs GET only, and stale GET responses cannot overwrite newer state. |
 | Project Control | Implemented | One owner-facing Jarvis-Core card combining Master Plan fields, live Git state, reporting projections, recent milestone evidence, Task view, and existing artifacts. |
-| Codex Review | Implemented | Write-free revalidation of one pasted Hermes handoff or already scope-approved raw queue against the current local repository. |
 | Checkpoints / History | Implemented | Read-only recent commits and bounded local checkpoint/report metadata. |
-| Memory / Skills preview | Implemented | Sample candidate inbox and write-free normalized candidate preview. |
-| Memory / Skills live save | Planned | Internal request/session/token/writer primitives exist, but no live HTTP dispatch or UI Save/Confirm is enabled. |
 | Hermes Manager | Implemented | Separate local app for bounded prompt/review/checkpoint workflows and explicitly managed durable Review records. It does not call Codex or ChatGPT automatically. |
 | Research Council | Implemented | Separate deterministic CLI/desktop evaluation, report generation, golden cases, batch tools, and benchmark governance. |
 | Daily AI Radar | Implemented | Separate deterministic CLI renderer over human-curated metadata; no crawler or automatic Task creation. |
 | Legacy read-only Task dashboard | Implemented | Independent localhost Task list/detail/filter UI under `adapters/web`; no write routes. |
 | Minimal Discord adapter | Implemented | Optional text-command bot surface. It is outside Jarvis Console and requires explicit setup and credentials. |
 
+## Removed Console Features
+
+**Status: removed from source.** These are neither Implemented nor Planned. They are not locked capabilities awaiting approval — the implementations were deleted, so reopening any of them requires a new package, not an unlock.
+
+| Feature | Removed by | Evidence at current HEAD |
+| --- | --- | --- |
+| Evaluate Idea, editable Draft, Final Preview, Continue Evaluation as Task | task-0075 | `evaluate_idea`, `create_task_draft`, and `create_task_preview` appear 0 times in `run_web_app.py`; `evaluate` appears 0 times in `web/app.js` and `web/index.html`. |
+| Codex Review | codex_review adapter deletion | `run_web_app.py:35` records "the deleted codex_review adapter". The `.codex-review-status` CSS class survives, but it labels the Project Control working-tree readout and is a naming vestige, not this feature. |
+| Memory / Skills preview, inbox, and save primitives | task-0071, task-0074 | `memory_skills`, `memory_guarded_save`, and `candidate_preview` appear 0 times in `run_web_app.py`; `memory` appears 0 times under `web/`. |
+
+The following routes were removed with them. Each returns HTTP 404 at the current HEAD:
+
+```text
+GET  /api/memory-skills
+POST /api/evaluate-idea
+POST /api/evaluate-idea/create-task-draft
+POST /api/evaluate-idea/create-task-preview
+POST /api/evaluate-idea/create-task-preview/invalidate
+POST /api/codex-review/preview
+POST /api/memory-skills/candidates/preview
+POST /api/memory-skills/candidates
+```
+
+Entries in the Decision Log that record adding these features remain accurate history and are not corrections. They describe what was decided and built at the time.
+
 ## Current UI
 
 **Status: Implemented**
 
-The current Jarvis Console has eleven sidebar tabs plus a persistent status panel:
+The current Jarvis Console has eight sidebar tabs plus a persistent status panel:
 
 | Tab | Status | Current behavior |
 | --- | --- | --- |
 | Chat / Command | Implemented | Accepts free text and returns a deterministic skill suggestion. |
 | Voice Inbox | Implemented | Prepares a candidate from pasted text, hosts the Voice Create Preview/Confirm/Receipt flow, and lets the user open the exact created Task from an authoritative Receipt. |
-| Skills | Implemented | Renders six registry cards and read-only usage details, commands, docs, tests, safety notes, and non-goals. |
+| Skills | Implemented | Renders five registry cards and read-only usage details, commands, docs, tests, safety notes, and non-goals. |
 | Hermes Manager | Implemented | Shows manual launch and usage guidance for the separate Hermes app. |
-| Codex Review | Implemented | Accepts copied JSON handoff input and renders a fresh write-free review projection. |
-| Research Council | Implemented | Hosts Evaluate Idea, editable Draft, Final Preview, invalidation, and Evaluate-to-Task Create flow. |
 | Daily AI Radar | Implemented | Shows purpose, safety boundary, sample paths, and manual usage metadata. It does not run Radar. |
-| Project Control | Implemented | Shows the owner card, Actionable Task View, Task action controls, reports/checkpoints/docs metadata, and explicit refresh. Open Created Task uses the existing Overview GET and visibly focuses only the exact Receipt `task_id` card. |
+| Project Control | Implemented | Sidebar label `Project Control`, `data-tab="tasks"`; the registry `display_name` for the same surface is `Tasks / Reports`. Shows the owner card, Actionable Task View, Task action controls, reports/checkpoints/docs metadata, and explicit refresh. Open Created Task uses the existing Overview GET and visibly focuses only the exact Receipt `task_id` card. |
 | Checkpoints / History | Implemented | Displays recent Git commit metadata and existing checkpoint/report artifacts. |
-| Memory / Skills | Implemented | Displays samples and write-free candidate preview; Save is absent. |
 | Settings | Implemented | Displays local-only mode, protected `jarvis.bat`, and future-connector placeholders. |
 
 The persistent right panel displays Current Status, Suggested Next Action, and Safety Notes. User-visible copy correctly states that discovery is read-only while explicitly confirmed Task creation, two status transitions, and one evidence append are the only Console writes.
@@ -193,31 +201,17 @@ Current Project Control projection at the observed HEAD:
 - Manager Report: `blocked`, Owner action `decision_required`.
 - Director Report: `blocked`.
 - Reason: the Master Plan's verified implementation HEAD and two Manager Reporting package commits are absent from the bounded live Git evidence window.
-- Displayed Task counts: `Completed: 10`; all other displayed groups: `0`; displayed total: `10`.
+- Displayed Task counts: `Needs metadata review: 10`; all other displayed groups including `Completed`: `0`; displayed total: `10`.
 
 This reporting state is intentional fail-closed behavior. Do not weaken it or replace historical hashes merely to make the card green.
+
+The `Needs metadata review: 10` figure is **not** a healthy steady state and will change once a separate defect is fixed. `parse_task_view_text` in `run_web_app.py` treats every line beginning with `- ` anywhere in a Task file as metadata, so a Task record containing an ordinary Markdown list in its body fails closed. At the current HEAD this rejects 35 of 82 local Task files. `task_file_writer.py:468` already carries the fix for the same class of defect (`# task-0054: metadata is the header block, not "every line starting with -"`), but that scoping was never applied to the Console reader. Treat the displayed group counts as reflecting this defect until it is addressed.
 
 ## Complete User Workflows
 
 ### Evaluate Idea to completed Task
 
-**Status: Implemented**
-
-1. Enter Idea and Goal, with optional Context and up to eight Provided Evidence entries.
-2. Select **Evaluate Idea**. The server runs the deterministic Research Council pipeline in memory. No file is written.
-3. Request a write-free Task Draft. The server binds the successful recommendation and returns canonical suggested `title` and `summary`, with no Create token.
-4. Edit only `title` and `summary`. The UI marks changed values as user overrides; all Task metadata remains server-owned.
-5. Select **Final Preview**. The server revalidates and re-evaluates the exact bound inputs, checks the recommendation fingerprint, normalizes the two editable fields, computes a provisional Task destination, and issues one Create token.
-6. Select **Confirm Create Local Task**. Confirm sends only the token and `CREATE LOCAL TASK`.
-7. Treat the returned Receipt as authoritative. The provisional filename may have changed if another Task was allocated first.
-8. Open Project Control and locate the new `TODO` Task.
-9. Select **Start Task**, review Current State / Transition / Proposed State, and Confirm `START TASK`.
-10. For the resulting `DOING` Task, enter one evidence value, review its Preview, and Confirm `RECORD EVIDENCE`.
-11. Review the evidence yourself. Jarvis does not validate it.
-12. Select **Complete Task**, review the transition Preview and warning, and Confirm `COMPLETE TASK`.
-13. The final Task remains stored as `DONE`; the Task work itself was never executed by Jarvis.
-
-If the user chooses **Edit Draft** or **Evaluate Again**, the browser first calls the dedicated invalidation route and locks relevant controls until the server acknowledges it. Confirm and invalidation share the same registry lock. Invalidation first makes the old Confirm return no-write; Confirm first makes its Receipt authoritative and invalidation does not undo the created Task.
+**Status: removed.** This workflow no longer exists; its four `/api/evaluate-idea*` routes were deleted by task-0075. See **Removed Console Features**. The Voice Inbox workflow below is the current path from an idea to a completed Task.
 
 ### Voice Inbox to completed Task
 
@@ -233,13 +227,12 @@ If the user chooses **Edit Draft** or **Evaluate Again**, the browser first call
 8. If the exact Receipt `task_id` is in the bounded projection, its Task card scrolls into view, receives keyboard focus, and is visibly highlighted. No Start action runs.
 9. Use the existing Start → Evidence → Complete sequence described above.
 
-Voice Create and Evaluate-to-Task Draft/authority state are isolated. Voice Create does not gain editable Draft behavior, and the first Open Created Task slice is not rendered on an Evaluate Idea Receipt.
+Voice Create is the only Create authority path. The Evaluate-to-Task Draft state it was once isolated from no longer exists.
 
 ### Read-only review and supporting apps
 
 **Status: Implemented**
 
-- Codex Review: manually copy a Hermes handoff into Jarvis Console, load a fresh local review, and inspect the bounded result. Nothing is persisted or approved.
 - Hermes Manager: launch its separate local app, prepare/confirm scope, manage a Review record, and copy an output-only handoff. It never reads the clipboard as workflow state and does not invoke Codex.
 - Research Council: run the CLI or desktop launcher to create local deterministic report artifacts in an explicitly selected output directory.
 - Daily AI Radar: run the CLI over curated JSON and optionally write one Markdown report to an explicitly supplied path.
@@ -247,7 +240,7 @@ Voice Create and Evaluate-to-Task Draft/authority state are isolated. Voice Crea
 
 ## API Endpoints
 
-All endpoints are local to Jarvis Console. Static routes are `/`, `/web/index.html`, `/web/app.js`, and `/web/styles.css`.
+All endpoints are local to Jarvis Console. Static routes are `/`, `/web/index.html`, `/web/app.js`, and `/web/styles.css`. The complete API surface is four GET and eight POST routes, dispatched by `handle_get_api` and `handle_post_api` in `run_web_app.py`. Eight further routes named in earlier revisions of this document were removed; see **Removed Console Features**.
 
 ### GET
 
@@ -256,7 +249,6 @@ All endpoints are local to Jarvis Console. Static routes are `/`, `/web/index.ht
 | `/api/status` | Implemented | Console version/mode, registry state, protected paths, skills, and safety copy. |
 | `/api/overview` | Implemented | Repository, Project Control, Actionable Task View inputs, reports, checkpoints, docs/examples, and discovery limits. Read-only GET. |
 | `/api/history` | Implemented | Bounded recent commit and checkpoint/report metadata. Read-only GET. |
-| `/api/memory-skills` | Implemented | Sample candidate inbox and preview-only capability metadata. |
 | `/api/skill?skill_id=<id>` | Implemented | One validated skill-registry card. |
 
 ### POST
@@ -265,19 +257,12 @@ All endpoints are local to Jarvis Console. Static routes are `/`, `/web/index.ht
 | --- | --- | --- |
 | `/api/suggest-skill` | Implemented | Message text to deterministic registry routing; write-free. |
 | `/api/voice-inbox/prepare` | Implemented | Pasted `transcript`; returns cleaned text and candidate; write-free. |
-| `/api/evaluate-idea` | Implemented | `idea`, `goal`, optional `context`, and optional `provided_evidence`; deterministic and write-free. |
-| `/api/evaluate-idea/create-task-draft` | Implemented | UUID `draft_request_id` plus exact evaluation fields; creates only process-memory Draft state, no Create authority. |
-| `/api/evaluate-idea/create-task-preview` | Implemented | Draft ID, higher revision, operation UUID, exact evaluation fields, edited `title`, and edited `summary`; write-free Final Preview and Create authority issue. |
-| `/api/evaluate-idea/create-task-preview/invalidate` | Implemented | Draft ID, higher revision, operation UUID, and `edit_draft` or `evaluate_again`; atomically revokes older Final authority. |
 | `/api/create-local-task/preview` | Implemented | Voice flow accepts only `transcript`; normalizes and holds the canonical candidate, returns provisional relative destination and token; no file write. |
 | `/api/create-local-task/confirm` | Implemented | Accepts only `token` and exact `CREATE LOCAL TASK`; creates one Task or replays the same Receipt. |
 | `/api/task-transition/preview` | Implemented | Accepts only `task_id` and `start` or `complete`; reads one snapshot and returns the state triad plus token. |
 | `/api/task-transition/confirm` | Implemented | Accepts only `token` and exact `START TASK` or `COMPLETE TASK`; changes only `status` and `updated_at`. |
 | `/api/completion-evidence/preview` | Implemented | Accepts only `task_id` and `completion_evidence`; validates one safe value and snapshots the eligible `DOING` Task. |
 | `/api/completion-evidence/confirm` | Implemented | Accepts only `token` and exact `RECORD EVIDENCE`; appends once and updates only `updated_at`. |
-| `/api/codex-review/preview` | Implemented | Pasted bounded Hermes/raw queue input; fresh repository revalidation; write-free. |
-| `/api/memory-skills/candidates/preview` | Implemented | Normalizes and displays a candidate preview; token-free and write-free. |
-| `/api/memory-skills/candidates` | Planned | Constant and internal primitives exist, but HTTP dispatch deliberately returns not found. No live save endpoint is active. |
 
 Write-capable feature routes preserve duplicate raw headers and duplicate JSON-key detection. They require exactly one local `Host`, same-origin `Origin`, approved JSON content type, bounded `Content-Length`, no query string, no `Transfer-Encoding`, and a body no larger than 64,000 bytes. The handler also rejects non-local clients.
 
@@ -338,13 +323,11 @@ Creation limits are `title` 120 characters, `repo` 80, `summary` 500, and option
 
 | Model | Status | Authority |
 | --- | --- | --- |
-| Skill registry | Implemented | `apps/jarvis-console/skills.json`; six cards, registry version `0.1`, read-only. Registry values `available` and `planned` are card metadata, not this document's feature maturity. |
+| Skill registry | Implemented | `apps/jarvis-console/skills.json`; five cards, registry version `0.1`, read-only. Registry values `available` and `planned` are card metadata, not this document's feature maturity. |
 | Project Control snapshot | Implemented | Parsed from required bounded fields and tables in `docs/master-plan.md`, then reconciled with live Git evidence. |
 | Create/transition/evidence records | Implemented | Private process-memory dataclasses behind feature-local locks; tokens are stored by digest. |
-| Evaluate Task Draft | Implemented | Process-memory Draft with UUID identity, revision, operation identity, fingerprints, state, optional linked token, and optional Receipt. |
 | Research Council result | Implemented | Deterministic dataclasses serialized to bounded JSON/Markdown projections. |
 | Hermes Review Record | Implemented | Versioned immutable record in app-local storage outside the repository after explicit Save confirmation. |
-| Memory candidate save object | Planned | Route-free internal/test-only primitives; not an active user storage model. |
 
 ## Task Lifecycle
 
@@ -389,7 +372,7 @@ The one-hour dogfood then ran from `2026-07-30T10:59:26.933Z` through `2026-07-3
 Create → Start → Evidence → Complete
 ```
 
-All 20 final Tasks are `DONE`; all 20 contain completion evidence. Together with the three smoke Tasks and five tracked Tasks, the current local directory contains 28 Task files, all in `DONE`. Because Actionable Task View is capped after Recent Tasks selection, the current UI displays only the newest ten as `Completed`.
+All 20 final Tasks are `DONE`; all 20 contain completion evidence. At the time of that run the local directory held 28 Task files, all in `DONE`. It now holds 82: `DONE` 75, `NEEDS_APPROVAL` 6, `DOING` 1. Because Actionable Task View is capped after Recent Tasks selection, the UI displays only the newest ten. At the time of that run they showed as `Completed`; today they show as `Needs metadata review` for the reason recorded under Current UI.
 
 Only observed friction is recorded:
 
@@ -419,7 +402,7 @@ Implemented boundary:
 - First slice is Voice Create because that is the 20-cycle observed surface. Evaluate Receipt expansion is outside the first slice.
 - Missing exact Task and Overview failure keep the Receipt intact and report a truthful no-open result; stale Overview responses do not focus or overwrite newer state.
 
-No product implementation is **In Progress**. The package is implemented, locally focused-validated, and committed as `b80ed92`.
+No product implementation is **In Progress**. The Open Created Task package was implemented, locally focused-validated, and committed as `b80ed92`; 72 commits have landed since, so consult live Git rather than that hash for the current tip.
 
 ## Constraints
 
@@ -433,7 +416,7 @@ No product implementation is **In Progress**. The package is implemented, locall
 - Do not auto-create, auto-start, auto-record evidence, auto-complete, or execute Tasks.
 - Do not add a generic Task editor or generic state editor through an adjacent bounded feature.
 - Keep server-owned Task IDs, paths, filenames, repo, status, timestamps, and metadata immutable from the client.
-- Keep Voice and Evaluate Draft/authority state isolated.
+- Keep Create authority state isolated per flow. The Evaluate Draft state this rule was written for no longer exists; the rule stands for any future second Create path.
 - Keep Preview write-free and Confirm token/literal-only.
 - Keep receipts relative-path-only; do not expose absolute storage paths to the browser.
 - Keep Git use in Console read-only and allowlisted. No stage, commit, push, PR, tag, merge, reset, checkout, clean, stash, or rebase.
@@ -461,7 +444,7 @@ No product implementation is **In Progress**. The package is implemented, locall
 | Repository whitespace check | Implemented | `git diff --check` |
 | Scope check | Implemented | `git status --short` |
 
-`run_smoke_tests.py` covers registry copy, Actionable Task View, reporting invariants, owner decision, recent milestone evidence, Evaluate Idea, Edit Before Create client state, refresh/Receipt separation, Open Created Task, Codex Review, Create Local Task, Start/Complete, evidence recording, and static UI contracts. It invokes the server self-test as part of the broad suite.
+`run_smoke_tests.py` covers registry copy-drift, Actionable Task View, reporting invariants, owner decision, recent milestone evidence, deterministic routing, refresh/Receipt separation, Open Created Task, Create Local Task, Start/Complete, evidence recording, and static UI contracts. It invokes the server self-test as part of the broad suite. It no longer covers Evaluate Idea, Edit Before Create, or Codex Review, because those features were removed.
 
 ### Current observed validation state
 
@@ -469,13 +452,14 @@ No product implementation is **In Progress**. The package is implemented, locall
 
 The latest product commits were produced through focused validation, fresh Reviewer, and QA cycles, and the 20-cycle browser dogfood completed the full lifecycle. However, do not claim the entire current regression suite is green in this Windows/Codex session:
 
-- On 2026-07-31, `python -B apps/jarvis-console/run_web_app.py --self-test` stopped in `run_memory_guarded_save_coordinator_self_tests`.
+- On 2026-07-31, `python -B apps/jarvis-console/run_web_app.py --self-test` stopped in `run_memory_guarded_save_coordinator_self_tests`. That function no longer exists in the repository, so this specific failure cannot recur.
 - The first visible failure was `save_status == HTTPStatus.OK`; the underlying response payload was not printed, so the exact assertion cause is **Unknown**.
 - Cleanup then raised reproducible `PermissionError: [WinError 5]` while traversing a newly created temporary directory.
 - Repeating with `TEMP` and `TMP` set to `C:\work` produced the same ACL behavior.
 - During Open Created Task validation, the exact broad command `python -B apps/jarvis-console/run_smoke_tests.py` reached `_test_project_control_snapshot` and then reproduced `PermissionError: [WinError 5]` when creating `docs` below a fresh `jarvis-project-control-*` temporary directory.
 - Focused product validation passed for Actionable Task View, Evaluate-to-Task client state, refresh truthfulness, and Open Created Task. The Open Created Task harness verifies Receipt-only exposure, exact `task_id`, existing Project Control activation, one Overview GET, no POST/write/Start, exact focus, missing/failure truthfulness, Receipt preservation, and stale-response suppression.
-- The failures occur in Windows temporary-directory setup/cleanup, including both Project Control fixture setup and the locked internal/tests-only Memory save subsystem. They do not contradict the focused Stage 2 Task tests or completed browser dogfood, but full regression green remains unverified until the environment issue is handled separately.
+- The failures occur in Windows temporary-directory setup/cleanup, including both Project Control fixture setup and the then-present internal/tests-only Memory save subsystem. They do not contradict the focused Stage 2 Task tests or completed browser dogfood.
+- Re-measured at the current HEAD in a non-Codex Windows session: `run_web_app.py --self-test` and `run_smoke_tests.py` both exit 0. Neither named blocker reproduced. This does not by itself prove the Codex execution context is fixed, because that environment was not re-tested; it does establish that the two recorded failures are not properties of the current source.
 
 For documentation-only changes, do not launch the server or browser. Run `git diff --check`, inspect the exact diff, and inspect final `git status --short`.
 
@@ -501,11 +485,11 @@ For documentation-only changes, do not launch the server or browser. Run `git di
 | Master Plan baseline is stale relative to live Git | Planned | Project Control correctly shows `attention`, Manager/Director `blocked`, and Owner action `decision_required`. Reconcile the reporting source through an explicit bounded documentation/reporting package; do not rewrite hashes or enlarge evidence windows to hide the conflict. |
 | Broad Console self-test cannot be re-confirmed in the current Windows/Codex temp ACL environment | Planned | Product Task flows and dogfood remain usable, but full regression green cannot be claimed. Investigate the runner/filesystem ACL separately; do not mix the fix into a product feature. |
 | Root overview documentation lags Stage 2 | Planned | `README.md`, `docs/architecture.md`, and portions of `docs/master-plan.md` describe earlier bootstrap/Project Control stages. Use this handoff and current source first; update older docs only in bounded packages. |
-| Jarvis Console backend and self-tests are large single files | Planned | `run_web_app.py` is about 428 KB and `run_smoke_tests.py` about 350 KB. This raises review and static-assertion collision risk. No refactor is approved; keep feature changes narrow. |
+| Jarvis Console backend and self-tests are large single files | Planned | `run_smoke_tests.py` is about 224 KB and `run_web_app.py` about 176 KB. This raises review and static-assertion collision risk. No refactor is approved; keep feature changes narrow. |
 | Voice Create Receipt navigation gap | Implemented | Confirmed in all 20 dogfood cycles and resolved by bounded Open Created Task. A post-implementation dogfood observation is not yet recorded. |
 | Evidence can be submitted empty before succeeding | Planned | Observed in all 20 automated cycles. The input is already visible and the server correctly rejects empty evidence. No product change has been selected. |
 | Dogfood Tasks are untracked local product data | Planned | `task-0006` through `task-0028` make the working tree intentionally dirty. Do not stage, delete, or convert them into fixtures without an explicit decision. |
-| Memory save primitives exist without live integration | Planned | Keep locked. Generic handler, registry lifecycle, confirmation/recovery UX, and real HTTP/browser coverage remain activation gaps. |
+| Memory / Skills has no implementation to activate | Planned | The Console implementation and its internal save primitives were removed by task-0071 and task-0074; nothing remains to unlock. Reopening the workstream needs a new approved package, not an activation decision. |
 
 ## Roadmap
 
@@ -515,7 +499,7 @@ For documentation-only changes, do not launch the server or browser. Run `git di
 | 2 | Reconcile stale Project Control reporting references | Planned | Separate maintenance decision; preserve historical evidence and fail-closed reporting. |
 | 3 | Resolve Windows temp-directory ACL validation limitation | Planned | Separate environment package; no product-source change unless evidence requires it. |
 | 4 | Decide whether observed Evidence-entry friction warrants a bounded slice | Planned | Compare actual dogfood value after priority 1; do not infer a generic editor. |
-| 5 | Memory / Skills live save | Planned | Remains locked until a separately approved package closes documented readiness gaps. |
+| 5 | Memory / Skills live save | Planned | The prior Console implementation was removed; this needs a new approved package built from scratch, not the unlocking of existing code. |
 | 6 | Home server, mobile approval, background workers, automatic orchestration, external connectors | Planned | Long-term only; each expands authority and needs a separate explicit decision. |
 
 Read-only Task Detail, Search/Filter, Canonical BLOCKED Workflow, and post-create Task correction have been considered previously but are not active packages. Edit Before Create was selected instead of general `TODO` correction because it solved the observed pre-create problem with less mutation authority.
@@ -544,9 +528,7 @@ Read-only Task Detail, Search/Filter, Canonical BLOCKED Workflow, and post-creat
 - **Canonical candidate** — server-normalized Task fields used for Preview and eventual write.
 - **Confirm** — explicit user action sending a token and exact literal. It must not carry mutable Task metadata.
 - **Dogfood** — using the actual Jarvis Console product repeatedly, not simulating a future UX.
-- **Draft** — write-free Evaluate-to-Task state with editable `title` and `summary` and no Create token.
 - **Evidence** — user-entered `completion_evidence`. Presence does not prove quality, validation, or completion.
-- **Final Preview** — the sole Evaluate handoff step that may issue Create authority after revalidation and fingerprint checks; it still writes nothing.
 - **Last-good Overview** — the most recent successfully rendered Overview retained when a later refresh fails.
 - **Metadata review** — fail-closed display group for a Task file that does not satisfy the frozen grammar.
 - **Preview** — write-free projection of the exact proposed operation, normally coupled to a canonical snapshot and short-lived token.
@@ -562,13 +544,13 @@ Read-only Task Detail, Search/Filter, Canonical BLOCKED Workflow, and post-creat
 
 1. Start with `apps/jarvis-console/README.md`, then this document, then source. Treat root overview docs as potentially stale.
 2. Run the Console with `python -B apps/jarvis-console/run_web_app.py --no-browser`, then open `http://127.0.0.1:8790/`.
-3. The daily-use product flow is Evaluate or Voice → Create → Open exact Task → Start → Evidence → Complete.
+3. The daily-use product flow is Voice → Create → Open exact Task → Start → Evidence → Complete.
 4. Only confirmed Task create, two status transitions, and one evidence append write repository files.
 5. `task_file_writer.py` is the authoritative shared Task grammar/writer even though it lives under `orchestrator/discord-intake`.
 6. Preview is write-free; Confirm is token plus exact literal; server owns IDs, paths, status, repo, and timestamps.
 7. Receipts are authoritative. Overview refresh is a separate GET outcome and must never cause a write retry.
 8. Project Control currently shows reporting attention because `docs/master-plan.md` references old evidence. That is truthful behavior, not a UI bug.
-9. Open Created Task is committed at `b80ed92`; no product work is currently In Progress. Use live Git for any later documentation-only checkpoint HEAD.
+9. Open Created Task was committed at `b80ed92` and remains in the product; no product work is currently In Progress. That hash is history, not the tip — use live Git for the current HEAD.
 10. Open Created Task is Voice Receipt-only, performs one existing Overview GET, matches only authoritative `task_id`, and never starts the Task.
 11. `jarvis.bat` and local dogfood Tasks are untracked; do not stage or alter them.
 12. Do not claim full regression green in the current Windows/Codex session until the temp ACL issue is separately resolved.
@@ -581,7 +563,7 @@ Read-only Task Detail, Search/Filter, Canonical BLOCKED Workflow, and post-creat
 2. Verify branch, HEAD, `git status --short`, executable source, tests, `skills.json`, Task grammar, and relevant local data before changing factual claims.
 3. When docs conflict with source, update this handoff to source behavior. Do not change source merely to make an old document true.
 4. Classify every feature or future item as exactly one of **Implemented**, **In Progress**, **Proposed**, or **Planned**.
-5. Do not describe internal/test-only Memory primitives as a user feature. Live Memory save remains **Planned** until routed, reviewed, and explicitly approved.
+5. Do not describe Memory / Skills as an existing or merely locked feature. Its Console implementation and internal primitives were removed; live Memory save remains **Planned** and would need a new approved package.
 6. Record dogfood findings only when observed in actual product use. Preserve counts, timestamps, surface, and exact failure behavior. Mark unverified causes **Unknown**.
 7. Keep Project Control reporting truth separate from product correctness. A stale Master Plan reference can make reporting blocked without making Task flows defective.
 8. Update Current UI, API Endpoints, Data Model, Complete User Workflows, Validation, Active Work Package, Technical Debt, Roadmap, and Decision Log whenever the corresponding implementation or approval state changes.
