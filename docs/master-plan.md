@@ -114,15 +114,18 @@ Memory / Skills ██░░░  Console 구현 제거 — 저장 잠금 유지
 - **[2026-09-06] 감사 체인 운영 검증 완성과 범위 확정(task-0058~0067).** `task-0061`(`05d3a57`)은 잘린 마지막 줄을 append 경로가 못 잡아 다음 승인이 두 항목을 한 줄로 병합시키던 결함을 고쳤다. `task-0066`(`e38dbbd`)은 기동 시 체인을 읽기 전용으로 검증하고 `/status`에 상태를 노출한다 — **손상돼도 봇은 기동한다**(task-0044 결정 6과 같은 이유로 fail-closed를 택하지 않았고, 승인 append는 기존대로 fail-closed다). 조사 3건이 범위를 확정했다: 상태와 감사 기록의 불일치는 **실제 0건**이고(`task-0062`), 콘솔의 `TODO→DOING`/`DOING→DONE`은 승인성 전이가 아니라 task-0041 소관의 일반 전이라 감사 범위 밖이며(`task-0063`), 그 근거를 task-0044 §3.3에 적었다(`task-0064`, `3a2560a`). `task-0067`(`0f86075`)은 append의 누적 비용을 실측한 뒤 **DEFER**했다 — 현재 유입률에서 체감 지연까지 수년이고 체인은 아직 비어 있다. 재검토 트리거는 체인 길이 **5,000**이며 상세는 `memory/tasks/task-0067-audit-append-scaling.md`에 있다. `task-0059`/`task-0060`은 buzz-bridge의 낡은 파서 설명과 테스트 미러를 task-0054 경계에 맞췄다.
 - 현재 다음 작업: task-0038 §6이 정의한 Phase 2 통합의 남은 단계 중 **②Discord intake 연결 / ④Reviewer·QA agent 등록+worktree 격리 / ⑤Discord 3개월 병행**은 유의미한 scope 확장이며 **별도 Owner의 명시적 결정 없이는 착수하지 않는다.** (③승인 게시 흐름은 아웃바운드가 P2-5/P2-6으로 완료됐고 인바운드는 범위 밖이므로 이 목록에서 제외한다.) 승인 전까지 진행 가능했던 Phase 1 잔여 항목 `task-0042`(역할별 서명키, commit `1557ad7`)/`task-0044`(감사 해시체인, commit `116fe2d`)는 **둘 다 `DONE`**이다. 이후 `task-0052`가 그 해시체인을 `/approve`·`/run`·`/retry` 경로에 실제로 연결했다(commit `a6c4ef3`).
 - 현재 사용자 체감 결과: **검증된 조직 흐름이 Jarvis-Core 기본 SOP와 역할별 agent 설정으로 고정. task 상태값에 `ON_HOLD` 추가(7개), AGENTS.md 원칙 5(no secrets)가 scripts/check_no_secrets.py로 코드 강제됨**
-- 다음 사용자 체감 milestone: **Jarvis Console을 "메인 UI"에서 "Jarvis task lifecycle 화면"으로 축소**(task-0038 승인 항목 ②, Owner 승인 완료). **D1 결정(2026-09-06)**으로 "승인 화면"이 아님을 확정했다 — 콘솔은 `NEEDS_APPROVAL` 전이를 갖지 않고 앞으로도 추가하지 않는다(task-0063/0064). `task-0071`이 `memory_skills` 기능군을 제거해 축소를 시작했다
+- **[2026-09-10] Jarvis Console 축소가 실행됐고 현재 primary workstream은 `jarvis-console`이다(task-0121).** 새 방향 선택이 아니라 task-0038 승인 항목 ②와 D1 결정(2026-09-06) 이후 실제로 실행된 것을 확정 기록한 것이다. 축소 실행: `memory_skills`(task-0071), `codex_review`(task-0073, D6-a), `evaluate_idea`(task-0075, D6-b), skills.json 잔여 안내 정정(task-0074/0076). 세 기능은 `skills.json`·`run_web_app.py`·`web/app.js`에서 **전부 0건**으로 실측 확인됐다(task-0120). 이후 task-0119까지 21건이 전부 Console 작업이다
+- 다음 사용자 체감 milestone: **축소된 Console을 실제 Jarvis task lifecycle 화면으로 반복 사용**. **D1 결정(2026-09-06)**으로 "승인 화면"이 아님을 확정했다 — 콘솔은 `NEEDS_APPROVAL` 전이를 갖지 않고 앞으로도 추가하지 않는다(task-0063/0064). Console의 쓰기는 Preview + Confirm 경계 안의 Task 생성·`TODO→DOING`·`DOING→DONE`·completion evidence 1회 append뿐이다
 - 최근 검증 결과: 첫 candidate P2 finding → repair 1회 → fresh Reviewer/QA pass, final pilot commit `7d4394eed584bc11ee25062a671952b2e4c38b31`
+- **[2026-09-10] 종결된 Owner 결정 2건.** `jarvis-console`을 현재 primary workstream으로 확정(task-0121)했고, dogfood 23건은 canonical set에 편입하지 않고 제거하기로 결정해 실행했다(task-0094). 다만 아래 §2의 `Owner decision status`는 **여전히 `selection_required`이며 이번에 바꾸지 않았다** — `selected_workstream_id`와 `desired_outcome`을 이 문서에서 읽는 필드가 존재하지 않아 `selected_for_proposal`로 바꾸면 `/api/overview`가 500이 된다(task-0120 실측). 그 표현은 production 변경이 필요하므로 별도 Owner 승인 대상으로 분리했다
 - 현재 결정 필요: **task-0038 §6 Phase 2 통합 남은 단계(②Discord intake 연결/④Reviewer·QA agent 등록+worktree 격리/⑤3개월 병행) 착수 여부, Codex/agy bridge 확장 여부, bridge/relay supervisor 도입 여부, 승인 감사 기록에 승인자 ID 추가 여부** — 그 외 Phase 1 관련 결정과 P2-2/P2-3, P2-4/P2-5/P2-6은 모두 완료(task-0038, task-0050 참고). ③승인 게시 흐름은 아웃바운드 완료·인바운드 범위 밖으로 확정되어 결정 대상에서 빠졌다. 단 **승인자 ID 추가는 단순 선택지가 아니다** — 채택하려면 ①P2-4의 "승인 파이프라인은 신원을 모른다" 불변식(`on_message`의 게이트만 `author_id`를 보고 `_run_command`는 받지 않는다), ②감사 스키마 3곳(`KIND_ACTOR_MAP`의 역할 상수 `owner`/`orchestrator`, `FORBIDDEN_PAYLOAD_KEYS`의 `user_id`/`author_id`/`discord_user_id`/`owner_id`, payload 키 집합 완전 일치 검사), ③회귀 테스트 `audit_payload_has_no_owner_identity`를 **함께** 바꿔야 한다(task-0044/0052)
 
 ### 언제부터 실제로 편해지는가
 
 1. 현재: 각 로컬 도구와 수동 prompt drafting 기능을 사용할 수 있다.
-2. 첫 체감 milestone: 안전 검증을 통과한 Codex 작업만 read-only 검토 화면에서
-   확인한다.
+2. 첫 체감 milestone(완료, 이후 제거): 안전 검증을 통과한 Codex 작업만
+   read-only 검토 화면에서 확인했다. 그 화면은 task-0073에서 Console
+   축소와 함께 제거됐다.
 3. 실용 로컬 milestone: Jarvis-Core 내부 workstream의 진행·잠금·승인 필요 상태를
    통합 Console에서 확인하되 자동 실행과 push/PR은 계속 잠근다.
 4. 장기 milestone: 화이트리스트 실행과 감사·복구가 검증된 뒤 모바일 승인을
@@ -177,7 +180,7 @@ flowchart LR
 - Approval state: required
 - Approval note: SOP v0.1B 승격은 승인됐고 Dashboard, 자동 runtime, push, PR, 외부 호출과 jarvis.bat는 범위 밖이다. Phase 2 전체 통합 확대(task-0038 §6 남은 단계 ②/④/⑤)는 여전히 미승인 — 착수 전 별도 승인이 필요하다. Buzz → Jarvis 인바운드 승인 입력은 Owner 결정으로 범위 밖이고, director-dashboard-v0.1b는 미승인 상태로 보류다.
 - Owner decision status: selection_required
-- Owner decision recommendation: hermes-manager
+- Owner decision recommendation: jarvis-console
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase
@@ -199,7 +202,7 @@ Voice Inbox auto-save, saved candidates dashboard도 없다.
 | --- | --- | --- | --- | --- |
 | 0. 운영 기반 | 작업·승인·결과를 같은 규칙으로 지시하고 보고받음 | task, 승인, 상태 전이, 보고 계약 | 사용자 기능 | 반복 실사용 검증 |
 | 1. 역할별 앱 | 목적에 맞는 로컬 AI 도구를 분리해 사용함 | Research Council, Radar, Hermes, Console | 사용자 기능 | 실제 사용 피드백 |
-| 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff, read-only 검토 화면 | **사용자 기능 — 실제 작업 1건 검증** | 반복 사용 피드백 또는 다음 축 선택 |
+| 2. 안전한 작업 운영 | 최신이며 범위 안인 Codex 작업만 검토함 | evidence, queue, copy-only handoff (read-only 검토 화면은 task-0073에서 제거) | **사용자 기능 — 실제 작업 1건 검증 후 화면 제거** | Console 축소 이후 별도 재승인 없이는 다시 열지 않음 |
 | 3. Memory / Skills | 저장 전 후보를 확인하고 명시적으로 승인함 | 설계·readiness 기록 (Console 구현은 task-0071에서 제거) | 2C-4f readiness review 완료, `keep locked` | 소유자가 complete vertical slice 우선순위 결정 |
 | 4. 통합 Jarvis Console | Jarvis-Core 내부 workstream의 진행·잠금·승인 필요 상태를 한 화면에서 확인함 | read-only부터 확장하는 single-repo local control panel | **사용자 기능 — v0.1D Owner Dashboard 검증** | 소유자가 다음 bounded slice 선택 |
 | 5. 제한 실행과 모바일 승인 | 검증된 작업만 제한 실행하고 휴대폰에서 승인함 | 화이트리스트 executor, 감사 기록, 복구, 모바일 승인 | 장기 설계 | 로컬 실사용 검증 |
@@ -555,7 +558,7 @@ save도 계속 잠겨 있다.
 | --- | --- | --- | --- |
 | Hermes Manager | 실제 Review owner flow와 lifecycle progress v0.1G 검증 완료 | prompt drafting, local Save/list/Reopen/recovery/Delete, content-ready/legacy 표시, content-verified handoff Copy, 즉시 progress와 중복 실행 차단 | 다음 owner workstream 선택 전 안정 상태 유지 |
 | Memory / Skills | Phase 2C-4f readiness review 완료, `keep locked` | 없음 — Console 구현은 task-0071에서 제거 | 잠금 유지, 별도 재승인 전 변경 없음 |
-| Jarvis Console | Project Control v0.1E Recent Milestone Evidence와 Owner Decision 완료 | owner project card, 최근 5개 commit/변경 파일/HEAD 일치, 내부 workstream 상태, fresh read-only work review | 실제 milestone 보고에서 반복 사용 후 다음 bounded slice 선택 |
+| Jarvis Console | 현재 primary workstream(task-0121). 축소 완료 후 Task lifecycle 정확성 보강 진행 중 | owner project card, 최근 5개 commit/변경 파일/HEAD 일치, 내부 workstream 상태, Actionable Task View와 Preview + Confirm 쓰기(생성·`TODO→DOING`·`DOING→DONE`·evidence 1회 append) | 축소된 화면을 실제 task lifecycle로 반복 사용한 뒤 다음 bounded slice 선택 |
 | Research Council | 결정론적 로컬 research/report 앱 | 아이디어·가설·risk 평가 | 실제 사용 피드백 기반 품질 개선 |
 | Daily AI Radar | 수동 curated metadata 기반 scout | local radar report | 실제 source 수집은 별도 승인 후 검토 |
 | Task / Discord / Dashboard | task 생성·조회·승인·보고 기반 구현 | task workflow와 read-only dashboard | 전역 동작을 넓히지 않고 유지보수 |
@@ -600,8 +603,9 @@ Memory / Skills workstream 자체는 §5에서 계속 추적한다.
 2. 그다음에는 반드시 사용자에게 보이는 작은 vertical slice를 완성한다.
 3. 안전상 내부 작업이 더 필요하면 이유와 사용자 체감 milestone 지연을
    설명하고 소유자의 명시적 승인을 받는다.
-4. C0C-6a 이후 허용된 다음 내부 단위는 C0C-6b 하나다.
-5. C0C-6b 다음 기본 작업은 `Codex 작업 읽기 전용 검토 화면`이다.
+4. C0C-6a/C0C-6b 내부 단위 시퀀스는 종료됐다.
+5. 그 다음 기본 작업이던 `Codex 작업 읽기 전용 검토 화면`은 완료 후
+   task-0073에서 제거됐다. 현재 기본 작업 축은 Jarvis Console이다.
 6. vertical slice는 실제 로컬 작업 하나로 end-to-end 검증해야 완료로 기록한다.
 7. read-only vertical slice는 자동 연결이 아닌 copy-only handoff로 실제 작업
    1건을 end-to-end 검증해 완료했다.

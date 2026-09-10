@@ -193,7 +193,7 @@ The current Jarvis Console has eight sidebar tabs plus a persistent status panel
 
 The persistent right panel displays Current Status, Suggested Next Action, and Safety Notes. User-visible copy correctly states that discovery is read-only while explicitly confirmed Task creation, two status transitions, and one evidence append are the only Console writes.
 
-Actionable Task View groups are `Needs metadata review`, `Needs attention`, `In progress`, `Ready`, and `Completed`. The view first uses existing Recent Tasks discovery and then validates the selected files; it shows at most ten and is not a complete backlog.
+Actionable Task View groups are `Needs metadata review`, `Needs attention`, `In progress`, `Ready`, and `Completed`. Since task-0114 the view scans every Task candidate, validates them, and then caps the priority-ordered projection, so attention items are not pushed out by newer files; it shows at most ten and is not a complete backlog.
 
 Current Project Control projection at the observed HEAD:
 
@@ -201,11 +201,11 @@ Current Project Control projection at the observed HEAD:
 - Manager Report: `blocked`, Owner action `decision_required`.
 - Director Report: `blocked`.
 - Reason: the Master Plan's verified implementation HEAD and two Manager Reporting package commits are absent from the bounded live Git evidence window.
-- Displayed Task counts: `Needs metadata review: 10`; all other displayed groups including `Completed`: `0`; displayed total: `10`.
+- Displayed Task counts: `Needs attention: 5`, `In progress: 1`, `Completed: 4`; `Needs metadata review: 0`; displayed total: `10`.
 
 This reporting state is intentional fail-closed behavior. Do not weaken it or replace historical hashes merely to make the card green.
 
-The `Needs metadata review: 10` figure is **not** a healthy steady state and will change once a separate defect is fixed. `parse_task_view_text` in `run_web_app.py` treats every line beginning with `- ` anywhere in a Task file as metadata, so a Task record containing an ordinary Markdown list in its body fails closed. At the current HEAD this rejects 35 of 83 local Task files. `task_file_writer.py:468` already carries the fix for the same class of defect (`# task-0054: metadata is the header block, not "every line starting with -"`), but that scoping was never applied to the Console reader. Treat the displayed group counts as reflecting this defect until it is addressed.
+An earlier `Needs metadata review: 10` reading came from a defect, now fixed. `parse_task_view_text` treated every line beginning with `- ` anywhere in a Task file as metadata, so a record with an ordinary Markdown list in its body failed closed. task-0096 scoped the parser to the header block and task-0097 scoped the bounded read the same way, applying the boundary `task_file_writer.py` already carried for the same class of defect. All local Task records now parse as valid.
 
 ## Complete User Workflows
 
