@@ -1,11 +1,11 @@
 # task-0094-b1-dogfood-owner-decision
 
 - id: `task-0094-b1-dogfood-owner-decision`
-- title: `B1 C - dogfood 23건 처리 방안 Owner Decision 대기`
-- status: `NEEDS_APPROVAL`
+- title: `B1 C - dogfood 23건 처리 방안 Owner Decision`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-08 06:05 UTC`
-- updated_at: `2026-09-08 06:05 UTC`
+- updated_at: `2026-09-10 08:40 UTC`
 - summary: `B1 저장소 위생 작업의 남은 절반을 결정 대기 상태로 기록한다. A+B 는 cd179db 로 완료되어 historical task 4건과 work-order 6건이 편입됐고 끊어진 링크 4건이 해소됐다. 남은 untracked 는 dogfood 23건과 jarvis.bat 뿐이다. 이 기록은 결정이 아니라 결정 근거의 정리다. A/B/C/D 네 선택지를 사실 기반으로 비교하고, memory/tasks 디렉터리 전체 ignore 는 금지 사항으로 못박고, jarvis.bat 은 B1 C 범위에서 제외한다. 조사 중 B1 보고의 참조 분석 1건을 정정했다 - dogfood full task id 를 참조하는 tracked 파일은 0건이다.`
 - source_command: `B1 C dogfood 23건 처리 방안 결정 대기 기록 작성 지시`
 
@@ -199,8 +199,41 @@ C 를 택할 경우 반드시 **파일 단위 열거** 또는 dogfood 만 정확
 
 **B1 A+B = COMPLETE** (`cd179db`)
 
-**B1 C = OWNER DECISION PENDING**
+**B1 C = DECIDED — B(삭제) 채택, 2026-09-10**
 
-이 기록은 결정문이 아니라 결정 대기 기록이다. A / B / C / D 중 선택은
-Owner 에게 남긴다. 결정이 내려지면 그 결정과 실행을 별도 task 로 기록하고,
-`docs/chatgpt-handoff.md` L507 의 `Planned` 상태도 함께 갱신한다.
+위 본문은 결정 시점의 근거 정리를 그대로 남긴 것이다. 아래가 결정 결과다.
+
+## Owner 결정 결과 (2026-09-10)
+
+Owner 는 **B — dogfood 23 건 제거**를 택했다. 23 건은 canonical task set 에
+편입하지 않는다.
+
+### task-0006 예외 검토 결과 — 보존하지 않는다
+
+`task-0006` 이 제거된 `Evaluate Idea` 기능의 유일한 실행 흔적이라는 점
+때문에 삭제 전에 별도 보존이 필요한지 확인했다. **불필요로 판정했다.**
+
+그 파일의 고유 정보는 `source_command: Evaluate Idea` 한 줄뿐이고, 그
+사실은 이미 tracked 문서 여러 곳에 더 상세히 남아 있다 — `chatgpt-handoff.md`
+의 Decision Log(도입 커밋 `6ba8f2f` · `4c85dca`)와 Removed Console Features
+표, `jarvis-console-v0.1-checkpoint.md` 의 기능 설계, 그리고 제거 작업
+전문인 task-0075 와 후속 정정인 task-0076 이다. 별도 보존 기록을 만드는
+것은 중복 기록이 되므로 만들지 않았다.
+
+### 삭제 전 재검증
+
+| 항목 | 결과 |
+| --- | --- |
+| 삭제 대상 | **정확히 23 건**, 전부 untracked, tracked 0 건 |
+| `jarvis.bat` 포함 | **없음** — 범위 밖 유지, 접근하지 않음 |
+| tracked 파일의 full task id 참조 | **0 건** (현 HEAD 재검증) |
+| short id hit 15 개 | 전부 무관 — `task-00NN-self-check` 픽스처, `task-0007-discord-intake` 예시, NL 입력 문자열, 산문 |
+| `memory/tasks` 개수에 의존하는 tracked 테스트 | **0 건** |
+| Task View · Recent Tasks 10 개 항목 | 삭제 전후 **완전 동일** (사전 시뮬레이션) |
+
+### 결과
+
+**canonical 이중 기준이 사라졌다.** tracked 와 disk 가 73 개(.md)로 일치하고,
+남은 untracked 는 `jarvis.bat` 1 건뿐이다.
+
+실행과 문서 갱신은 task-0121 과 같은 checkpoint 에서 수행했다.

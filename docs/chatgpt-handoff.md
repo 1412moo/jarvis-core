@@ -53,7 +53,7 @@ Current local Git facts:
 - Branch: `main`.
 - Open Created Task feature commit: `b80ed92901d0805e3064ef8f80c36654e48ee771`, `feat(console): open created task from receipt`.
 - Protected untracked file: `jarvis.bat`.
-- Untracked Task files `task-0006` through `task-0028` are real smoke/dogfood output. They are not test fixtures committed to the repository.
+- The dogfood Task files `task-0006` through `task-0028` were real smoke/dogfood output, not committed test fixtures. They were removed on 2026-09-10 by the Owner decision recorded in task-0094.
 - The Open Created Task feature commit contains only `apps/jarvis-console/web/app.js`, `apps/jarvis-console/run_smoke_tests.py`, and this handoff.
 
 ## Repository Structure
@@ -62,7 +62,7 @@ Current local Git facts:
 | --- | --- | --- |
 | `apps/jarvis-console/` | Implemented | Primary local browser product, API server, UI, registry, Project Control, Task flows, and deterministic tests. |
 | `orchestrator/discord-intake/` | Implemented | Shared command parsing, Task draft creation, authoritative Task file writer, status transition writer, and completion-evidence writer. Despite the directory name, the writer is reused by Jarvis Console. |
-| `memory/tasks/` | Implemented | Markdown Task source of truth. 60 Task files are tracked, spanning `task-0001` through `task-0095`. The 23 dogfood Tasks `task-0006` through `task-0028` remain untracked pending an explicit Owner decision. |
+| `memory/tasks/` | Implemented | Markdown Task source of truth. 73 Task files are tracked, spanning `task-0001` through `task-0121`. Tracked and on-disk contents now match; the 23 dogfood Tasks were removed by the task-0094 decision. |
 | `apps/hermes-manager-pilot/` | Implemented | Separately launched local workflow-management app with prompt rendering, review handoff, durable Review lifecycle, content-evidence binding, and reporting primitives. |
 | `apps/research-council/` | Implemented | Deterministic local idea-evaluation pipeline, desktop launcher, reports, profiles, golden cases, benchmark governance, and replay tools. |
 | `apps/daily-ai-radar/` | Implemented | Deterministic renderer that converts manually curated technology metadata into a bounded radar report. |
@@ -372,7 +372,7 @@ The one-hour dogfood then ran from `2026-07-30T10:59:26.933Z` through `2026-07-3
 Create → Start → Evidence → Complete
 ```
 
-All 20 final Tasks are `DONE`; all 20 contain completion evidence. At the time of that run the local directory held 28 Task files, all in `DONE`. It now holds 83: `DONE` 76, `NEEDS_APPROVAL` 6, `DOING` 1. Because Actionable Task View is capped after Recent Tasks selection, the UI displays only the newest ten. At the time of that run they showed as `Completed`; today they show as `Needs metadata review` for the reason recorded under Current UI.
+All 20 final Tasks are `DONE`; all 20 contain completion evidence. At the time of that run the local directory held 28 Task files, all in `DONE`. It now holds 73: `DONE` 66, `NEEDS_APPROVAL` 6, `DOING` 1. Because Actionable Task View is capped after Recent Tasks selection, the UI displays only the newest ten. At the time of that run they showed as `Completed`; today they show as `Needs metadata review` for the reason recorded under Current UI.
 
 Only observed friction is recorded:
 
@@ -488,7 +488,7 @@ For documentation-only changes, do not launch the server or browser. Run `git di
 | Jarvis Console backend and self-tests are large single files | Planned | `run_smoke_tests.py` is about 224 KB and `run_web_app.py` about 176 KB. This raises review and static-assertion collision risk. No refactor is approved; keep feature changes narrow. |
 | Voice Create Receipt navigation gap | Implemented | Confirmed in all 20 dogfood cycles and resolved by bounded Open Created Task. A post-implementation dogfood observation is not yet recorded. |
 | Evidence can be submitted empty before succeeding | Planned | Observed in all 20 automated cycles. The input is already visible and the server correctly rejects empty evidence. No product change has been selected. |
-| Dogfood Tasks are untracked local product data | Planned | `task-0006` through `task-0028` make the working tree intentionally dirty. Do not stage, delete, or convert them into fixtures without an explicit decision. |
+| Dogfood Tasks are untracked local product data | Resolved | The Owner decided on 2026-09-10 to remove `task-0006` through `task-0028` rather than track them; see task-0094. Only `jarvis.bat` remains untracked. |
 | Memory / Skills has no implementation to activate | Planned | The Console implementation and its internal save primitives were removed by task-0071 and task-0074; nothing remains to unlock. Reopening the workstream needs a new approved package, not an activation decision. |
 
 ## Roadmap
@@ -518,7 +518,7 @@ Read-only Task Detail, Search/Filter, Canonical BLOCKED Workflow, and post-creat
 | 2026-07-27 | Continue a successful Evaluate recommendation into the existing Task Create authority. | Implemented | Commits `c4a1055`, `cdc461c`, `d0a6988`. |
 | 2026-07-29 | Replace post-create `TODO` correction direction with Edit Before Create for Evaluate handoff only. | Implemented | Commits `511446f`, `925bcde`. |
 | 2026-07-30 | Keep write Receipt authoritative and separate it from Overview refresh outcome. | Implemented | Commit `91e0006`. |
-| 2026-07-30 | Recover Console launch without repository/system PATH changes, then complete five-minute smoke and one-hour/20-cycle dogfood. | Implemented | Local dogfood Tasks `task-0006` through `task-0028`; environment remained unchanged. |
+| 2026-07-30 | Recover Console launch without repository/system PATH changes, then complete five-minute smoke and one-hour/20-cycle dogfood. | Implemented | Local dogfood Tasks `task-0006` through `task-0028`; environment remained unchanged. Those 23 Task files were later removed on 2026-09-10; see task-0094. |
 | 2026-07-31 | Implement direct GET-only navigation from an authoritative Voice Create Receipt to the exact Project Control Task card. | Implemented | Commit `b80ed92`; exact-path feature package and deterministic harness. |
 
 ## Glossary
