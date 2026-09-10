@@ -570,6 +570,17 @@ def _test_create_local_task_vertical_slice() -> None:
         assert unknown_status == HTTPStatus.NOT_FOUND
         assert unknown["error"] == "invalid_or_expired_create_local_task_token"
 
+        malformed_status, malformed = run_web_app.confirm_create_local_task(
+            {
+                "token": "short/token",
+                "confirmation": run_web_app.CREATE_LOCAL_TASK_CONFIRMATION_LITERAL,
+            },
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert malformed_status == HTTPStatus.NOT_FOUND
+        assert malformed["error"] == "invalid_or_expired_create_local_task_token"
+
         unsafe_status, unsafe = run_web_app.preview_create_local_task(
             {"transcript": "제목에 ` 구분자 넣기"},
             registry=registry,
@@ -3155,14 +3166,34 @@ def _test_task_transition_vertical_slice() -> None:
             utc_now=fixed_utc,
         )[1]
         expired_clock.value += 11
-        assert run_web_app.confirm_task_transition(
+        expired_confirm = run_web_app.confirm_task_transition(
             {
                 "token": expired_preview["token"],
                 "confirmation": "START TASK",
             },
             registry=expired_registry,
             tasks_dir=tasks_dir,
-        )[1]["error"] == "invalid_or_expired_task_transition_token"
+        )
+        assert expired_confirm[0] == HTTPStatus.NOT_FOUND
+        assert expired_confirm[1]["error"] == (
+            "invalid_or_expired_task_transition_token"
+        )
+        assert b"- status: `TODO`" in expired_path.read_bytes()
+
+        # a token the pattern rejects answers with the same status and code as
+        # one that simply is not held, so a caller cannot tell the two apart
+        malformed_confirm = run_web_app.confirm_task_transition(
+            {
+                "token": "short/token",
+                "confirmation": "START TASK",
+            },
+            registry=expired_registry,
+            tasks_dir=tasks_dir,
+        )
+        assert malformed_confirm[0] == HTTPStatus.NOT_FOUND
+        assert malformed_confirm[1]["error"] == (
+            "invalid_or_expired_task_transition_token"
+        )
         assert b"- status: `TODO`" in expired_path.read_bytes()
 
         consumed_path, _ = write_task("task-8009-consumed", "TODO")
@@ -3701,6 +3732,23 @@ def _test_completion_evidence_vertical_slice() -> None:
             tasks_dir=tasks_dir,
         )
         assert expired_confirm[0] == HTTPStatus.NOT_FOUND
+        assert expired_confirm[1]["error"] == (
+            "completion_evidence_invalid_or_expired_token"
+        )
+        assert expired_path.read_bytes() == expired_raw
+
+        malformed_confirm = run_web_app.confirm_completion_evidence(
+            {
+                "token": "short/token",
+                "confirmation": "RECORD EVIDENCE",
+            },
+            registry=expired_registry,
+            tasks_dir=tasks_dir,
+        )
+        assert malformed_confirm[0] == HTTPStatus.NOT_FOUND
+        assert malformed_confirm[1]["error"] == (
+            "completion_evidence_invalid_or_expired_token"
+        )
         assert expired_path.read_bytes() == expired_raw
 
         capacity_a_id = "task-9004-capacity-a"
@@ -5004,6 +5052,13 @@ def _test_overview_refresh_write_receipt_separation() -> None:
     assert "superseded by a newer request" in evidence_source
     assert "superseded by a newer request" in transition_source
     assert (
+        "Overview refresh failed. The receipt remains authoritative."
+        in transition_source
+    )
+    assert "Completion evidence write succeeded; Overview refresh failed. " in (
+        evidence_source
+    )
+    assert (
         "overviewSettledGeneration < overviewRequestGeneration"
         in evidence_source
     )
@@ -5233,6 +5288,50 @@ def _test_overview_refresh_write_receipt_separation() -> None:
             "  const settledLatestStatus = statusText.textContent;",
             "  if (!settledLatestStatus.includes('Project Control overview refreshed')) {",
             "    throw new Error('announcing retry did not publish latest success');",
+            "  }",
+            "  const transitionReceiptTwo = {",
+            "    ok: true, result_type: 'updated',",
+            "    receipt: { task_id: 'task-transition-two', transition: 'DOING -> DONE' },",
+            "  };",
+            "  taskTransitionToken = 'transition-token-two';",
+            "  taskTransitionConfirmation = 'COMPLETE TASK';",
+            "  taskTransitionTaskId = 'task-transition-two';",
+            "  const beforeTransitionFailureOverview = tasksDetails.innerHTML;",
+            "  let resolveTransitionFailurePost;",
+            "  fetchHandler = (url) => {",
+            "    if (url === '/api/task-transition/confirm') {",
+            "      return new Promise((resolve) => { resolveTransitionFailurePost = resolve; });",
+            "    }",
+            "    return jsonResponse(500, { ok: false, error: 'post-write refresh failed' });",
+            "  };",
+            "  const transitionFailureCallStart = fetchCalls.length;",
+            "  const oldTransitionFailureTarget = transitionTarget;",
+            "  const transitionFailureConfirm = confirmTaskTransition();",
+            "  transitionTarget = newTarget();",
+            "  resolveTransitionFailurePost({ ok: true, status: 200, json: async () => transitionReceiptTwo });",
+            "  await transitionFailureConfirm;",
+            "  const transitionFailureCalls = fetchCalls.slice(transitionFailureCallStart);",
+            "  if (taskTransitionLastReceipt !== transitionReceiptTwo || transitionTarget.innerHTML !== 'transition-receipt:task-transition-two') {",
+            "    throw new Error('transition receipt did not survive refresh failure');",
+            "  }",
+            "  if (oldTransitionFailureTarget.innerHTML === 'transition-receipt:task-transition-two') {",
+            "    throw new Error('transition receipt rendered into detached target');",
+            "  }",
+            "  if (tasksDetails.innerHTML !== beforeTransitionFailureOverview) {",
+            "    throw new Error('failed post-write refresh replaced the last-good Overview');",
+            "  }",
+            "  if (!statusText.textContent.includes('Task write succeeded: DOING -> DONE; Overview refresh failed. The receipt remains authoritative.')) {",
+            "    throw new Error('transition write/refresh failure result was confused');",
+            "  }",
+            "  if (!nextActionText.textContent.includes('The Task write will not be repeated.')) {",
+            "    throw new Error('transition refresh failure did not warn against repeating the write');",
+            "  }",
+            "  if (transitionFailureCalls.length !== 2 || transitionFailureCalls[0].url !== '/api/task-transition/confirm' || transitionFailureCalls[0].method !== 'POST' || transitionFailureCalls[1].url !== '/api/overview' || transitionFailureCalls[1].method !== 'GET') {",
+            "    throw new Error('transition refresh-failure request contract changed');",
+            "  }",
+            "  const transitionFailureBody = JSON.parse(transitionFailureCalls[0].body);",
+            "  if (JSON.stringify(Object.keys(transitionFailureBody).sort()) !== JSON.stringify(['confirmation', 'token']) || transitionFailureBody.token !== 'transition-token-two' || transitionFailureBody.confirmation !== 'COMPLETE TASK') {",
+            "    throw new Error('transition refresh-failure confirm body changed');",
             "  }",
             "  const evidenceReceiptTwo = {",
             "    ok: true, result_type: 'recorded',",
