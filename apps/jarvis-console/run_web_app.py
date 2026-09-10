@@ -376,6 +376,14 @@ VOICE_REVIEW_CORRECTION_CONTEXT_TERMS = (
     "작업 리뷰",
     "커밋 리뷰",
 )
+# task-0126: historical evidence is verified by asking whether a recorded
+# commit is part of this branch history, not by asking whether it is recent.
+# This is the only allowlisted command that takes an argument, so its shape
+# is fixed and the single variable is constrained to an abbreviated or full
+# lowercase hash. Abbreviated values are allowed because
+# verified_implementation_head has always accepted them.
+ANCESTRY_GIT_COMMAND_PREFIX = ("merge-base", "--is-ancestor")
+HISTORICAL_COMMIT_PATTERN = re.compile(r"[0-9a-f]{7,40}")
 READ_ONLY_GIT_COMMANDS = {
     ("rev-parse", "--show-toplevel"),
     ("rev-parse", "--abbrev-ref", "HEAD"),
@@ -665,8 +673,16 @@ def status_payload() -> dict[str, Any]:
 def validate_read_only_git_args(args: tuple[str, ...]) -> None:
     """Allow only fixed read-only git commands for overview metadata."""
 
-    if args not in READ_ONLY_GIT_COMMANDS:
-        raise RegistryError("git command is not allowed for read-only overview")
+    if args in READ_ONLY_GIT_COMMANDS:
+        return
+    if (
+        len(args) == 4
+        and tuple(args[:2]) == ANCESTRY_GIT_COMMAND_PREFIX
+        and HISTORICAL_COMMIT_PATTERN.fullmatch(args[2])
+        and args[3] == "HEAD"
+    ):
+        return
+    raise RegistryError("git command is not allowed for read-only overview")
 
 
 def run_read_only_git(
@@ -694,6 +710,54 @@ def run_read_only_git(
     if preserve_record_separators:
         return result.stdout.rstrip("\r\n")
     return result.stdout.rstrip("\r\n")
+
+
+def commit_is_branch_ancestor(commit: str, *, _run: Any = run_process) -> bool:
+    """Return whether one recorded commit is part of the current history.
+
+    A commit that does not resolve and a commit that resolves but sits on
+    another line of history both answer False, so recorded evidence that
+    never existed is refused rather than merely reported as old. Only a
+    broken Git invocation raises, matching run_read_only_git.
+    """
+
+    if not isinstance(commit, str) or not HISTORICAL_COMMIT_PATTERN.fullmatch(commit):
+        return False
+    args = (*ANCESTRY_GIT_COMMAND_PREFIX, commit, "HEAD")
+    validate_read_only_git_args(args)
+    try:
+        result = _run(
+            ["git", *args],
+            cwd=REPO_ROOT,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (TimeoutExpired, OSError) as exc:
+        raise RegistryError(f"read-only Git command failed: {exc}") from exc
+    # 0 is an ancestor, 1 is a resolvable commit outside this history, and
+    # 128 is a value Git cannot resolve at all. Every other code means the
+    # question was not answered, so it fails closed instead of passing.
+    if result.returncode == 0:
+        return True
+    if result.returncode in {1, 128}:
+        return False
+    raise RegistryError("read-only Git ancestry check failed")
+
+
+def historical_commit_ancestry(commits: list[str]) -> dict[str, bool]:
+    """Answer the ancestry question once per distinct recorded commit."""
+
+    answers: dict[str, bool] = {}
+    for commit in commits:
+        if not isinstance(commit, str) or not commit or commit in answers:
+            continue
+        answers[commit] = commit_is_branch_ancestor(commit)
+    return answers
 
 
 def repo_status_payload() -> dict[str, Any]:
@@ -1074,6 +1138,22 @@ def project_control_payload(repo: Mapping[str, Any]) -> dict[str, Any]:
                     for commit in recent_milestone_evidence["commits"]
                     if isinstance(commit, Mapping)
                 ],
+                # task-0126: the display list above answers "what happened
+                # recently". These answer "is this recorded commit real and
+                # part of this branch", which is what historical evidence
+                # actually claims and what stays true as history grows.
+                "historical_commit_ancestry": historical_commit_ancestry(
+                    [
+                        snapshot["verified_implementation_head"],
+                        *[
+                            str(package.get("commit_hash") or "")
+                            for package in snapshot[
+                                "manager_reporting_work_packages"
+                            ]
+                            if isinstance(package, Mapping)
+                        ],
+                    ]
+                ),
             },
             risks=manager_risks,
         )
@@ -4337,9 +4417,11 @@ def run_self_test() -> None:
         overview["repo"]["head"],
         *[commit["hash"] for commit in reporting_evidence["commits"]],
     }
+    # task-0126: historical evidence is verified by branch ancestry, so the
+    # expectation no longer depends on which commits happen to be recent.
     expected_missing_references = []
     verified_head = current_snapshot["verified_implementation_head"]
-    if not any(commit.startswith(verified_head) for commit in available_hashes):
+    if not commit_is_branch_ancestor(verified_head):
         expected_missing_references.append(
             "Verified implementation HEAD is absent from live Git evidence"
         )
@@ -4349,7 +4431,7 @@ def run_self_test() -> None:
             "from Git evidence"
         )
         for package in current_snapshot["manager_reporting_work_packages"]
-        if package["commit_hash"] not in available_hashes
+        if not commit_is_branch_ancestor(package["commit_hash"])
     )
     if expected_missing_references:
         assert manager_report_payload["source_conflicts"]

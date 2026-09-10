@@ -54,7 +54,18 @@ _MASTER_PLAN_FIELDS = frozenset(
         "known_protected_untracked_file",
     }
 )
-_LIVE_GIT_FIELDS = frozenset({"branch", "head", "status", "recent_commit_hashes"})
+_LIVE_GIT_FIELDS = frozenset(
+    {
+        "branch",
+        "head",
+        "status",
+        "recent_commit_hashes",
+        # task-0126: whether each historical commit this snapshot names is
+        # part of the current branch history. The caller answers it because
+        # this module performs no Git or filesystem access.
+        "historical_commit_ancestry",
+    }
+)
 _EXECUTION_SAFETY_FIELDS = frozenset(
     {
         "external_calls_made",
@@ -564,6 +575,43 @@ def _worker_source_conflicts(
     return tuple(_deduplicate(conflicts))
 
 
+def _historical_commit_ancestry(live_git: Mapping[str, Any]) -> dict[str, bool]:
+    """Return the caller-supplied ancestry answers as a validated mapping."""
+
+    value = live_git["historical_commit_ancestry"]
+    if not isinstance(value, Mapping):
+        raise ManagerReportingDataError(
+            "live_git_evidence.historical_commit_ancestry must be a mapping"
+        )
+    answers: dict[str, bool] = {}
+    for key, answer in value.items():
+        if not isinstance(key, str) or not key:
+            raise ManagerReportingDataError(
+                "historical_commit_ancestry keys must be non-empty text"
+            )
+        if not isinstance(answer, bool):
+            raise ManagerReportingDataError(
+                f"historical_commit_ancestry[{key}] must be a boolean"
+            )
+        answers[key] = answer
+    return answers
+
+
+def _commit_is_historical_evidence(
+    commit: str,
+    ancestry: Mapping[str, bool],
+) -> bool:
+    """Return whether one recorded commit is verified branch history.
+
+    task-0126: this used to ask whether the commit was among the five most
+    recent, which is a different question and answered "no" for every
+    milestone older than five commits. An unanswered commit is treated as
+    unverified rather than as verified, so a missing answer fails closed.
+    """
+
+    return ancestry.get(commit) is True
+
+
 def _manager_source_conflicts(
     snapshot: Mapping[str, Any],
     worker_reports: tuple[WorkerReport, ...],
@@ -581,7 +629,7 @@ def _manager_source_conflicts(
     live_branch = _required_text(live_git, "branch", "live Git")
     if snapshot_branch != live_branch:
         conflicts.append("Live Git branch differs from Master Plan")
-    live_head = _required_hash(live_git, "head", "live Git")
+    _required_hash(live_git, "head", "live Git")
     recent_hashes = tuple(
         _bounded_text_list(live_git["recent_commit_hashes"], "recent_commit_hashes")
     )
@@ -595,7 +643,10 @@ def _manager_source_conflicts(
         "verified_implementation_head",
         "master plan",
     )
-    if not any(commit.startswith(verified_head) for commit in (live_head, *recent_hashes)):
+    if not _commit_is_historical_evidence(
+        verified_head,
+        _historical_commit_ancestry(live_git),
+    ):
         conflicts.append("Verified implementation HEAD is absent from live Git evidence")
 
     live_status = _bounded_git_status_list(live_git["status"], "live Git status")
@@ -613,7 +664,7 @@ def _manager_source_conflicts(
         "manager_reporting_milestone_id",
         "master plan",
     )
-    recent_set = set(recent_hashes) | {live_head}
+    ancestry = _historical_commit_ancestry(live_git)
     for report in worker_reports:
         if report.work_package.milestone_id != milestone_id:
             conflicts.append(
@@ -635,7 +686,7 @@ def _manager_source_conflicts(
             conflicts.append(
                 f"Worker Report {report.work_package.work_package_id} has no local commit"
             )
-        elif report.commit_hash not in recent_set:
+        elif not _commit_is_historical_evidence(report.commit_hash, ancestry):
             conflicts.append(
                 f"Worker Report {report.work_package.work_package_id} commit is absent from Git evidence"
             )
@@ -653,11 +704,7 @@ def _checkpoint_source_conflicts(
         "manager_reporting_milestone_id",
         "master plan",
     )
-    recent_hashes = tuple(
-        _bounded_text_list(live_git["recent_commit_hashes"], "recent_commit_hashes")
-    )
-    live_head = _required_hash(live_git, "head", "live Git")
-    recent_set = set(recent_hashes) | {live_head}
+    ancestry = _historical_commit_ancestry(live_git)
     for index, package in enumerate(packages):
         package_id = _required_text(
             package,
@@ -680,7 +727,7 @@ def _checkpoint_source_conflicts(
             "commit_hash",
             f"manager_reporting_work_packages[{index}]",
         )
-        if commit_hash not in recent_set:
+        if not _commit_is_historical_evidence(commit_hash, ancestry):
             conflicts.append(
                 f"Checkpoint package {package_id} commit is absent from Git evidence"
             )

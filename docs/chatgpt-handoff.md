@@ -198,12 +198,13 @@ Actionable Task View groups are `Needs metadata review`, `Needs attention`, `In 
 Current Project Control projection at the observed HEAD:
 
 - Project card: `attention`.
-- Manager Report: `blocked`, Owner action `decision_required`.
-- Director Report: `blocked`.
-- Reason: the Master Plan's verified implementation HEAD and two Manager Reporting package commits are absent from the bounded live Git evidence window.
-- Displayed Task counts: `Needs attention: 5`, `In progress: 1`, `Completed: 4`; `Needs metadata review: 0`; displayed total: `10`.
+- Manager Report: `milestone_complete`, Owner action `decision_required`.
+- Director Report: `milestone_complete`.
+- Source conflicts: none.
+- Reason for `attention`: the Master Plan declares `Approval state: required`, which is a live Owner decision, not a Git evidence conflict.
+- Displayed Task counts: `Needs attention: 5`, `In progress: 1`, `Ready: 2`, `Completed: 2`; `Needs metadata review: 0`; displayed total: `10`.
 
-This reporting state is intentional fail-closed behavior. Do not weaken it or replace historical hashes merely to make the card green.
+The reports read `blocked` until task-0126 because the verified implementation HEAD and both package commits were checked against the five most recent commits, so every milestone older than five commits failed. Those commits are real branch history, and they are now verified by ancestry, which does not expire. The card is still `attention`, and that remains intentional fail-closed behavior: do not weaken it or replace historical hashes merely to make it green.
 
 An earlier `Needs metadata review: 10` reading came from a defect, now fixed. `parse_task_view_text` treated every line beginning with `- ` anywhere in a Task file as metadata, so a record with an ordinary Markdown list in its body failed closed. task-0096 scoped the parser to the header block and task-0097 scoped the bounded read the same way, applying the boundary `task_file_writer.py` already carried for the same class of defect. All local Task records now parse as valid.
 

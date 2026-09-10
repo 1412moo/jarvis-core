@@ -5205,6 +5205,10 @@ def _manager_reporting_live_git() -> dict[str, object]:
         "head": "b" * 40,
         "status": [" M docs/master-plan.md", "?? jarvis.bat"],
         "recent_commit_hashes": ["b" * 40, "a" * 40],
+        # task-0126: historical evidence is verified by branch ancestry now,
+        # so the fixture answers that question directly instead of relying on
+        # the commit appearing in the recent display list.
+        "historical_commit_ancestry": {"b" * 7: True, "b" * 40: True},
     }
 
 
@@ -5312,6 +5316,9 @@ def _test_manager_reporting_data_blocks_master_plan_and_git_conflicts() -> None:
     missing_commit = _manager_reporting_live_git()
     missing_commit["recent_commit_hashes"] = ["a" * 40]
     missing_commit["head"] = "a" * 40
+    # the Worker commit is no longer branch history; the verified head still
+    # is, so the block comes from the commit alone
+    missing_commit["historical_commit_ancestry"] = {"b" * 7: True, "b" * 40: False}
     missing = build_manager_report_from_sources(
         master_plan_snapshot=_manager_reporting_master_snapshot(),
         worker_reports=[worker],
@@ -5408,6 +5415,7 @@ def _test_manager_reporting_checkpoint_adapter_is_restart_safe_and_fail_closed()
     stale_git = _manager_reporting_live_git()
     stale_git["recent_commit_hashes"] = ["a" * 40]
     stale_git["head"] = "a" * 40
+    stale_git["historical_commit_ancestry"] = {"b" * 7: True, "b" * 40: False}
     blocked = build_manager_report_from_checkpoint_sources(
         master_plan_snapshot=snapshot,
         live_git_evidence=stale_git,

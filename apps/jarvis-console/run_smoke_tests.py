@@ -5665,6 +5665,180 @@ def _test_open_created_task_vertical_slice() -> None:
     )
 
 
+def _test_historical_evidence_uses_branch_ancestry() -> None:
+    """Keep milestone evidence valid by history, not by how recent it is."""
+
+    from hermes_manager_pilot import manager_reporting_data
+
+    # task-0126: these cases use fixed answers instead of recomputing from the
+    # live repository. The recomputing assertions elsewhere pass whether the
+    # card is attention or observed, so they cannot pin either direction.
+    healthy_live_git = {
+        "branch": "main",
+        "head": "c" * 40,
+        "status": ["?? jarvis.bat"],
+        "recent_commit_hashes": ["c" * 40],
+        "historical_commit_ancestry": {"a" * 40: True, "b" * 40: True},
+    }
+
+    def snapshot_with(packages, verified_head="a" * 40):
+        return {
+            "source": "docs/master-plan.md",
+            "known_protected_untracked_file": "jarvis.bat",
+            "branch": "main",
+            "verified_implementation_head": verified_head,
+            "manager_reporting_milestone_id": "ancestry-v0.1",
+            "manager_reporting_work_packages": packages,
+        }
+
+    def conflicts_for(snapshot, live_git):
+        return manager_reporting_data._checkpoint_source_conflicts(
+            snapshot,
+            snapshot["manager_reporting_work_packages"],
+            live_git,
+        )
+
+    package = {
+        "work_package_id": "ancestry-v0.1a",
+        "result_type": "implementation",
+        "summary": "fixture package",
+        "commit_hash": "b" * 40,
+    }
+
+    # Case 1 and Case 2: the recorded commits are branch history. Neither is in
+    # the recent list, and that must not matter.
+    assert "c" * 40 not in {"a" * 40, "b" * 40}
+    assert conflicts_for(snapshot_with([package]), healthy_live_git) == ()
+
+    # Case 7: changing the display list alone cannot change the verdict.
+    moved_display = dict(healthy_live_git)
+    moved_display["recent_commit_hashes"] = ["d" * 40, "e" * 40]
+    moved_display["head"] = "d" * 40
+    assert conflicts_for(snapshot_with([package]), moved_display) == ()
+
+    # Case 5 and Case 6: evidence that is not branch history is refused, and the
+    # refusal names the package rather than passing quietly.
+    forged = dict(healthy_live_git)
+    forged["historical_commit_ancestry"] = {"a" * 40: True, "b" * 40: False}
+    forged_conflicts = conflicts_for(snapshot_with([package]), forged)
+    assert any(
+        "ancestry-v0.1a commit is absent" in conflict
+        for conflict in forged_conflicts
+    ), forged_conflicts
+
+    # A verified HEAD outside branch history is refused the same way.
+    unknown_head = dict(healthy_live_git)
+    unknown_head["historical_commit_ancestry"] = {"a" * 40: False, "b" * 40: True}
+    assert any(
+        "Verified implementation HEAD is absent" in conflict
+        for conflict in conflicts_for(snapshot_with([package]), unknown_head)
+    )
+
+    # Case 8: an unanswered commit fails closed rather than defaulting to valid.
+    unanswered = dict(healthy_live_git)
+    unanswered["historical_commit_ancestry"] = {"a" * 40: True}
+    assert any(
+        "ancestry-v0.1a commit is absent" in conflict
+        for conflict in conflicts_for(snapshot_with([package]), unanswered)
+    )
+
+    # Case 3 and Case 4 stay current-state checks and keep blocking.
+    wrong_branch = dict(healthy_live_git)
+    wrong_branch["branch"] = "other"
+    assert any(
+        "Live Git branch differs" in conflict
+        for conflict in conflicts_for(snapshot_with([package]), wrong_branch)
+    )
+    unprotected = dict(healthy_live_git)
+    unprotected["status"] = []
+    assert any(
+        "protected untracked jarvis.bat" in conflict
+        for conflict in conflicts_for(snapshot_with([package]), unprotected)
+    )
+
+    # The ancestry answer itself must be a boolean, so a truthy string cannot
+    # stand in for a verified commit.
+    loose = dict(healthy_live_git)
+    loose["historical_commit_ancestry"] = {"a" * 40: True, "b" * 40: "yes"}
+    try:
+        conflicts_for(snapshot_with([package]), loose)
+    except manager_reporting_data.ManagerReportingDataError:
+        pass
+    else:
+        raise AssertionError("non-boolean ancestry answer was accepted")
+
+    # The probe itself: real history passes, a well-formed but unknown hash does
+    # not, and neither raises.
+    head_hash = run_web_app.run_read_only_git(("rev-parse", "HEAD"))
+    assert run_web_app.commit_is_branch_ancestor(head_hash) is True
+    assert run_web_app.commit_is_branch_ancestor("d" * 40) is False
+    assert run_web_app.commit_is_branch_ancestor("not-a-hash") is False
+    assert run_web_app.commit_is_branch_ancestor("") is False
+
+    # The allowlist accepts exactly one shape and nothing adjacent to it.
+    run_web_app.validate_read_only_git_args(
+        ("merge-base", "--is-ancestor", head_hash, "HEAD")
+    )
+    for rejected in (
+        ("merge-base", "--is-ancestor", head_hash, "main"),
+        ("merge-base", "--is-ancestor", head_hash),
+        ("merge-base", "--is-ancestor", "../etc", "HEAD"),
+        ("merge-base", "--is-ancestor", head_hash.upper(), "HEAD"),
+        ("merge-base", "--independent", head_hash, "HEAD"),
+        ("log", "-n", "500", "HEAD"),
+    ):
+        try:
+            run_web_app.validate_read_only_git_args(rejected)
+        except run_web_app.RegistryError:
+            continue
+        raise AssertionError(f"allowlist accepted {rejected!r}")
+
+    # The exit-code contract, asserted directly because every commit in this
+    # repository is an ancestor of HEAD, so code 1 cannot be produced from a
+    # fixture. 0 is an ancestor, 1 is a commit on another line of history, 128
+    # is a value Git cannot resolve, and anything else was never answered.
+    class _FakeResult:
+        def __init__(self, returncode):
+            self.returncode = returncode
+
+    def _runner(returncode):
+        return lambda *args, **kwargs: _FakeResult(returncode)
+
+    assert run_web_app.commit_is_branch_ancestor("a" * 40, _run=_runner(0)) is True
+    assert run_web_app.commit_is_branch_ancestor("a" * 40, _run=_runner(1)) is False
+    assert run_web_app.commit_is_branch_ancestor("a" * 40, _run=_runner(128)) is False
+    for unanswered in (2, 129, -1):
+        try:
+            run_web_app.commit_is_branch_ancestor("a" * 40, _run=_runner(unanswered))
+        except run_web_app.RegistryError:
+            continue
+        raise AssertionError(f"exit code {unanswered} was treated as an answer")
+
+    # The live payload answers every commit it records, and answers them True.
+    snapshot = run_web_app.read_master_plan_snapshot()
+    recorded = [
+        snapshot["verified_implementation_head"],
+        *[
+            package_row["commit_hash"]
+            for package_row in snapshot["manager_reporting_work_packages"]
+        ],
+    ]
+    answers = run_web_app.historical_commit_ancestry(recorded)
+    assert set(answers) == set(recorded)
+    assert all(answers[commit] is True for commit in recorded), answers
+
+    # And the wiring actually carries those answers: every commit this
+    # repository records is real branch history, so no historical conflict may
+    # reach the live report. A dropped or unanswered commit shows up here.
+    live_card = run_web_app.handle_get_api("/api/overview")[1]["project_control"][
+        "project_cards"
+    ][0]
+    live_conflicts = live_card["manager_report"]["source_conflicts"]
+    assert not [
+        conflict for conflict in live_conflicts if "is absent" in conflict
+    ], live_conflicts
+
+
 def _test_recent_item_ordering() -> None:
     """Keep every Recent/History list newest-first across directories (task-0107).
 
@@ -6117,6 +6291,7 @@ def main() -> None:
     _test_owner_decision_contract()
     _test_project_control_registry_primitives()
     _test_recent_milestone_evidence_contract()
+    _test_historical_evidence_uses_branch_ancestry()
     _test_overview_refresh_write_receipt_separation()
     _test_open_created_task_vertical_slice()
     run_web_app.run_self_test()
@@ -6231,9 +6406,11 @@ def main() -> None:
         overview["repo"]["head"],
         *[commit["hash"] for commit in reporting_evidence["commits"]],
     }
+    # task-0126: historical evidence is verified by branch ancestry, so the
+    # expectation no longer depends on which commits happen to be recent.
     expected_missing_references = []
     verified_head = current_snapshot["verified_implementation_head"]
-    if not any(commit.startswith(verified_head) for commit in available_hashes):
+    if not run_web_app.commit_is_branch_ancestor(verified_head):
         expected_missing_references.append(
             "Verified implementation HEAD is absent from live Git evidence"
         )
@@ -6243,7 +6420,7 @@ def main() -> None:
             "from Git evidence"
         )
         for package in current_snapshot["manager_reporting_work_packages"]
-        if package["commit_hash"] not in available_hashes
+        if not run_web_app.commit_is_branch_ancestor(package["commit_hash"])
     )
     if expected_missing_references:
         assert manager_report_payload["source_conflicts"]
