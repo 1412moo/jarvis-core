@@ -134,8 +134,19 @@ def build_owner_decision_from_snapshot(snapshot: Mapping[str, Any]) -> OwnerDeci
             "snapshot",
         ),
         "candidates": candidates,
-        "selected_workstream_id": None,
-        "desired_outcome": None,
+        # task-0127: the plan may record a decision the Owner already made.
+        # Both stay None when it does not, which is what every unselected
+        # status requires, so the contract keeps rejecting a half-filled one.
+        "selected_workstream_id": _optional_text(
+            snapshot,
+            "owner_decision_selected_workstream_id",
+            "snapshot",
+        ),
+        "desired_outcome": _optional_text(
+            snapshot,
+            "owner_decision_desired_outcome",
+            "snapshot",
+        ),
         "response_template": RESPONSE_TEMPLATE,
         "read_only": True,
     }
@@ -143,6 +154,14 @@ def build_owner_decision_from_snapshot(snapshot: Mapping[str, Any]) -> OwnerDeci
         return normalize_owner_decision(raw)
     except OwnerDecisionError as exc:
         raise OwnerDecisionDataError(f"owner decision snapshot is blocked: {exc}") from exc
+
+
+def _optional_text(data: Mapping[str, Any], field: str, path: str) -> str | None:
+    """Return one trimmed value, or None when the snapshot omits it."""
+
+    if data.get(field) is None:
+        return None
+    return _required_text(data, field, path)
 
 
 def _required_text(data: Mapping[str, Any], field: str, path: str) -> str:

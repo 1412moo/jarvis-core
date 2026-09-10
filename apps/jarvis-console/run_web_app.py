@@ -26,7 +26,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 import webbrowser
 
-from owner_decision import owner_decision_to_dict
+from owner_decision import STATUSES_WITH_SELECTION, owner_decision_to_dict
 from owner_decision_data import OwnerDecisionDataError, build_owner_decision_from_snapshot
 from recent_milestone_evidence import (
     RecentMilestoneEvidenceError,
@@ -97,6 +97,16 @@ MASTER_PLAN_FIELDS = {
     "Approval note": "approval_note",
     "Owner decision status": "owner_decision_status",
     "Owner decision recommendation": "owner_decision_recommended_workstream_id",
+}
+# task-0127: these two describe a decision the Owner has already made, so
+# they are absent whenever no workstream is selected. They are kept out of
+# MASTER_PLAN_FIELDS because every entry there is mandatory, and the owner
+# decision contract refuses a selection unless the status carries one.
+MASTER_PLAN_OPTIONAL_FIELDS = {
+    "Owner decision selected workstream": (
+        "owner_decision_selected_workstream_id"
+    ),
+    "Owner decision desired outcome": "owner_decision_desired_outcome",
 }
 MASTER_PLAN_APPROVAL_STATES = frozenset({"none", "required", "blocked"})
 MASTER_PLAN_MANAGER_REPORTING_STATUSES = frozenset(
@@ -1042,6 +1052,8 @@ def read_master_plan_snapshot(
         label, value = line[2:].split(":", 1)
         key = MASTER_PLAN_FIELDS.get(label.strip())
         if key is None:
+            key = MASTER_PLAN_OPTIONAL_FIELDS.get(label.strip())
+        if key is None:
             continue
         if key in values:
             raise RegistryError(f"master plan field is duplicated: {label.strip()}")
@@ -1053,6 +1065,10 @@ def read_master_plan_snapshot(
     missing = sorted(set(MASTER_PLAN_FIELDS.values()) - set(values))
     if missing:
         raise RegistryError("master plan fields are missing: " + ", ".join(missing))
+    # An absent selection stays absent rather than becoming an empty string,
+    # so a plan written before task-0127 parses exactly as it did before.
+    for optional_key in MASTER_PLAN_OPTIONAL_FIELDS.values():
+        values.setdefault(optional_key, None)
     if values["approval_state"] not in MASTER_PLAN_APPROVAL_STATES:
         raise RegistryError("master plan approval state is invalid")
     if (
@@ -1066,6 +1082,14 @@ def read_master_plan_snapshot(
     ):
         if re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", values[field]) is None:
             raise RegistryError(f"master plan field is not a normalized ID: {field}")
+    selected_workstream = values["owner_decision_selected_workstream_id"]
+    if selected_workstream is not None and (
+        re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", selected_workstream) is None
+    ):
+        raise RegistryError(
+            "master plan field is not a normalized ID: "
+            "owner_decision_selected_workstream_id"
+        )
     values["workstreams"] = _parse_master_plan_workstreams(text)
     values["manager_reporting_work_packages"] = (
         _parse_master_plan_manager_packages(text)
@@ -4456,12 +4480,30 @@ def run_self_test() -> None:
     owner_decision_payload = owner_card["owner_decision"]
     assert owner_decision_payload["contract_type"] == "jarvis_owner_decision"
     assert owner_decision_payload["version"] == "0.1A"
-    assert owner_decision_payload["status"] == "selection_required"
     assert owner_decision_payload["authority_boundary"] == "work_package_proposal_only"
     assert owner_decision_payload["recommended_workstream_id"] == read_master_plan_snapshot()[
         "owner_decision_recommended_workstream_id"
     ]
-    assert owner_decision_payload["selected_workstream_id"] is None
+    # task-0127: the plan may or may not record a selection, so this pins the
+    # payload against the plan rather than against one frozen status. A status
+    # that carries a selection must show both values; every other status must
+    # show neither.
+    assert owner_decision_payload["status"] == read_master_plan_snapshot()["owner_decision_status"]
+    assert owner_decision_payload["selected_workstream_id"] == (
+        read_master_plan_snapshot()["owner_decision_selected_workstream_id"]
+    )
+    assert owner_decision_payload["desired_outcome"] == (
+        read_master_plan_snapshot()["owner_decision_desired_outcome"]
+    )
+    if owner_decision_payload["status"] in STATUSES_WITH_SELECTION:
+        assert owner_decision_payload["selected_workstream_id"] in {
+            candidate["workstream_id"]
+            for candidate in owner_decision_payload["candidates"]
+        }
+        assert owner_decision_payload["desired_outcome"]
+    else:
+        assert owner_decision_payload["selected_workstream_id"] is None
+        assert owner_decision_payload["desired_outcome"] is None
     assert owner_decision_payload["read_only"] is True
     assert len(owner_decision_payload["candidates"]) == 6
     recent_evidence = owner_card["recent_milestone_evidence"]

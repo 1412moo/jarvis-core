@@ -181,8 +181,10 @@ flowchart LR
 - Recent completed: Manual Pilot v0.1A가 Implementer, Reviewer P2 finding, repair, fresh Reviewer/QA, Manager, Director 사이클을 완료. Buzz 통합 Phase 1(task-0039) 완료. task-0047 핸즈온 스파이크(S1~S7) 완료. Phase 2 Buzz Bridge Slice 1(commit `a54316f`) 및 P2-2(`5cf9930`)/P2-3(`11e74e6`) 구현 완료. P2-4/P2-5(`b270f63`) 구현 완료 및 P2-6 Relay 실통합 검증 PASS(task-0050). 감사 해시체인을 승인 경로에 실연동(task-0052)하고 실행 결과를 durable·단일 원자 쓰기로 기록(task-0053/0055). task 기록 canonical 검증 전수 PASS(task-0056/0057).
 - Approval state: required
 - Approval note: SOP v0.1B 승격은 승인됐고 Dashboard, 자동 runtime, push, PR, 외부 호출과 jarvis.bat는 범위 밖이다. Phase 2 전체 통합 확대(task-0038 §6 남은 단계 ②/④/⑤)는 여전히 미승인 — 착수 전 별도 승인이 필요하다. Buzz → Jarvis 인바운드 승인 입력은 Owner 결정으로 범위 밖이고, director-dashboard-v0.1b는 미승인 상태로 보류다.
-- Owner decision status: selection_required
+- Owner decision status: selected_for_proposal
 - Owner decision recommendation: jarvis-console
+- Owner decision selected workstream: jarvis-console
+- Owner decision desired outcome: Jarvis Console을 Jarvis task lifecycle 화면으로 축소해 실제 작업에 반복 사용한다
 
 Phase 2C-4a는 explicit privacy review가 있어야 preview token을 발급하고, exact
 confirmation literal과 server-held canonical snapshot만 writer에 전달한다. Phase

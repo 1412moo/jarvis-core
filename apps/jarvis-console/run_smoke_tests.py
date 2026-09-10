@@ -26,6 +26,7 @@ from owner_decision import (
     MAX_JSON_BYTES,
     PROJECT_ID,
     RESPONSE_TEMPLATE,
+    STATUSES_WITH_SELECTION,
     VERSION as OWNER_DECISION_VERSION,
     OwnerDecisionError,
     normalize_owner_decision,
@@ -892,6 +893,10 @@ def _test_project_control_snapshot() -> None:
             "approval_note": "No approval is needed for the bounded read-only slice",
             "owner_decision_status": "selection_required",
             "owner_decision_recommended_workstream_id": "hermes-manager",
+            # task-0127: this plan declares no selection, so both optional
+            # fields parse as absent rather than as empty text.
+            "owner_decision_selected_workstream_id": None,
+            "owner_decision_desired_outcome": None,
             "manager_reporting_work_packages": [
                 {
                     "work_package_id": "manager-reporting-v0.1a",
@@ -993,9 +998,40 @@ def _test_project_control_snapshot() -> None:
         mismatched_display = json.loads(json.dumps(first))
         mismatched_display["workstreams"][0]["display_name"] = "Hermes"
         assert_decision_data_rejected(mismatched_display, "display name does not match")
+        # task-0127: a selected status still needs both values. Before this
+        # task the adapter hardcoded them to None, so this case was the only
+        # reachable one; now the accepted case below is reachable too.
         selected_without_selection_data = dict(first)
         selected_without_selection_data["owner_decision_status"] = "selected_for_proposal"
         assert_decision_data_rejected(selected_without_selection_data, "selected status requires")
+        half_filled = dict(first)
+        half_filled["owner_decision_status"] = "selected_for_proposal"
+        half_filled["owner_decision_selected_workstream_id"] = "jarvis-console"
+        assert_decision_data_rejected(half_filled, "selected status requires")
+        outcome_only = dict(first)
+        outcome_only["owner_decision_status"] = "selected_for_proposal"
+        outcome_only["owner_decision_desired_outcome"] = "ship the console"
+        assert_decision_data_rejected(outcome_only, "selected status requires")
+        not_a_candidate = dict(first)
+        not_a_candidate["owner_decision_status"] = "selected_for_proposal"
+        not_a_candidate["owner_decision_selected_workstream_id"] = "unknown-workstream"
+        not_a_candidate["owner_decision_desired_outcome"] = "ship the console"
+        assert_decision_data_rejected(not_a_candidate, "selected status requires")
+        # An unselected status must stay empty, so a stray value is refused
+        # rather than silently ignored.
+        unselected_with_choice = dict(first)
+        unselected_with_choice["owner_decision_selected_workstream_id"] = "jarvis-console"
+        unselected_with_choice["owner_decision_desired_outcome"] = "ship the console"
+        assert_decision_data_rejected(unselected_with_choice, "unselected status must not")
+        # The accepted case: a real candidate plus an outcome.
+        selected = dict(first)
+        selected["owner_decision_status"] = "selected_for_proposal"
+        selected["owner_decision_selected_workstream_id"] = "jarvis-console"
+        selected["owner_decision_desired_outcome"] = "ship the console"
+        selected_decision = build_owner_decision_from_snapshot(selected)
+        assert selected_decision.status == "selected_for_proposal"
+        assert selected_decision.selected_workstream_id == "jarvis-console"
+        assert selected_decision.desired_outcome == "ship the console"
         unknown_recommendation = dict(first)
         unknown_recommendation["owner_decision_recommended_workstream_id"] = "unknown"
         assert_decision_data_rejected(unknown_recommendation, "reference a candidate")
@@ -5839,6 +5875,121 @@ def _test_historical_evidence_uses_branch_ancestry() -> None:
     ], live_conflicts
 
 
+def _test_master_plan_optional_selection_fields() -> None:
+    """Let the plan declare a selection without making one mandatory."""
+
+    optional_labels = set(run_web_app.MASTER_PLAN_OPTIONAL_FIELDS)
+    assert optional_labels == {
+        "Owner decision selected workstream",
+        "Owner decision desired outcome",
+    }
+    # task-0127: the two tables must stay disjoint. Every entry in the required
+    # table is mandatory, and a selection is absent for most of a project.
+    assert not optional_labels & set(run_web_app.MASTER_PLAN_FIELDS)
+    assert not set(run_web_app.MASTER_PLAN_OPTIONAL_FIELDS.values()) & set(
+        run_web_app.MASTER_PLAN_FIELDS.values()
+    )
+
+    live = Path(run_web_app.MASTER_PLAN_PATH).read_text(encoding="utf-8")
+    # Take the declared lines from the plan itself rather than restating the
+    # outcome text here, so this test does not go stale when it is reworded.
+    selected_line = next(
+        line
+        for line in live.splitlines()
+        if line.startswith("- Owner decision selected workstream:")
+    )
+    outcome_line = next(
+        line
+        for line in live.splitlines()
+        if line.startswith("- Owner decision desired outcome:")
+    )
+    outcome_value = outcome_line.split(":", 1)[1].strip()
+    selection_lines = f"{selected_line}\n{outcome_line}\n"
+    assert selection_lines in live
+
+    with TemporaryDirectory() as raw_root:
+        root = Path(raw_root).resolve()
+        plan = root / "docs" / "master-plan.md"
+        plan.parent.mkdir(parents=True)
+
+        # Removing both lines must reproduce the pre-task-0127 reading exactly.
+        without_selection = live.replace(selection_lines, "")
+        assert without_selection != live
+        plan.write_text(without_selection, encoding="utf-8")
+        absent = run_web_app.read_master_plan_snapshot(plan, root)
+        assert absent["owner_decision_selected_workstream_id"] is None
+        assert absent["owner_decision_desired_outcome"] is None
+
+        plan.write_text(live, encoding="utf-8")
+        present = run_web_app.read_master_plan_snapshot(plan, root)
+        assert present["owner_decision_selected_workstream_id"] == "jarvis-console"
+        assert present["owner_decision_desired_outcome"]
+
+        # Every other parsed field is identical, so adding the lines changed
+        # nothing except the selection itself.
+        assert {
+            key: value
+            for key, value in absent.items()
+            if not key.startswith("owner_decision_selected")
+            and key != "owner_decision_desired_outcome"
+        } == {
+            key: value
+            for key, value in present.items()
+            if not key.startswith("owner_decision_selected")
+            and key != "owner_decision_desired_outcome"
+        }
+
+        def assert_plan_rejected(text: str, message: str) -> None:
+            plan.write_text(text, encoding="utf-8")
+            try:
+                run_web_app.read_master_plan_snapshot(plan, root)
+            except run_web_app.RegistryError as exc:
+                assert message in str(exc), str(exc)
+            else:
+                raise AssertionError(f"master plan should fail closed: {message}")
+
+        assert_plan_rejected(
+            live.replace(
+                selected_line,
+                "- Owner decision selected workstream: Jarvis Console",
+            ),
+            "not a normalized ID: owner_decision_selected_workstream_id",
+        )
+        # The ID bound is 64 characters, so pin both sides of it.
+        plan.write_text(
+            live.replace(
+                selected_line,
+                "- Owner decision selected workstream: " + "a" * 64,
+            ),
+            encoding="utf-8",
+        )
+        assert run_web_app.read_master_plan_snapshot(plan, root)[
+            "owner_decision_selected_workstream_id"
+        ] == "a" * 64
+        assert_plan_rejected(
+            live.replace(
+                selected_line,
+                "- Owner decision selected workstream: " + "a" * 65,
+            ),
+            "not a normalized ID: owner_decision_selected_workstream_id",
+        )
+        assert_plan_rejected(
+            live.replace(
+                outcome_value,
+                "x" * (run_web_app.MASTER_PLAN_VALUE_MAX_CHARS + 1),
+            ),
+            "empty or too long",
+        )
+        assert_plan_rejected(
+            live.replace(
+                f"{selected_line}\n",
+                f"{selected_line}\n"
+                "- Owner decision selected workstream: hermes-manager\n",
+            ),
+            "duplicated",
+        )
+
+
 def _test_recent_item_ordering() -> None:
     """Keep every Recent/History list newest-first across directories (task-0107).
 
@@ -6291,6 +6442,7 @@ def main() -> None:
     _test_owner_decision_contract()
     _test_project_control_registry_primitives()
     _test_recent_milestone_evidence_contract()
+    _test_master_plan_optional_selection_fields()
     _test_historical_evidence_uses_branch_ancestry()
     _test_overview_refresh_write_receipt_separation()
     _test_open_created_task_vertical_slice()
@@ -6446,13 +6598,30 @@ def main() -> None:
     assert owner_decision_payload["contract_type"] == CONTRACT_TYPE
     assert owner_decision_payload["version"] == OWNER_DECISION_VERSION
     assert owner_decision_payload["project_id"] == PROJECT_ID
-    assert owner_decision_payload["status"] == "selection_required"
+    # task-0127: the plan may or may not record a selection, so this pins the
+    # payload against the plan rather than against one frozen status. A status
+    # that carries a selection must show both values; every other status must
+    # show neither.
+    assert owner_decision_payload["status"] == run_web_app.read_master_plan_snapshot()["owner_decision_status"]
+    assert owner_decision_payload["selected_workstream_id"] == (
+        run_web_app.read_master_plan_snapshot()["owner_decision_selected_workstream_id"]
+    )
+    assert owner_decision_payload["desired_outcome"] == (
+        run_web_app.read_master_plan_snapshot()["owner_decision_desired_outcome"]
+    )
+    if owner_decision_payload["status"] in STATUSES_WITH_SELECTION:
+        assert owner_decision_payload["selected_workstream_id"] in {
+            candidate["workstream_id"]
+            for candidate in owner_decision_payload["candidates"]
+        }
+        assert owner_decision_payload["desired_outcome"]
+    else:
+        assert owner_decision_payload["selected_workstream_id"] is None
+        assert owner_decision_payload["desired_outcome"] is None
     assert owner_decision_payload["authority_boundary"] == AUTHORITY_BOUNDARY
     assert owner_decision_payload["recommended_workstream_id"] == run_web_app.read_master_plan_snapshot()[
         "owner_decision_recommended_workstream_id"
     ]
-    assert owner_decision_payload["selected_workstream_id"] is None
-    assert owner_decision_payload["desired_outcome"] is None
     assert owner_decision_payload["response_template"] == RESPONSE_TEMPLATE
     assert owner_decision_payload["read_only"] is True
     assert len(owner_decision_payload["candidates"]) == 6
