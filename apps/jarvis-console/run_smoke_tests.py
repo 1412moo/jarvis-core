@@ -6429,6 +6429,248 @@ def _test_task_view_attention_priority() -> None:
     )
 
 
+def _test_owner_decision_selected_visibility() -> None:
+    """Show the Owner's selection apart from the recommendation, read-only."""
+
+    app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
+    overview_code, overview = run_web_app.handle_get_api("/api/overview")
+    assert overview_code == HTTPStatus.OK
+    _check_owner_decision_selected_visibility(
+        app_js,
+        overview["project_control"]["project_cards"][0],
+    )
+
+
+def _check_owner_decision_selected_visibility(
+    app_js: str,
+    live_card: dict[str, Any],
+) -> None:
+    # task-0128: the source is an argument so a mutation probe can feed an
+    # edited copy without touching web/app.js.
+    live_decision = live_card["owner_decision"]
+    # This is a display change only; the payload keeps exactly its 13 keys.
+    assert set(live_decision) == {
+        "contract_type",
+        "version",
+        "project_id",
+        "decision_kind",
+        "status",
+        "reason",
+        "authority_boundary",
+        "recommended_workstream_id",
+        "candidates",
+        "selected_workstream_id",
+        "desired_outcome",
+        "response_template",
+        "read_only",
+    }
+
+    def js_function(name: str) -> str:
+        body = app_js.split(f"function {name}(", 1)[1].split("\nfunction ", 1)[0]
+        return f"function {name}({body}"
+
+    renderer_names = (
+        "isOwnerDecisionContract",
+        "ownerDecisionSelection",
+        "renderOwnerSelectionFact",
+        "ownerDecisionCandidateBadges",
+        "renderOwnerDecision",
+    )
+    # S7: every selection surface stays display-only.
+    for name in renderer_names:
+        source = js_function(name)
+        for forbidden in (
+            "<button",
+            "<form",
+            "<input",
+            "fetch(",
+            "navigator.clipboard",
+            "addEventListener",
+            "/api/",
+        ):
+            assert forbidden not in source, f"{name} must stay display-only: {forbidden}"
+    assert "/api/owner-decision" not in app_js
+    assert "/api/owner-decision" not in Path(run_web_app.__file__).read_text(
+        encoding="utf-8"
+    )
+
+    # The fact sits in the top summary table and outside the owner_action gate,
+    # which still hides only the Decision section.
+    project_control_source = js_function("renderProjectControl")
+    fact_call = "${renderOwnerSelectionFact(ownerDecision)}"
+    facts_start = project_control_source.index(
+        '<dl class="overview-facts owner-milestone-facts">'
+    )
+    facts_end = project_control_source.index("</dl>", facts_start)
+    assert project_control_source.count(fact_call) == 1, "selection fact must render once, ungated"
+    assert facts_start < project_control_source.index(fact_call) < facts_end
+    assert (
+        '${managerReport?.owner_action === "none" ? "" : renderOwnerDecision(ownerDecision)}'
+        in project_control_source
+    )
+
+    names = {
+        candidate["workstream_id"]: candidate["display_name"]
+        for candidate in live_decision["candidates"]
+    }
+    outcome = "Use the Console as the Task lifecycle screen"
+    hostile = "<img src=x onerror=alert(1)> & \"q\" 'q'"
+
+    def decision(**changes: Any) -> dict[str, Any]:
+        value = json.loads(json.dumps(live_decision))
+        value.update(
+            {
+                "status": "selected_for_proposal",
+                "recommended_workstream_id": "jarvis-console",
+                "selected_workstream_id": "jarvis-console",
+                "desired_outcome": outcome,
+            }
+        )
+        value.update(changes)
+        return value
+
+    cases = {
+        "s1": decision(),
+        "s2": decision(selected_workstream_id="hermes-manager"),
+        "s3": decision(
+            status="selection_required",
+            selected_workstream_id=None,
+            desired_outcome=None,
+        ),
+        "s4": decision(status="superseded"),
+        "s5_contract": decision(contract_type="jarvis_other_decision"),
+        "s5_version": decision(version="0.2"),
+        "s5_read_only": decision(read_only=False),
+        "s5_missing": None,
+        "s6": decision(desired_outcome=hostile),
+        "s8": live_decision,
+    }
+    harness = (
+        "\n".join(js_function(name) for name in ("escapeHtml", "listMarkup", *renderer_names))
+        + f"\nconst cases = {json.dumps(cases, ensure_ascii=False)};\n"
+        + r"""
+const results = {};
+for (const [name, decision] of Object.entries(cases)) {
+  const section = renderOwnerDecision(decision);
+  const badges = {};
+  for (const card of section.matchAll(/<h5>([^<]*)<\/h5>\s*<div class="overview-badges">([\s\S]*?)<\/div>/g)) {
+    badges[card[1]] = [...card[2].matchAll(/<span class="overview-badge[^"]*">([^<]*)<\/span>/g)].map((badge) => badge[1]);
+  }
+  const facts = {};
+  for (const fact of section.matchAll(/<dt>([^<]*)<\/dt><dd>([\s\S]*?)<\/dd>/g)) {
+    facts[fact[1]] = fact[2];
+  }
+  results[name] = {
+    section,
+    badges,
+    facts,
+    top: renderOwnerSelectionFact(decision),
+    selection: ownerDecisionSelection(decision),
+  };
+}
+process.stdout.write(JSON.stringify(results));
+"""
+    )
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, (
+        "Owner selection renderer harness failed: "
+        f"{completed.stdout}\n{completed.stderr}"
+    )
+    results = json.loads(completed.stdout)
+
+    def js_escape(value: str) -> str:
+        return (
+            value.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#039;")
+        )
+
+    def top_fact(value: str) -> str:
+        return f"<div><dt>현재 선택 workstream</dt><dd>{value}</dd></div>"
+
+    def assert_badges(result: dict[str, Any], expected: dict[str, list[str]]) -> None:
+        assert set(result["badges"]) == set(names.values()), result["badges"]
+        for workstream_id, display_name in names.items():
+            assert result["badges"][display_name] == expected.get(
+                workstream_id, ["Candidate"]
+            ), (workstream_id, result["badges"][display_name])
+
+    # S1: selected and recommended are the same workstream, so both badges show.
+    s1 = results["s1"]
+    assert_badges(s1, {"jarvis-console": ["Selected", "Recommended"]})
+    assert s1["selection"] == {
+        "workstreamId": "jarvis-console",
+        "displayName": "Jarvis Console",
+        "desiredOutcome": outcome,
+    }
+    assert s1["facts"]["현재 선택"] == "jarvis-console"
+    assert s1["facts"]["원하는 결과"] == outcome
+    assert s1["top"] == top_fact(f"Jarvis Console (jarvis-console) — {outcome}")
+
+    # S2: each badge lands on its own card.
+    s2 = results["s2"]
+    assert_badges(s2, {"hermes-manager": ["Selected"], "jarvis-console": ["Recommended"]})
+    assert s2["facts"]["현재 선택"] == "hermes-manager"
+    assert s2["facts"]["추천 workstream"] == "<code>jarvis-console</code>"
+    assert s2["top"] == top_fact(f"Hermes Manager (hermes-manager) — {outcome}")
+
+    # S3 / S4: no current selection keeps the existing fallbacks.
+    for name in ("s3", "s4"):
+        result = results[name]
+        assert_badges(result, {"jarvis-console": ["Recommended"]})
+        assert result["selection"] is None, name
+        assert ">Selected<" not in result["section"], name
+        assert result["facts"]["현재 선택"] == "Not selected", name
+        assert result["facts"]["원하는 결과"] == "Not provided", name
+        assert result["top"] == top_fact("Not selected"), name
+
+    # S5: a failed contract guard never guesses a selection.
+    for name in ("s5_contract", "s5_version", "s5_read_only", "s5_missing"):
+        result = results[name]
+        assert "Unavailable" in result["section"], name
+        assert ">Selected<" not in result["section"], name
+        assert result["selection"] is None, name
+        assert result["top"] == top_fact("Unavailable"), name
+
+    # S6: the outcome is escaped in both places it appears.
+    s6 = results["s6"]
+    assert "<img" not in s6["section"]
+    assert "<img" not in s6["top"]
+    assert s6["facts"]["원하는 결과"] == js_escape(hostile)
+    assert s6["top"] == top_fact(
+        f"Jarvis Console (jarvis-console) — {js_escape(hostile)}"
+    )
+
+    # S8: the live payload renders what the master plan declares.
+    snapshot = run_web_app.read_master_plan_snapshot()
+    assert live_decision["status"] == snapshot["owner_decision_status"]
+    recommended_id = snapshot["owner_decision_recommended_workstream_id"]
+    expected: dict[str, list[str]] = {recommended_id: ["Recommended"]}
+    live = results["s8"]
+    if snapshot["owner_decision_status"] == "selected_for_proposal":
+        selected_id = snapshot["owner_decision_selected_workstream_id"]
+        expected[selected_id] = ["Selected", *expected.get(selected_id, [])]
+        assert live["top"] == top_fact(
+            f"{js_escape(names[selected_id])} ({selected_id}) — "
+            f"{js_escape(snapshot['owner_decision_desired_outcome'])}"
+        )
+    else:
+        assert ">Selected<" not in live["section"]
+        assert live["top"] == top_fact("Not selected")
+    assert_badges(live, expected)
+
+
 def main() -> None:
     _test_tasks_reports_registry_copy()
     _test_recent_item_ordering()
@@ -6443,6 +6685,7 @@ def main() -> None:
     _test_project_control_registry_primitives()
     _test_recent_milestone_evidence_contract()
     _test_master_plan_optional_selection_fields()
+    _test_owner_decision_selected_visibility()
     _test_historical_evidence_uses_branch_ancestry()
     _test_overview_refresh_write_receipt_separation()
     _test_open_created_task_vertical_slice()

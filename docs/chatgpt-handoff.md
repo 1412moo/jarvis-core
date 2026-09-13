@@ -195,6 +195,8 @@ The persistent right panel displays Current Status, Suggested Next Action, and S
 
 Actionable Task View groups are `Needs metadata review`, `Needs attention`, `In progress`, `Ready`, and `Completed`. Since task-0114 the view scans every Task candidate, validates them, and then caps the priority-ordered projection, so attention items are not pushed out by newer files; it shows at most ten and is not a complete backlog.
 
+Since task-0128 the owner card's `현재 위치와 다음 결정` facts begin with `현재 선택 workstream`, so the Owner sees the current selection without scrolling to the `다음 workstream 결정` section. It shows the display name, ID, and desired outcome only when the Owner Decision is `selected_for_proposal`; `selection_required` and `superseded` read `Not selected`, and a payload that fails the renderer's contract guard reads `Unavailable` rather than a guessed selection. The row is rendered outside the `owner_action` gate, which still hides only the Decision section. In that section each candidate card carries `Selected`, `Recommended`, both when they name the same workstream, or `Candidate`; a recommendation is never folded into a selection. `Selected` records the Owner's workstream choice for a work-package proposal only. It is not implementation approval, and it adds no control, route, fetch, or write.
+
 Current Project Control projection at the observed HEAD:
 
 - Project card: `attention`.

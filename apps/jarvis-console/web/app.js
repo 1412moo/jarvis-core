@@ -1727,6 +1727,7 @@ function renderProjectControl(projectControl) {
                       <span class="overview-badge ${approvalState === "none" ? "read-only" : "approval-needed"}">${escapeHtml(approvalLabel)}</span>
                     </div>
                     <dl class="overview-facts owner-milestone-facts">
+                      ${renderOwnerSelectionFact(ownerDecision)}
                       <div><dt>최근 완료</dt><dd>${escapeHtml(ownerSummary.recent_completed || "Not supplied")}</dd></div>
                       <div><dt>현재 milestone</dt><dd>${escapeHtml(ownerSummary.current_milestone || card.current_milestone || "Not supplied")}</dd></div>
                       <div><dt>다음 사용자 체감 결과</dt><dd>${escapeHtml(ownerSummary.next_user_visible_milestone || card.next_user_visible_milestone || "Not supplied")}</dd></div>
@@ -1802,13 +1803,69 @@ function renderProjectControl(projectControl) {
   `;
 }
 
-function renderOwnerDecision(ownerDecision) {
+function isOwnerDecisionContract(ownerDecision) {
+  return Boolean(
+    ownerDecision &&
+      ownerDecision.contract_type === "jarvis_owner_decision" &&
+      ownerDecision.version === "0.1A" &&
+      ownerDecision.read_only === true,
+  );
+}
+
+// task-0128: only selected_for_proposal names a current Owner selection.
+// superseded still carries the old values, but no authority carries forward,
+// so it reads as no selection. A selection is never implementation approval.
+function ownerDecisionSelection(ownerDecision) {
   if (
-    !ownerDecision ||
-    ownerDecision.contract_type !== "jarvis_owner_decision" ||
-    ownerDecision.version !== "0.1A" ||
-    ownerDecision.read_only !== true
+    !isOwnerDecisionContract(ownerDecision) ||
+    ownerDecision.status !== "selected_for_proposal" ||
+    !ownerDecision.desired_outcome
   ) {
+    return null;
+  }
+  const candidates = Array.isArray(ownerDecision.candidates) ? ownerDecision.candidates : [];
+  const selected = candidates.find(
+    (candidate) => candidate && candidate.workstream_id === ownerDecision.selected_workstream_id,
+  );
+  if (!selected) {
+    return null;
+  }
+  return {
+    workstreamId: selected.workstream_id,
+    displayName: selected.display_name || selected.workstream_id,
+    desiredOutcome: ownerDecision.desired_outcome,
+  };
+}
+
+function renderOwnerSelectionFact(ownerDecision) {
+  const selection = ownerDecisionSelection(ownerDecision);
+  let value = "Not selected";
+  if (!isOwnerDecisionContract(ownerDecision)) {
+    value = "Unavailable";
+  } else if (selection) {
+    value = `${escapeHtml(selection.displayName)} (${escapeHtml(selection.workstreamId)}) — ${escapeHtml(selection.desiredOutcome)}`;
+  }
+  return `<div><dt>현재 선택 workstream</dt><dd>${value}</dd></div>`;
+}
+
+function ownerDecisionCandidateBadges(candidate, ownerDecision, selection) {
+  // A candidate that is both selected and recommended keeps both badges, so
+  // the recommendation is never folded into the selection.
+  const badges = [];
+  if (selection && candidate.workstream_id === selection.workstreamId) {
+    badges.push('<span class="overview-badge source-area">Selected</span>');
+  }
+  if (candidate.workstream_id === ownerDecision.recommended_workstream_id) {
+    badges.push('<span class="overview-badge read-only">Recommended</span>');
+  }
+  if (!badges.length) {
+    badges.push('<span class="overview-badge read-only">Candidate</span>');
+  }
+  return `<div class="overview-badges">${badges.join("")}</div>`;
+}
+
+function renderOwnerDecision(ownerDecision) {
+  if (!isOwnerDecisionContract(ownerDecision)) {
     return `
       <section class="workstream-status-section safety-card">
         <div class="overview-section-heading">
@@ -1821,8 +1878,9 @@ function renderOwnerDecision(ownerDecision) {
   }
 
   const candidates = Array.isArray(ownerDecision.candidates) ? ownerDecision.candidates : [];
-  const selectedWorkstream = ownerDecision.selected_workstream_id || "Not selected";
-  const desiredOutcome = ownerDecision.desired_outcome || "Not provided";
+  const selection = ownerDecisionSelection(ownerDecision);
+  const selectedWorkstream = selection ? selection.workstreamId : "Not selected";
+  const desiredOutcome = selection ? selection.desiredOutcome : "Not provided";
   return `
     <section class="workstream-status-section">
       <div class="overview-section-heading">
@@ -1850,7 +1908,7 @@ function renderOwnerDecision(ownerDecision) {
               <article class="workstream-status-card">
                 <div class="overview-section-heading">
                   <h5>${escapeHtml(candidate.display_name || candidate.workstream_id || "Unknown workstream")}</h5>
-                  ${candidate.workstream_id === ownerDecision.recommended_workstream_id ? '<span class="overview-badge read-only">Recommended</span>' : '<span class="overview-badge read-only">Candidate</span>'}
+                  ${ownerDecisionCandidateBadges(candidate, ownerDecision, selection)}
                 </div>
                 <p><strong>현재 사용자 기능</strong>${escapeHtml(candidate.current_capability || "Not supplied")}</p>
                 <p><strong>선택 후 사용자 결과</strong>${escapeHtml(candidate.next_user_outcome || "Not supplied")}</p>
