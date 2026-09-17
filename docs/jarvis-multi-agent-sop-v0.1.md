@@ -83,6 +83,12 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
   fail closed로 처리한다.
 - 최종 Manager Report 또는 한 개의 bounded escalation을 Director에게 제출한다.
 - tracked file을 직접 수정하지 않는다.
+- Owner 승인 메시지의 포함·제외 조건을 task 기록에 요약 없이 원문 그대로
+  인용한다. Manager의 해석은 원문 인용과 구분해 따로 적는다.
+- 승인 원문의 조건끼리, 또는 승인 원문과 제안서가 충돌하면 구현을 시작하지
+  않고 충돌한 조건을 인용한 bounded question을 Director에게 escalation해 Owner
+  결정을 받는다. 그 질문과 답도 원문 그대로 task 기록에 남긴다.
+- Reviewer assignment에는 Manager 요약과 함께 Owner 승인 원문을 전달한다.
 
 ### Implementer
 
@@ -98,6 +104,8 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
 - Manager가 지정한 exact candidate commit에 고정된다.
 - strict read-only로 diff와 관련 contract를 검토한다.
 - actionable finding만 severity, evidence와 최소 correction 조건으로 보고한다.
+- Manager 요약과 Owner 승인 원문을 함께 받고, diff의 범위는 승인 원문을 기준으로
+  대조한다. Manager 요약이 승인 원문과 다르면 그 차이를 finding으로 보고한다.
 - tracked/untracked file을 수정하거나 stage/commit하지 않는다.
 - pass는 QA pass나 release 권한을 뜻하지 않는다.
 
@@ -167,6 +175,11 @@ escalation한다.
 - push 또는 PR 필요
 - 기존 안전 계약과 승인된 요구의 충돌
 - baseline 이후 예상하지 못한 저장소 변경, branch/HEAD drift 또는 file ownership 충돌
+
+Owner 승인 원문의 조건끼리 또는 승인 원문과 제안서가 충돌하는 경우는 위 목록의
+안전 계약·승인 요구 충돌 gate(`gate_safety_conflict`)에 해당한다. 별도 gate를 두지
+않고 구현 전에 §3 Manager의 bounded question을 위와 같이 Manager → Director로
+escalation해 처리한다.
 
 Director는 필요한 Owner 결정 한 가지만 명확히 보고한다. 안전하게 좁힐 수 없는
 상태를 추정으로 통과시키지 않는다.
