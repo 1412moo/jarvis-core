@@ -2,10 +2,10 @@
 
 - id: `task-0133-sop-owner-approval-text-verbatim`
 - title: `Multi-Agent SOP 보강 — Owner 승인 조건 원문 기록, 충돌 시 구현 전 질문, Reviewer 원문 대조`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-17 12:01 UTC`
-- updated_at: `2026-09-17 12:01 UTC`
+- updated_at: `2026-09-17 12:37 UTC`
 - summary: `task-0132 에서 Owner 가 승인 메시지로 제외한 Roadmap 변경이 Reviewer PASS 와 QA PASS 를 받은 candidate 에 들어 있었고 Owner 가 직접 찾았다. Reviewer 와 QA 가 받은 계약이 Owner 승인 원문이 아니라 Manager 요약이었고 그 요약이 원문과 달랐다. SOP 3 절 Manager 에 승인 조건 원문 인용과 충돌 시 구현 전 질문을, Reviewer 에 원문 대조를, 6 절에 원문 충돌이 기존 gate_safety_conflict 의 사례임을 추가한다. validator, agent 정의, budget, candidate 규칙, 기존 task, Console 문서는 무변경. DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
 - source_command: `Owner 가 승인한 task-0133 SOP 보강 work package 지시`
 
