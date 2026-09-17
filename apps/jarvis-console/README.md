@@ -172,7 +172,10 @@ Record Completion Evidence is a separate append-once flow for a valid
 direct-child `DOING` Task selected by Actionable Task View. Preview accepts only
 `task_id` and `completion_evidence`. The value must be a safe one-line string;
 it is normalized to NFC, trimmed, has remaining whitespace collapsed to ASCII
-spaces, and is limited to 1–500 Unicode code points.
+spaces, and is limited to 1–500 Unicode code points. An empty or
+whitespace-only input is not sent: the browser shows local guidance, clears any
+held Evidence Preview, and records nothing. The server remains the validator for
+every value it receives.
 
 Confirm accepts only the server-held token and exact `RECORD EVIDENCE` literal.
 Under a feature-local lock it rechecks path, Task grammar, `DOING` status,

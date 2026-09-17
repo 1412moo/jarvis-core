@@ -3604,6 +3604,53 @@ def _test_completion_evidence_vertical_slice() -> None:
         assert run_web_app.normalize_completion_evidence("x" * 500) == "x" * 500
         assert run_web_app.normalize_completion_evidence(1) is None
 
+        # task-0131: the browser stops empty input before sending, but the
+        # server contract is unchanged and still rejects it on its own.
+        for empty_value in ("", "   "):
+            assert run_web_app.preview_completion_evidence(
+                {"task_id": "task-9001-evidence", "completion_evidence": empty_value},
+                tasks_dir=tasks_dir,
+            ) == (
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": "completion_evidence_invalid_value"},
+            )
+        # read_text already translates newlines; normalizing again keeps the
+        # "\n"-based splits below correct whatever the checkout's line endings.
+        app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(
+            encoding="utf-8"
+        ).replace("\r\n", "\n")
+        assert (
+            'const COMPLETION_EVIDENCE_EMPTY_MESSAGE = (\n'
+            '  "Enter completion evidence before Record Evidence. '
+            'Nothing was sent or recorded."\n'
+            ');'
+        ) in app_js
+        evidence_preview_source = app_js.split(
+            "async function previewCompletionEvidence",
+            1,
+        )[1].split("async function confirmCompletionEvidence", 1)[0]
+        empty_guard = "if (!completionEvidence.trim()) {"
+        preview_fetch = 'fetch("/api/completion-evidence/preview"'
+        assert evidence_preview_source.count(empty_guard) == 1
+        assert (
+            evidence_preview_source.index(empty_guard)
+            < evidence_preview_source.index("completionEvidenceBusy = true;")
+            < evidence_preview_source.index(preview_fetch)
+        )
+        guard_block = evidence_preview_source.split(empty_guard, 1)[1].split(
+            "\n    return;\n", 1
+        )[0]
+        assert preview_fetch not in guard_block
+        for cleared in (
+            'completionEvidenceToken = "";',
+            'completionEvidenceConfirmation = "";',
+            'completionEvidenceTaskId = "";',
+        ):
+            assert cleared in guard_block
+        assert "escapeHtml(COMPLETION_EVIDENCE_EMPTY_MESSAGE)" in guard_block
+        assert "statusText.textContent = COMPLETION_EVIDENCE_EMPTY_MESSAGE;" in guard_block
+        assert "<strong>Record Evidence:</strong>" in guard_block
+
         task_id = "task-9001-evidence"
         task_path = tasks_dir / f"{task_id}.md"
         original = task_bytes(task_id, newline="\r\n")

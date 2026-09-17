@@ -36,6 +36,9 @@ let completionEvidenceConfirmation = "";
 let completionEvidenceTaskId = "";
 let completionEvidenceBusy = false;
 let completionEvidenceLastReceipt = null;
+const COMPLETION_EVIDENCE_EMPTY_MESSAGE = (
+  "Enter completion evidence before Record Evidence. Nothing was sent or recorded."
+);
 let overviewRequestGeneration = 0;
 let overviewSettledGeneration = 0;
 let overviewHasRendered = false;
@@ -1009,6 +1012,21 @@ async function previewCompletionEvidence(button) {
   const input = button.closest(".suggestion-actions")?.querySelector(".completion-evidence-input");
   const completionEvidence = input?.value || "";
   const target = completionEvidenceResultElement(taskId);
+  // task-0131: an empty value would only return the server's invalid-value
+  // code, shown under this card where it read as a Complete Preview failure.
+  // Say so locally and send nothing; the server still validates everything
+  // else. Clearing the held preview keeps an earlier one from staying
+  // confirmable after its input was emptied.
+  if (!completionEvidence.trim()) {
+    completionEvidenceToken = "";
+    completionEvidenceConfirmation = "";
+    completionEvidenceTaskId = "";
+    if (target) {
+      target.innerHTML = `<p class="safety-note"><strong>Record Evidence:</strong> ${escapeHtml(COMPLETION_EVIDENCE_EMPTY_MESSAGE)}</p>`;
+    }
+    statusText.textContent = COMPLETION_EVIDENCE_EMPTY_MESSAGE;
+    return;
+  }
   completionEvidenceBusy = true;
   completionEvidenceLastReceipt = null;
   if (target) {
