@@ -2934,6 +2934,94 @@ def _test_task_transition_vertical_slice() -> None:
             complete_preview["preview"]["warning"]
             == run_web_app.TASK_TRANSITION_COMPLETE_WARNING
         )
+        # task-0130: Complete shows the recorded evidence, or null when none is
+        # recorded. Showing it is not an evaluation, so the preview succeeds and
+        # keeps the same warning either way.
+        assert complete_preview["preview"]["completion_evidence"] is None
+        assert set(complete_preview["preview"]) == {
+            *start_preview["preview"],
+            "completion_evidence",
+        }
+
+        evidence_path, evidence_raw = write_task(
+            "task-8130-evidence-shown",
+            "DOING",
+            extra_lines=("- completion_evidence: `commit abc1234 smoke passed`",),
+        )
+        evidence_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory("evidenceshowntasktransitiontoken"),
+        )
+        evidence_preview_status, evidence_preview = (
+            run_web_app.preview_task_transition(
+                {"task_id": "task-8130-evidence-shown", "action": "complete"},
+                registry=evidence_registry,
+                tasks_dir=tasks_dir,
+                utc_now=fixed_utc,
+            )
+        )
+        assert evidence_preview_status == HTTPStatus.OK
+        assert evidence_path.read_bytes() == evidence_raw
+        assert (
+            evidence_preview["preview"]["completion_evidence"]
+            == "commit abc1234 smoke passed"
+        )
+        assert (
+            evidence_preview["preview"]["warning"]
+            == run_web_app.TASK_TRANSITION_COMPLETE_WARNING
+        )
+        assert evidence_preview["confirmation_literal"] == "COMPLETE TASK"
+
+        # Evidence appended after preview must not be completed under a value
+        # the Owner never saw: the existing snapshot digest rejects it.
+        late_path, late_raw = write_task("task-8131-evidence-late", "DOING")
+        late_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory("evidencelatetasktransitiontoken"),
+        )
+        late_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8131-evidence-late", "action": "complete"},
+            registry=late_registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )[1]
+        assert late_preview["preview"]["completion_evidence"] is None
+        late_path.write_bytes(
+            late_raw
+            + b"- completion_evidence: `recorded after preview`\r\n"
+        )
+        assert run_web_app.confirm_task_transition(
+            {
+                "token": late_preview["token"],
+                "confirmation": "COMPLETE TASK",
+            },
+            registry=late_registry,
+            tasks_dir=tasks_dir,
+        ) == (
+            HTTPStatus.CONFLICT,
+            {"ok": False, "error": "task_changed_since_preview"},
+        )
+        assert b"- status: `DOING`" in late_path.read_bytes()
+
+        # No-evidence Complete is not blocked: confirm still succeeds.
+        bare_path, _ = write_task("task-8132-evidence-absent", "DOING")
+        bare_registry = run_web_app.TaskTransitionRegistry(
+            token_factory=TokenFactory("evidenceabsenttasktransitiontoken"),
+        )
+        bare_preview = run_web_app.preview_task_transition(
+            {"task_id": "task-8132-evidence-absent", "action": "complete"},
+            registry=bare_registry,
+            tasks_dir=tasks_dir,
+            utc_now=fixed_utc,
+        )[1]
+        assert bare_preview["preview"]["completion_evidence"] is None
+        assert run_web_app.confirm_task_transition(
+            {
+                "token": bare_preview["token"],
+                "confirmation": "COMPLETE TASK",
+            },
+            registry=bare_registry,
+            tasks_dir=tasks_dir,
+        )[0] == HTTPStatus.OK
+        assert b"- status: `DONE`" in bare_path.read_bytes()
 
         assert run_web_app.preview_task_transition(
             {"task_id": "task-8001-start", "action": "start", "path": "x"},
@@ -3387,6 +3475,20 @@ def _test_task_transition_vertical_slice() -> None:
         assert "escapeHtml(preview.transition || \"\")" in transition_renderer
         assert "escapeHtml(preview.proposed_state || \"\")" in transition_renderer
         assert "escapeHtml(preview.warning)" in transition_renderer
+        # task-0130: the row renders only when the payload carries the field
+        # (Complete), escapes the recorded value, and names absence plainly.
+        assert '"completion_evidence" in preview' in transition_renderer
+        assert (
+            'escapeHtml(preview.completion_evidence || "Not recorded")'
+            in transition_renderer
+        )
+        preview_renderer = app_js.split(
+            "function renderTaskTransitionPreview",
+            1,
+        )[1].split("async function previewTaskTransition", 1)[0]
+        assert "<dt>Completion evidence</dt>" in preview_renderer
+        assert "has_completion_evidence" not in preview_renderer
+        assert "disabled" not in preview_renderer
         assert "escapeHtml(receipt.transition || \"\")" in transition_renderer
         assert "await loadOverview({ announce: false })" in transition_renderer
         transition_source = (
@@ -3395,6 +3497,13 @@ def _test_task_transition_vertical_slice() -> None:
             + inspect.getsource(run_web_app.TaskTransitionRegistry)
         ).lower().replace("fullmatch", "")
         assert 'task_view["summary"]' not in transition_source
+        # task-0130: evidence is displayed by preview only; confirm and the
+        # registry never read it, so it cannot allow or block Complete.
+        confirm_source = (
+            inspect.getsource(run_web_app.confirm_task_transition)
+            + inspect.getsource(run_web_app.TaskTransitionRegistry)
+        )
+        assert "completion_evidence" not in confirm_source
         assert "openai" not in transition_source
         assert "llm" not in transition_source
         assert "subprocess" not in transition_source

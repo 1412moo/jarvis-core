@@ -159,6 +159,13 @@ lock, then atomically changes only `status` and `updated_at`.
 These transitions do not execute Task work. Complete does not infer or validate
 verification evidence.
 
+Complete Preview shows the `completion_evidence` value recorded in the same
+digest-bound snapshot, or `Not recorded` when none is recorded (payload `null`).
+Showing it is not an evaluation: Jarvis does not judge whether the evidence
+exists or is valid, a recorded value does not approve Complete, and a missing
+value does not block it. The Owner reads the value and decides. Start Preview
+does not carry the field.
+
 ## Record Completion Evidence
 
 Record Completion Evidence is a separate append-once flow for a valid

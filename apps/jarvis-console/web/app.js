@@ -1148,6 +1148,11 @@ function renderTaskTransitionPreview(data) {
         <div><dt>Proposed State</dt><dd>${escapeHtml(preview.proposed_state || "")}</dd></div>
         <div><dt>Updated at</dt><dd>${escapeHtml(preview.updated_at || "")}</dd></div>
         <div><dt>Storage location</dt><dd><code>${escapeHtml(preview.storage_location || "")}</code></dd></div>
+        ${
+          "completion_evidence" in preview
+            ? `<div><dt>Completion evidence</dt><dd>${escapeHtml(preview.completion_evidence || "Not recorded")}</dd></div>`
+            : ""
+        }
         <div><dt>Execution</dt><dd>${preview.no_execution ? "No execution" : "Unavailable"}</dd></div>
       </dl>
       <p class="muted">${escapeHtml(preview.notice || "")}</p>

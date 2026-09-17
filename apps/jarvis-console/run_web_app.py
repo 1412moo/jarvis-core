@@ -2729,26 +2729,33 @@ def preview_task_transition(
     issue_status, issued = registry.issue(record)
     if issue_status != HTTPStatus.OK:
         return issue_status, issued
+    preview = {
+        "task_id": task_id,
+        "title": snapshot_view["title"],
+        "current_state": snapshot_status,
+        "transition": f"{snapshot_status} \u2192 {target_status}",
+        "proposed_state": target_status,
+        "updated_at": planned_updated_at,
+        "storage_location": storage_location,
+        "no_execution": True,
+        "notice": TASK_TRANSITION_NOTICE,
+        "warning": (
+            TASK_TRANSITION_COMPLETE_WARNING if action == "complete" else ""
+        ),
+    }
+    if action == "complete":
+        # task-0130: the warning asks the Owner to confirm only when evidence
+        # is recorded, so Complete shows what is recorded. The value comes from
+        # the same digest-bound snapshot the token protects. Showing it is not
+        # an evaluation: nothing here or in confirm reads it to allow or block.
+        preview["completion_evidence"] = snapshot_view["completion_evidence"]
     return HTTPStatus.OK, {
         "ok": True,
         "product_name": TASK_TRANSITION_PRODUCT_NAME,
         "token": issued["token"],
         "expires_in_seconds": issued["expires_in_seconds"],
         "confirmation_literal": confirmation_literal,
-        "preview": {
-            "task_id": task_id,
-            "title": snapshot_view["title"],
-            "current_state": snapshot_status,
-            "transition": f"{snapshot_status} \u2192 {target_status}",
-            "proposed_state": target_status,
-            "updated_at": planned_updated_at,
-            "storage_location": storage_location,
-            "no_execution": True,
-            "notice": TASK_TRANSITION_NOTICE,
-            "warning": (
-                TASK_TRANSITION_COMPLETE_WARNING if action == "complete" else ""
-            ),
-        },
+        "preview": preview,
     }
 
 
