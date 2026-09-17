@@ -107,12 +107,41 @@ JS `trim()` 이 제거하는 문자만으로 된 입력은 서버도 받지 않�
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=2 (Owner 증액), repair_count=2
+retry_budget=1, retry_count=0, repair_budget=3 (Owner 가 2 로, 다시 3 으로 증액), repair_count=3
 
 | # | 원인 | 조치 |
 | --- | --- | --- |
 | 1 | Reviewer minor: 첫 candidate `08099bcfc725ec744e9273924aa6727c77ed975f` 에서 25 문자 서버 거부 확인 문단이 Implementer 보고 표기 없이 확인된 사실처럼 적혔다 | 그 문단에 Implementer 보고, QA 재현 대상 표기. 코드·테스트 무변경. 새 candidate 에 fresh Reviewer → QA |
 | 2 | Reviewer minor: candidate `7058217795c2032d07de6d4c0af00b48518d1b63` 에서 guard_block 을 `"\n    return;\n"` 로 자르는 테스트가 CRLF checkout 에서 깨질 수 있다고 지적. `Path.read_text` 가 이미 줄바꿈을 변환해 재현되지 않았지만(디스크 CRLF 2519, 읽은 텍스트 CR 0), repair budget 1 소진으로 Owner 에게 escalation. Owner 가 repair budget 을 2 로 증액하고 반영을 결정 | 테스트에서 app.js 를 읽은 직후 `.replace("\r\n", "\n")` 로 명시 정규화하고 상수 assertion 의 중복 replace 제거. 구현 코드 무변경. smoke exit 0, mutation 7/7 재확인(Implementer 보고). 새 candidate 에 fresh Reviewer → QA |
+| 3 | Reviewer minor: candidate `7052cbb8a290eb5b65b4288bc865933b57f67ec5` 에서 이 표 2 행의 이스케이프 문자가 기록 스크립트 때문에 실제 줄바꿈으로 들어가 표가 깨졌다 (실제 결함). repair budget 2 소진으로 Owner 에게 escalation. Owner 가 repair budget 을 3 으로 증액하고 2 행만 수정하도록 결정 | Edit 도구로 2 행만 한 줄로 다시 쓰고 이스케이프를 문자 그대로 기록. staged blob 에서 2 행에 CR/LF 가 없음을 확인. 코드·테스트·README 무변경. 새 candidate 에 fresh Reviewer → QA |
+
+## 검증 결과
+
+최종 검증 candidate 는 **`5b9a7744081c26e28993ebc6af6124d422647c9c`** 다. 아래 결과는 모두 이 정확한 hash 에 묶여 있다.
+
+| 단계 | 결과 | 근거 |
+| --- | --- | --- |
+| Reviewer (fresh) | **PASS**, findings 0 | 허용 명령만 사용. 계약 범위, run_web_app.py 무변경, guard 가 서버가 수락할 값을 막지 않음, XSS, busy flag, 2 행 형식 확인 |
+| QA | **PASS** | HEAD 와 candidate 일치, status `?? jarvis.bat` 만 |
+| QA smoke | exit 0 | `Jarvis Console browser shell self-test passed`, `Jarvis Console smoke tests passed` |
+| QA mutation | 7/7 CAUGHT | M1~M7 전부 rc=1, 복원 후 `git diff --quiet` exit 0, fixture 잔존 없음 |
+| QA 브라우저 | PASS | 포트 8791 Console 에서 task-0031 카드의 Record Evidence 를 빈 입력, 공백 3 개로 각각 클릭. `/api/completion-evidence/preview` 요청 0 건, 카드와 상태 줄에 안내 문구 표시, Confirm 없음. task-0031 파일 무변경, 서버 종료 |
+| task 상태 | `DOING` | candidate 기준 |
+
+위 표에서 앞선 절의 "Implementer 보고, QA 재현 대상" 표기 항목(smoke exit 0, mutation 7/7, 25 문자 서버 거부 결론)은 QA 가 smoke 와 mutation 을 재현했다. 25 문자 개별 확인은 QA 가 따로 재현하지 않았고, Reviewer 가 `normalize_completion_evidence` 코드와 대조해 결론이 맞다고 판단했다.
+
+## 이 기록 commit 의 성격
+
+이 절과 위 검증 결과 표, Repair 이력 3 행, budget 줄은 검증된 candidate
+`5b9a7744081c26e28993ebc6af6124d422647c9c` **위에 쌓은 별도 evidence 기록 commit** 으로 추가됐다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 변경 파일 | 이 task 기록 한 개뿐 |
+| 성격 | 검증 결과를 남기는 문서 기록. 새 코드 candidate 가 아니다 |
+| 앞선 Reviewer/QA PASS | 무효화하지 않는다. 검증 대상은 여전히 `5b9a774…` 이며 코드·테스트·README 는 이 commit 에서 바뀌지 않는다 |
+| 근거 | Owner 결정 (i). SOP §4 규칙 5·6 은 tracked file 이 바뀌는 repair 또는 Docs sync 가 candidate 를 바꾸면 기존 evidence 를 무효로 보지만, 검증 결과를 그 candidate 에 기록하는 행위 자체가 candidate 를 바꾸면 기록이 영원히 끝나지 않는다. 그래서 Owner 는 이 commit 을 §3 Docs 변경처럼 결과를 남기는 문서 기록으로 취급하고, diff 가 이 파일만 바꿨는지와 기록 후 smoke 통과를 확인하는 것으로 대신하도록 결정했다 |
+| 완료 | `DOING` 유지. evidence 기록과 `DOING → DONE` 은 Owner 가 Console 에서 결정 |
 
 ## 바꾸지 않은 것
 
