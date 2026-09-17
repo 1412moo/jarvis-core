@@ -2,11 +2,12 @@
 
 - id: `task-0130-console-complete-preview-evidence-display`
 - title: `Console Complete Preview 에 기록된 completion evidence 표시 (판정·차단 없음)`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-17 07:05 UTC`
-- updated_at: `2026-09-17 07:25 UTC`
+- updated_at: `2026-09-17 08:46 UTC`
 - summary: `Complete Preview 는 증거가 이미 기록된 경우에만 Confirm 하라고 경고하지만 기록 여부를 보여주지 않아 Owner 가 그 확인을 Console 안에서 할 수 없었다. complete preview payload 에 digest 로 묶인 같은 snapshot 의 completion_evidence 를 추가하고 화면에 표시한다. 표시는 평가가 아니며 Complete 를 승인하거나 차단하지 않는다. 경고 문구, 전이, writer, token, digest, Start Preview 는 무변경. Implementer 기준 mutation 9 종 전부 새 assertion 이 잡는다. DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
+- completion_evidence: `commit 4ce60c4 — Reviewer PASS, QA PASS, smoke exit 0`
 - source_command: `Owner 가 승인한 work package "Console Complete Preview: 기록된 completion evidence 표시 (판정·차단 없음)" 구현 지시`
 
 ## 기준선
