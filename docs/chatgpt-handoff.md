@@ -349,7 +349,7 @@ Console transition authority is intentionally narrower than the full Task status
 | Current Task state | Status | Console behavior |
 | --- | --- | --- |
 | `TODO` | Implemented | Shows deterministic Next Action and offers Start Preview. Only `TODO → DOING` is allowed. |
-| `DOING` without evidence | Implemented | Offers one Record Evidence Preview and Complete Preview. Complete remains a separate human decision. |
+| `DOING` without evidence | Implemented | Offers one Record Evidence Preview and Complete Preview. Complete Preview shows the recorded `completion_evidence` or `Not recorded` (task-0130, `4ce60c4`); showing it is not an evaluation and neither approves nor blocks Complete. Empty or whitespace-only Record Evidence input sends no request and shows local guidance (task-0131, `5b9a774`). Complete remains a separate human decision. |
 | `DOING` with evidence | Implemented | Evidence is read-only and cannot be edited, deleted, or appended again; Complete remains available. |
 | `DONE` | Implemented | Read-only; no transition action. |
 | `BLOCKED` | Implemented | Read-only; deterministic instruction says to clear the blocker outside Console. |
@@ -490,7 +490,7 @@ For documentation-only changes, do not launch the server or browser. Run `git di
 | Root overview documentation lags Stage 2 | Planned | `README.md`, `docs/architecture.md`, and portions of `docs/master-plan.md` describe earlier bootstrap/Project Control stages. Use this handoff and current source first; update older docs only in bounded packages. |
 | Jarvis Console backend and self-tests are large single files | Planned | `run_smoke_tests.py` is about 224 KB and `run_web_app.py` about 176 KB. This raises review and static-assertion collision risk. No refactor is approved; keep feature changes narrow. |
 | Voice Create Receipt navigation gap | Implemented | Confirmed in all 20 dogfood cycles and resolved by bounded Open Created Task. A post-implementation dogfood observation is not yet recorded. |
-| Evidence can be submitted empty before succeeding | Planned | Observed in all 20 automated cycles. The input is already visible and the server correctly rejects empty evidence. No product change has been selected. |
+| Evidence can be submitted empty before succeeding | Resolved | Observed in all 20 automated cycles and again in Owner dogfooding of task-0130, where the server's `completion_evidence_invalid_value` under the card read as a Complete Preview failure. task-0131 (`5b9a774`) makes Record Evidence send no request for empty or whitespace-only input and show local guidance; the server's 1–500 character validation is unchanged. |
 | Dogfood Tasks are untracked local product data | Resolved | The Owner decided on 2026-09-10 to remove `task-0006` through `task-0028` rather than track them; see task-0094. Only `jarvis.bat` remains untracked. |
 | Memory / Skills has no implementation to activate | Planned | The Console implementation and its internal save primitives were removed by task-0071 and task-0074; nothing remains to unlock. Reopening the workstream needs a new approved package, not an activation decision. |
 
