@@ -2,11 +2,12 @@
 
 - id: `task-0125-d1-evidence-separation-production-design`
 - title: `D1 production 설계 — historical evidence 를 ancestry 로 검증하고 current-state 와 분리`
-- status: `TODO`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-11 04:15 UTC`
-- updated_at: `2026-09-11 04:15 UTC`
+- updated_at: `2026-09-17 06:52 UTC`
 - summary: `task-0124 가 승인한 D1 을 구현 착수 가능한 수준으로 설계했다. 조사 중 핵심 사실을 찾았다 — 현재 검증은 commit 존재를 확인하지 않고 최근 5 개 목록 포함 여부만 본다. 즉 실재하는 오래된 commit 과 조작된 hash 를 구분하지 못하고 같은 메시지를 낸다. 따라서 historical evidence 는 recency 가 아니라 ancestry 로 검증해야 하며 그 경우 window 숫자도 TTL 도 필요 없다. 9 개 conflict 중 문제는 2 개뿐이고 나머지는 current-state 로 이미 정확하다. schema 변경 0 을 목표로 하는 안을 추천한다. production 변경 0.`
+- completion_evidence: `commit a1016f2 (D1 production design, Option C ancestry); Owner approved Option C + git allowlist and implemented in task-0126 cfa3c0a`
 - source_command: `task-0124 D1 승인에 따른 production 설계 지시`
 
 ## 1. 기준선과 참조

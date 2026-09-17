@@ -2,11 +2,12 @@
 
 - id: `task-0124-historical-evidence-current-state-separation-design`
 - title: `Historical milestone evidence 와 current-state validation 분리 (D1) 설계 승인`
-- status: `TODO`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-11 03:05 UTC`
-- updated_at: `2026-09-11 03:05 UTC`
+- updated_at: `2026-09-17 06:52 UTC`
 - summary: `rolling-window audit 이 확정한 구조적 문제에 대한 Owner 결정 2 건을 기록하고 D1 방향을 설계 대상으로 승인한다. 완료된 milestone 의 evidence 가 5 커밋 뒤 창 밖으로 밀렸다는 이유만으로 Manager Report 가 영구 blocked 되는 것은 의도한 장기 운영 모델이 아니다. 4 절 package 표는 현재 작업 목록이 아니라 historical evidence 로 정의하고 과거 hash 는 보존한다. 표시용 recent-5 계약과 검증용 evidence 를 분리하는 설계만 승인하며 window 숫자 TTL 새 schema validator 구현은 이번에 정하지 않는다. production 변경 0.`
+- completion_evidence: `commit 56810d4 (Owner decisions A/B + D1 design approval recorded); followed by task-0125 design a1016f2 and task-0126 implementation cfa3c0a`
 - source_command: `rolling-window READ-ONLY audit 결과에 대한 Owner 결정 기록 및 D1 설계 승인 지시`
 
 ## 기준선
