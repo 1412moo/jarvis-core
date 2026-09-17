@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-17 12:57 UTC`
-- updated_at: `2026-09-17 12:57 UTC`
+- updated_at: `2026-09-17 16:28 UTC`
 - summary: `task-0133 은 SOP 에 Manager 가 Reviewer 에게 Owner 승인 원문을 넘기는 의무를 추가했지만 Reviewer 정의는 여전히 호출자가 준 계약만 받아 원문 없이 요약으로 PASS 할 수 있었고 validator 는 새 SOP 조항을 검사하지 않았다. .claude/agents/reviewer.md 에 Approval binding (fail closed) 를, .codex/agents/reviewer.toml 에 같은 조건을 넣고, validator 에 SOP 조항과 reviewer.toml 문구의 필수 검사와 negative self-test 를 추가한다. SOP 문서, 다른 agent 정의, 기존 task, Console 문서는 무변경. DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
 - source_command: `Owner 가 승인한 task-0134 Reviewer 승인 원문 강제 work package 지시`
 
@@ -128,12 +128,19 @@ A2. Implementer 사전 확인 + QA 재현 (Recommended)
 
 Q1 근거: Claude Code sub-agents 문서는 subagent 파일을 감시하고 편집을 몇 초 안에 감지해 다음 위임부터 갱신된 정의를 재시작 없이 쓴다고 설명한다(새 `agents` 디렉터리의 첫 파일, `--add-dir` 디렉터리, slash command 비활성 세션은 예외). 이 세션은 예외에 해당하지 않는다.
 
+candidate `172a5990f09a0494b3bc20f5ec35017af945d948` Reviewer finding 1 (validator 의 SOP 조항 필수 검사가 승인 원문에 직접 명시되지 않음) 에 대한 Owner 결정:
+
+```text
+Owner 결정:
+task-0133에서 확정한 SOP 규칙을 task-0134 validator가 실제로 필수 검사하도록 한 것과, 그에 대응하는 SOP negative self-test 3개를 추가한 것은 task-0134의 승인 범위에 포함됩니다.
+```
+
 ## Manager 요약 (원문 해석)
 
 | # | 조건 | 원문 근거 |
 | --- | --- | --- |
 | 1 | 변경 파일은 `.claude/agents/reviewer.md`, `.codex/agents/reviewer.toml`, `scripts/validate_multi_agent_sop.py`, 이 기록 네 개 | 승인된 변경 범위, 절차 9 |
-| 2 | validator 는 SOP 의 task-0133 조항과 `reviewer.toml` 새 문구만 필수 검사. `reviewer.md` 는 검사 대상 아님 | 결정 1, 승인된 변경 범위 |
+| 2 | validator 는 SOP 의 task-0133 조항과 `reviewer.toml` 새 문구만 필수 검사. `reviewer.md` 는 검사 대상 아님 | 결정 1, 승인된 변경 범위, Reviewer finding 1 Owner 결정 |
 | 3 | 새 필수 문구 각각의 negative self-test 추가. 기존 28 개보다 늘어야 함 | 절차 4, 5 |
 | 4 | 승인 원문이 없으면 Reviewer 는 PASS 할 수 없고 `BLOCKED` 와 blocking finding | acceptance criterion, 결정 2 |
 | 5 | 동작 확인 A/B 는 `af929141…` 대상. Implementer 사전 확인 1 회 + candidate Reviewer PASS 후 QA 재현 1 회. A 가 `BLOCKED` 가 아니면 PASS 처리하지 않고 즉시 Owner 보고 | 결정 2, acceptance criterion, A2 |
@@ -150,3 +157,11 @@ Q1 근거: Claude Code sub-agents 문서는 subagent 파일을 감시하고 편�
 | QA | Reviewer PASS 후 같은 candidate 에서 validator, mutation, 동작 확인 A/B 재현, diff 범위, `git diff --check`, smoke |
 | Docs | 별도 Docs 실행 `not_required` (변경 자체가 정의·검사 문서) |
 | 완료 | Reviewer/QA PASS 후에도 `DOING`. `DOING → DONE` 은 Owner 가 Console 에서 결정 |
+
+## Repair 이력
+
+retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+
+| # | 원인 | 조치 |
+| --- | --- | --- |
+| 1 | Reviewer minor 1 건 (candidate `172a5990f09a0494b3bc20f5ec35017af945d948`): validator 의 task-0133 SOP 조항 필수 검사와 SOP negative self-test 3 개가 승인 원문에 직접 명시되지 않아 Manager 해석으로 보임. 나머지 minor 2 건은 Reviewer 허용 명령으로 실행할 수 없는 검사를 QA 로 넘긴 제한 보고 | Owner 결정을 원문 그대로 기록하고 Manager 요약 2 행 근거에 추가. validator·agent 정의 무변경. 새 candidate 에 fresh Reviewer → QA |
