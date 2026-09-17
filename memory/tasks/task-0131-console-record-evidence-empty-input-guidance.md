@@ -2,11 +2,12 @@
 
 - id: `task-0131-console-record-evidence-empty-input-guidance`
 - title: `Console Record Evidence 빈 입력이면 서버 요청 없이 안내 표시`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-17 09:05 UTC`
-- updated_at: `2026-09-17 09:05 UTC`
+- updated_at: `2026-09-17 10:26 UTC`
 - summary: `evidence 입력이 비었거나 공백뿐일 때 Record Evidence 가 서버까지 가서 completion_evidence_invalid_value 코드를 Complete Preview 아래에 띄워 Owner 가 Complete Preview 오류로 오해했다. previewCompletionEvidence 가 trim 후 빈 값이면 요청 없이 Record Evidence 안내를 표시하고 기존 Evidence Preview 의 token confirmation taskId 를 비운다. 서버 1–500 자 검증, Complete Preview, task-0130 기능, 전이와 Confirm 은 무변경. DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
+- completion_evidence: `candidate 5b9a774 — Reviewer PASS, QA PASS, smoke exit 0, browser dogfooding PASS`
 - source_command: `Owner 가 승인한 work package "Console Record Evidence: 빈 입력이면 서버 요청 없이 알아볼 수 있는 안내를 표시" task-0131 구현 지시`
 
 ## 기준선
