@@ -2,10 +2,10 @@
 
 - id: `task-0132-master-plan-handoff-console-cycle-reconciliation`
 - title: `Console 실사용 사이클 결과(task-0124~0131)를 master-plan / chatgpt-handoff 현재 상태에 반영`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-17 11:28 UTC`
-- updated_at: `2026-09-17 11:28 UTC`
+- updated_at: `2026-09-17 11:43 UTC`
 - summary: `실사용 → 제안 → 승인 → 구현 사이클이 task-0130 과 task-0131 로 두 번 완결됐지만 Console Project Control 카드가 읽는 master-plan 2 절은 task-0128 까지만 담고 handoff 는 해결된 빈 evidence 문제를 Planned 로 두었다. master-plan 2 절 Current workstream 과 Current milestone, Owner Dashboard 항목 1 개, handoff 의 DOING 행과 Technical Debt 한 행씩을 사실대로 맞춘다. Roadmap 은 Owner 지시에 따라 바꾸지 않는다. 코드, 테스트, 승인·Owner 결정 필드, historical hash, task-0038 보류, SOP 는 무변경. DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
 - source_command: `Owner 가 승인한 task-0132 문서 정합화 work package 지시 (handoff 378 통계 유지, task-0131 evidence commit 취급은 사실로만 기록, SOP 일반화 금지)`
 
