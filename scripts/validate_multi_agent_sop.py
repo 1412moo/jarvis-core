@@ -397,6 +397,30 @@ def _validate_role_boundaries(
             "actionable findings",
         ),
     )
+    # task-0133 made the Manager quote the Owner's approval verbatim and pass it
+    # to the Reviewer; task-0134 makes the Reviewer refuse to review without it.
+    _require_all(
+        errors,
+        "owner_approval_verbatim",
+        SOP_PATH,
+        sop,
+        (
+            "Owner 승인 메시지의 포함·제외 조건을 task 기록에 요약 없이 원문 그대로",
+            "Reviewer assignment에는 Manager 요약과 함께 Owner 승인 원문을 전달한다.",
+            "Manager 요약과 Owner 승인 원문을 함께 받고, diff의 범위는 승인 원문을 기준으로",
+        ),
+    )
+    _require_all(
+        errors,
+        "reviewer_approval_binding",
+        "reviewer.toml",
+        reviewer,
+        (
+            "Require the Owner's approval verbatim from Manager under the marker line OWNER APPROVAL (verbatim).",
+            "return verdict BLOCKED with a blocking finding and review nothing",
+            "Judge diff scope against the verbatim approval",
+        ),
+    )
     _require_all(
         errors,
         "qa_no_tracked_write",
@@ -842,6 +866,48 @@ def _run_negative_mutation_checks(
             "budget 증액은 Owner만 결정할 수 있다.",
             "Budget authority removed.",
             "owner_budget_authority",
+        ),
+        (
+            "manager_verbatim_quote_removed",
+            SOP_PATH,
+            "Owner 승인 메시지의 포함·제외 조건을 task 기록에 요약 없이 원문 그대로",
+            "Owner approval quote rule removed",
+            "owner_approval_verbatim",
+        ),
+        (
+            "manager_passes_approval_removed",
+            SOP_PATH,
+            "Reviewer assignment에는 Manager 요약과 함께 Owner 승인 원문을 전달한다.",
+            "Reviewer approval handoff removed.",
+            "owner_approval_verbatim",
+        ),
+        (
+            "reviewer_judges_against_approval_removed",
+            SOP_PATH,
+            "Manager 요약과 Owner 승인 원문을 함께 받고, diff의 범위는 승인 원문을 기준으로",
+            "Reviewer approval comparison removed",
+            "owner_approval_verbatim",
+        ),
+        (
+            "reviewer_requires_approval_removed",
+            ".codex/agents/reviewer.toml",
+            "Require the Owner's approval verbatim from Manager under the marker line OWNER APPROVAL (verbatim).",
+            "Approval requirement removed.",
+            "reviewer_approval_binding",
+        ),
+        (
+            "reviewer_blocks_without_approval_removed",
+            ".codex/agents/reviewer.toml",
+            "return verdict BLOCKED with a blocking finding and review nothing",
+            "continue reviewing",
+            "reviewer_approval_binding",
+        ),
+        (
+            "reviewer_scope_against_approval_removed",
+            ".codex/agents/reviewer.toml",
+            "Judge diff scope against the verbatim approval",
+            "Judge diff scope against the summary",
+            "reviewer_approval_binding",
         ),
     )
     for label, path, old, new, expected_code in cases:
