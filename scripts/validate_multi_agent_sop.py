@@ -12,6 +12,32 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_DIR = ROOT / ".codex" / "agents"
 SOP_PATH = "docs/jarvis-multi-agent-sop-v0.1.md"
+CLAUDE_REVIEWER_PATH = ".claude/agents/reviewer.md"
+CODEX_REVIEWER_PATH = ".codex/agents/reviewer.toml"
+
+# task-0135: the Claude and Codex Reviewer definitions carry the same role rules.
+# Each clause must appear in both, on one line, so a raw mutation can remove it.
+REVIEWER_ROLE_CLAUSES = (
+    "Stay strict read-only: do not modify tracked or untracked files, stage, commit, or repair.",
+    "Accept an exact candidate commit from Manager (the caller), verify that exact full hash exists",
+    "Manager (the caller) must supply a full 40-character candidate commit hash.",
+    "Never use `HEAD`, `@`, a branch name, a tag, a short hash, or the working tree as the review subject.",
+    "limited to the file scope Manager (the caller) supplied",
+    "Require the Owner's approval verbatim from Manager under the marker line OWNER APPROVAL (verbatim).",
+    "The marker line is exactly `=== OWNER APPROVAL (verbatim) ===`.",
+    "return verdict BLOCKED with a blocking finding and review nothing",
+    "Judge diff scope against the verbatim approval",
+    "Compare the Manager summary against the verbatim approval condition by condition",
+    "Use each form exactly as written.",
+    "never join several patterns into one with regex alternation",
+    "Never read, open, stage, quote, or describe the contents of `jarvis.bat` or any `.env` file.",
+    "Never decide retry, repair, approval, release, push, or PR.",
+    "When `verdict` is BLOCKED, `files_reviewed` is `[]`.",
+    "`severity` is exactly one of `blocking`, `major`, `minor`.",
+    "`verdict` follows `findings` mechanically",
+    "Reviewer PASS는 QA PASS·승인·release 권한이 아니다",
+)
+CALLER_NAME = "Manager (the caller)"
 
 AGENT_SPECS: dict[str, dict[str, Any]] = {
     "manager.toml": {
@@ -170,6 +196,7 @@ def _load_sources(errors: list[str]) -> dict[str, str]:
     for path in agent_paths:
         relative_path = f".codex/agents/{path.name}"
         sources[relative_path] = _read_utf8(relative_path, errors)
+    sources[CLAUDE_REVIEWER_PATH] = _read_utf8(CLAUDE_REVIEWER_PATH, errors)
     return sources
 
 
@@ -688,10 +715,39 @@ def _validate_contradictions(
             _error(errors, code, f"contradictory clause {match.group(0)!r}")
 
 
+def _validate_reviewer_parity(
+    sources: dict[str, str],
+    agents: dict[str, dict[str, Any]],
+    errors: list[str],
+) -> None:
+    claude_reviewer = sources.get(CLAUDE_REVIEWER_PATH, "")
+    codex_reviewer = _instructions(agents, "reviewer.toml")
+    for source_name, text in (
+        (CLAUDE_REVIEWER_PATH, claude_reviewer),
+        (CODEX_REVIEWER_PATH, codex_reviewer),
+    ):
+        _require_all(
+            errors, "reviewer_role_parity", source_name, text, REVIEWER_ROLE_CLAUSES
+        )
+    # Both definitions name the caller only as "Manager (the caller)".
+    for source_name, text in (
+        (CLAUDE_REVIEWER_PATH, claude_reviewer),
+        (CODEX_REVIEWER_PATH, sources.get(CODEX_REVIEWER_PATH, "")),
+    ):
+        match = re.search(r"\bcaller\b", text.replace(CALLER_NAME, ""), re.IGNORECASE)
+        if match is not None:
+            _error(
+                errors,
+                "reviewer_caller_name",
+                f"{source_name} names the caller other than {CALLER_NAME!r}",
+            )
+
+
 def _validate_sources(sources: dict[str, str]) -> list[str]:
     errors: list[str] = []
     agents = _parse_agents(sources, errors)
     _validate_role_boundaries(sources, agents, errors)
+    _validate_reviewer_parity(sources, agents, errors)
     _validate_budget_and_candidate_rules(sources, agents, errors)
     _validate_escalation_gates(sources, agents, errors)
     _validate_master_plan(sources, errors)
@@ -985,6 +1041,38 @@ def _run_negative_mutation_checks(
         )
     except (KeyError, ValueError) as exc:
         failures.append(f"write_contradiction_fixture: {exc}")
+
+    for path, prefix in (
+        (CLAUDE_REVIEWER_PATH, "claude"),
+        (CODEX_REVIEWER_PATH, "codex"),
+    ):
+        for index, clause in enumerate(REVIEWER_ROLE_CLAUSES, start=1):
+            label = f"{prefix}_reviewer_clause_{index:02d}_removed"
+            try:
+                mutated = _replace_once(
+                    sources, path, clause, "REMOVED_REVIEWER_CLAUSE"
+                )
+            except (KeyError, ValueError) as exc:
+                failures.append(f"{label}: {exc}")
+                continue
+            checks.append((label, mutated, "reviewer_role_parity"))
+
+    claude_caller = dict(sources)
+    claude_caller[CLAUDE_REVIEWER_PATH] = (
+        claude_caller.get(CLAUDE_REVIEWER_PATH, "") + "\nReport back to the caller.\n"
+    )
+    checks.append(
+        ("claude_reviewer_bare_caller", claude_caller, "reviewer_caller_name")
+    )
+    try:
+        codex_caller = _append_agent_instruction(
+            sources, "reviewer.toml", "Report back to the caller."
+        )
+        checks.append(
+            ("codex_reviewer_bare_caller", codex_caller, "reviewer_caller_name")
+        )
+    except (KeyError, ValueError) as exc:
+        failures.append(f"codex_reviewer_bare_caller: {exc}")
 
     for label, mutated, expected_code in checks:
         _assert_mutation_fails(
