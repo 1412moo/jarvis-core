@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-18 03:04 UTC`
-- updated_at: `2026-09-18 04:54 UTC`
+- updated_at: `2026-09-18 07:15 UTC`
 - summary: `task-0134 Owner 결정 1 이 별도 과제로 남긴 두 Reviewer 정의의 장기적 정합성과 validator 대상 확장을 다룬다. read-only 대조 결과 approval binding 은 양쪽에 있지만 marker 문구, candidate hash fail-closed, file scope, 금지 목록, 출력 형식이 reviewer.toml 에 없거나 다르고 validator 는 reviewer.md 를 전혀 검사하지 않는다. Owner 가 Q1–Q3 와 H1/H2 에 답하고 구현을 승인했다(역할 규칙 전부 동일, 호출자 명칭 Manager (the caller), validator 양쪽 검사, task-0134 작은 Reviewer 문제 포함). DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
 - source_command: `Owner 지시: origin/main 97c775f 기준으로 Reviewer 정의 정합성 강화 과제의 task record 만 작성`
 
@@ -171,6 +171,23 @@ Q3: task-0134에서 발견한 작은 Reviewer 문제도 이번 task에서 함께
 
 Q1 답은 제시한 A·B·C 중 어느 것과도 같지 않다. 가장 가까운 것은 B(전체 복제)이며, 예외를 "플랫폼별 문법/도구 사용법 차이" 로 한정한다.
 
+candidate `28125a7742d63f4e514d23291ab33cfd2405f2b2` Reviewer FINDINGS (major 1, minor 4) 뒤 read-only 재검토에서 Owner 에게 올린 질문 (요지):
+
+```text
+질문 1. `Manager` 문구 처리
+  A (권장): 호출 주체를 가리키는 문장 하나("Require the Owner's approval verbatim from Manager under the marker line ...")만 `Manager (the caller)`로 수정하고 그 문장에 의존하는 validator 문자열 3곳도 같이 바꾼다. `Manager summary` 같은 용어는 유지. repair 1회.
+  B: 문구 유지, Manager 요약 4행만 "task-0134 필수 문구 때문에 예외 1곳"으로 정정. repair 1회.
+질문 2. `git -C` 처리
+  A (권장): task-0135에서는 현재 금지 문구를 유지하고, 실제 실행 단계 강제(또는 완화 여부)는 별도 후속 task로 넘긴다.
+  B: task-0135 안에서 "저장소 루트 `-C` 허용"으로 규칙 완화.
+```
+
+Owner 답 (원문):
+
+```text
+Q1 A, Q2 A로 결정. 원문 기록 후 repair 진행
+```
+
 ## Manager 요약 (원문 해석)
 
 | # | 조건 | 원문 근거 |
@@ -178,11 +195,14 @@ Q1 답은 제시한 A·B·C 중 어느 것과도 같지 않다. 가장 가까운
 | 1 | Reviewer 역할 규칙은 두 정의에서 전부 같게 적용한다. 대조표 3–5, 7, 9–12, 14, 15, 17 행의 불일치를 모두 해소한다 | Q1 |
 | 2 | 예외는 플랫폼 문법·도구 사용법만: 정의 파일 형식(YAML frontmatter + Markdown 대 TOML), `tools:`·`model:` 선언 대 `sandbox_mode`, Claude 의 Bash 도구 호출 방식 대 Codex 셸 실행 방식 | Q1 "플랫폼별 문법/도구 사용법 차이만 예외" |
 | 3 | 허용 git 명령 형식 목록과 고정 출력 template 은 역할 규칙으로 보고 양쪽에 같게 둔다. 명령 실행 방식(Claude Bash 도구 대 Codex 셸)만 플랫폼 차이로 남긴다 | Q1, H1 |
-| 4 | 호출자 명칭은 두 정의 모두 `Manager (the caller)` 로 통일한다. 단독 `caller` / 단독 `Manager` 로 호출자를 가리키지 않는다 | Q1, H2 |
+| 4 | 호출 주체(Reviewer 를 호출한 쪽)를 가리킬 때는 두 정의 모두 `Manager (the caller)` 로 쓴다. 단독 `caller` 로 호출자를 가리키지 않는다. `Manager summary` 처럼 `Manager` 가 문서·역할 용어로 쓰이는 곳은 그대로 둔다 | Q1, H2, repair 질문 1 A |
 | 5 | validator 는 `.claude/agents/reviewer.md` 도 읽고, 공통 핵심 규칙 문구를 두 파일 모두에 필수로 요구하며 문구마다 negative self-test 를 둔다. 기존 검사·self-test 는 삭제·약화하지 않는다 | Q2 |
 | 6 | task-0134 에서 관찰한 작은 Reviewer 문제를 두 정의에 함께 고친다: (a) 허용 형식 밖 변형 금지를 명시(`git -C` 같은 추가 옵션·접두어, 반복 `-e`, `\|` 같은 regex alternation 으로 패턴 묶기 금지, grep 당 패턴 하나), (b) `BLOCKED` 일 때 `files_reviewed` 는 비움, (c) 요약 대조를 승인 원문 조건별로 수행하고 요약에 없는 조건을 모두 finding 으로 보고하도록 절차를 명시 | Q3 |
 | 7 | 6(c) 는 결과가 호출마다 달라지는 문제를 줄이려는 문구 보강이며, 모델 동작이라 결정적 보장은 하지 않는다 | Q3, 명시적 비범위의 비결정성 항목 |
 | 8 | 비범위는 앞 절 그대로 유지. SOP·다른 toml·기존 task·Console·gate·budget·push/merge/PR·`jarvis.bat` 무변경 | 명시적 비범위 |
+| 9 | task record 의 Owner 승인 원문과 범위를 먼저 확정한 뒤 구현한다 | 구현 승인 "먼저 task record의 Owner 승인 원문과 범위를 확정한 뒤 구현" |
+| 10 | 작업 단위 checkpoint 전까지 Reviewer → QA 를 기존 SOP 대로 진행한다. 구현 후 바로 push 하지 않는다 | 구현 승인 "작업 단위 checkpoint 전까지 Reviewer/QA 절차를 기존 SOP에 따라 진행", "구현 후 바로 push하지 말 것" |
+| 11 | `git -C` 금지 문구는 두 정의에 그대로 둔다. 실행 단계 강제 방법(또는 완화 여부)은 별도 후속 task 로 넘긴다 | repair 질문 2 A |
 
 ### 해석 확인 2 건 (Owner 답으로 확정)
 
@@ -219,7 +239,7 @@ Q1 답은 제시한 A·B·C 중 어느 것과도 같지 않다. 가장 가까운
 
 두 정의 본문의 차이는 허용 명령 절 첫 문장 하나다 (Claude "each through the Bash tool", Codex "each as a shell command in the read-only sandbox"). `description` 은 두 파일에서 같다.
 
-기존 `reviewer.toml` 필수 문구 "Require the Owner's approval verbatim from Manager under the marker line OWNER APPROVAL (verbatim)." 를 유지하려고 그 문장의 "from Manager" 는 남겼다. 호출자는 앞 문장들에서 `Manager (the caller)` 로 소개되므로 같은 대상을 가리킨다. `reviewer_caller_name` 은 단독 `caller` 만 금지한다.
+repair 1 에서 호출 주체 문장을 "Require the Owner's approval verbatim from Manager (the caller) under the marker line OWNER APPROVAL (verbatim)." 로 바꿨다. 이 문장에 의존하던 validator 문자열 3 곳(task-0134 `reviewer_approval_binding` 필수 문구, 같은 문구의 negative self-test, task-0135 공통 문구 목록)도 같은 문장으로 바꿨다. 검사 수와 self-test 수는 그대로다. 남은 단독 `Manager` 는 `Manager summary` 3 곳뿐이며 문서 용어다. `reviewer_caller_name` 은 단독 `caller` 만 금지한다.
 
 ## 검증 (Implementer 보고, QA 재현 대상)
 
@@ -235,3 +255,17 @@ Q1 답은 제시한 A·B·C 중 어느 것과도 같지 않다. 가장 가까운
 | V8 | diff scope | `.claude/agents/reviewer.md`, `.codex/agents/reviewer.toml`, `scripts/validate_multi_agent_sop.py`, 이 기록. `jarvis.bat` 미포함 |
 
 `.claude/agents/reviewer.md` 를 고쳤으므로 이 세션의 다음 Reviewer 호출부터 바뀐 정의가 적용된다.
+
+위 V1–V3, V6–V8 은 repair 1 뒤 다시 실행해 같은 결과였다 (`negative_checks=72`, `negative_failures=0`, 외부 mutation 38/38, 본문 차이 1 줄, 문구 18 개 각 1 회, diff-check exit 0, smoke exit 0). 두 정의에 남은 단독 `Manager` 는 `Manager summary` 3 곳뿐이다.
+
+## Repair 이력
+
+retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+
+| # | 원인 | 조치 |
+| --- | --- | --- |
+| 1 | Reviewer FINDINGS (candidate `28125a7742d63f4e514d23291ab33cfd2405f2b2`): major 1 — 호출 주체 문장 "Require the Owner's approval verbatim from Manager under the marker line …" 에 단독 `Manager` 가 남아 Manager 요약 4 행·H2 와 어긋나고 그 예외가 Owner 결정이 아니었음. minor 1–2 — 구현 승인 조건 "먼저 task record의 Owner 승인 원문과 범위를 확정한 뒤 구현", "작업 단위 checkpoint 전까지 Reviewer/QA 절차를 기존 SOP에 따라 진행" 이 Manager 요약에 없음. minor 3 — validator·mutation·diff-check·smoke 는 QA handoff. minor 4 — Reviewer 가 `git -C /c/work/jarvis-core rev-parse …` 로 허용 형식을 어긴 것을 스스로 보고 | Owner 결정(질문 1 A, 질문 2 A)에 따라 호출 주체 문장만 `from Manager (the caller)` 로 바꾸고 의존 validator 문자열 3 곳을 같이 바꿈(검사 수·self-test 수 불변). Manager 요약 4 행 정정, 9–11 행 추가. `git -C` 금지 문구는 유지하고 실행 단계 강제는 후속 task 로 이관(요약 11 행). 새 candidate 에 fresh Reviewer → QA |
+
+## 후속 task 로 넘긴 것
+
+- Reviewer 허용 명령 형식을 문서가 아니라 실행 단계에서 강제하는 방법(Claude Code 권한 규칙·hook 등) 조사·적용, 또는 저장소 루트 `git -C` 허용으로 완화할지 결정. 근거: task-0134 의 `git -C`·반복 `-e`·regex alternation, task-0135 candidate `28125a7…` Reviewer 의 `git -C` 사용.

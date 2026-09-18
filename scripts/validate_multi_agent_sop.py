@@ -23,7 +23,7 @@ REVIEWER_ROLE_CLAUSES = (
     "Manager (the caller) must supply a full 40-character candidate commit hash.",
     "Never use `HEAD`, `@`, a branch name, a tag, a short hash, or the working tree as the review subject.",
     "limited to the file scope Manager (the caller) supplied",
-    "Require the Owner's approval verbatim from Manager under the marker line OWNER APPROVAL (verbatim).",
+    "Require the Owner's approval verbatim from Manager (the caller) under the marker line OWNER APPROVAL (verbatim).",
     "The marker line is exactly `=== OWNER APPROVAL (verbatim) ===`.",
     "return verdict BLOCKED with a blocking finding and review nothing",
     "Judge diff scope against the verbatim approval",
@@ -443,7 +443,7 @@ def _validate_role_boundaries(
         "reviewer.toml",
         reviewer,
         (
-            "Require the Owner's approval verbatim from Manager under the marker line OWNER APPROVAL (verbatim).",
+            "Require the Owner's approval verbatim from Manager (the caller) under the marker line OWNER APPROVAL (verbatim).",
             "return verdict BLOCKED with a blocking finding and review nothing",
             "Judge diff scope against the verbatim approval",
         ),
@@ -947,7 +947,7 @@ def _run_negative_mutation_checks(
         (
             "reviewer_requires_approval_removed",
             ".codex/agents/reviewer.toml",
-            "Require the Owner's approval verbatim from Manager under the marker line OWNER APPROVAL (verbatim).",
+            "Require the Owner's approval verbatim from Manager (the caller) under the marker line OWNER APPROVAL (verbatim).",
             "Approval requirement removed.",
             "reviewer_approval_binding",
         ),
