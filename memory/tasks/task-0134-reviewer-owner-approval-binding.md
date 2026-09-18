@@ -2,10 +2,10 @@
 
 - id: `task-0134-reviewer-owner-approval-binding`
 - title: `Reviewer 정의에 Owner 승인 원문 필수 조건(Approval binding)을 넣고 validator 가 새 SOP 조항과 이 조건을 필수 문구로 검사`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-17 12:57 UTC`
-- updated_at: `2026-09-18 02:50 UTC`
+- updated_at: `2026-09-18 02:58 UTC`
 - summary: `task-0133 은 SOP 에 Manager 가 Reviewer 에게 Owner 승인 원문을 넘기는 의무를 추가했지만 Reviewer 정의는 여전히 호출자가 준 계약만 받아 원문 없이 요약으로 PASS 할 수 있었고 validator 는 새 SOP 조항을 검사하지 않았다. .claude/agents/reviewer.md 에 Approval binding (fail closed) 를, .codex/agents/reviewer.toml 에 같은 조건을 넣고, validator 에 SOP 조항과 reviewer.toml 문구의 필수 검사와 negative self-test 를 추가한다. SOP 문서, 다른 agent 정의, 기존 task, Console 문서는 무변경. DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
 - source_command: `Owner 가 승인한 task-0134 Reviewer 승인 원문 강제 work package 지시`
 
