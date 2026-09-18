@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-17 12:57 UTC`
-- updated_at: `2026-09-17 16:28 UTC`
+- updated_at: `2026-09-18 02:50 UTC`
 - summary: `task-0133 은 SOP 에 Manager 가 Reviewer 에게 Owner 승인 원문을 넘기는 의무를 추가했지만 Reviewer 정의는 여전히 호출자가 준 계약만 받아 원문 없이 요약으로 PASS 할 수 있었고 validator 는 새 SOP 조항을 검사하지 않았다. .claude/agents/reviewer.md 에 Approval binding (fail closed) 를, .codex/agents/reviewer.toml 에 같은 조건을 넣고, validator 에 SOP 조항과 reviewer.toml 문구의 필수 검사와 negative self-test 를 추가한다. SOP 문서, 다른 agent 정의, 기존 task, Console 문서는 무변경. DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
 - source_command: `Owner 가 승인한 task-0134 Reviewer 승인 원문 강제 work package 지시`
 
@@ -165,3 +165,48 @@ retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
 | # | 원인 | 조치 |
 | --- | --- | --- |
 | 1 | Reviewer minor 1 건 (candidate `172a5990f09a0494b3bc20f5ec35017af945d948`): validator 의 task-0133 SOP 조항 필수 검사와 SOP negative self-test 3 개가 승인 원문에 직접 명시되지 않아 Manager 해석으로 보임. 나머지 minor 2 건은 Reviewer 허용 명령으로 실행할 수 없는 검사를 QA 로 넘긴 제한 보고 | Owner 결정을 원문 그대로 기록하고 Manager 요약 2 행 근거에 추가. validator·agent 정의 무변경. 새 candidate 에 fresh Reviewer → QA |
+
+## 검증 결과
+
+최종 검증 candidate 는 **`6b9176f8fc945aabbdbfafa771acd56f8ee14291`** 다. 아래 Reviewer (fresh) 와 QA 결과는 모두 이 정확한 hash 에 묶여 있다.
+
+| 단계 | 결과 | 근거 |
+| --- | --- | --- |
+| Implementer 사전 확인 | A `BLOCKED`, B 정상 review | candidate 전, 변경된 정의로 `af929141…` 에 호출. A 는 tool_uses 0, blocking finding 1 건. B 첫 호출은 `git -C` 와 반복 `-e` 사용을 스스로 minor 로 보고했고, 허용 형식을 명시한 재호출에서 사라짐 |
+| Reviewer (첫 candidate `172a5990…`) | FINDINGS, minor 3 | finding 1 은 Repair 이력 1 행으로 처리. 나머지 2 건은 QA handoff |
+| Reviewer (fresh) | FINDINGS, blocking 0 / major 0 / minor 2 | finding 1 재제기 없음. minor 2 건은 Reviewer 허용 명령으로 실행할 수 없는 검사(SOP fixture, validator, mutation, 동작 A/B/C, `git diff --check`, smoke)를 QA 로 넘긴 handoff 이며 코드·범위 결함 아님 |
+| QA | **PASS**, acceptance 1–8 전부 PASS | HEAD 와 candidate 일치, 작업 트리·index 깨끗, status `?? jarvis.bat` 만 |
+| QA validator | PASS | `negative_checks=34`, `negative_failures=0`, `status=PASS` |
+| QA SOP fixture | PASS | SOP 필수 문구 3 개, `reviewer.toml` 필수 문구 3 개가 raw·정규화 모두 정확히 1 회. `_replace_once` 전제와 충돌 없음 |
+| QA mutation | 6/6 CAUGHT | candidate 사본에서 새 필수 문구를 하나씩 지우면 exit 1, `status=FAIL`, 기대 코드(`owner_approval_verbatim` 3, `reviewer_approval_binding` 3) 하나씩. 무변형 사본 PASS |
+| QA 동작 A | `BLOCKED` | `af929141…`, 원문 없음. tool_uses 0, blocking finding 1 건 |
+| QA 동작 B | 정상 review | 원문 포함. tool_uses 7, FINDINGS minor 4 (task-0133 기록 관련) |
+| QA 동작 C | 누락 검출 | 요약에서 8 행(`jarvis.bat` 무시)을 빼고 대조 지시 없이 호출. 그 누락을 승인 3 원문 인용과 함께 minor finding 으로 보고 |
+| QA `git diff --check` | exit 0 | repair commit 과 `cf4df99…..6b9176f8…` 전체 |
+| QA smoke | exit 0 | `Jarvis Console browser shell self-test passed`, `Jarvis Console smoke tests passed` |
+| QA scope | PASS | 전체 변경은 승인된 4 파일. repair commit 은 이 기록 1 파일. `jarvis.bat`, SOP, master-plan, handoff 미포함 |
+| task 상태 | `DOING` | candidate 기준 |
+
+동작 확인 B·C 에서 Reviewer 는 원래 요약에 없던 원문 조건 4 개(Console workstream, 원문 전달, "테스트 후", "merge 는 별도 검토 후")를 보고하지 않았다. 앞선 probe 에서는 보고했다. 요약 대조 결과는 호출마다 달라질 수 있다.
+
+## 이 기록 commit 의 성격
+
+위 검증 결과 절과 이 절은 검증된 candidate `6b9176f8fc945aabbdbfafa771acd56f8ee14291` **위에 쌓은 결과 기록 commit** 으로 추가됐다.
+
+Owner 결정 (절차 11 취급 bounded question 에 대한 답):
+
+```text
+A. 이 task에 한해 "결과 기록 commit"으로 취급한다.
+   - repair_count는 1로 유지
+   - 현재 `6b9176f8fc945aabbdbfafa771acd56f8ee14291`의 Reviewer/QA evidence는 유효
+   - 결과 기록만 추가하고 별도의 fresh Reviewer → QA는 실행하지 않음
+   - 이 개별 결정을 SOP 일반 규칙으로 일반화하지 않음
+```
+
+| 항목 | 내용 |
+| --- | --- |
+| 변경 파일 | 이 task 기록 한 개뿐 |
+| repair 여부 | 아님. `repair_count=1` 유지 |
+| 앞선 Reviewer/QA | 무효화하지 않는다. 검증 대상은 여전히 `6b9176f8…` 이며 agent 정의·validator 는 이 commit 에서 바뀌지 않는다 |
+| 일반화 | 이 task 에 한한 개별 결정. SOP 규칙으로 일반화하지 않는다 |
+| 완료 | `DOING` 유지. `DOING → DONE` 은 Owner 가 Console 에서 결정 |
