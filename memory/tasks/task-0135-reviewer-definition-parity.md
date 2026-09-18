@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-18 03:04 UTC`
-- updated_at: `2026-09-18 07:15 UTC`
+- updated_at: `2026-09-18 07:35 UTC`
 - summary: `task-0134 Owner 결정 1 이 별도 과제로 남긴 두 Reviewer 정의의 장기적 정합성과 validator 대상 확장을 다룬다. read-only 대조 결과 approval binding 은 양쪽에 있지만 marker 문구, candidate hash fail-closed, file scope, 금지 목록, 출력 형식이 reviewer.toml 에 없거나 다르고 validator 는 reviewer.md 를 전혀 검사하지 않는다. Owner 가 Q1–Q3 와 H1/H2 에 답하고 구현을 승인했다(역할 규칙 전부 동일, 호출자 명칭 Manager (the caller), validator 양쪽 검사, task-0134 작은 Reviewer 문제 포함). DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
 - source_command: `Owner 지시: origin/main 97c775f 기준으로 Reviewer 정의 정합성 강화 과제의 task record 만 작성`
 
@@ -188,6 +188,19 @@ Owner 답 (원문):
 Q1 A, Q2 A로 결정. 원문 기록 후 repair 진행
 ```
 
+candidate `4d095b31557626bc7784f1c145f6d92b189cc456` fresh Reviewer FINDINGS (minor 4) 뒤 repair budget 1/1 소진으로 Owner 에게 올린 질문 (요지):
+
+```text
+A. repair budget을 2로 늘린다. minor 1–2(Manager 요약에 repair 질문 1 A 조건 2개와 "구현 계획을 확인한 뒤" 추가, task 기록만 수정)를 반영하고 새 candidate에 fresh Reviewer → QA.
+B. budget을 늘리지 않는다. minor 1–2를 기록 요약 누락으로 받아들이고 현재 candidate로 QA 진행(SOP 순서 예외).
+```
+
+Owner 답 (원문):
+
+```text
+A로 결정. budget 2로 증액하고 repair 진행
+```
+
 ## Manager 요약 (원문 해석)
 
 | # | 조건 | 원문 근거 |
@@ -195,12 +208,12 @@ Q1 A, Q2 A로 결정. 원문 기록 후 repair 진행
 | 1 | Reviewer 역할 규칙은 두 정의에서 전부 같게 적용한다. 대조표 3–5, 7, 9–12, 14, 15, 17 행의 불일치를 모두 해소한다 | Q1 |
 | 2 | 예외는 플랫폼 문법·도구 사용법만: 정의 파일 형식(YAML frontmatter + Markdown 대 TOML), `tools:`·`model:` 선언 대 `sandbox_mode`, Claude 의 Bash 도구 호출 방식 대 Codex 셸 실행 방식 | Q1 "플랫폼별 문법/도구 사용법 차이만 예외" |
 | 3 | 허용 git 명령 형식 목록과 고정 출력 template 은 역할 규칙으로 보고 양쪽에 같게 둔다. 명령 실행 방식(Claude Bash 도구 대 Codex 셸)만 플랫폼 차이로 남긴다 | Q1, H1 |
-| 4 | 호출 주체(Reviewer 를 호출한 쪽)를 가리킬 때는 두 정의 모두 `Manager (the caller)` 로 쓴다. 단독 `caller` 로 호출자를 가리키지 않는다. `Manager summary` 처럼 `Manager` 가 문서·역할 용어로 쓰이는 곳은 그대로 둔다 | Q1, H2, repair 질문 1 A |
+| 4 | 호출 주체(Reviewer 를 호출한 쪽)를 가리킬 때는 두 정의 모두 `Manager (the caller)` 로 쓴다. 단독 `caller` 로 호출자를 가리키지 않는다. `Manager summary` 처럼 `Manager` 가 문서·역할 용어로 쓰이는 곳은 그대로 둔다. 호출 주체 문장을 바꿀 때 그 문장에 의존하는 validator 문자열 3 곳도 같이 바꾸며, 이 수정은 repair 1 회로 한다 | Q1, H2, repair 질문 1 A "그 문장에 의존하는 validator 문자열 3곳도 같이 바꾼다", "repair 1회" |
 | 5 | validator 는 `.claude/agents/reviewer.md` 도 읽고, 공통 핵심 규칙 문구를 두 파일 모두에 필수로 요구하며 문구마다 negative self-test 를 둔다. 기존 검사·self-test 는 삭제·약화하지 않는다 | Q2 |
 | 6 | task-0134 에서 관찰한 작은 Reviewer 문제를 두 정의에 함께 고친다: (a) 허용 형식 밖 변형 금지를 명시(`git -C` 같은 추가 옵션·접두어, 반복 `-e`, `\|` 같은 regex alternation 으로 패턴 묶기 금지, grep 당 패턴 하나), (b) `BLOCKED` 일 때 `files_reviewed` 는 비움, (c) 요약 대조를 승인 원문 조건별로 수행하고 요약에 없는 조건을 모두 finding 으로 보고하도록 절차를 명시 | Q3 |
 | 7 | 6(c) 는 결과가 호출마다 달라지는 문제를 줄이려는 문구 보강이며, 모델 동작이라 결정적 보장은 하지 않는다 | Q3, 명시적 비범위의 비결정성 항목 |
 | 8 | 비범위는 앞 절 그대로 유지. SOP·다른 toml·기존 task·Console·gate·budget·push/merge/PR·`jarvis.bat` 무변경 | 명시적 비범위 |
-| 9 | task record 의 Owner 승인 원문과 범위를 먼저 확정한 뒤 구현한다 | 구현 승인 "먼저 task record의 Owner 승인 원문과 범위를 확정한 뒤 구현" |
+| 9 | task record 의 Owner 승인 원문과 범위를 먼저 확정하고 구현 계획을 확인한 뒤 구현한다 | 구현 승인 "먼저 task record의 Owner 승인 원문과 범위를 확정한 뒤 구현", "우선 승인 원문 기록과 구현 계획을 확인한 뒤 구현을 진행하세요" |
 | 10 | 작업 단위 checkpoint 전까지 Reviewer → QA 를 기존 SOP 대로 진행한다. 구현 후 바로 push 하지 않는다 | 구현 승인 "작업 단위 checkpoint 전까지 Reviewer/QA 절차를 기존 SOP에 따라 진행", "구현 후 바로 push하지 말 것" |
 | 11 | `git -C` 금지 문구는 두 정의에 그대로 둔다. 실행 단계 강제 방법(또는 완화 여부)은 별도 후속 task 로 넘긴다 | repair 질문 2 A |
 
@@ -260,12 +273,13 @@ repair 1 에서 호출 주체 문장을 "Require the Owner's approval verbatim f
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+retry_budget=1, retry_count=0, repair_budget=2 (Owner 가 1 에서 2 로 증액), repair_count=2
 
 | # | 원인 | 조치 |
 | --- | --- | --- |
 | 1 | Reviewer FINDINGS (candidate `28125a7742d63f4e514d23291ab33cfd2405f2b2`): major 1 — 호출 주체 문장 "Require the Owner's approval verbatim from Manager under the marker line …" 에 단독 `Manager` 가 남아 Manager 요약 4 행·H2 와 어긋나고 그 예외가 Owner 결정이 아니었음. minor 1–2 — 구현 승인 조건 "먼저 task record의 Owner 승인 원문과 범위를 확정한 뒤 구현", "작업 단위 checkpoint 전까지 Reviewer/QA 절차를 기존 SOP에 따라 진행" 이 Manager 요약에 없음. minor 3 — validator·mutation·diff-check·smoke 는 QA handoff. minor 4 — Reviewer 가 `git -C /c/work/jarvis-core rev-parse …` 로 허용 형식을 어긴 것을 스스로 보고 | Owner 결정(질문 1 A, 질문 2 A)에 따라 호출 주체 문장만 `from Manager (the caller)` 로 바꾸고 의존 validator 문자열 3 곳을 같이 바꿈(검사 수·self-test 수 불변). Manager 요약 4 행 정정, 9–11 행 추가. `git -C` 금지 문구는 유지하고 실행 단계 강제는 후속 task 로 이관(요약 11 행). 새 candidate 에 fresh Reviewer → QA |
+| 2 | Reviewer FINDINGS (candidate `4d095b31557626bc7784f1c145f6d92b189cc456`): minor 1 — Manager 요약에 repair 질문 1 A 의 조건 "그 문장에 의존하는 validator 문자열 3곳도 같이 바꾼다", "repair 1회" 가 없음. minor 2 — 요약 9 행에 "구현 계획을 확인한 뒤" 가 없음. minor 3 — Reviewer 가 도구가 파일로 저장한 긴 diff 출력을 Read 도구로 읽어 허용 git 형식 밖으로 읽었음을 스스로 보고 (후속 task 의 허용 형식 강제 주제). minor 4 — validator·mutation·diff-check·smoke 는 QA handoff. repair budget 1 소진으로 Owner 에게 escalation, Owner 가 budget 을 2 로 증액하고 repair 를 결정 | Manager 요약 4 행과 9 행에 빠진 조건을 원문 인용과 함께 추가. task 기록만 수정, 정의·validator 무변경. 새 candidate 에 fresh Reviewer → QA |
 
 ## 후속 task 로 넘긴 것
 
-- Reviewer 허용 명령 형식을 문서가 아니라 실행 단계에서 강제하는 방법(Claude Code 권한 규칙·hook 등) 조사·적용, 또는 저장소 루트 `git -C` 허용으로 완화할지 결정. 근거: task-0134 의 `git -C`·반복 `-e`·regex alternation, task-0135 candidate `28125a7…` Reviewer 의 `git -C` 사용.
+- Reviewer 허용 명령 형식을 문서가 아니라 실행 단계에서 강제하는 방법(Claude Code 권한 규칙·hook 등) 조사·적용, 또는 저장소 루트 `git -C` 허용으로 완화할지 결정. 근거: task-0134 의 `git -C`·반복 `-e`·regex alternation, task-0135 candidate `28125a7…` Reviewer 의 `git -C` 사용, candidate `4d095b3…` Reviewer 가 도구가 저장한 긴 diff 출력을 Read 도구로 읽은 일.
