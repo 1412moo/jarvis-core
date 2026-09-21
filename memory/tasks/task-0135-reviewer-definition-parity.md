@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-18 03:04 UTC`
-- updated_at: `2026-09-18 07:35 UTC`
+- updated_at: `2026-09-21 12:04 UTC`
 - summary: `task-0134 Owner 결정 1 이 별도 과제로 남긴 두 Reviewer 정의의 장기적 정합성과 validator 대상 확장을 다룬다. read-only 대조 결과 approval binding 은 양쪽에 있지만 marker 문구, candidate hash fail-closed, file scope, 금지 목록, 출력 형식이 reviewer.toml 에 없거나 다르고 validator 는 reviewer.md 를 전혀 검사하지 않는다. Owner 가 Q1–Q3 와 H1/H2 에 답하고 구현을 승인했다(역할 규칙 전부 동일, 호출자 명칭 Manager (the caller), validator 양쪽 검사, task-0134 작은 Reviewer 문제 포함). DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
 - source_command: `Owner 지시: origin/main 97c775f 기준으로 Reviewer 정의 정합성 강화 과제의 task record 만 작성`
 
@@ -201,6 +201,57 @@ Owner 답 (원문):
 A로 결정. budget 2로 증액하고 repair 진행
 ```
 
+candidate `f0af74fe4d38b9751d253d3e46d5232665f3b7e3` fresh Reviewer FINDINGS (minor 4) 뒤 Owner 결정 (원문):
+
+```text
+Owner 결정:
+B. repair budget을 더 늘리지 않고 현재 candidate `f0af74fe4d38b9751d253d3e46d5232665f3b7e3`로 QA를 진행한다.
+Owner 결정 이유
+이번 fresh Reviewer의 남은 minor 1~2는 실제 Reviewer 정의, Validator, 테스트 결과의 결함이 아니라 task 기록의 Manager 요약이 일부 불완전한 문제다.
+특히 현재 작업에서 이미:
+
+* Reviewer 정의의 핵심 규칙 정합성 확보
+* Validator `72/0 PASS`
+* 외부 mutation `38/38` 검출
+* diff-check PASS
+* smoke PASS
+* major/blocking finding 0
+
+이 확인되었다.
+반면 repair를 반복할 때마다 새 Owner 결정 자체가 Manager 요약에 추가로 기록되어야 하는 구조가 되어, "repair → 결정 기록 → Reviewer → 방금 결정 기록 누락"이라는 자기참조적인 반복이 발생할 수 있다.
+따라서 이번에는 추가 repair를 계속하기보다, minor 1~2를 비차단 기록 품질 문제로 Owner가 명시적으로 수용하고 QA로 진행한다.
+실행 지침
+
+1. 위 Owner 결정과 이유를 task-0135 기록에 원문 그대로 남긴다.
+2. fresh Reviewer의 minor 1~2를 비차단 기록 품질 문제로 Owner가 수용한다고 명시한다.
+   * minor 1: repair 2 결정이 Manager 요약에 빠진 문제
+   * minor 2: "다른 agent 정의"를 "다른 toml"로 좁혀 적은 문제
+3. 추가 repair는 하지 않는다.
+   * `repair_budget=2`
+   * `repair_count=2`
+   * budget을 3으로 늘리지 않는다.
+4. minor 3은 이번 task에서 수정하지 않는다.
+   * 대규모 diff를 허용된 명령만으로 완전 검토하기 어려운 문제
+   * 후속 task에서 "파일별 diff 형식 또는 이에 준하는 완전 검토 방법"을 별도로 다룬다.
+5. minor 4에 해당하는 validator / mutation / diff-check / smoke 검증을 QA 단계에서 실제로 재현한다.
+6. QA에서는 현재 candidate의 실제 변경 범위와 두 Reviewer 정의의 핵심 규칙 정합성도 다시 확인한다.
+7. `jarvis.bat`은 절대 접근/수정/스테이지/삭제하지 않는다.
+8. QA 결과가 나오기 전까지 push나 merge는 하지 않는다.
+9. QA 결과와 남은 finding을 사실 그대로 보고한다. 임의로 PASS 처리하거나 finding을 숨기지 않는다.
+
+중요:
+
+* 현재 candidate의 코드를 다시 수정해서 Reviewer를 억지로 PASS시키지 않는다.
+* 이번 결정은 "문제가 없다"고 판단하는 것이 아니라, 남은 minor 1~2의 성격과 반복되는 repair 구조를 고려해 추가 repair보다 QA를 진행하기로 한 Owner 결정이다.
+```
+
+Owner 가 수용한 비차단 기록 품질 문제 (repair 하지 않음, `repair_budget=2`, `repair_count=2` 유지):
+
+- minor 1: repair 2 결정(budget 1 → 2 증액, task 기록만 수정)이 Manager 요약에 없고, 요약 8 행이 "budget … 무변경" 으로 적혀 있다.
+- minor 2: 요약 8 행이 승인 원문의 "다른 agent 정의" 를 "다른 toml" 로 좁혀 적었다.
+
+이 절은 candidate `f0af74fe…` 위 작업 트리에서 추가됐다. QA 는 `f0af74fe…` 자체에 고정해 수행한다.
+
 ## Manager 요약 (원문 해석)
 
 | # | 조건 | 원문 근거 |
@@ -283,3 +334,23 @@ retry_budget=1, retry_count=0, repair_budget=2 (Owner 가 1 에서 2 로 증액)
 ## 후속 task 로 넘긴 것
 
 - Reviewer 허용 명령 형식을 문서가 아니라 실행 단계에서 강제하는 방법(Claude Code 권한 규칙·hook 등) 조사·적용, 또는 저장소 루트 `git -C` 허용으로 완화할지 결정. 근거: task-0134 의 `git -C`·반복 `-e`·regex alternation, task-0135 candidate `28125a7…` Reviewer 의 `git -C` 사용, candidate `4d095b3…` Reviewer 가 도구가 저장한 긴 diff 출력을 Read 도구로 읽은 일.
+- 대규모 diff 를 허용된 명령만으로 완전 검토하는 방법 (파일별 diff 형식 또는 이에 준하는 방법). 근거: candidate `f0af74fe…` fresh Reviewer minor 3 — 첫 candidate `28125a7…` diff(51.5KB)를 볼 수 없어 정의·validator 변경을 일부만 확인. Owner 결정 지침 4.
+
+## QA 결과
+
+최종 QA 대상은 candidate **`f0af74fe4d38b9751d253d3e46d5232665f3b7e3`** 이며 아래 결과는 이 hash 에 묶여 있다. 판정은 **QA PASS** 다.
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| 1 | `python -B scripts/validate_multi_agent_sop.py` | `negative_checks=72`, `negative_failures=0`, `status=PASS` |
+| 2 | 외부 mutation (candidate 사본에서 공통 문구 18 개 × 2 파일 삭제, 단독 `caller` 추가) | 38/38 검출, 무변형 사본 PASS |
+| 3 | 두 정의 parity | 본문 차이는 허용 명령 절 실행 방식 1 줄뿐, `description` 동일, 공통 문구 18 개가 두 파일에 각각 raw 1 회. 남은 단독 `Manager` 는 `Manager summary` 3 곳(문서 용어) |
+| 4 | Claude Reviewer 동작 (`af929141…` 대상 3 회) | hash 없음 → `BLOCKED` + `files_reviewed: []`, 승인 원문 없음 → `BLOCKED` + `files_reviewed: []`, 둘 다 있음 → 정상 review (허용 형식만 사용, 요약에서 뺀 조건을 finding 으로 검출) |
+| 5 | Codex Reviewer 동작 | 이 환경에 Codex agent 호출 수단이 없어 미실행. 1–3 으로 대신함 |
+| 6 | `git diff --check` | 전체 범위 `97c775f..f0af74f` 와 commit 3 개 각각 exit 0 |
+| 7 | Console smoke | `python -B apps/jarvis-console/run_smoke_tests.py` exit 0. candidate 사본·clone 에서는 git 히스토리 부재·CRLF·경로 검사 때문에 실패하므로 저장소에서 실행했고, 그때 추적 파일 중 candidate 와 다른 것은 commit 하지 않은 이 기록뿐이었다 |
+| 8 | 변경 범위 | 전체 `97c775f..f0af74f` 가 승인된 4 파일뿐. `jarvis.bat`, SOP, master-plan, handoff, 다른 agent 정의, 기존 task 무변경. candidate 트리에 `jarvis.bat` 없음 |
+
+2026-09-21 재확인에서도 1·6·7·8 이 같은 결과였다.
+
+남은 finding: fresh Reviewer minor 1–2 는 Owner 가 비차단 기록 품질 문제로 수용했고, minor 3 은 후속 task 로 이관했다. minor 4 는 이 절이 재현했다.
