@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-21 12:08 UTC`
-- updated_at: `2026-09-22 06:03 UTC`
+- updated_at: `2026-09-23 00:10 UTC`
 - summary: `task-0134·0135 에서 Reviewer 를 13 회 호출하며 같은 5 개 블록(candidate·scope·명령 형식·Manager 요약·Owner 승인 원문)을 매번 손으로 조립했고, 요약이 승인 원문 조건을 빠뜨려 repair 2 회가 발생했다. 이 절차를 명시 호출 전용 Claude Skill prototype 1 개로 고정한다. Owner 가 승인한 범위는 SKILL.md 1 개와 이 기록 1 개뿐이며 helper script, Codex·Gemini 사본, 자동 호출, governance 변경, Reviewer 검증 로직 재구현, commit/push 자동화, 승인·budget·scope 판단 자동화는 제외한다. .claude/skills 를 공식 경로로 확정하는 결정은 하지 않는다.`
 - source_command: `Owner 가 승인한 jarvis-reviewer-call prototype 최소 범위 지시`
 
@@ -423,7 +423,7 @@ retry_budget=1, retry_count=0, repair_budget=3 (Owner 가 1 → 2 → 3 으로 �
 | --- | --- | --- |
 | 1 | Reviewer FINDINGS (candidate `770ed6e6d8953bbebaa1d07fca0bbcdd4b7a0ae7`, major 2 / minor 5): 기록의 `allowed-tools` 설명에 `Glob` 이 남아 SKILL.md 와 어긋남, Manager 요약이 승인 2·3 조건을 빠뜨림, 승인 2·3 이 기록의 승인 원문 절에 없음, V5 줄 수 196 (실제 195), `allowed-tools` 가 공백 구분, hash·승인 원문 BLOCKED 조건이 Reviewer 정의의 임계값을 다시 적음 | 승인 4 범위대로 `allowed-tools` 를 쉼표 구분으로 고치고, hash·승인 원문 BLOCKED 조건을 Reviewer 정의 binding 절 참조로 축약했다. 기록에는 승인 2·3·4 원문을 추가하고 요약 12–23 행을 보강했으며 `Glob` 문구와 V5 수치를 실제 파일에 맞췄다. 새 기능·script·사본·governance 변경은 없다. 새 candidate 에 fresh Reviewer → QA |
 | 2 | Reviewer FINDINGS (candidate `71bdf284818322af603b60d36a35a42c4dc9b0b7`, major 1 / minor 5): 기록의 승인 4 원문이 "이번 repair에서는 수정만 하고 바로 commit하지 마세요." 에서 잘려 재검증 10 항목·보고 지시·중요 3 항목이 빠졌고, 그 결과 요약 13 행이 승인 2 를 잘못 근거로 들었으며 승인 4 중요 조건과 승인 5 조건이 요약에 없었다. SKILL.md 호출문 template 의 `Parent (baseline): <parent hash>` 한 줄이 parent 와 baseline 을 같은 값으로 적어 M1·M2 규칙과 모순됐다. minor 1 건은 validator·diff-check·smoke 재현으로 QA 이관 | Owner 가 repair budget 을 2 로 증액하고 repair 2 를 승인. 승인 4 원문을 끝까지 verbatim 으로 채우고 승인 5 를 사후 승인임을 밝혀 추가했다. 요약 13 행 근거를 승인 4 절차로 정정하고 24–38 행을 추가했다. template 의 parent 줄을 `Parent:` 와 `Baseline:` 두 줄로 분리했다. skill 의 다른 내용과 M1–M3 규칙은 무변경. 새 candidate 에 fresh Reviewer → QA |
-| 3 | prototype 실사용 검증(`/jarvis-reviewer-call 1c9b615e… 0136`, read-only 1 회 호출)에서 Claude Skill 의 위치 인자가 0-based 라는 사실과 SKILL.md Inputs 표의 표기가 어긋나는 것이 드러났다. 실행된 본문에서 `$1` 자리에 두 번째 인자 `0136` 이 들어갔고 `$2` 는 치환되지 않은 채 남았다. 이번 실행의 해석 결과에는 영향이 없었으나 표기가 틀렸다 | Owner 가 repair budget 을 3 으로 증액하고 승인 7 범위대로 `.claude/skills/jarvis-reviewer-call/SKILL.md` Inputs 표의 두 표기만 고쳤다 (Candidate commit hash `$1` → `$0`, Task id `$2` → `$1`, 2 줄). **이 repair 3 은 task record 를 수정 대상으로 포함하지 않았다** — 이 행과 승인 7, budget 줄은 그 뒤 Owner 의 별도 기록 보강 지시로 추가한 provenance 다. repair 3 의 SKILL.md 변경은 **아직 commit 하지 않았다**. Reviewer 정의·승인 원문·Manager 요약·baseline·parent 처리·scope 로직·`allowed-tools`·`disable-model-invocation`·호출 계약·governance·`jarvis.bat` 은 무변경 |
+| 3 | prototype 실사용 검증(`/jarvis-reviewer-call 1c9b615e… 0136`, read-only 1 회 호출)에서 Claude Skill 의 위치 인자가 0-based 라는 사실과 SKILL.md Inputs 표의 표기가 어긋나는 것이 드러났다. 실행된 본문에서 `$1` 자리에 두 번째 인자 `0136` 이 들어갔고 `$2` 는 치환되지 않은 채 남았다. 이번 실행의 해석 결과에는 영향이 없었으나 표기가 틀렸다 | Owner 가 repair budget 을 3 으로 증액하고 승인 7 범위대로 `.claude/skills/jarvis-reviewer-call/SKILL.md` Inputs 표의 두 표기만 고쳤다 (Candidate commit hash `$1` → `$0`, Task id `$2` → `$1`, 2 줄). **이 repair 3 은 task record 를 수정 대상으로 포함하지 않았다** — 이 행과 승인 7, budget 줄은 그 뒤 Owner 의 별도 기록 보강 지시로 추가한 provenance 다. repair 3 의 SKILL.md 변경은 **`eb06ee8227cfba02fe8813790affc5c94af0d37c`로 commit되었다**(2026-09-22 최초 작성 시점에는 "아직 commit 하지 않았다"고 적었으나, 그 직후 같은 커밋으로 확정되어 부정확해졌다 — 아래 "Record-Accuracy 정정" 절에서 실제 이력에 맞게 정정함). Reviewer 정의·승인 원문·Manager 요약·baseline·parent 처리·scope 로직·`allowed-tools`·`disable-model-invocation`·호출 계약·governance·`jarvis.bat` 은 무변경 |
 
 repair 2 를 승인한 Owner 메시지(budget 1 → 2 증액과 위 4 개 항목 지정)는 이 candidate 이후에 도착했으므로 이 기록에는 아직 원문으로 담기지 않았고, 다음 갱신에서 승인 6 으로 추가한다.
 
@@ -464,3 +464,126 @@ minor 1–3 은 Owner 결정으로 수용했고, 이번 QA 기록에서도 소�
 | 6 | candidate 시점 SKILL.md | 206 줄 (QA 가 `git show <hash>:<path>` 로 확인한 사실). 기존 V5 행은 이번 기록에서 고치지 않는다 |
 
 이 절은 candidate `1c9b615e…` 위에 쌓은 task-0136 한정 결과 기록이다. skill 파일, Reviewer 정의, governance 는 바꾸지 않았고 승인 6 원문도 추가하지 않았다.
+
+## Record-Accuracy 정정 (Repair 체인과 별도, 2026-09-22~23)
+
+이 절은 위 "Repair 이력"(Repair 1~3)과 **별개의 작업**이다. Owner가 명시적으로 이렇게
+분류했다 — 기존 Repair 3의 추가 repair가 아니라, `eb06ee8` 이후 발견된 기록 정확성
+문제를 다루는 별도 record-accuracy 작업이다. 이 절로 인해 `repair_budget`/`repair_count`는
+**바뀌지 않는다** — 여전히 `retry_budget=1, retry_count=0, repair_budget=3, repair_count=3`이다.
+
+### 배경
+
+Repair 3 candidate `eb06ee8227cfba02fe8813790affc5c94af0d37c`를 최소 범위(SKILL.md 2줄)로
+fresh Reviewer 재검증하려던 중, 이 candidate의 실제 diff가 두 파일을 바꾼다는 사실이
+드러났다 — `.claude/skills/jarvis-reviewer-call/SKILL.md`(승인 7이 승인한 2줄)와 이
+기록(`memory/tasks/task-0136-jarvis-reviewer-call-prototype.md`, provenance 62줄
+추가/3줄 삭제). Reviewer를 세 차례 호출했고 세 번 다 `FINDINGS`였다. 공통 지적은 다음
+세 가지였다.
+
+1. 이 기록의 426행이 "repair 3의 SKILL.md 변경은 아직 commit 하지 않았다"고 적었으나
+   실제로는 `eb06ee8`로 이미 commit됨 — 기록 자체가 부정확했다
+2. 승인 7은 "이번 단계에서는 commit하지 말 것"이라 명시했는데 `eb06ee8`는 실제로
+   commit됨
+3. provenance 62줄 추가는 승인 7의 scope("오직 ... SKILL.md 의 위 인자 표기만
+   수정한다")를 벗어난다
+
+### 원문 확인 결과 (read-only 조사, 2026-09-22)
+
+저장소 전체(`eb06ee8`의 commit message 전문, git notes, `eb06ee8`를 포함하는 모든
+브랜치/태그, git reflog, `=== OWNER APPROVAL (verbatim) ===` 마커가 있는 저장소 내
+모든 파일 — `task-0135`, 이 기록, `reviewer.md`, `SKILL.md` 4개뿐)를 다시 뒤졌다.
+
+| 항목 | 확인 결과 |
+| --- | --- |
+| provenance 62줄 추가를 승인한 Owner 지시 | **원문 없음.** 이 기록 426행의 "그 뒤 Owner의 별도 기록 보강 지시로 추가한 provenance다"는 그런 지시가 있었다는 서술일 뿐, 그 지시를 인용한 적이 없다 |
+| 승인 7의 "commit하지 말 것"을 넘어 `eb06ee8` commit 자체를 허가한 Owner 지시 | **원문 없음.** `eb06ee8`의 commit message는 무엇을 기록했는지만 설명할 뿐 승인 원문을 담지 않는다 |
+| 이번 record-accuracy 작업을 지시한 Owner 메시지 | 아래에 그대로 인용(이번 세션 채팅 원문, 확인 가능) |
+
+위 두 "원문 없음" 항목은 사후에 재구성하지 않는다. 존재하지 않았던 승인을 지어내는
+대신, 없었다는 사실 자체를 사실로 남긴다.
+
+### Owner 결정 — 두 gap을 지금 인지하고 수용 (2026-09-22)
+
+Owner가 위 두 gap(provenance 승인 없음, 조기 commit 승인 없음)을 과거 승인으로
+재구성하거나 감추지 않고, **지금 이 시점에 명시적으로 인지하고 수용**하기로 결정했다.
+이 수용은 승인 6의 선례(원문 없이 유지, Owner가 비차단 기록 품질 문제로 수용)와 같은
+성격이다. 다만 승인 6은 Reviewer가 지적한 minor였고, 이번 두 gap은 Reviewer가 major로
+지적했다는 차이가 있다 — `SKILL.md` 자체의 내용(2줄 인덱스 수정)은 세 차례 검토에서
+한 번도 오류로 지적되지 않았고, 지적된 것은 항상 "그 옆에 같이 있는 기록/commit 행위를
+승인한 원문이 없다"는 점이었다.
+
+### 이번 record-accuracy 작업을 지시한 Owner 메시지 (verbatim, 이번 세션 채팅 원문)
+
+```text
+=== OWNER APPROVAL (verbatim) ===
+B로 진행해줘.
+
+verbatim 승인 기록이 없다는 사실을 숨기거나 과거 승인으로 재구성하지 말고,
+현재 Owner가 이 provenance 기록 공백을 인지하고 수용한다는 사실을 task-0136에 정확히 기록해줘.
+
+그 내용을 Manager summary에도 반영한 뒤 같은 candidate eb06ee8로 fresh Reviewer를 다시 호출해줘.
+
+Reviewer PASS 전에는 QA로 넘어가지 말고, 수정/커밋은 하지 마.
+=== END ===
+```
+
+```text
+=== OWNER APPROVAL (verbatim) ===
+task-0136은 DOING 유지.
+
+eb06ee8 자체를 다시 Reviewer에 넣는 것은 중단하자.
+새 candidate로 정리하는 방안만 계획해줘.
+
+계획에는:
+- eb06ee8은 변경하지 않고 과거 사실로 보존
+- task-0136의 부정확한 기록을 어떻게 정정할지
+- Owner가 현재 시점에서 수용한 사실을 어떻게 기록할지
+- 새 candidate의 정확한 변경 범위
+- 그 candidate에 대해 Reviewer → QA를 어떤 순서로 다시 진행할지
+
+만 포함해줘.
+
+아직 파일 수정/커밋/Reviewer/QA 호출은 하지 마.
+=== END ===
+```
+
+```text
+=== OWNER APPROVAL (verbatim) ===
+계획대로 진행하되, 이번 작업은 기존 Repair 3의 추가 repair가 아니라
+eb06ee8 이후 발견된 기록 정확성 정정을 위한 별도 record-accuracy 작업으로 취급해줘.
+
+그 외 계획은 그대로 유지해줘.
+
+단, 지금은 파일 수정/커밋하지 말고,
+이 분류와 새 candidate 생성에 필요한 Owner 승인 기록만 먼저 task-0136에 어떻게 남길지 계획해줘.
+=== END ===
+```
+
+```text
+=== OWNER APPROVAL (verbatim) ===
+계획대로 실행해줘.
+
+단, 실제 과거 채팅 원문으로 확인할 수 없는 내용은 verbatim 승인으로 만들어내지 마.
+확인 가능한 원문만 그대로 기록하고, 나머지는 "원문 없음"으로 명시해줘.
+
+새 candidate 생성까지만 진행하고,
+커밋 직후 hash와 정확한 diff를 보고해줘.
+
+아직 Reviewer/QA는 호출하지 마.
+=== END ===
+```
+
+### 이번 candidate에서 바뀐 것
+
+- 위 "Repair 이력" 표 3행의 "아직 commit 하지 않았다"를 `eb06ee8227cfba02fe8813790affc5c94af0d37c`로
+  commit되었다는 실제 사실로 정정했다
+- `.claude/skills/jarvis-reviewer-call/SKILL.md`는 건드리지 않았다
+- `jarvis.bat`은 건드리지 않았다
+- 변경 파일은 이 기록(`memory/tasks/task-0136-jarvis-reviewer-call-prototype.md`) 1개뿐이다
+
+### 남은 것
+
+이 candidate가 commit되면 fresh Reviewer(scope: 이 기록 파일 1개)를 호출한다. PASS면
+QA로 진행하고, FINDINGS면 멈추고 원문 그대로 보고한다. 이 절 작성 시점까지는 Reviewer도
+QA도 호출하지 않았다.
