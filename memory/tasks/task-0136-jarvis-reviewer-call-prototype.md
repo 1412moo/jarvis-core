@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-21 12:08 UTC`
-- updated_at: `2026-09-22 04:13 UTC`
+- updated_at: `2026-09-22 04:39 UTC`
 - summary: `task-0134·0135 에서 Reviewer 를 13 회 호출하며 같은 5 개 블록(candidate·scope·명령 형식·Manager 요약·Owner 승인 원문)을 매번 손으로 조립했고, 요약이 승인 원문 조건을 빠뜨려 repair 2 회가 발생했다. 이 절차를 명시 호출 전용 Claude Skill prototype 1 개로 고정한다. Owner 가 승인한 범위는 SKILL.md 1 개와 이 기록 1 개뿐이며 helper script, Codex·Gemini 사본, 자동 호출, governance 변경, Reviewer 검증 로직 재구현, commit/push 자동화, 승인·budget·scope 판단 자동화는 제외한다. .claude/skills 를 공식 경로로 확정하는 결정은 하지 않는다.`
 - source_command: `Owner 가 승인한 jarvis-reviewer-call prototype 최소 범위 지시`
 
@@ -378,3 +378,31 @@ repair 2 를 승인한 Owner 메시지(budget 1 → 2 증액과 위 4 개 항목
 - 저장소의 산문 `skills/*.md` 와 Claude Skill 형식의 관계 정리
 - Codex·Gemini 사본과 공통 본문 배선 (필요해질 때)
 - skill-creator 의 표준 필드 검사(`quick_validate.py`)를 Jarvis 검증에 넣을지
+
+## Reviewer 결과 (candidate `1c9b615e9285da6ce9b311ea731041e4f35d59cd`)
+
+repair 2 뒤 fresh Reviewer 결과는 **`FINDINGS`** 이고 blocking 0, major 0, minor 4 다. PASS 가 아니다.
+
+| minor | 내용 | 처리 |
+| --- | --- | --- |
+| 1 | 승인 6(repair 2 승인과 이 candidate commit 승인) 원문과 조건이 이 기록에 없다 | Owner 가 비차단 기록 품질 문제로 수용. 추가 repair 하지 않음 |
+| 2 | V5 의 줄 수·측정 시점이 현재 candidate 상태와 다르다 | 같은 이유로 수용 |
+| 3 | V2·V4 가 commit 전 untracked 상태를 현재 candidate 검증처럼 적었다 | 같은 이유로 수용 |
+| 4 | validator·`git diff --check`·smoke 는 Reviewer 허용 명령으로 실행할 수 없어 QA 로 넘긴다 | 아래 QA 에서 실제 재현 |
+
+minor 1–3 은 Owner 결정으로 수용했고, 이번 QA 기록에서도 소급 수정하지 않았다. Reviewer 판정은 `FINDINGS` 그대로 둔다.
+
+## QA 결과 (candidate `1c9b615e9285da6ce9b311ea731041e4f35d59cd`)
+
+판정은 **`QA PASS`** 다. 이 판정은 Reviewer 의 `FINDINGS` 와 **독립된 결과**이며, Reviewer 결과를 PASS 로 바꾸지 않는다. QA 는 이 hash 에 고정해 수행했고, 실행 시점에 HEAD 가 이 candidate 와 같았으며 작업 트리·index 모두 HEAD 와 차이가 없었다(`git diff --quiet HEAD` exit 0, `git diff --cached --quiet` exit 0).
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| 1 | `python -B scripts/validate_multi_agent_sop.py` | `agents=5`, `documents=3`, `negative_checks=72`, `negative_failures=0`, `status=PASS`, exit 0 |
+| 2 | `git diff --check` | candidate 구간(`<hash>^ <hash>`) exit 0, task 전체 범위(`b5229c2..1c9b615`) exit 0, 작업 트리 exit 0 |
+| 3 | `python -B apps/jarvis-console/run_smoke_tests.py` | `Jarvis Console browser shell self-test passed`, `Jarvis Console smoke tests passed`, exit 0 |
+| 4 | 파일·commit 범위 | candidate 단일 commit diff 는 `M .claude/skills/jarvis-reviewer-call/SKILL.md`, `M memory/tasks/task-0136-jarvis-reviewer-call-prototype.md` 두 파일. task 전체 범위에서도 같은 두 파일뿐이며 `A` 다. parent 는 `71bdf284818322af603b60d36a35a42c4dc9b0b7` 하나로 **단일 parent** 다. `jarvis.bat` 은 candidate 트리에도 전체 범위 diff 에도 없다 |
+| 5 | Reviewer minor 4 재현 | 위 1·2·3 을 QA 가 실제로 실행했고 세 결과가 기록된 값과 같았다 |
+| 6 | candidate 시점 SKILL.md | 206 줄 (QA 가 `git show <hash>:<path>` 로 확인한 사실). 기존 V5 행은 이번 기록에서 고치지 않는다 |
+
+이 절은 candidate `1c9b615e…` 위에 쌓은 task-0136 한정 결과 기록이다. skill 파일, Reviewer 정의, governance 는 바꾸지 않았고 승인 6 원문도 추가하지 않았다.
