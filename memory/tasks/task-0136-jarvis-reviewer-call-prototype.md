@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-21 12:08 UTC`
-- updated_at: `2026-09-22 04:39 UTC`
+- updated_at: `2026-09-22 06:03 UTC`
 - summary: `task-0134·0135 에서 Reviewer 를 13 회 호출하며 같은 5 개 블록(candidate·scope·명령 형식·Manager 요약·Owner 승인 원문)을 매번 손으로 조립했고, 요약이 승인 원문 조건을 빠뜨려 repair 2 회가 발생했다. 이 절차를 명시 호출 전용 Claude Skill prototype 1 개로 고정한다. Owner 가 승인한 범위는 SKILL.md 1 개와 이 기록 1 개뿐이며 helper script, Codex·Gemini 사본, 자동 호출, governance 변경, Reviewer 검증 로직 재구현, commit/push 자동화, 승인·budget·scope 판단 자동화는 제외한다. .claude/skills 를 공식 경로로 확정하는 결정은 하지 않는다.`
 - source_command: `Owner 가 승인한 jarvis-reviewer-call prototype 최소 범위 지시`
 
@@ -255,6 +255,61 @@ Repair 1 재검증 결과를 확인했습니다. Repair 1을 승인합니다.
 이번 단계에서는 새 기능 추가, helper script, Codex/Gemini 확장, governance 변경, Reviewer 로직 재구현, 공식 skill path 결정, `jarvis.bat` 수정은 하지 마세요.
 ```
 
+승인 7 — prototype 실사용 검증에서 드러난 argument index 결함에 대한 repair 3 승인. candidate `1c9b615e…` 이후에 도착했고 이 기록에는 사후에 추가했다. 승인 6(repair 2 승인과 그 candidate commit 승인)은 Owner 결정에 따라 여전히 원문으로 기록하지 않았다:
+
+```text
+task-0136의 실제 사용 검증에서 발견된 Skill argument index 결함 1건만 Repair 3으로 수정한다.
+Owner 결정
+현재:
+
+* `repair_budget=2`
+* `repair_count=2`
+
+이번 Repair를 위해 Owner가 repair_budget을 3으로 증액한다.
+이번 repair는 아래 단 하나의 결함만 수정한다.
+발견된 결함
+Claude Skill의 positional argument는 0-based인데 현재 SKILL.md의 Inputs 표가 잘못 작성되어 있다.
+현재 잘못된 형태:
+
+* Candidate commit hash → `$1`
+* Task id → `$2`
+
+실제 Claude Skill 인덱스:
+
+* 첫 번째 인자 → `$0`
+* 두 번째 인자 → `$1`
+
+따라서 다음처럼 수정해야 한다.
+
+* Candidate commit hash → `$0`
+* Task id → `$1`
+
+수정 범위
+오직
+`.claude/skills/jarvis-reviewer-call/SKILL.md`
+의 위 인자 표기만 수정한다.
+다음은 절대 수정하지 않는다.
+
+* Reviewer 정의
+* task-0136 기록의 기존 승인 원문
+* Manager summary
+* baseline
+* parent 처리
+* scope 로직
+* allowed-tools
+* `disable-model-invocation`
+* Reviewer 호출 계약
+* governance
+* 기타 문구
+* `jarvis.bat`
+
+중요한 제한
+이번 단계에서는 commit하지 말 것.
+먼저 수정 결과와 diff만 보고해줘.
+추가 문제를 발견하더라도 임의로 수정하지 말 것.
+이번 Repair 3 범위를 벗어난 문제는 별도로 보고한다.
+```
+
 ## Manager 요약 (원문 해석)
 
 | # | 조건 | 원문 근거 |
@@ -362,14 +417,17 @@ SKILL.md 의 구조:
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=2 (Owner 가 1 에서 2 로 증액), repair_count=2
+retry_budget=1, retry_count=0, repair_budget=3 (Owner 가 1 → 2 → 3 으로 증액), repair_count=3
 
 | # | 원인 | 조치 |
 | --- | --- | --- |
 | 1 | Reviewer FINDINGS (candidate `770ed6e6d8953bbebaa1d07fca0bbcdd4b7a0ae7`, major 2 / minor 5): 기록의 `allowed-tools` 설명에 `Glob` 이 남아 SKILL.md 와 어긋남, Manager 요약이 승인 2·3 조건을 빠뜨림, 승인 2·3 이 기록의 승인 원문 절에 없음, V5 줄 수 196 (실제 195), `allowed-tools` 가 공백 구분, hash·승인 원문 BLOCKED 조건이 Reviewer 정의의 임계값을 다시 적음 | 승인 4 범위대로 `allowed-tools` 를 쉼표 구분으로 고치고, hash·승인 원문 BLOCKED 조건을 Reviewer 정의 binding 절 참조로 축약했다. 기록에는 승인 2·3·4 원문을 추가하고 요약 12–23 행을 보강했으며 `Glob` 문구와 V5 수치를 실제 파일에 맞췄다. 새 기능·script·사본·governance 변경은 없다. 새 candidate 에 fresh Reviewer → QA |
 | 2 | Reviewer FINDINGS (candidate `71bdf284818322af603b60d36a35a42c4dc9b0b7`, major 1 / minor 5): 기록의 승인 4 원문이 "이번 repair에서는 수정만 하고 바로 commit하지 마세요." 에서 잘려 재검증 10 항목·보고 지시·중요 3 항목이 빠졌고, 그 결과 요약 13 행이 승인 2 를 잘못 근거로 들었으며 승인 4 중요 조건과 승인 5 조건이 요약에 없었다. SKILL.md 호출문 template 의 `Parent (baseline): <parent hash>` 한 줄이 parent 와 baseline 을 같은 값으로 적어 M1·M2 규칙과 모순됐다. minor 1 건은 validator·diff-check·smoke 재현으로 QA 이관 | Owner 가 repair budget 을 2 로 증액하고 repair 2 를 승인. 승인 4 원문을 끝까지 verbatim 으로 채우고 승인 5 를 사후 승인임을 밝혀 추가했다. 요약 13 행 근거를 승인 4 절차로 정정하고 24–38 행을 추가했다. template 의 parent 줄을 `Parent:` 와 `Baseline:` 두 줄로 분리했다. skill 의 다른 내용과 M1–M3 규칙은 무변경. 새 candidate 에 fresh Reviewer → QA |
+| 3 | prototype 실사용 검증(`/jarvis-reviewer-call 1c9b615e… 0136`, read-only 1 회 호출)에서 Claude Skill 의 위치 인자가 0-based 라는 사실과 SKILL.md Inputs 표의 표기가 어긋나는 것이 드러났다. 실행된 본문에서 `$1` 자리에 두 번째 인자 `0136` 이 들어갔고 `$2` 는 치환되지 않은 채 남았다. 이번 실행의 해석 결과에는 영향이 없었으나 표기가 틀렸다 | Owner 가 repair budget 을 3 으로 증액하고 승인 7 범위대로 `.claude/skills/jarvis-reviewer-call/SKILL.md` Inputs 표의 두 표기만 고쳤다 (Candidate commit hash `$1` → `$0`, Task id `$2` → `$1`, 2 줄). **이 repair 3 은 task record 를 수정 대상으로 포함하지 않았다** — 이 행과 승인 7, budget 줄은 그 뒤 Owner 의 별도 기록 보강 지시로 추가한 provenance 다. repair 3 의 SKILL.md 변경은 **아직 commit 하지 않았다**. Reviewer 정의·승인 원문·Manager 요약·baseline·parent 처리·scope 로직·`allowed-tools`·`disable-model-invocation`·호출 계약·governance·`jarvis.bat` 은 무변경 |
 
 repair 2 를 승인한 Owner 메시지(budget 1 → 2 증액과 위 4 개 항목 지정)는 이 candidate 이후에 도착했으므로 이 기록에는 아직 원문으로 담기지 않았고, 다음 갱신에서 승인 6 으로 추가한다.
+
+repair 3 의 승인 원문은 위 `## Owner 승인 원문` 절에 승인 7 로 기록했다. 승인 6 은 Owner 결정에 따라 계속 원문 없이 둔다.
 
 ## 후속으로 남긴 것
 

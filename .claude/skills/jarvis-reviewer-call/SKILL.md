@@ -51,8 +51,8 @@ BLOCKED report instead of aborting the skill.
 
 | Input | Required | Notes |
 | --- | --- | --- |
-| Candidate commit hash | yes | full 40 characters, `$1` |
-| Task id | yes | `$2`; the record at `memory/tasks/<task-id>.md` holds the baseline, the approval and the summary |
+| Candidate commit hash | yes | full 40 characters, `$0` |
+| Task id | yes | `$1`; the record at `memory/tasks/<task-id>.md` holds the baseline, the approval and the summary |
 | File scope | yes | exact repository-relative paths the Reviewer may review |
 | Purpose | yes | first review of this candidate, or fresh review after repair N |
 | Owner approval verbatim | yes | quoted in the task record, or pasted by the Manager |
