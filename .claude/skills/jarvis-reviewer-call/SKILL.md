@@ -3,7 +3,7 @@ name: jarvis-reviewer-call
 description: Assemble one Jarvis-Core Reviewer call for an exact candidate commit. Collects the candidate facts, checks the Manager summary against the Owner approval verbatim, and prints the call blocks for the Manager to send. Explicit invocation only; it never reviews, approves, judges, commits, or changes scope.
 argument-hint: <40-char-candidate-hash> <task-id>
 disable-model-invocation: true
-allowed-tools: Read Grep Bash(git status:*) Bash(git rev-parse:*) Bash(git log:*) Bash(git diff:*) Bash(git ls-tree:*)
+allowed-tools: Read, Grep, Bash(git status:*), Bash(git rev-parse:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-tree:*)
 ---
 
 # Jarvis Reviewer Call (prototype)
@@ -69,7 +69,9 @@ preflight table. Do not reconcile the two yourself.
 
 Run only these read-only forms, one command per fact:
 
-- `git rev-parse --verify <hash>^{commit}` — the hash resolves to a commit
+- `git rev-parse --verify <hash>^{commit}` — a fact for the preflight table: does
+  this repository hold that commit. The binding rule stays in the Reviewer
+  definition
 - `git log -1 --format=%H%n%P%n%s <hash>` — full hash, parents, subject
 - `git diff --name-status <baseline> <hash>` — **the task change set**; every scope
   and `jarvis.bat` check below uses this set
@@ -120,14 +122,22 @@ This is a report for the Manager, not a correction. Do not edit the record.
 Print `preflight: BLOCKED`, list the reasons, and do not assemble the call when
 any of these is true:
 
-- the hash is missing, is not 40 characters, or does not resolve to a commit
+- the Manager supplied no candidate hash, so the call has nothing to pin. Whether
+  a supplied hash satisfies the binding is decided by the "Candidate binding
+  (fail closed)" section of `.claude/agents/reviewer.md`. Do not restate its
+  thresholds here: report what the request and the record contain, and let that
+  section bind
 - the baseline is missing from both the request and the record's `## 기준선`, so
   the task change set cannot be computed
 - the file scope is empty, or a scope path is absent from the **task change set**
   (`<baseline>..<hash>`); the last commit alone is never the criterion
 - the task change set contains a path that the approved scope does not list, so
   the candidate is wider than what the Owner approved
-- the task record has no Owner approval verbatim block, or the block is empty
+- neither the request nor the record gives any Owner approval text to place under
+  the marker, so the call cannot carry one. Whether a supplied approval satisfies
+  the binding is decided by the "Approval binding (fail closed)" section of
+  `.claude/agents/reviewer.md`; this preflight only establishes that the Manager
+  has approval text to pass through
 - the Manager summary table is missing
 - tracked files outside the candidate have uncommitted changes, so the tree does
   not match the candidate
