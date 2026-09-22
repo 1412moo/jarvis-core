@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-21 12:08 UTC`
-- updated_at: `2026-09-22 04:02 UTC`
+- updated_at: `2026-09-22 04:13 UTC`
 - summary: `task-0134·0135 에서 Reviewer 를 13 회 호출하며 같은 5 개 블록(candidate·scope·명령 형식·Manager 요약·Owner 승인 원문)을 매번 손으로 조립했고, 요약이 승인 원문 조건을 빠뜨려 repair 2 회가 발생했다. 이 절차를 명시 호출 전용 Claude Skill prototype 1 개로 고정한다. Owner 가 승인한 범위는 SKILL.md 1 개와 이 기록 1 개뿐이며 helper script, Codex·Gemini 사본, 자동 호출, governance 변경, Reviewer 검증 로직 재구현, commit/push 자동화, 승인·budget·scope 판단 자동화는 제외한다. .claude/skills 를 공식 경로로 확정하는 결정은 하지 않는다.`
 - source_command: `Owner 가 승인한 jarvis-reviewer-call prototype 최소 범위 지시`
 
@@ -196,6 +196,63 @@ B. `memory/tasks/task-0136-jarvis-reviewer-call-prototype.md`
 
 절차
 이번 repair에서는 수정만 하고 바로 commit하지 마세요.
+수정 후 read-only로 먼저 확인하세요.
+
+1. SKILL.md와 task-0136 전체 정합성
+2. 승인 1·2·3 원문이 모두 verbatim으로 기록됐는지
+3. Manager summary가 세 승인 조건을 빠뜨리지 않는지
+4. `allowed-tools`가 실제 사용 도구와 정확히 일치하는지
+5. Reviewer binding을 중복 복제하지 않는지
+6. M1~M3가 그대로 유지되는지
+7. `git diff --check`
+8. validator
+9. Console smoke
+10. 변경 범위
+
+그리고 수정 결과만 먼저 보고하세요.
+그 다음 제가 확인한 뒤 fresh candidate commit을 만들고 Reviewer를 다시 호출하겠습니다.
+중요:
+
+* 이번 repair의 `repair_count`는 기존 값에서 1 증가시키되 budget은 변경하지 마세요.
+* 이번 repair로 추가된 변경을 기존 candidate commit에 덮어쓰지 마세요.
+* fresh Reviewer가 필요하므로 새로운 candidate hash가 필요합니다.
+```
+
+승인 5 — repair 1 확정, candidate commit, fresh Reviewer 호출 승인. 이 승인은 candidate `71bdf284…` 를 만든 뒤에 도착했고, 이 기록에는 repair 2 에서 사후에 추가했다:
+
+```text
+Repair 1 재검증 결과를 확인했습니다. Repair 1을 승인합니다.
+이제 다음 단계로 진행하세요.
+
+1. 현재 repair 상태를 새 candidate commit으로 확정
+   * 기존 candidate `770ed6e6d8953bbebaa1d07fca0bbcdd4b7a0ae7`를 덮어쓰거나 수정하지 말 것
+   * repair 후 변경된 정확히 2개 파일만 commit
+   * `jarvis.bat`은 절대 포함하지 말 것
+   * push하지 말 것
+2. commit 직전에 read-only로 최종 확인
+   * `git status --short --branch`
+   * staged 파일이 정확히 아래 2개인지 확인
+      * `.claude/skills/jarvis-reviewer-call/SKILL.md`
+      * `memory/tasks/task-0136-jarvis-reviewer-call-prototype.md`
+   * diff에서 의도하지 않은 변경이 없는지 확인
+3. commit 후 반드시 보고
+   * 새 candidate commit hash
+   * parent
+   * 포함 파일
+   * commit 구조(단일 parent인지)
+   * `jarvis.bat` 미포함
+   * push하지 않았음을 명시
+4. 그 다음 fresh Reviewer를 새 candidate hash로 호출
+   * 이전 Reviewer 결과를 재사용하지 말 것
+   * 새 candidate를 기준으로 처음부터 검토할 것
+   * Reviewer 결과는 원문 그대로 보고할 것
+5. Reviewer가 PASS가 아니면 QA를 시작하지 말 것.
+   * 새 수정은 임의로 하지 말고 먼저 결과를 보고할 것.
+   * 특히 minor finding이 나오더라도 자동 수정하지 말 것.
+   * repair budget / Owner 승인 범위를 넘는 사항은 별도로 제 승인 요청.
+6. Reviewer가 PASS하더라도 지금 단계에서는 QA까지 자동 진행하지 말고 Reviewer 결과만 먼저 보고하세요. 제가 확인 후 QA를 승인하겠습니다.
+
+이번 단계에서는 새 기능 추가, helper script, Codex/Gemini 확장, governance 변경, Reviewer 로직 재구현, 공식 skill path 결정, `jarvis.bat` 수정은 하지 마세요.
 ```
 
 ## Manager 요약 (원문 해석)
@@ -214,7 +271,7 @@ B. `memory/tasks/task-0136-jarvis-reviewer-call-prototype.md`
 | 10 | `.claude/skills/` 를 공식·영구 경로로 확정하지 않는다. prototype 단계로만 취급 | "결정은 아직 하지 않습니다" |
 | 11 | 구현 전에 기존 skill 구조와 기록 위치를 read-only 로 확인하고 파일 목록·범위를 먼저 보고한다 | "구현 전에 … 먼저 보고하세요" |
 | 12 | 검토 결과 수정은 보고한 범위(M1–M3, m1–m5, 기록 정합)에서만 한다. 새 파일·helper script·Codex/Gemini 사본·governance 변경 없음 | 승인 2 "보고한 범위에서만 수정하세요" |
-| 13 | 수정 후 read-only 재검증 10 항목을 확인하고 결과를 먼저 보고한다 | 승인 2 "수정 후 read-only 재검증" 목록 |
+| 13 | 수정 후 read-only 재검증 10 항목을 확인하고 결과를 먼저 보고한다 | 승인 4 절차 "수정 후 read-only로 먼저 확인하세요" 1–10 과 "그리고 수정 결과만 먼저 보고하세요" |
 | 14 | 수정 후 바로 commit 하지 않는다 | 승인 2 "수정 후에는 바로 commit하지 마세요" |
 | 15 | `allowed-tools` 에서 `Glob` 을 제거하는 한 줄 변경만 추가로 허용한다 | 승인 3 "한 줄 변경만 허용합니다" |
 | 16 | 두 신규 파일만 stage·commit 하고 `jarvis.bat` 은 포함하지 않으며 push 하지 않는다 | 승인 3 "이 두 파일만 staging/commit합니다", "`jarvis.bat`은 절대 포함하지 마세요", "push하지 마세요" |
@@ -225,6 +282,23 @@ B. `memory/tasks/task-0136-jarvis-reviewer-call-prototype.md`
 | 21 | repair 가 필요하면 기존 repair budget 과 Owner 권한 경계를 그대로 적용한다 | 승인 3 "repair가 필요하면 기존 repair budget과 Owner 권한 경계를 그대로 적용하세요" |
 | 22 | repair 1 의 수정은 승인 4 의 A 1–3, B 4–8 범위로 고정하고, 기존 budget 안에서 처리하며 commit 은 하지 않는다 | 승인 4 "이번 repair 범위는 아래로 고정합니다", "기존 repair budget 안에서 처리하세요", "수정만 하고 바로 commit하지 마세요" |
 | 23 | repair 1 에서 새 기능·helper script·Codex/Gemini 사본·governance 변경·`.claude/skills/` 경로 확정·판단 자동화·Reviewer 검증 재구현·`jarvis.bat` 수정을 하지 않는다 | 승인 4 "이번 repair에서 금지" 목록 |
+| 24 | repair 의 `repair_count` 는 기존 값에서 1 증가시키고 budget 은 바꾸지 않는다 | 승인 4 중요 "`repair_count`는 기존 값에서 1 증가시키되 budget은 변경하지 마세요" |
+| 25 | repair 로 추가된 변경을 기존 candidate commit 에 덮어쓰지 않는다 | 승인 4 중요 "기존 candidate commit에 덮어쓰지 마세요" |
+| 26 | fresh Reviewer 를 위해 새 candidate hash 를 만든다 | 승인 4 중요 "fresh Reviewer가 필요하므로 새로운 candidate hash가 필요합니다" |
+| 27 | repair 상태를 새 candidate commit 으로 확정할 때 정확히 두 파일만 commit 한다 | 승인 5 "repair 후 변경된 정확히 2개 파일만 commit" |
+| 28 | 기존 candidate `770ed6e6…` 를 덮어쓰거나 수정하지 않는다 | 승인 5 "기존 candidate … 를 덮어쓰거나 수정하지 말 것" |
+| 29 | `jarvis.bat` 을 포함하지 않는다 | 승인 5 "`jarvis.bat`은 절대 포함하지 말 것" |
+| 30 | push 하지 않는다 | 승인 5 "push하지 말 것" |
+| 31 | commit 직전에 `git status --short --branch`, staged 2 파일, 의도하지 않은 변경 여부를 read-only 로 확인한다 | 승인 5 2 항 |
+| 32 | commit 후 hash·parent·포함 파일·commit 구조·`jarvis.bat` 미포함·push 하지 않음을 보고한다 | 승인 5 3 항 |
+| 33 | 새 candidate hash 로 fresh Reviewer 를 호출한다 | 승인 5 4 항 "fresh Reviewer를 새 candidate hash로 호출" |
+| 34 | 이전 Reviewer 결과를 재사용하지 않고 처음부터 검토한다 | 승인 5 4 항 "이전 Reviewer 결과를 재사용하지 말 것" |
+| 35 | Reviewer 가 PASS 가 아니면 QA 를 시작하지 않는다 | 승인 5 5 항 |
+| 36 | minor finding 이 나와도 자동 수정하지 않고 먼저 보고한다. budget·승인 범위를 넘는 사항은 Owner 승인을 따로 요청한다 | 승인 5 5 항 |
+| 37 | Reviewer 결과는 원문 그대로 보고한다 | 승인 5 4·5 항 "Reviewer 결과는 원문 그대로 보고할 것" |
+| 38 | Reviewer 가 PASS 여도 QA 로 자동 진행하지 않고 Owner 확인을 기다린다 | 승인 5 6 항 |
+
+승인 5 는 candidate `71bdf284…` 를 만든 뒤 도착한 사후 승인이다. 24–26 행은 승인 4 의 중요 조건이고 27–38 행은 승인 5 조건이다.
 
 ## 구현 전 read-only 확인 (조건 11)
 
@@ -288,11 +362,14 @@ SKILL.md 의 구조:
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+retry_budget=1, retry_count=0, repair_budget=2 (Owner 가 1 에서 2 로 증액), repair_count=2
 
 | # | 원인 | 조치 |
 | --- | --- | --- |
 | 1 | Reviewer FINDINGS (candidate `770ed6e6d8953bbebaa1d07fca0bbcdd4b7a0ae7`, major 2 / minor 5): 기록의 `allowed-tools` 설명에 `Glob` 이 남아 SKILL.md 와 어긋남, Manager 요약이 승인 2·3 조건을 빠뜨림, 승인 2·3 이 기록의 승인 원문 절에 없음, V5 줄 수 196 (실제 195), `allowed-tools` 가 공백 구분, hash·승인 원문 BLOCKED 조건이 Reviewer 정의의 임계값을 다시 적음 | 승인 4 범위대로 `allowed-tools` 를 쉼표 구분으로 고치고, hash·승인 원문 BLOCKED 조건을 Reviewer 정의 binding 절 참조로 축약했다. 기록에는 승인 2·3·4 원문을 추가하고 요약 12–23 행을 보강했으며 `Glob` 문구와 V5 수치를 실제 파일에 맞췄다. 새 기능·script·사본·governance 변경은 없다. 새 candidate 에 fresh Reviewer → QA |
+| 2 | Reviewer FINDINGS (candidate `71bdf284818322af603b60d36a35a42c4dc9b0b7`, major 1 / minor 5): 기록의 승인 4 원문이 "이번 repair에서는 수정만 하고 바로 commit하지 마세요." 에서 잘려 재검증 10 항목·보고 지시·중요 3 항목이 빠졌고, 그 결과 요약 13 행이 승인 2 를 잘못 근거로 들었으며 승인 4 중요 조건과 승인 5 조건이 요약에 없었다. SKILL.md 호출문 template 의 `Parent (baseline): <parent hash>` 한 줄이 parent 와 baseline 을 같은 값으로 적어 M1·M2 규칙과 모순됐다. minor 1 건은 validator·diff-check·smoke 재현으로 QA 이관 | Owner 가 repair budget 을 2 로 증액하고 repair 2 를 승인. 승인 4 원문을 끝까지 verbatim 으로 채우고 승인 5 를 사후 승인임을 밝혀 추가했다. 요약 13 행 근거를 승인 4 절차로 정정하고 24–38 행을 추가했다. template 의 parent 줄을 `Parent:` 와 `Baseline:` 두 줄로 분리했다. skill 의 다른 내용과 M1–M3 규칙은 무변경. 새 candidate 에 fresh Reviewer → QA |
+
+repair 2 를 승인한 Owner 메시지(budget 1 → 2 증액과 위 4 개 항목 지정)는 이 candidate 이후에 도착했으므로 이 기록에는 아직 원문으로 담기지 않았고, 다음 갱신에서 승인 6 으로 추가한다.
 
 ## 후속으로 남긴 것
 

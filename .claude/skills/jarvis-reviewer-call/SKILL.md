@@ -154,7 +154,8 @@ When the preflight passes, print the call in exactly this order, ready to send:
 Review request from Manager (the caller): <task id>, <purpose>.
 
 Candidate commit (full hash): <hash>
-Parent (baseline): <parent hash>
+Parent: <parent hash of the candidate>
+Baseline: <baseline hash the task started from>
 
 <commit structure, when the task spans several commits: list each commit, its
 parent and what it changed, and say which earlier Reviewer results are now
