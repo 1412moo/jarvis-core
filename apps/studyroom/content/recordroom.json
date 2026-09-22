@@ -1,0 +1,77 @@
+[
+  {
+    "id": "rec-0001",
+    "title": "Jarvis Bootstrap and Initial Governance",
+    "task_id": "task-0001",
+    "date": "2026-04-03",
+    "what_happened": "저장소 초기 뼈대를 생성하고 AGENTS.md, 운영 규칙, 보고서 포맷을 표준화함.",
+    "why_needed": "지휘(오케스트레이션)와 기록(문서/보고)을 분리하고 작업 표준을 수립하기 위함.",
+    "issue_faced": "명문화된 규칙 없이 작업을 진행할 경우 발생하는 저장소 오염과 무단 실행 위험.",
+    "resolution": "작은 단계 원칙, No-secrets 원칙, 문서 우선주의를 담은 AGENTS.md를 최우선 헌법으로 정의함.",
+    "engineering_lesson": "규칙 우선주의(Rules-first)와 시스템 거버넌스의 중요성.",
+    "related_links": [
+      { "label": "task-0001", "path": "memory/tasks/task-0001-bootstrap.md" },
+      { "label": "AGENTS.md", "path": "AGENTS.md" }
+    ]
+  },
+  {
+    "id": "rec-0002",
+    "title": "No-Secrets 원칙을 코드 검사로 승격",
+    "task_id": "task-0043",
+    "date": "2026-08-28",
+    "what_happened": "AGENTS.md 원칙 5(\"비밀 정보는 생성·저장·커밋하지 않는다\")를 문서 규칙에서 결정론적 코드 검사로 승격하기 위해 scripts/check_no_secrets.py를 신규 작성함. 클라우드 키, LLM API 키, Slack·GitHub 토큰, private key 블록, 일반 secret 할당 등 탐지 패턴 7종을 검사하고, git 추적 파일 전체 스캔과 staged 전용 스캔(--staged)을 지원함.",
+    "why_needed": "task-0038 Phase 1 항목 4. \"비밀 정보 금지\" 원칙이 문서로만 존재하면 사람이 매번 눈으로 확인해야 하므로, 이를 자동화된 결정론적 검사로 승격해야 했음.",
+    "issue_faced": "첫 실행에서 8건의 오탐(false positive)이 발견됨 — placeholder 값, 저엔트로피(반복 문자) 값, 환경변수 \"이름\"을 담은 값(예: TEAM_MANAGER_BOT_TOKEN_ENV = \"TEAM_MANAGER_BOT_TOKEN\"), 순수 소문자 단어형 라벨(예: \"evidence-token-two\")이 실제 비밀처럼 탐지됨.",
+    "resolution": "오탐 방지 로직을 추가해 위 네 가지 패턴을 제외 처리함. 내장 self-test(양성 7 + 음성 9 fixture) 16/16 통과, 저장소 전체 215개 파일 스캔에서 findings=0으로 PASS. 기존 파일 수정은 없었음.",
+    "engineering_lesson": "보안 검사 도구는 \"탐지 규칙을 넣는 것\"과 \"오탐을 처리하는 것\"이 거의 같은 비중의 작업이다. 실제 저장소에 돌려보기 전까지는 오탐의 존재조차 알 수 없다.",
+    "related_links": [
+      { "label": "task-0043", "path": "memory/tasks/task-0043-no-secrets-enforcement.md" },
+      { "label": "check_no_secrets.py", "path": "scripts/check_no_secrets.py" }
+    ]
+  },
+  {
+    "id": "rec-0003",
+    "title": "감사 해시체인 설계 중 발견한 숨은 사실들",
+    "task_id": "task-0044",
+    "date": "2026-09-05",
+    "what_happened": "각 승인/증거 기록에 prev_hash를 포함하는 해시체인 구조를 설계하고 orchestrator/audit-chain/(audit_entry.py, audit_store.py, audit_verifier.py, cli.py)을 구현함. 다만 Owner 결정 3(a)에 따라 승인 경로 연동은 별도 task로 분리되어, 이 단계에서는 스키마와 저장/검증 로직만 확정되고 실제 감사 기록은 아직 발생하지 않음.",
+    "why_needed": "task-0038 조사에서 Buzz의 감사 파이프라인이 fire-and-forget이라 감사 로그가 조용히 유실될 수 있다는 점이 반면교사가 됨. Jarvis-Core는 감사 기록 실패를 작업 실패로 취급하며 fire-and-forget으로 만들지 않기로 함.",
+    "issue_faced": "설계 착수 전 조사에서 두 가지 문제가 드러남. 첫째, 체인을 걸 감사 기록 자체가 저장소 어디에도 없었음(audit_store 호출 전수 검색 0건). 둘째, 가장 감사가 중요한 경로인 /approve(`adapters/discord/bot_minimal.py:_apply_task_status_transition`)가 `task_file.write_text()` 한 줄만 쓰는 가장 약한 쓰기 방식이었음 — fsync도 atomic replace도 없었음.",
+    "resolution": "Owner 결정 7건(2026-09-05)으로 범위를 A+B(owner_approval + execution_result) 스키마와 코어+CLI 구현으로 한정함. 인수인계 중 실행 자체를 막고 있던 배선 결함 2건(하이픈이 든 패키지 경로의 상대 임포트로 인한 ImportError, slots 데이터클래스에 없는 __dict__ 오사용)을 즉시 수정했고, 에러 어휘 계약 관련 결함 2건은 Owner 결정 후 처리함. orchestrator/audit-chain/run_smoke_tests.py 6/6 PASS.",
+    "engineering_lesson": "찢어질 수 있는 쓰기 위에 체인을 얹으면, 체인이 깨진 것인지 공격받은 것인지 구분할 수 없다. 그리고 스키마만 확정된 상태를 \"감사 기록 도입 완료\"로 적는 것은 확인하지 않은 사항을 완료로 기록하지 않는다는 원칙 위반이다.",
+    "related_links": [
+      { "label": "task-0044", "path": "memory/tasks/task-0044-audit-hash-chain.md" },
+      { "label": "audit-chain design", "path": "docs/task-0044-audit-hash-chain-design.md" },
+      { "label": "orchestrator/audit-chain/", "path": "orchestrator/audit-chain/" }
+    ]
+  },
+  {
+    "id": "rec-0004",
+    "title": "실행결과 원자적 쓰기(U2) — 중단 시 자기모순 상태 실측",
+    "task_id": "task-0055",
+    "date": "2026-09-06",
+    "what_happened": "명령마다 남아 있던 비원자 쓰기 1회(실행 메타데이터 쓰기)를 실행결과 전이 쓰기와 하나의 os.replace로 통합함.",
+    "why_needed": "task-0053(U1)이 모든 상태 전이를 durable writer로 보냈지만, 실행 메타데이터 쓰기와 전이 쓰기 사이의 창은 여전히 비원자였음. /approve는 3회 쓰기 중 1회, /run은 2회 중 1회, /retry는 4회 중 1회가 비원자였음.",
+    "issue_faced": "두 쓰기 사이에서 프로세스를 중단시키는 실측 재현에서, task status는 여전히 DOING인데 실행필드 8개는 이미 채워져 canonical 검증까지 PASS하는 자기모순 상태가 실제로 발생함을 확인함.",
+    "resolution": "U2는 비원자 쓰기를 없애는 것이 아니라, 실행결과 전이와 하나의 os.replace로 합치는 방식으로 그 창을 닫음. orchestrator/discord-intake/task_file_writer.py, adapters/discord/bot_minimal.py를 수정함. Owner가 \"꼬리 추출 후 새 함수\" 방식을 승인해 구현·검증까지 완료했고, 실행 경로의 비원자 쓰기가 0이 됨.",
+    "engineering_lesson": "논리적으로 한 사건인 두 쓰기는 물리적으로도 한 번의 쓰기로 만들어야 중단 시점의 자기모순 상태를 원천 차단할 수 있다. 실제로 중단시켜 재현하기 전까지는 이런 창이 존재한다는 사실 자체를 알 수 없다.",
+    "related_links": [
+      { "label": "task-0055", "path": "memory/tasks/task-0055-execution-result-atomic-write.md" },
+      { "label": "task_file_writer.py", "path": "orchestrator/discord-intake/task_file_writer.py" }
+    ]
+  },
+  {
+    "id": "rec-0005",
+    "title": "Console 축소 중 드러난 숨은 sys.path 의존성",
+    "task_id": "task-0073",
+    "date": "2026-09-07",
+    "what_happened": "Jarvis Console의 codex_review adapter(약 200줄)를 삭제하고 run_web_app.py, run_smoke_tests.py, web/app.js, web/index.html, web/styles.css, README.md 등 관련 참조를 제거함. 총 658줄 감소.",
+    "why_needed": "D6-a Owner 결정. codex_review.py 자신의 첫 줄이 \"Write-free Jarvis Console adapter for one fresh Hermes review session\"이라고 밝히고 있었고, 실제 구현은 처음부터 hermes-manager-pilot 소유였으며 Console 고유 로직은 `_validate_pre_collection_review()` 검증 함수 하나와 응답 포맷팅뿐, 외부 소비자도 0이었음.",
+    "issue_faced": "파일을 삭제하자 Console 앱이 import조차 되지 않았음. codex_review.py가 hermes를 sys.path에 얹는 유일한 지점이었고, project_control의 모듈 두 개가 거기에 의존하고 있었음.",
+    "resolution": "sys.path 설정 코드를 run_web_app.py 상단으로 옮겨 해결함. hermes-manager-pilot 자체는 무변경, 전체 회귀 테스트 통과.",
+    "engineering_lesson": "\"이 파일은 A 기능만 한다\"는 이름과 문서만으로는 그 파일이 조용히 떠맡고 있는 배선(sys.path 등) 책임을 알 수 없다. 실제로 삭제해 보기 전까지는 숨은 의존성이 드러나지 않는다.",
+    "related_links": [
+      { "label": "task-0073", "path": "memory/tasks/task-0073-console-codex-review-removal.md" }
+    ]
+  }
+]

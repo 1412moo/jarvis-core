@@ -1,0 +1,26 @@
+[
+  {
+    "id": "python",
+    "name": "Python",
+    "description": "간결하고 가독성이 높은 고수준 프로그래밍 언어로, 풍부한 표준 라이브러리를 내장하고 있습니다.",
+    "jarvis_usage": "Jarvis-Core 전반의 오케스트레이터, 콘솔 서버, 연구 협의회(Research Council), 검증 스크립트에 사용되며 외부 의존성 없이 표준 라이브러리 위주로 구동됩니다."
+  },
+  {
+    "id": "git",
+    "name": "Git",
+    "description": "분산 버전 관리 시스템(DVCS)으로, 코드의 변경 이력을 스냅샷 형태로 추적하고 관리합니다.",
+    "jarvis_usage": "모든 작업의 불변 기준선(Baseline)과 결과 후보(Candidate Commit)를 고정하고, merge-base를 통한 이력 검증의 원천 사실로 사용됩니다."
+  },
+  {
+    "id": "nodejs",
+    "name": "Node.js (stdlib crypto)",
+    "description": "JavaScript 런타임. 표준 라이브러리 `crypto` 모듈이 Ed25519 서명·검증(`crypto.generateKeyPairSync`, `crypto.sign`, `crypto.verify`)을 기본 지원합니다.",
+    "jarvis_usage": "task-0042(역할별 서명키)는 Python stdlib에 Ed25519가 없다는 이유로 새 암호 의존성을 추가하는 대신, 저장소에 이미 있는 Node.js(orchestrator/buzz-bridge/)의 stdlib crypto를 활용하도록 설계·구현했습니다. 서명 코드는 서드파티 패키지에 의존하지 않습니다."
+  },
+  {
+    "id": "ed25519",
+    "name": "Ed25519",
+    "description": "빠르고 안전한 것으로 널리 쓰이는 타원곡선 기반 비대칭키 서명 알고리즘입니다.",
+    "jarvis_usage": "task-0042 설계가 역할별(Implementer/Reviewer/QA/Docs) 서명키에 채택한 알고리즘입니다. 저장소의 기존 secp256k1 Schnorr 기반 의존성(nostr-tools)과는 다른 곡선이라 재사용할 수 없어, Node stdlib crypto 경로를 새로 확인해 적용했습니다."
+  }
+]

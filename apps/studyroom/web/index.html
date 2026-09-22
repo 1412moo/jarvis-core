@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jarvis Studyroom</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-brand">
+        <span class="logo-badge">Studyroom</span>
+        <h1>Jarvis-Core Learning Surface</h1>
+      </div>
+      <p class="header-subtitle">내가 만든 Jarvis-Core 자체를 교재 삼아 소프트웨어 엔지니어링을 공부하는 공간</p>
+    </header>
+
+    <nav class="app-nav">
+      <button class="nav-tab active" data-tab="home">Home</button>
+      <button class="nav-tab" data-tab="recordroom">Recordroom</button>
+      <button class="nav-tab" data-tab="technologies">Technologies</button>
+      <button class="nav-tab" data-tab="features">Features</button>
+      <button class="nav-tab" data-tab="glossary">Glossary</button>
+      <button class="nav-tab" data-tab="learn">Learn</button>
+    </nav>
+
+    <main id="app-view" class="app-main">
+      <!-- 뷰 내용은 app.js에서 렌더링됩니다 -->
+      <div class="loading">콘텐츠를 불러오는 중입니다...</div>
+    </main>
+
+    <footer class="app-footer">
+      <p>Jarvis Studyroom v0.1 Foundation &bull; Read-Only Learning Surface &bull; Local-First</p>
+    </footer>
+  </div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

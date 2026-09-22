@@ -1,0 +1,59 @@
+[
+  {
+    "id": "task-system",
+    "name": "Task System",
+    "what": "Jarvis의 모든 작업을 단위별 마크다운 파일로 기록하고 수명주기를 관리하는 시스템",
+    "why": "작업의 맥락, 승인 원문, 검증 결과를 영구 보존하여 재현 가능성을 확보하기 위함",
+    "how": "memory/tasks/ 아래에 고유 ID로 생성되며, TODO -> DOING -> DONE 상태 전이와 단일 원자 쓰기로 관리됨",
+    "related_tasks": [
+      "task-0001",
+      "task-0041",
+      "task-0055"
+    ]
+  },
+  {
+    "id": "console",
+    "name": "Jarvis Console",
+    "what": "작업 수명주기와 오너 결정 상태를 시각화하는 로컬 웹 대시보드",
+    "why": "CLI를 직접 열지 않고도 현재 작업 상태와 최근 커밋을 한눈에 파악하기 위함",
+    "how": "Python http.server 기반으로 동작하며, 승인 권한 없이 읽기와 한정된 전이(Preview+Confirm)만 지원",
+    "related_tasks": [
+      "task-0073",
+      "task-0121",
+      "task-0131"
+    ]
+  },
+  {
+    "id": "no-secrets-check",
+    "name": "No-Secrets 자동 검사",
+    "what": "저장소에 비밀 정보(API 키, 토큰, private key 등)가 커밋되지 않았는지 결정론적으로 스캔하는 도구",
+    "why": "AGENTS.md 원칙 5(\"비밀 정보는 생성·저장·커밋하지 않는다\")를 사람의 확인이 아닌 자동 검사로 강제하기 위함",
+    "how": "scripts/check_no_secrets.py가 탐지 패턴 7종으로 git 추적 파일 전체 또는 --staged 파일만 스캔하며, 오탐 방지 로직(placeholder·저엔트로피·환경변수명·소문자 라벨 제외)을 포함함. self-test 16/16, 저장소 전체 스캔 findings=0으로 검증됨",
+    "related_tasks": [
+      "task-0038",
+      "task-0043"
+    ]
+  },
+  {
+    "id": "role-signing",
+    "name": "역할별 서명 키 (Role-Based Signing)",
+    "what": "Implementer/Reviewer/QA/Docs 네 역할이 각자 로컬 Ed25519 키페어로 결과 기록에 서명하는 체계",
+    "why": "리뷰·QA 결과가 실제로 해당 역할이 만든 것인지 사후에 암호학적으로 확인 가능하게 하고, 한 키가 두 역할을 겸하지 못하게 해 역할 분리를 구조적으로 강제하기 위함",
+    "how": "키 생성은 Owner가 명시적으로 실행하는 CLI 1회 동작으로만 이뤄지며 저장소 밖 0700/0600 권한으로 저장됨. 발급은 우선 reviewer/qa 역할부터 시작함. 설계와 승인된 구현 계약이 문서화되어 있고, orchestrator/role-signing/에 Node.js 구현(cli.js, lib/, run_smoke_tests.js)이 존재함",
+    "related_tasks": [
+      "task-0042"
+    ]
+  },
+  {
+    "id": "audit-chain",
+    "name": "감사 해시체인 (Audit Hash Chain)",
+    "what": "승인·실행 결과 기록에 prev_hash를 연결해 변조·삭제·순서뒤집기를 탐지할 수 있게 하는 append-only 저장 구조",
+    "why": "Buzz 생태계 조사에서 확인된 fire-and-forget 감사 파이프라인의 유실 위험을 반면교사 삼아, 감사 기록 실패를 작업 실패로 취급하기 위함",
+    "how": "orchestrator/audit-chain/에 스키마·저장(fsync 포함 append)·검증 로직이 구현되어 있고 run_smoke_tests.py 6/6으로 검증됨. 다만 승인 경로(Discord bot의 /approve 등) 연동은 별도 task로 분리되어 있어, 이 시점 기준으로는 실제 감사 기록이 아직 쌓이지 않는 설계·구현 완료 단계임",
+    "related_tasks": [
+      "task-0038",
+      "task-0041",
+      "task-0044"
+    ]
+  }
+]
