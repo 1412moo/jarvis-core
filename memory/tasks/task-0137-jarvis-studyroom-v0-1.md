@@ -2,11 +2,11 @@
 
 - id: `task-0137-jarvis-studyroom-v0-1`
 - title: `Jarvis Studyroom v0.1 — 학습용 SPA 골격(A)과 실제 개발 역사/학습 콘텐츠(B)`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-22 10:00 UTC`
-- updated_at: `2026-09-22 10:00 UTC`
-- summary: `apps/studyroom/ — Jarvis-Core 자체를 교재 삼는 개인용 read-only 학습 SPA. A 단계(골격: Python stdlib 서버, path traversal 방어, 6-tab SPA, quiz+LocalStorage, 스키마 검증용 seed 콘텐츠)는 코드로 이미 존재했으나 task 기록이 없었다. 이 기록은 그 read-only 확인 결과와, B 단계(recordroom 5건·glossary 15건·learn 10주제로 콘텐츠 확장)의 실제 구현을 함께 담는다. Reviewer/QA는 아직 호출하지 않았으며 Owner 확인 전까지 DONE으로 적지 않는다.`
+- updated_at: `2026-09-22 23:20 UTC`
+- summary: `apps/studyroom/ — Jarvis-Core 자체를 교재 삼는 개인용 read-only 학습 SPA. A 단계(골격: Python stdlib 서버, path traversal 방어, 6-tab SPA, quiz+LocalStorage)는 코드로 이미 존재했으나 task 기록이 없었다. B 단계에서 recordroom 5건·glossary 15건·learn 10주제로 콘텐츠를 확장했다. 독립 Reviewer/QA가 glossary.json의 owner-approval·candidate 두 항목에서 사실 오류를 발견(PASS WITH MINOR)했고, 최소 범위로 수정한 뒤 재검증에서 PASS를 받았다. commit \`6dd2352df35ec3415f260ab4195753fe2e035cb1\`(12파일, "feat(studyroom): add v0.1 learning content")으로 반영했으며 push는 하지 않았다. Owner가 채팅에서 DONE 전환을 직접 지시했다.`
 - source_command: `Owner가 채팅으로 직접 지시한 Studyroom task-0137-A 상태 확인(read-only) 및 task-0137-B 콘텐츠 구현`
 
 ## 기준선
@@ -91,8 +91,51 @@ JSON 스키마, path traversal, 실 HTTP 서버, 무의존성)가 콘텐츠 스�
 - `jarvis.bat`
 - 이번 작업 범위를 벗어난 기존 task 문서(`memory/tasks/task-0001~0136`), `docs/master-plan.md`
 
-## 남은 작업 (이 기록에서 제안만, 미실행)
+## Reviewer/QA (2026-09-22)
 
-- Owner가 recordroom/glossary/learn 콘텐츠 문구를 직접 확인하고 완료 여부를 결정
-- 필요하면 Reviewer/QA를 이 candidate에 대해 호출(Jarvis Multi-Agent SOP 절차)
-- commit 여부와 범위(`jarvis.bat` 제외)는 Owner 승인 후 별도로 진행
+독립 Reviewer/QA 관점에서 실제 파일을 원문과 대조해 검토했다(구현자 관점 요약을 그대로
+승인하지 않음). 구조·격리·의존성·테스트 항목은 전부 문제없었으나, 콘텐츠 사실성에서
+2건을 발견해 최초 판정은 **PASS WITH MINOR**였다.
+
+| # | Severity | 위치 | 내용 |
+| --- | --- | --- | --- |
+| 1 | BLOCKING | `glossary.json` `owner-approval` | "승인 1~7의 원문이 그대로 보존되어 있다"고 적었으나, `task-0136-jarvis-reviewer-call-prototype.md` 원문은 승인 6이 Owner 결정에 따라 **원문 없이** 유지됐다고 명시(258·430·446행) |
+| 2 | MINOR | `glossary.json` `candidate` | "hash가 없거나 40자가 아니면 BLOCKED"가 task-0136 Skill 자체의 검증처럼 읽혔으나, 실제로는 `.claude/agents/reviewer.md`의 책임이고 `SKILL.md`는 그 규칙을 재구현하지 않고 참조만 함(`SKILL.md:73` "The binding rule stays in the Reviewer") |
+
+### 수정
+
+`glossary.json`의 `owner-approval`·`candidate` 두 항목의 `jarvis_example`만 최소 수정했다.
+
+- `owner-approval`: "승인 1~5와 7의 원문이 그대로 보존되어 있습니다. 승인 6만은 Owner 결정에 따라 원문 없이 유지되며..."로 정정
+- `candidate`: "이 검증은 Reviewer 정의(.claude/agents/reviewer.md)의 책임이며 task-0136의 Skill은 그 규칙을 다시 구현하지 않고 참조만 합니다"를 추가
+
+다른 파일(recordroom/learn/technologies/features, web/*, README, task 기록 본문)은 건드리지
+않았다.
+
+### 재검증
+
+수정된 두 항목을 `task-0136` 원문, `.claude/agents/reviewer.md`, `SKILL.md`와 다시 대조해
+모순이 없음을 확인했다. JSON 파싱 정상(15개 항목, 중복 id 0건), 스모크 테스트
+`ALL SMOKE TESTS PASSED (5/5 suites, 0 failures)` exit 0. 최종 판정 **PASS**.
+
+## Commit (2026-09-22)
+
+Owner 지시로 `apps/studyroom/`과 이 기록만 staging해 commit했다.
+
+| 항목 | 값 |
+| --- | --- |
+| commit hash | `6dd2352df35ec3415f260ab4195753fe2e035cb1` |
+| message | `feat(studyroom): add v0.1 learning content` |
+| 포함 파일 | 12개 — `apps/studyroom/{README.md, content/*.json(5), run_smoke_tests.py, run_web_app.py, web/*(3)}`, `memory/tasks/task-0137-jarvis-studyroom-v0-1.md` |
+| 제외 | `jarvis.bat`(별도 untracked 유지), `apps/studyroom/__pycache__/`(`.gitignore`로 자동 제외) |
+| push | 하지 않음 |
+
+커밋 전 `python -B apps/studyroom/run_smoke_tests.py` 재실행으로 PASS를 재확인한 뒤
+진행했다.
+
+## 남은 작업
+
+- push는 Owner가 별도로 결정
+- (INFO, task-0137-B 범위 밖) `web/app.js`의 Home 카드 문구와 `README.md`가 "Nostr"를
+  Technologies 주제로 언급하지만 `technologies.json`에는 아직 없음 — 후속 콘텐츠 추가 또는
+  문구 정정이 필요하면 별도 task로 진행
