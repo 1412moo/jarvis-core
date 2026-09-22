@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-21 12:08 UTC`
-- updated_at: `2026-09-23 00:10 UTC`
+- updated_at: `2026-09-23 00:40 UTC`
 - summary: `task-0134·0135 에서 Reviewer 를 13 회 호출하며 같은 5 개 블록(candidate·scope·명령 형식·Manager 요약·Owner 승인 원문)을 매번 손으로 조립했고, 요약이 승인 원문 조건을 빠뜨려 repair 2 회가 발생했다. 이 절차를 명시 호출 전용 Claude Skill prototype 1 개로 고정한다. Owner 가 승인한 범위는 SKILL.md 1 개와 이 기록 1 개뿐이며 helper script, Codex·Gemini 사본, 자동 호출, governance 변경, Reviewer 검증 로직 재구현, commit/push 자동화, 승인·budget·scope 판단 자동화는 제외한다. .claude/skills 를 공식 경로로 확정하는 결정은 하지 않는다.`
 - source_command: `Owner 가 승인한 jarvis-reviewer-call prototype 최소 범위 지시`
 
@@ -477,9 +477,11 @@ minor 1–3 은 Owner 결정으로 수용했고, 이번 QA 기록에서도 소�
 Repair 3 candidate `eb06ee8227cfba02fe8813790affc5c94af0d37c`를 최소 범위(SKILL.md 2줄)로
 fresh Reviewer 재검증하려던 중, 이 candidate의 실제 diff가 두 파일을 바꾼다는 사실이
 드러났다 — `.claude/skills/jarvis-reviewer-call/SKILL.md`(승인 7이 승인한 2줄)와 이
-기록(`memory/tasks/task-0136-jarvis-reviewer-call-prototype.md`, provenance 62줄
-추가/3줄 삭제). Reviewer를 세 차례 호출했고 세 번 다 `FINDINGS`였다. 공통 지적은 다음
-세 가지였다.
+기록(`memory/tasks/task-0136-jarvis-reviewer-call-prototype.md`, Manager/Worker가
+`git diff`로 확인한 provenance 62줄 추가/3줄 삭제). Manager/Worker가 이 candidate에
+대해 Reviewer를 세 차례 호출했고 세 번 다 `FINDINGS`였다(이 세 차례 호출은 그 이전에
+있었던 사실이며, 이번 candidate 리뷰의 검증 대상이 아니다). 공통 지적은 다음 세
+가지였다.
 
 1. 이 기록의 426행이 "repair 3의 SKILL.md 변경은 아직 commit 하지 않았다"고 적었으나
    실제로는 `eb06ee8`로 이미 commit됨 — 기록 자체가 부정확했다
@@ -488,13 +490,15 @@ fresh Reviewer 재검증하려던 중, 이 candidate의 실제 diff가 두 파�
 3. provenance 62줄 추가는 승인 7의 scope("오직 ... SKILL.md 의 위 인자 표기만
    수정한다")를 벗어난다
 
-### 원문 확인 결과 (read-only 조사, 2026-09-22)
+### 원문 확인 결과 (Manager/Worker의 read-only 조사, 2026-09-22)
 
-저장소 전체(`eb06ee8`의 commit message 전문, git notes, `eb06ee8`를 포함하는 모든
-브랜치/태그, git reflog, `=== OWNER APPROVAL (verbatim) ===` 마커가 있는 저장소 내
-모든 파일 — `task-0135`, 이 기록, `reviewer.md`, `SKILL.md` 4개뿐)를 다시 뒤졌다.
+Manager/Worker가 저장소 전체(`eb06ee8`의 commit message 전문, git notes, `eb06ee8`를
+포함하는 모든 브랜치/태그, git reflog, `=== OWNER APPROVAL (verbatim) ===` 마커가 있는
+저장소 내 모든 파일 — `task-0135`, 이 기록, `reviewer.md`, `SKILL.md` 4개뿐)를 다시
+뒤진 결과다. 이 조사는 Reviewer의 허용 명령(candidate diff에 한정) 범위 밖이라, 이
+candidate를 리뷰하는 Reviewer가 독립적으로 재현·검증한 사실이 아니다.
 
-| 항목 | 확인 결과 |
+| 항목 | Manager/Worker 확인 결과 |
 | --- | --- |
 | provenance 62줄 추가를 승인한 Owner 지시 | **원문 없음.** 이 기록 426행의 "그 뒤 Owner의 별도 기록 보강 지시로 추가한 provenance다"는 그런 지시가 있었다는 서술일 뿐, 그 지시를 인용한 적이 없다 |
 | 승인 7의 "commit하지 말 것"을 넘어 `eb06ee8` commit 자체를 허가한 Owner 지시 | **원문 없음.** `eb06ee8`의 commit message는 무엇을 기록했는지만 설명할 뿐 승인 원문을 담지 않는다 |
