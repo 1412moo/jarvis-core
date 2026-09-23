@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-21 12:08 UTC`
-- updated_at: `2026-09-23 01:50 UTC`
+- updated_at: `2026-09-23 02:05 UTC`
 - summary: `task-0134·0135 에서 Reviewer 를 13 회 호출하며 같은 5 개 블록(candidate·scope·명령 형식·Manager 요약·Owner 승인 원문)을 매번 손으로 조립했고, 요약이 승인 원문 조건을 빠뜨려 repair 2 회가 발생했다. 이 절차를 명시 호출 전용 Claude Skill prototype 1 개로 고정한다. Owner 가 승인한 범위는 SKILL.md 1 개와 이 기록 1 개뿐이며 helper script, Codex·Gemini 사본, 자동 호출, governance 변경, Reviewer 검증 로직 재구현, commit/push 자동화, 승인·budget·scope 판단 자동화는 제외한다. .claude/skills 를 공식 경로로 확정하는 결정은 하지 않는다.`
 - source_command: `Owner 가 승인한 jarvis-reviewer-call prototype 최소 범위 지시`
 
@@ -595,5 +595,5 @@ QA도 호출하지 않았다.
 ## Reviewer/QA 결과 (candidate `2f9c1f7984cc838db65555dbe5c51839af1af4cd`)
 
 - Reviewer: `PASS`, findings 0건 (scope: 이 기록 파일 1개, baseline `b59aad490f80e35e10728d706dc8875c214c6da1`)
-- QA: `PASS`. HEAD == candidate, 작업트리·인덱스 HEAD와 일치, candidate diff는 이 파일 1개(13줄 추가/9줄 삭제)·단일 parent, `python -B scripts/validate_multi_agent_sop.py` `negative_checks=72 negative_failures=0 status=PASS`, `git diff --check` candidate 구간·`a400f97..2f9c1f7` 전체 구간·작업트리 모두 exit 0, `repair_budget=3`/`repair_count=3` 불변 확인, `jarvis.bat` 미포함
+- QA(Manager/Worker가 직접 수행, 별도 QA agent 없음): `PASS`. Manager/Worker가 확인한 사실 — HEAD == candidate, 작업트리·인덱스 HEAD와 일치, candidate diff는 이 파일 1개(13줄 추가/9줄 삭제)·단일 parent, `python -B scripts/validate_multi_agent_sop.py` `negative_checks=72 negative_failures=0 status=PASS`, `git diff --check` candidate 구간·`a400f97..2f9c1f7` 전체 구간·작업트리 모두 exit 0, `repair_budget=3`/`repair_count=3` 불변 확인, `jarvis.bat` 미포함
 - status는 `DOING` 유지. DONE 전환은 별도 결정 사항으로 남긴다.
