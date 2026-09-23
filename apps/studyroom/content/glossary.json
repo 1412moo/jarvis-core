@@ -186,7 +186,7 @@
     "term": "Protected File (보호 파일)",
     "dev_definition": "작업 도구나 에이전트가 명시적 요청 없이는 열거나 수정하거나 commit하지 않도록 지정된 파일.",
     "simple_explanation": "공용 사무실에서 '담당자 외 열람 금지' 스티커가 붙은 서랍과 같습니다.",
-    "jarvis_example": "docs/codex-operating-rules.md는 jarvis.bat을 \"기존 untracked protected file\"로 정하고 \"명시적 별도 요청 없이는 jarvis.bat를 열거나 수정하거나 stage/commit하지 않는다\"고 기록합니다. SOP도 Implementer가 protected jarvis.bat을 다루지 않도록 정합니다."
+    "jarvis_example": "docs/codex-operating-rules.md는 jarvis.bat을 \"기존 untracked protected file\"로 정하고 \"명시적 별도 요청 없이는 `jarvis.bat`를 열거나 수정하거나 stage/commit하지 않는다\"고 기록합니다. SOP도 Implementer가 protected jarvis.bat을 다루지 않도록 정합니다."
   },
   {
     "id": "header-block",
