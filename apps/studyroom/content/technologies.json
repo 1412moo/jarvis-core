@@ -51,7 +51,7 @@
     "id": "openrouter",
     "name": "OpenRouter",
     "description": "여러 회사의 언어 모델을 하나의 OpenAI 호환 API로 호출할 수 있게 중개하는 서비스입니다. 요청마다 모델과 실제 처리 provider, 대체 경로(fallback), 데이터 보존 정책을 지정할 수 있습니다.",
-    "jarvis_usage": "task-0029(commit c7f2b99)는 Research Council 전용으로 llm_advisor LIVE 모드에 OpenRouter를 붙였습니다. 모델은 z-ai/glm-4.6, provider는 deepinfra/fp4로 고정했고 fallback off, zdr on, data_collection deny로 두었으며 API 키는 환경변수에서만 읽습니다. golden·benchmark·mutation·demo와 Jarvis Console 경로는 건드리지 않았습니다."
+    "jarvis_usage": "task-0029(commit c7f2b99)는 Research Council 전용으로 llm_advisor LIVE 모드에 OpenRouter를 붙였습니다. 모델은 z-ai/glm-4.6, provider는 deepinfra/fp4로 고정했고 fallback off, zdr on, data_collection deny로 두었으며 API 키는 환경변수에서만 읽습니다. LIVE는 명시적으로 켤 때만 동작하며, golden case·benchmark snapshot·mutation test·demo runner·demo batch·로컬 GUI에서는 쓸 수 없도록 막았고 Jarvis Console 등 다른 앱은 적용 범위 밖입니다."
   },
   {
     "id": "antigravity-cli",
