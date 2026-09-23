@@ -29,7 +29,7 @@
     "why_needed": "Discord 명령을 로컬 task 기록으로 바꾸는 흐름을 처음부터 끝까지 이어 보기 위함. task-0003은 MVP dry-run 검증 범위를 smoke/E2E로 확인했다고 기록함.",
     "issue_faced": "task-0003은 실제 Discord bot 연동, 실제 /approve 승인 처리, execution layer를 완료 범위에서 제외했음. 테스트 입력이 만든 파일은 backlog가 아니라 파일 생성 경로 확인 기록으로만 보존됨.",
     "resolution": "smoke 테스트(orchestrator/discord-intake/run_smoke_tests.py total 11, failed 0)를 완료 근거로 기록하고, 확인하지 않은 실제 연동은 범위 밖으로 명시함.",
-    "engineering_lesson": "task-0003 기록 자체가 보여주는 원칙: 확인한 범위만 완료로 적고, 확인하지 않은 연동은 완료에서 제외한다.",
+    "engineering_lesson": "AGENTS.md 원칙 8(확인하지 않은 사항은 완료로 기록하지 않는다)이 task-0003 기록에 적용됨: 실제 Discord bot 연동과 실제 /approve 처리는 완료 범위에서 제외됨.",
     "related_links": [
       {
         "label": "task-0003",
@@ -54,7 +54,7 @@
     "why_needed": "커밋 메시지 기준으로, 쓰는 쪽(writer)과 읽는 쪽(reader)의 동작을 맞추고 전이 검증을 한 입구로 모으기 위함.",
     "issue_faced": "이 시기에는 task 기록이 없어 어떤 증상이 있었는지는 기록으로 확인할 수 없음. 확인되는 것은 writer와 reader를 맞추는 커밋이 하루에 연속으로 생겼다는 사실뿐임.",
     "resolution": "커밋 메시지 기준: writer를 reader 동작에 맞추고, 전이 계약 동기화 가드를 추가하고, 전이 검증 진입점을 하나로 통합함.",
-    "engineering_lesson": "같은 형식을 쓰는 코드와 읽는 코드가 따로 있으면 둘은 어긋날 수 있다. 이 주제는 5개월 뒤 header block 경계 문제(rec-0020)로 다시 나타난다.",
+    "engineering_lesson": "기록 없음. (함께 볼 기록: writer와 reader가 같은 형식을 다르게 읽은 사례는 rec-0020에 task 기록으로 남아 있음.)",
     "related_links": [
       {
         "label": "commit a732528",
@@ -79,7 +79,7 @@
     "why_needed": "커밋 메시지 기준으로, /approve 이후 실제 실행으로 이어지는 경로를 허용 목록 안에서만 열기 위함.",
     "issue_faced": "이 시기에는 task 기록이 없어 당시 문제나 결정 배경은 기록으로 확인할 수 없음.",
     "resolution": "execution-contract 문서를 두고 현재 payload에 맞춰 동기화한 커밋(e9ba2b1)이 있음.",
-    "engineering_lesson": "기록 없음. 이 실행 경로의 쓰기 방식은 9월에 durable writer와 원자적 쓰기로 다시 다뤄짐(rec-0004).",
+    "engineering_lesson": "기록 없음. (함께 볼 기록: /approve·/run·/retry 실행 경로의 비원자 쓰기는 rec-0004에서 다뤄짐.)",
     "related_links": [
       {
         "label": "commit 2d3ae06",
@@ -250,7 +250,7 @@
     "why_needed": "Gemini를 로컬 개발 도구로 쓸 수 있는지 확인하기 위함.",
     "issue_faced": "2026-06-18 구글 정책 변경으로 Gemini Code Assist for individuals 계정은 기존 CLI 로그인이 차단됨.",
     "resolution": "Antigravity CLI로 Windows 동작, 기존 구독 계정 로그인, 저장소 읽기, AGENTS.md 원칙 원문 인용, 수정 금지 지시 준수, 파일 생성 시 승인 프롬프트를 직접 확인하고 USE로 판정함. 헤드리스 모드는 승인 UI가 없어 permissions.allow 사전 설정이 필요하다고 기록함.",
-    "engineering_lesson": "작업 기록에 [정정]을 붙여 원래 전제가 무효가 됐다는 사실을 요약 맨 앞에 남겼다. 외부 도구의 전제는 실제로 다시 확인해야 한다.",
+    "engineering_lesson": "task-0037 기록은 요약 맨 앞에 [정정]을 붙여 원래 전제가 무효가 됐다는 사실을 남겼고, 대체 도구는 실제 동작을 직접 확인한 뒤 USE로 판정했다.",
     "related_links": [
       {
         "label": "task-0037",
@@ -338,7 +338,7 @@
     "why_needed": "구현이 기록보다 먼저 들어가 memory/tasks에 대응 기록이 없는 공백을 메우기 위함.",
     "issue_faced": "task-0048 작성 전까지 이 커밋에 대응하는 task 기록이 없었음. 같은 모양은 뒤에도 반복됨: Studyroom A 단계도 코드로 먼저 존재했고 task 기록이 없었음(task-0137).",
     "resolution": "문서 전용 작업으로 사후 기록을 남기고, 기존 기록은 수정하지 않고 다음 증분을 새 기록으로 추적함.",
-    "engineering_lesson": "기록이 없는 구현은 나중에 누군가 사후 기록으로 메워야 한다. 이 저장소는 그 공백을 지우지 않고 \"사후 기록\"이라고 명시해 남겼다.",
+    "engineering_lesson": "task-0048 기록 기준: 공백을 지우지 않고 \"사후 기록\"임을 명시했으며, 사후 기록 작업 자체는 애플리케이션 코드를 수정하지 않는 문서 전용 작업으로 한정했다.",
     "related_links": [
       {
         "label": "task-0048",
@@ -363,7 +363,7 @@
     "why_needed": "master-plan의 '현재 기준점' 섹션은 사람이 읽는 문서인 동시에 Console이 파싱하는 구조화 데이터 원천임.",
     "issue_faced": "Approval state 필드는 {none, required, blocked} enum인데 407자 산문이 들어 있었고, Manager reporting next package ID 필드에는 유효 ID 뒤에 괄호 설명이 붙어 있었음. 파서는 fail-closed라 한 필드만 어긋나도 Project Control 카드 전체가 막힘.",
     "resolution": "필드 값을 파서 계약에 맞게 되돌리고 산문은 이미 존재하던 자유 텍스트 필드(Approval note)로 옮김. 전체 스모크 10종이 처음으로 전건 PASS.",
-    "engineering_lesson": "사람이 읽는 문서가 기계가 읽는 데이터이기도 하면, 설명은 설명 자리에만 넣어야 한다. 깨진 테스트가 6일간 방치됐다는 것도 함께 기록됐다.",
+    "engineering_lesson": "task-0051 기록 기준: master-plan의 '현재 기준점' 섹션은 사람이 읽는 문서인 동시에 파서가 읽는 데이터이며, 설명은 이미 있던 자유 텍스트 필드에 들어가야 했다. smoke가 6일간 깨져 있었다는 사실도 함께 기록됐다.",
     "related_links": [
       {
         "label": "task-0051",
@@ -501,7 +501,7 @@
     "why_needed": "축소가 기능만 지우고 다른 보호 장치는 남겼는지 확인해야 했음.",
     "issue_faced": "task-0071이 run_self_test의 source 지역변수와 그것을 쓰던 assert 4건을 함께 지워, 금지 패턴 튜플만 남고 검사는 수행되지 않았음. Console의 no commit / no push / no shell 불변식의 유일한 기계적 근거가 8d21efe 이후 비어 있었음. showManualCopyFallback은 항상 false를 반환했음. 미사용 import 13건 중 3건은 smoke가 run_web_app.X로 접근하는 re-export라 지웠으면 suite가 깨졌음. git checkout -- 로 되돌리자 autocrlf 때문에 LF가 CRLF로 바뀌어 바이트 비교 테스트가 전면 실패했고, 테스트를 고칠 뻔했음.",
     "resolution": "가드는 task-0071 직전 커밋에서 원본을 그대로 추출해 5줄 복원하고 mutation probe 7종으로 실제 차단을 확인함. fallback은 기능 중립적인 정적 패널로 복구하고 self-test 가드를 추가함. import는 10건만 제거하고 이전 집계를 정정함. CRLF는 실제 바이트를 세어 원인을 확인한 뒤 파일을 LF로 되돌림.",
-    "engineering_lesson": "task-0074 기록 기준: 테스트가 아니라 내 작업이 만든 오염이었다. 삭제는 무엇을 지웠는지뿐 아니라 무엇이 함께 사라졌는지까지 확인해야 끝난다.",
+    "engineering_lesson": "task-0074 기록 기준: 테스트가 아니라 내 작업이 만든 오염이었다. task-0079는 같은 방식으로 다시 깨지지 않도록 self-test 가드를 추가했다.",
     "related_links": [
       {
         "label": "task-0078",
