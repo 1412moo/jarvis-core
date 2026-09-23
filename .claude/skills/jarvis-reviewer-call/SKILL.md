@@ -56,7 +56,8 @@ BLOCKED report instead of aborting the skill.
 | File scope | yes | exact repository-relative paths the Reviewer may review |
 | Purpose | yes | first review of this candidate, or fresh review after repair N |
 | Owner approval verbatim | yes | quoted in the task record, or pasted by the Manager |
-| Baseline commit | yes | read from the record's `## 기준선` table; the Manager may override it in the request |
+| Baseline commit | yes | full 40 characters; read from the record's `## 기준선` table; the Manager may override it in the request |
+| Evidence paths | no | exact repository-relative file paths the Reviewer may read at the candidate hash to check facts (task records, source files); not review scope; no directories or wildcards |
 
 The baseline is the commit the task started from. The candidate's own diff shows
 only the last commit, so the baseline is what makes the whole task change set
@@ -155,7 +156,7 @@ Review request from Manager (the caller): <task id>, <purpose>.
 
 Candidate commit (full hash): <hash>
 Parent: <parent hash of the candidate>
-Baseline: <baseline hash the task started from>
+Baseline (full hash): <40-character baseline hash the task started from>
 
 <commit structure, when the task spans several commits: list each commit, its
 parent and what it changed, and say which earlier Reviewer results are now
@@ -163,6 +164,9 @@ invalid>
 
 File scope:
 - <path>
+- <path>
+
+Evidence paths (read-only, not scope; omit this block when there are none):
 - <path>
 
 Never access `jarvis.bat`.

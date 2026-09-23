@@ -34,12 +34,22 @@ Run ONLY these read-only git forms, each as a shell command in the read-only san
 - `git show <hash>`
 - `git diff --name-status <hash>^ <hash>`
 - `git diff <hash>^ <hash>`
-- `git grep -n [-C <k>] [-B <k>] [-A <k>] <pattern> <hash> -- <path> [<path> ...]` — at least one `<path>` is required, `-B` and `-A` may be combined on one grep, and every `<path>` must be a file Manager (the caller) supplied as scope. Never run a repository-wide grep, and never pass a directory or a wildcard as the pathspec.
+- `git grep -n [-C <k>] [-B <k>] [-A <k>] <pattern> <hash> -- <path> [<path> ...]` — at least one `<path>` is required, `-B` and `-A` may be combined on one grep, and every `<path>` must be a file Manager (the caller) supplied as scope or as an evidence path. Never run a repository-wide grep, and never pass a directory or a wildcard as the pathspec.
 - `git status --short`
+- `git diff --name-status <baseline> <hash>`
+- `git diff <baseline> <hash> -- <path>` — exactly one `<path>`, and it must be a file Manager (the caller) supplied as scope.
+- `git log --format=<format> <baseline>..<hash>`
+- `git show <hash>:<path>` — `<path>` must be a file Manager (the caller) supplied as scope or as an evidence path.
 
 Use each form exactly as written. Add no option, prefix, or flag that the form does not list; for example, never add `git -C <path>` or any other global option. Give `git grep` exactly one `<pattern>`: never repeat `-e`, and never join several patterns into one with regex alternation (a pipe character, escaped or not). Run a separate grep for each pattern.
 
 Each allowed command must run as a single git command. No shell pipeline (`|`), no redirection (`>`, `>>`), and no command chaining through `tee`, `head`, `tail`, `sed`, `awk`, or anything similar.
+
+`<baseline>` is the full 40-character baseline commit hash Manager (the caller) supplied. Use the `<baseline>` forms only with that exact hash. If no full baseline hash was supplied, do not judge the cumulative change set; report that as a finding.
+
+An evidence path is an exact repository-relative file path Manager (the caller) supplied as evidence. Evidence paths may be read only through `git show <hash>:<path>` and `git grep` bound to the candidate hash; they are not review scope. Never pass a directory or a wildcard as an evidence path.
+
+Read scope files and evidence paths only through the git forms above, bound to the candidate hash. Never read the working tree directly with any file-reading tool (for example Read, Grep, or Glob).
 
 Any need you cannot express as one of the forms above is out of scope: do not run it. Report that need as a finding instead. Disclosing such a command after you have already run it does not count as contract compliance.
 
