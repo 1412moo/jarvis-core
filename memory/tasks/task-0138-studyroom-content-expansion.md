@@ -2,10 +2,10 @@
 
 - id: `task-0138-studyroom-content-expansion`
 - title: `Studyroom 더블클릭 실행기와 콘텐츠 확장(Recordroom·Glossary·Learn·Technologies·Features) 사후 기록`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-23 15:29 UTC`
-- updated_at: `2026-09-23 15:29 UTC`
+- updated_at: `2026-09-23 16:13 UTC`
 - summary: `2026-09-23에 task 기록 없이 진행된 Studyroom 작업 6개 단위(더블클릭 실행기, Recordroom 26건, Glossary 47개, Learn 18개, Technologies 11개, Features 11개)의 사후 기록이다. 15개 commit(45b6926부터 887daa9까지)의 범위, Owner 승인 원문, 최종 candidate, Reviewer/QA 결과, repair/retry 이력과 수용한 minor를 정리한다. 이 기록 작성 자체는 문서 전용이라 다른 파일은 바꾸지 않으며, DONE은 Reviewer/QA 후 Owner가 Console Complete로 결정한다.`
 - source_command: `Owner 지시: 오늘 Studyroom 콘텐츠 확장 작업의 사후 task 기록을 task-0138 하나로 남긴다`
 
