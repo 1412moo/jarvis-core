@@ -22,5 +22,47 @@
     "name": "Ed25519",
     "description": "빠르고 안전한 것으로 널리 쓰이는 타원곡선 기반 비대칭키 서명 알고리즘입니다.",
     "jarvis_usage": "task-0042 설계가 역할별(Implementer/Reviewer/QA/Docs) 서명키에 채택한 알고리즘입니다. 저장소의 기존 secp256k1 Schnorr 기반 의존성(nostr-tools)과는 다른 곡선이라 재사용할 수 없어, Node stdlib crypto 경로를 새로 확인해 적용했습니다."
+  },
+  {
+    "id": "python-http-server",
+    "name": "Python http.server (ThreadingHTTPServer)",
+    "description": "Python 표준 라이브러리에 들어 있는 간단한 HTTP 서버 모듈입니다. ThreadingHTTPServer는 요청마다 스레드를 써서 여러 요청을 동시에 처리하며, 외부 웹 프레임워크 없이 로컬 도구의 화면과 API를 띄울 수 있습니다.",
+    "jarvis_usage": "Jarvis Console, Hermes Manager, Studyroom의 run_web_app.py가 모두 http.server의 BaseHTTPRequestHandler와 ThreadingHTTPServer를 씁니다. Console은 첫 셸 커밋(69427f1)부터 이 방식이었고, Console과 Hermes는 DEFAULT_HOST를 127.0.0.1로 두고 self-test에서 그 값을 단언합니다."
+  },
+  {
+    "id": "nostr-buzz-relay",
+    "name": "Nostr / Buzz Relay (WebSocket)",
+    "description": "Nostr는 서명된 이벤트를 relay 서버가 WebSocket으로 주고받는 개방형 프로토콜이고, NIP 문서로 규격을 정합니다. Buzz Relay는 이 방식의 relay를 사용하는 AI Agent 협업 플랫폼의 서버 구성 요소입니다.",
+    "jarvis_usage": "task-0046은 Buzz Relay WebSocket이 표준 NIP-01/42/45를 따르고 upstream이 ACP 없는 공식 봇 예제를 제공한다는 점을 근거로, 로컬 PC 한 대에서 agent bridge를 붙이는 것이 조건부 가능하다고 판정했습니다. 이후 Buzz Bridge 구현(orchestrator/buzz-bridge/)은 nostr-tools(^2.10.4)를 의존성으로 둡니다."
+  },
+  {
+    "id": "docker-desktop",
+    "name": "Docker Desktop",
+    "description": "컨테이너를 로컬 PC에서 실행하게 해 주는 데스크톱 도구입니다. Windows에서는 WSL2 백엔드 위에서 Linux 컨테이너를 돌리며, docker compose로 여러 서비스를 한 번에 올리고 내릴 수 있습니다.",
+    "jarvis_usage": "task-0046은 Buzz Relay가 Postgres/Redis/MinIO를 필수로 요구해 Docker Desktop이 사실상 전제라고 기록했습니다. task-0047 스파이크는 Owner 승인 하에 WSL2 백엔드로 postgres·redis·minio·minio-init·relay 5개 컨테이너를 docker compose로 기동했고(1차 실행에서는 재부팅 필요로 S2가 BLOCKED), 종료 시 docker compose down -v로 컨테이너와 볼륨을 전부 정리했습니다."
+  },
+  {
+    "id": "ollama",
+    "name": "Ollama (로컬 LLM 실행)",
+    "description": "llama.cpp를 기반으로 오픈 가중치 언어 모델을 로컬 PC에서 내려받아 실행하는 도구입니다. 양자화된 모델을 쓰면 GPU 없이 CPU만으로도 돌릴 수 있지만 속도는 하드웨어에 크게 좌우됩니다.",
+    "jarvis_usage": "task-0033은 Owner PC(통합 GPU만, RAM 약 13.9GB)에서 Ollama/llama.cpp/LM Studio/vLLM을 비교해 Ollama와 7B급 4-bit 양자화 모델을 권고했습니다. task-0035는 qwen2.5:7b와 llama3.1:8b를 CPU 전용으로 돌려 둘 다 5-7 tok/s로 측정했고 상시 Team Manager로는 부적합으로 판정했습니다. 테스트 후 모델은 unload했고 Ollama는 설치된 채로 남았습니다."
+  },
+  {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "description": "여러 회사의 언어 모델을 하나의 OpenAI 호환 API로 호출할 수 있게 중개하는 서비스입니다. 요청마다 모델과 실제 처리 provider, 대체 경로(fallback), 데이터 보존 정책을 지정할 수 있습니다.",
+    "jarvis_usage": "task-0029(commit c7f2b99)는 Research Council 전용으로 llm_advisor LIVE 모드에 OpenRouter를 붙였습니다. 모델은 z-ai/glm-4.6, provider는 deepinfra/fp4로 고정했고 fallback off, zdr on, data_collection deny로 두었으며 API 키는 환경변수에서만 읽습니다. golden·benchmark·mutation·demo와 Jarvis Console 경로는 건드리지 않았습니다."
+  },
+  {
+    "id": "antigravity-cli",
+    "name": "Antigravity CLI (agy)",
+    "description": "task-0037 기록에서 Gemini CLI의 후속 제품으로 다뤄진 에이전트형 코딩 CLI입니다. 터미널에서 저장소를 읽고 탐색하며, 대화형 모드에서는 파일을 쓰기 전에 사용자 승인을 묻습니다.",
+    "jarvis_usage": "task-0037에서 개인 계정의 기존 Gemini CLI 로그인이 막히자 대체 도구로 검증했습니다. Windows 동작, 기존 구독 계정 로그인(추가 결제 없음), 저장소 읽기, AGENTS.md 원칙 인용, 수정 금지 지시 준수, 파일 생성 전 승인 프롬프트를 직접 확인해 USE로 판정했습니다. 다만 비대화형(헤드리스) 실행에서는 승인 창이 뜨지 않으므로, 허용할 작업을 permissions.allow에 미리 적어 두어야 합니다."
+  },
+  {
+    "id": "agent-definitions",
+    "name": "Claude Code subagent / Codex agent 정의 파일",
+    "description": "AI 코딩 도구가 특정 역할의 하위 에이전트를 부를 때 쓰는 설정 파일입니다. Claude Code는 .claude/agents/ 아래 frontmatter가 붙은 Markdown(name, description, tools, model)을, Codex는 .codex/agents/ 아래 TOML을 씁니다.",
+    "jarvis_usage": "commit 22b7398이 .codex/agents/에 docs·implementer·manager·qa·reviewer 5개 TOML을 추가했고, Claude용 .claude/agents/reviewer.md는 commit ff165e2(2026-08-25)부터 추적됩니다. reviewer.toml은 sandbox_mode = \"read-only\"를 둡니다. task-0135 이후 scripts/validate_multi_agent_sop.py는 CLAUDE_REVIEWER_PATH와 CODEX_REVIEWER_PATH 두 파일을 모두 검사합니다."
   }
 ]
