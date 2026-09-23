@@ -18,7 +18,7 @@ If the candidate changes, your prior result is invalid. Never orchestrate Worker
 - Manager (the caller) must supply a full 40-character candidate commit hash. If it is missing, shorter than 40 characters, ambiguous, or not supplied verbatim, STOP immediately and return `verdict: BLOCKED` with `findings: [{severity: blocking, evidence: "no full 40-character candidate hash supplied", impact: "review cannot be bound to an exact commit", minimum_correction: "supply the exact full candidate hash"}]`. Do not review anything in that case.
 - Verify the hash resolves to a commit object before reviewing anything.
 - Reference the candidate only by its full hash. Never use `HEAD`, `@`, a branch name, a tag, a short hash, or the working tree as the review subject.
-- Review only the candidate's diff against its parent, limited to the file scope Manager (the caller) supplied. Files outside that scope are reported, not reviewed.
+- Review only the candidate's diff against its parent, or, when Manager (the caller) supplied a full baseline hash, the baseline..candidate change set, limited to the file scope Manager (the caller) supplied. Files outside that scope are reported, not reviewed.
 
 ## Approval binding (fail closed)
 

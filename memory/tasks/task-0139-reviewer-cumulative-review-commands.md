@@ -84,9 +84,9 @@ Codex Reviewer의 실제 동작 검증은 환경상 불가능하므로 억지로
 
 | 파일 | 변경 |
 | --- | --- |
-| `.claude/agents/reviewer.md` | Allowed commands 절에 형식 4개, baseline 문단, evidence path 문단, 작업 트리 직접 읽기 금지 문단 추가. `git grep` 경로 조건에 evidence path 포함 |
+| `.claude/agents/reviewer.md` | Allowed commands 절에 형식 4개, baseline 문단, evidence path 문단, 작업 트리 직접 읽기 금지 문단 추가. `git grep` 경로 조건에 evidence path 포함. Candidate binding의 검토 대상 문장에 baseline..candidate 변경 범위를 추가(repair 1) |
 | `.codex/agents/reviewer.toml` | 같은 문구를 같은 위치에 추가 |
-| `scripts/validate_multi_agent_sop.py` | `REVIEWER_ROLE_CLAUSES`에 새 필수 문구 추가. 기존 negative 루프가 새 문구마다 두 파일 삭제 사본을 만든다 |
+| `scripts/validate_multi_agent_sop.py` | `REVIEWER_ROLE_CLAUSES`에 새 필수 문구 10개 추가(문단 문구 4개, repair 1에서 검토 대상 문장·새 형식 줄 4개·grep 경로 문구). 기존 negative 루프가 새 문구마다 두 파일 삭제 사본을 만든다 |
 | `.claude/skills/jarvis-reviewer-call/SKILL.md` | 입력 표에 evidence path 행, 호출문 템플릿에 baseline 전체 hash 표기와 evidence path 목록 추가 |
 | 이 기록 | 신규 |
 
@@ -94,8 +94,8 @@ Codex Reviewer의 실제 동작 검증은 환경상 불가능하므로 억지로
 
 | # | 항목 | 결과 |
 | --- | --- | --- |
-| V1 | `python -B scripts/validate_multi_agent_sop.py` | `negative_checks=80`, `negative_failures=0`, `status=PASS` (새 필수 문구 4개 × 두 파일 = negative 8개 증가) |
-| V2 | 외부 mutation: 추적 파일 임시 사본에서 새 문구 4개를 두 파일에서 하나씩 지우기 | 8/8 검출, 무변형 사본 PASS |
+| V1 | `python -B scripts/validate_multi_agent_sop.py` | `negative_checks=92`, `negative_failures=0`, `status=PASS` (새 필수 문구 10개 × 두 파일 = negative 20개 증가, 72 → 92) |
+| V2 | 외부 mutation: 추적 파일 임시 사본에서 새 문구 10개를 두 파일에서 하나씩 지우기 | 20/20 검출, 무변형 사본 PASS |
 | V3 | 두 정의 본문 대조 | 차이는 기존 실행 방식 한 줄뿐 ("each through the Bash tool" 대 "each as a shell command in the read-only sandbox") |
 | V4 | `git diff --check` | exit 0 |
 | V5 | `.codex/agents/reviewer.toml` TOML 파싱 | 정상 |
@@ -109,4 +109,8 @@ Codex Reviewer의 실제 동작 검증은 환경상 불가능하므로 억지로
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=0
+retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+
+| # | 원인 | 조치 |
+| --- | --- | --- |
+| 1 | Reviewer FINDINGS (candidate `a0f555ba83c0136c7823fac1d066231adc392be3`): major 1 — 두 정의의 Candidate binding 문장 "Review only the candidate's diff against its parent"가 새 baseline 누적 형식과 충돌. minor 1 — 새 형식 줄과 grep 경로 문구가 validator 필수 문구에 없음. minor 2 — validator·mutation·diff-check·본문 대조는 QA 재현 대상. minor 3 — 조사 보고서가 evidence로 제공되지 않아 승인 원문의 핵심 변경 목록과만 대조 | 두 정의의 그 문장을 같은 문구로 "…against its parent, or, when Manager (the caller) supplied a full baseline hash, the baseline..candidate change set, limited to …"로 바꾸고, 그 문장과 새 형식 줄 4개·grep 경로 문구를 validator 필수 문구에 추가. 새 candidate에 fresh Reviewer → QA |
