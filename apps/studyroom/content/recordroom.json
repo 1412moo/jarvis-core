@@ -29,7 +29,7 @@
     "why_needed": "Discord 명령을 로컬 task 기록으로 바꾸는 흐름을 처음부터 끝까지 이어 보기 위함. task-0003은 MVP dry-run 검증 범위를 smoke/E2E로 확인했다고 기록함.",
     "issue_faced": "task-0003은 실제 Discord bot 연동, 실제 /approve 승인 처리, execution layer를 완료 범위에서 제외했음. 테스트 입력이 만든 파일은 backlog가 아니라 파일 생성 경로 확인 기록으로만 보존됨.",
     "resolution": "smoke 테스트(orchestrator/discord-intake/run_smoke_tests.py total 11, failed 0)를 완료 근거로 기록하고, 확인하지 않은 실제 연동은 범위 밖으로 명시함.",
-    "engineering_lesson": "AGENTS.md 원칙 8(확인하지 않은 사항은 완료로 기록하지 않는다)이 task-0003 기록에 적용됨: 실제 Discord bot 연동과 실제 /approve 처리는 완료 범위에서 제외됨.",
+    "engineering_lesson": "task-0003 기록 기준: 실제 Discord bot 연동, 실제 /approve 승인 처리, execution layer는 완료 범위에서 제외됐다. (함께 볼 규칙: AGENTS.md 원칙 8 — 확인하지 않은 사항은 완료로 기록하지 않는다.)",
     "related_links": [
       {
         "label": "task-0003",
@@ -580,7 +580,7 @@
     "why_needed": "완료된 milestone의 evidence가 5커밋 뒤 창 밖으로 밀렸다는 이유만으로 Manager Report가 영구 blocked되고 있었음.",
     "issue_faced": "설계 조사에서 기존 검증은 commit 존재를 확인하지 않고 최근 5개 목록 포함 여부만 본다는 사실이 드러남. 즉 실재하는 오래된 commit과 조작된 hash를 구분하지 못하고 같은 메시지를 냈음.",
     "resolution": "merge-base --is-ancestor로 이 branch 역사의 일부인지 묻도록 구현함. 답이 만료되지 않으므로 window 숫자도 TTL도 schema 변경도 필요 없었음. Manager/Director가 blocked에서 milestone_complete로 바뀌고 git evidence conflict 3건이 사라짐. mutation 9종 전부 새 assertion이 잡음.",
-    "engineering_lesson": "task-0121 기록 기준: 이것은 새 방향 선택이 아니라 이미 일어난 선택의 문서화다. 과거 증거는 최근성(recency)이 아니라 계보(ancestry)로 검증한다.",
+    "engineering_lesson": "task-0121 기록 기준: 이것은 새 방향 선택이 아니라 이미 일어난 선택의 문서화다. task-0125 기록 기준: 과거 증거(historical evidence)는 최근성(recency)이 아니라 계보(ancestry)로 검증해야 한다.",
     "related_links": [
       {
         "label": "task-0121",
