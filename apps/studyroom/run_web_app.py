@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
 from urllib.parse import unquote, urlparse
+import webbrowser
 
 APP_ROOT = Path(__file__).resolve().parent
 WEB_DIR = APP_ROOT / "web"
@@ -95,19 +96,28 @@ class StudyroomHandler(BaseHTTPRequestHandler):
         sys.stderr.write(f"[Studyroom] {self.address_string()} - {format % args}\n")
 
 
+class StudyroomServer(ThreadingHTTPServer):
+    # On Windows SO_REUSEADDR lets a second server bind a port already in use; fail instead.
+    allow_reuse_address = sys.platform != "win32"
+
+
 def create_server(host: str = "127.0.0.1", port: int = 8080) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), StudyroomHandler)
+    return StudyroomServer((host, port), StudyroomHandler)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run Jarvis Studyroom web server")
     parser.add_argument("--host", default="127.0.0.1", help="Host interface (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8080, help="Port number (default: 8080)")
+    parser.add_argument("--no-browser", action="store_true", help="Do not open the browser automatically.")
     args = parser.parse_args()
 
     server = create_server(host=args.host, port=args.port)
-    print(f"[Studyroom] Server running at http://{args.host}:{args.port}/")
+    url = f"http://{args.host}:{args.port}/"
+    print(f"[Studyroom] Server running at {url}")
     print("[Studyroom] Press Ctrl+C to stop.")
+    if not args.no_browser:
+        webbrowser.open(url)
 
     try:
         server.serve_forever()

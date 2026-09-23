@@ -54,9 +54,14 @@ apps/studyroom/
 
 Python 3만 설치되어 있다면 추가 패키지 설치 없이 즉시 실행할 수 있습니다.
 
+Windows에서는 `apps/studyroom/studyroom.bat`을 더블클릭하면 서버가 뜨고 브라우저가 자동으로 열립니다.
+서버는 콘솔 창을 닫거나 Ctrl+C로 멈춥니다. `8080` 포트가 이미 사용 중이면 오류를 보여주고 창이 열린 채로 멈춥니다.
+
 ```powershell
 python apps/studyroom/run_web_app.py
 ```
+
+명령으로 실행해도 브라우저가 자동으로 열립니다. 열지 않으려면 `--no-browser`를 붙입니다.
 
 기본 포트는 `8080`이며, 필요 시 `--port` 플래그로 변경 가능합니다:
 
