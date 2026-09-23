@@ -619,7 +619,7 @@ candidate `71bdf284818322af603b60d36a35a42c4dc9b0b7`에 대한 Reviewer FINDINGS
 같은 표 2행)였고, Repair 2가 만든 output candidate `1c9b615e9285da6ce9b311ea731041e4f35d59cd`
 자체도 이어서 Reviewer FINDINGS(blocking 0/major 0/minor 4, 위 "Reviewer 결과" 절)를 받았다.
 Repair 3의 output candidate `eb06ee8227cfba02fe8813790affc5c94af0d37c`는 "Repair 이력" 표가
-아니라 이 Record-Accuracy 정정 절 위쪽의 "배경" 단락(fresh Reviewer 세 차례 호출, 세 번 다
+아니라 Record-Accuracy 정정 섹션의 `### 배경` subsection(현재 line 475)(fresh Reviewer 세 차례 호출, 세 번 다
 FINDINGS)에 기록되어 있다. DONE 전환의 근거는 그 뒤에 이어진 record-accuracy 정정 단계에서 실제로
 Reviewer PASS·QA PASS가 기록된 두 candidate — `2f9c1f7984cc838db65555dbe5c51839af1af4cd`와
 `06697543487f931810188dfc663dbb6af1cc642d` — 뿐이다. `b59aad490f80e35e10728d706dc8875c214c6da1`와
