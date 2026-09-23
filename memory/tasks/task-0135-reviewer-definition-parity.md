@@ -2,10 +2,10 @@
 
 - id: `task-0135-reviewer-definition-parity`
 - title: `Claude Reviewer 정의(.claude/agents/reviewer.md)와 Codex Reviewer 정의(.codex/agents/reviewer.toml)의 핵심 계약 정합성 점검·강화`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-18 03:04 UTC`
-- updated_at: `2026-09-21 12:04 UTC`
+- updated_at: `2026-09-23 05:56 UTC`
 - summary: `task-0134 Owner 결정 1 이 별도 과제로 남긴 두 Reviewer 정의의 장기적 정합성과 validator 대상 확장을 다룬다. read-only 대조 결과 approval binding 은 양쪽에 있지만 marker 문구, candidate hash fail-closed, file scope, 금지 목록, 출력 형식이 reviewer.toml 에 없거나 다르고 validator 는 reviewer.md 를 전혀 검사하지 않는다. Owner 가 Q1–Q3 와 H1/H2 에 답하고 구현을 승인했다(역할 규칙 전부 동일, 호출자 명칭 Manager (the caller), validator 양쪽 검사, task-0134 작은 Reviewer 문제 포함). DONE 은 Reviewer/QA 후 Owner 가 Console Complete 로 결정한다.`
 - source_command: `Owner 지시: origin/main 97c775f 기준으로 Reviewer 정의 정합성 강화 과제의 task record 만 작성`
 
