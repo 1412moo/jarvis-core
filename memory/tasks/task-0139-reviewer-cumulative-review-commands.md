@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-23 17:20 UTC`
-- updated_at: `2026-09-23 17:20 UTC`
-- summary: `task-0135 후속. Reviewer가 candidate의 마지막 commit만 볼 수 있어 누적 범위와 근거 확인을 매번 QA로 넘기던 제한을 줄이기 위해, 두 Reviewer 정의에 baseline 전체 hash 기준 누적 diff와 commit 범위, candidate 시점 파일 읽기, Manager가 준 evidence path 읽기를 같은 문구로 추가하고 작업 트리 직접 읽기 금지를 명시한다. validator는 새 필수 문구를 검사하고 Skill 호출문에 baseline 전체 hash와 evidence path 칸을 둔다. DONE은 Reviewer/QA 후 Owner가 Console Complete로 결정한다.`
+- updated_at: `2026-09-24 11:22 UTC`
+- summary: `task-0135 후속으로, Reviewer가 candidate의 마지막 commit만 볼 수 있어 누적 범위와 근거 확인을 매번 QA로 넘기던 제한을 줄이기 위해, 두 Reviewer 정의에 baseline 전체 hash 기준 누적 diff와 commit 범위, candidate 시점 파일 읽기, Manager가 준 evidence path 읽기를 같은 문구로 추가하고 작업 트리 직접 읽기 금지를 명시한다. validator는 새 필수 문구를 검사하고 Skill 호출문에 baseline 전체 hash와 evidence path 칸을 둔다. DONE은 Reviewer/QA 후 Owner가 Console Complete로 결정한다.`
 - source_command: `Owner 지시: task-0135 후속 Reviewer 허용 명령 개선을 read-only 조사의 최소 변경안으로 task-0139에서 진행`
 
 ## 기준선
