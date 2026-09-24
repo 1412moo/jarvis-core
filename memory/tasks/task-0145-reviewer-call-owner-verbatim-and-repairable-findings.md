@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 16:47 UTC`
-- updated_at: `2026-09-24 16:54 UTC`
+- updated_at: `2026-09-24 16:59 UTC`
 - summary: `task-0143 resume E2E에서 reviewer_call의 고정 Manager Summary가 Owner 승인 범위를 넓게 바꿔 쓰고 Reviewer가 확인할 수 없는 Worker 동작과 테스트 통과를 주장해 FINDINGS가 났고, 콘텐츠만 고칠 수 있는 repair Worker는 변경 없이 끝났다. Summary를 Owner 요청 원문, git diff로 확인 가능한 변경 파일과 Pipeline limit로 바꾸고, 변경 파일과 무관한 FINDINGS만 있으면 repair 없이 reviewer_findings_not_repairable로 실패시킨다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: read-only 조사 결과 기준으로 task-0145 진행`
 
@@ -80,3 +80,41 @@ retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
 | # | 원인 | 조치 |
 | --- | --- | --- |
 | 1 | Reviewer FINDINGS (candidate `99371ab9379918b7cfdf38202b1cac7c586e5aca`): minor 4 — Summary의 Pipeline limit 문장("the pipeline refuses …")과 QA 재실행 문장이 git diff로 확인할 수 없는 파이프라인 동작 주장임, 봇의 repair 불가 Owner 결정 안내 줄을 검사하는 smoke가 없음, V1–V6은 Reviewer가 재현할 수 없어 QA 대상이고 V6은 확인 불가 Implementer 주장, "read-only 조사 결과 기준" 조건은 조사가 채팅에만 있어 Reviewer가 대조하지 못함(candidate 수정 불필요) | Pipeline limit을 변경 파일 목록에서 확인할 기대값("every changed file is expected under apps/studyroom/content/ and none is jarvis.bat")으로 바꾸고 QA 문장을 삭제해 Summary 자체가 Worker·테스트 주장을 하지 않는다고만 밝힘, smoke에 파이프라인 동작 문장 부재와 봇 안내 줄 검사 추가, V6 표시 보강. 조사 대조 불가는 이 기록에 남긴다. 새 candidate에 fresh Reviewer → QA |
+
+## Reviewer 결과 (candidate `ca358b5ca1704f61aa6b690b66f641cf65ef9ff8`, repair 1 후 fresh)
+
+FINDINGS minor 1 — 조사 결과와의 일치, push 금지, task-0143 보존, V1–V4·V6 테스트 결과는 Reviewer 허용 명령으로 확인할 수 없음. Reviewer는 candidate 수정이 필요 없고 QA와 Owner가 판단할 사항이라고 적었으며, 범위 1–7과 제외 항목 대비 코드·smoke·기록 결함은 없다고 보고했다. repair_budget 1은 이미 사용했다.
+
+Owner 결정 (원문):
+
+```text
+Reviewer minor 1건은 Owner가 수용한다.
+
+- 추가 코드 수정하지 말 것.
+- 현재 QA PASS 결과를 task-0145 기록에 반영할 것.
+- checkpoint commit 생성할 것.
+- push 금지.
+- jarvis.bat 접근/수정/스테이징 금지.
+- task-0143의 모든 worktree/branch와 r2 미커밋 수정 보존.
+- task-0145 자체는 기존 SOP대로 Console Complete에서 DONE 처리할 수 있도록 현재 상태를 정리할 것.
+- 마지막에 변경 내용, QA, checkpoint commit hash만 간결하게 보고할 것.
+```
+
+## QA 결과 (candidate `ca358b5ca1704f61aa6b690b66f641cf65ef9ff8`): PASS
+
+| 항목 | 결과 |
+| --- | --- |
+| main HEAD | candidate와 같음 |
+| Worker smoke (V1) | 132/132 PASS |
+| Discord self-check (V2) | 92/92 ok |
+| 기타 smoke (V3) | discord-intake 120/120 (이 기록 추가로 119에서 늘어남), audit-chain PASS, studyroom 5/5 suite PASS |
+| `git diff --check` (V4) | baseline..candidate exit 0 |
+| task-0143 보존 (V5) | worktree/branch 3개 `a02dde9`, r2 `6eec227`, r3 `e05c69c` 그대로. r2만 미커밋 `glossary.json` 1줄 수정 유지, 나머지 깨끗 |
+| 변경 범위 | baseline `7483e64`..candidate = `bot_minimal.py`, `claude_worker.py`, `run_smoke_tests.py`, 이 기록 4개 |
+| `jarvis.bat` | candidate tree와 범위 내 commit에 없음, 미추적 그대로 |
+| push | 로컬 origin/main 참조 `fdcaa75` 그대로(fetch 없이 확인), push 없음 |
+| V6 | 저장소 밖 자료 기반 Implementer 주장으로 QA 재현 대상 아님 |
+
+## 다음 단계
+
+status는 `DOING`으로 둔다. 이 checkpoint commit 이후 Owner가 Jarvis Console Complete(Preview + Confirm)로 DONE을 결정한다. push는 Owner 지시가 있을 때만 한다.
