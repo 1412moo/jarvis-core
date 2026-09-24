@@ -67,6 +67,14 @@ from audit_store import (
 )
 from audit_verifier import verify_audit_chain
 
+# task-0142 (Jarvis v0.2). The Claude Worker pipeline lives beside the other
+# orchestrator modules and is imported the same way.
+WORKER_DIR = REPO_ROOT / "orchestrator" / "worker"
+if str(WORKER_DIR) not in sys.path:
+    sys.path.insert(0, str(WORKER_DIR))
+import claude_worker  # noqa: E402
+import threading  # noqa: E402
+
 TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_META_LINE_PATTERN = re.compile(r"^- ([a-z_]+): `(.*)`$")
 TASK_STATUS_REQUIRED_FIELDS = ("id", "title", "status", "updated_at", "summary")
@@ -145,7 +153,9 @@ EXECUTION_OUTPUT_MAX_CHARS = 220
 # a whitelisted subprocess). Only an Owner may run these. Read-only commands
 # (/status, /report, /help, /plan, /review-task, /retro) stay open to everyone
 # and are deliberately absent from this set.
-PRIVILEGED_COMMANDS = frozenset({"/approve", "/run", "/retry", "/task"})
+PRIVILEGED_COMMANDS = frozenset({"/approve", "/run", "/retry", "/task", "/work", "/go"})
+# task-0142: one Claude Worker run at a time.
+_WORKER_LOCK = threading.Lock()
 # Name of the env var holding the Owner allowlist. The NAME is safe to log;
 # the VALUE never is (see _load_owner_ids).
 OWNER_IDS_ENV = "JARVIS_OWNER_DISCORD_USER_IDS"
@@ -788,6 +798,8 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/report - 전체 task 집계",
             "/report today - 오늘 업데이트 task 집계",
             "/retro today - 오늘 회고 요약",
+            "/work <요청> - Studyroom 콘텐츠 작업 준비 (Owner)",
+            "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
         ],
     }
 
@@ -1828,6 +1840,164 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# task-0142 Jarvis v0.2: /work + /go -> Claude Worker pipeline
+# ---------------------------------------------------------------------------
+_BACKGROUND_TASKS: set[Any] = set()
+WORK_KIND_MARKERS = ("studyroom", "스터디룸")
+
+
+def _run_work(command_text: str) -> dict[str, Any]:
+    """Prepare one Studyroom content task. Creates a TODO task; nothing runs yet."""
+
+    request = command_text.strip()[len("/work"):].strip()
+    if not request:
+        return _error_payload("usage:/work <요청>")
+    if not any(marker in request.lower() for marker in WORK_KIND_MARKERS):
+        return {"result_type": "hold", "reason": "unsupported_work_kind:studyroom_content_only"}
+    created = _run_task_pipeline(f"/task {request}")
+    if created.get("result_type") != "success":
+        return created
+    return {
+        "result_type": "work_planned",
+        "task_id": created["task_id"],
+        "request": request,
+        "allowed_paths": claude_worker.ALLOWED_PREFIX,
+        "test_command": " ".join(claude_worker.TEST_COMMAND[1:]),
+    }
+
+
+def _run_go(command_text: str) -> dict[str, Any]:
+    """Owner approval for one prepared task: TODO (or FAILED, as a retry) -> DOING."""
+
+    parts = command_text.strip().split()
+    if len(parts) != 2 or parts[0] != "/go" or not TASK_ID_PATTERN.fullmatch(parts[1].strip().lower()):
+        return _error_payload("usage:/go <task-id>")
+    task_id = parts[1].strip().lower()
+    task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+    if not task_file.is_file():
+        return {"result_type": "not_found", "task_id": task_id}
+    metadata = _read_task_metadata(task_file) or {}
+    status = metadata.get("status", "")
+    request = metadata.get("title", "")
+    if status not in ("TODO", "FAILED"):
+        return _error_payload(f"status_not_startable:{status or 'unknown'}")
+    if not _WORKER_LOCK.acquire(blocking=False):
+        return _error_payload("worker_busy")
+    try:
+        if status == "FAILED":
+            applied, reason = _apply_task_status_transition(task_id, "FAILED", "TODO")
+            if not applied:
+                _WORKER_LOCK.release()
+                return _error_payload(f"transition_failed:{reason}")
+        applied, reason = _apply_task_status_transition(task_id, "TODO", "DOING")
+        audit_error = _audit_owner_approval(
+            command=command_text.strip(),
+            decision="approve",
+            transition_from="TODO",
+            transition_to="DOING",
+            applied=applied,
+            reason=reason,
+        )
+        if not applied:
+            _WORKER_LOCK.release()
+            return _error_payload(f"transition_failed:{reason}")
+    except Exception:
+        _WORKER_LOCK.release()
+        raise
+    # The lock stays held until _run_worker_job finishes.
+    return {
+        "result_type": "work_started",
+        "task_id": task_id,
+        "request": request,
+        "command": command_text.strip(),
+        "retry": status == "FAILED",
+        "audit_error": audit_error,
+    }
+
+
+def _run_worker_job(task_id: str, request: str, command: str) -> dict[str, Any]:
+    """Run the pipeline once and record the outcome on the task. Releases the lock."""
+
+    candidate_info = {
+        "result_type": "execution_candidate",
+        "task_id": task_id,
+        "execution_type": "claude_worker",
+        "action": "claude_worker_pipeline",
+        "target": claude_worker.WORK_KIND,
+    }
+
+    def record(success: bool, summary: str) -> tuple[bool, str]:
+        execution_request = _build_execution_request(candidate_info)
+        execution_request["source"] = "/go"
+        execution_result = {
+            "result_type": "execution_result",
+            "task_id": task_id,
+            "execution_type": "claude_worker",
+            "action": "claude_worker_pipeline",
+            "executed": True,
+            "success": success,
+            "output_summary": summary,
+            "error_reason": "" if success else summary,
+        }
+        applied, reason = _apply_execution_result(task_id, execution_result, candidate_info, execution_request)
+        _audit_execution_result(
+            task_id=task_id, source="/go", execution_result=execution_result, applied=applied, reason=reason
+        )
+        return applied, reason
+
+    try:
+        outcome = claude_worker.run_pipeline(
+            task_id=task_id, request=request, approval_command=command, repo_root=REPO_ROOT, record_result=record
+        )
+    finally:
+        _WORKER_LOCK.release()
+    return {"result_type": "work_result", **outcome.to_dict()}
+
+
+def _format_work_reply(result: dict[str, Any]) -> str:
+    result_type = result.get("result_type")
+    task_id = result.get("task_id", "")
+    if result_type == "work_planned":
+        return (
+            f"🗂️ 작업 준비됨: {task_id}\n"
+            f"- 요청: {result.get('request')}\n"
+            "- Worker: Claude Code 1개, 격리된 worktree, 명령 실행 없음\n"
+            f"- 수정 허용: {result.get('allowed_paths')}\n"
+            f"- 테스트: {result.get('test_command')}\n"
+            "- 성공 시: Reviewer → QA → main ff-only → checkpoint commit (push 없음)\n"
+            f"승인하려면 `/go {task_id}`"
+        )
+    if result_type == "work_started":
+        retry = " (재시도)" if result.get("retry") else ""
+        return f"▶️ 승인됨{retry}: {task_id} → Claude Worker 시작. 끝나면 이 채널에 보고합니다."
+    if result.get("ok"):
+        files = ", ".join(result.get("changed_files") or [])
+        return (
+            f"✅ 완료: {task_id}\n"
+            f"- 변경 파일: {files}\n"
+            f"- 테스트: {result.get('test_summary')}\n"
+            f"- Reviewer: {result.get('reviewer_verdict')}\n"
+            f"- QA: PASS ({len(result.get('qa_checks') or {})}개 검사)\n"
+            f"- candidate: {str(result.get('candidate'))[:7]} / checkpoint: {str(result.get('checkpoint'))[:7]}\n"
+            "- push: 하지 않음"
+        )
+    lines = [f"❌ 실패: {task_id} — 단계 `{result.get('stage')}`, 사유 `{result.get('reason')}`"]
+    detail = str(result.get("detail") or "")[:300]
+    if detail:
+        lines.append(f"- 상세: {detail}")
+    if result.get("candidate"):
+        lines.append(f"- candidate: {str(result.get('candidate'))[:7]} (브랜치 {result.get('branch')} 보존)")
+    if result.get("stage") == "checkpoint":
+        lines.append("- main 반영 뒤 기록 단계에서 실패했습니다. 확인이 필요합니다. push는 없습니다.")
+    else:
+        lines.append("- main은 변경되지 않았고 push도 없습니다.")
+    lines.append(
+        f"다음 선택지: `/go {task_id}` 재시도 · `/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
+    )
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Command routing / reply formatting
 # ---------------------------------------------------------------------------
 def _run_command(command_text: str) -> dict[str, Any]:
@@ -1850,6 +2020,10 @@ def _run_command(command_text: str) -> dict[str, Any]:
         return _run_run(content)
     if content.startswith("/approve"):
         return _run_approve_parse(content)
+    if content.startswith("/work"):
+        return _run_work(content)
+    if content.startswith("/go"):
+        return _run_go(content)
     if content == "/report today" or content.startswith("/report today "):
         return _run_report_today(content)
     if content.startswith("/report"):
@@ -1859,6 +2033,8 @@ def _run_command(command_text: str) -> dict[str, Any]:
 
 def _format_reply(pipeline_result: dict[str, Any]) -> str:
     result_type = pipeline_result.get("result_type")
+    if result_type in ("work_planned", "work_started", "work_result"):
+        return _format_work_reply(pipeline_result)
     if result_type == "help":
         lines = pipeline_result.get("lines") or []
         body = "\n".join(f"- {line}" for line in lines) if lines else "- (없음)"
@@ -3400,9 +3576,11 @@ async def _start_discord_bot() -> None:
             and not content.startswith("/retro")
             and not content.startswith("/report")
             and not content.startswith("/approve")
+            and not content.startswith("/work")
+            and not content.startswith("/go")
         ):
             await message.reply(
-                "이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/retry <task-id>`, `/run <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다."
+                "이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/retry <task-id>`, `/run <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`, `/work <요청>`, `/go <task-id>`만 지원합니다."
             )
             return
 
@@ -3419,6 +3597,18 @@ async def _start_discord_bot() -> None:
         # The approval result is authoritative and reaches the Owner FIRST.
         # Nothing below can change it, delay it, or make it look failed.
         await message.reply(_format_reply(result))
+
+        # task-0142: the Worker pipeline takes minutes, so it runs off the event
+        # loop and reports to the same channel when it finishes or fails.
+        if result.get("result_type") == "work_started":
+            async def _report_worker() -> None:
+                job = await asyncio.to_thread(
+                    _run_worker_job, str(result["task_id"]), str(result["request"]), str(result["command"])
+                )
+                await message.channel.send(_format_reply(job))
+
+            _BACKGROUND_TASKS.add(asyncio.create_task(_report_worker()))
+            return
 
         # Best-effort outbound notification. Runs off the event loop so a
         # slow relay cannot stall this handler, and its outcome is reported
