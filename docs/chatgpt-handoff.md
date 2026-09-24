@@ -73,7 +73,7 @@ Current local Git facts:
 | `reports/` | Implemented | Report templates and examples. Jarvis Console only discovers existing reports; it does not create them. |
 | `scripts/` | Implemented | Research batch/comparison utilities and the Multi-Agent SOP validator. |
 | `skills/` | Implemented | Markdown descriptions for early repository skills. Jarvis Console's runtime card registry is instead `apps/jarvis-console/skills.json`. |
-| `.claude/` | Implemented | Claude Code project definitions: the Reviewer subagent `agents/reviewer.md`, kept in rule parity with `.codex/agents/reviewer.toml` and checked by the SOP validator, and the explicit-invocation Skill `skills/jarvis-reviewer-call/`. |
+| `.claude/` | Implemented | Claude Code project definitions: the Reviewer subagent `agents/reviewer.md`, kept in rule parity with `.codex/agents/reviewer.toml` and checked by the SOP validator, and the explicit-invocation Skill prototype `skills/jarvis-reviewer-call/` (task-0136 did not confirm `.claude/skills` as an official repository path). |
 | `configs/`, `prompts/` | Planned | Present as repository structure but currently contain no active product implementation. |
 | `jarvis.bat` | Planned | Protected, untracked local launcher. Do not touch, add, stage, or commit it without an explicit Owner decision. |
 
@@ -526,12 +526,12 @@ Read-only Task Detail, Search/Filter, Canonical BLOCKED Workflow, and post-creat
 | 2026-07-30 | Recover Console launch without repository/system PATH changes, then complete five-minute smoke and one-hour/20-cycle dogfood. | Implemented | Local dogfood Tasks `task-0006` through `task-0028`; environment remained unchanged. Those 23 Task files were later removed on 2026-09-10; see task-0094. |
 | 2026-07-31 | Implement direct GET-only navigation from an authoritative Voice Create Receipt to the exact Project Control Task card. | Implemented | Commit `b80ed92`; exact-path feature package and deterministic harness. |
 | 2026-09-17 | Quote Owner approval conditions verbatim to Reviewer and QA, and ask before implementing when conditions conflict. | Implemented | task-0133; commit `af92914`. |
-| 2026-09-17 | Reviewer returns BLOCKED without the Owner approval verbatim; the validator checks the new SOP clause and the Codex Reviewer wording. | Implemented | task-0134; commit `172a599`. |
-| 2026-09-18 | Give the Claude and Codex Reviewer definitions the same role rules and validate both. | Implemented | task-0135; commits `28125a7`, `4d095b3`. |
+| 2026-09-17 | Reviewer returns BLOCKED without the Owner approval verbatim; the validator checks the new SOP clause and the Codex Reviewer wording. | Implemented | task-0134; final verified candidate `6b9176f`. |
+| 2026-09-18 | Give the Claude and Codex Reviewer definitions the same role rules and validate both. | Implemented | task-0135; final QA candidate `f0af74f`. |
 | 2026-09-21 | Fix the Reviewer call assembly as an explicit-invocation Claude Skill prototype. | Implemented | task-0136; `.claude/skills/jarvis-reviewer-call/SKILL.md`. |
 | 2026-09-22 | Add Studyroom v0.1 as a separate read-only learning app. | Implemented | task-0137; commit `6dd2352`. |
 | 2026-09-23 | Record the Studyroom launcher and content expansion, done without a task record, after the fact. | Implemented | task-0138; commits `45b6926` through `887daa9`. |
-| 2026-09-23 | Let the Reviewer check the baseline..candidate change set, read files at the candidate and read Manager-supplied evidence paths; forbid direct working-tree reads. | Implemented | task-0139; commits `a0f555b`, `ee813c4`. |
+| 2026-09-23 | Let the Reviewer check the baseline..candidate change set, read files at the candidate and read Manager-supplied evidence paths; forbid direct working-tree reads. | Implemented | task-0139; commits `a0f555b` through `badb33e`, final candidate `badb33e`. |
 | 2026-09-24 | Repair task-0137 summary metadata and one Learn Recordroom link. | Implemented | task-0140; commit `7f05e00`. |
 
 ## Glossary

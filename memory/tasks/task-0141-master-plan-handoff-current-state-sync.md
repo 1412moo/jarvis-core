@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 11:41 UTC`
-- updated_at: `2026-09-24 11:41 UTC`
+- updated_at: `2026-09-24 11:46 UTC`
 - summary: `두 문서가 task-0132에서 멈춰 task-0133~0140의 Reviewer 규칙 강화, jarvis-reviewer-call Skill, Studyroom 작업이 빠져 있던 것을, 구조화 필드·enum·ID·hash와 §5 작업 축 표는 그대로 두고 자유 텍스트만 최소 수정해 HEAD 57faa34 기준으로 맞춘다. master-plan은 Owner Dashboard 항목 2개, §4 SOP 보강 단락, §2 Current milestone과 Recent completed 압축을, handoff는 기준 HEAD, 저장소 구조, task 수, Decision Log, 기술부채 한 줄을 갱신한다. DONE은 Reviewer/QA 후 Owner가 Console Complete로 결정한다.`
 - source_command: `Owner 지시: task-0141로 master-plan과 chatgpt-handoff 현재 상태를 HEAD 57faa34에 맞춰 갱신`
 
@@ -80,8 +80,8 @@ Reviewer는 jarvis-reviewer-call Skill을 사용하고 baseline/evidence path를
 | 14 | "Technical Debt 중 문서 HEAD drift 항목을 실제 현재 상태에 맞게 갱신" | "Master Plan baseline is stale relative to live Git" 행에 task-0141 갱신 사실 한 문장 추가. 상태 Resolved와 두 historical 필드 유지 |
 | 15 | "기존 Maintenance Rules는 유지" | 무변경 |
 | 16 | "새 task-0141 기록도 DOING으로 만든다." | status DOING |
-| 17 | 구현 후 검증 6항목 | 아래 검증 절 V1~V6 |
-| 18 | "그 다음 fresh Reviewer → QA 순서로 진행한다." / "Reviewer는 jarvis-reviewer-call Skill을 사용하고 baseline/evidence path를 포함한다." | Owner가 Skill을 실행하면 그 호출문으로 fresh Reviewer, 그 뒤 QA |
+| 17 | "구현 후 반드시:" 1. "master-plan 구조화 필드가 변경되지 않았는지 확인" 2. "모든 자유 텍스트 500자 제한 확인" 3. "Console read_master_plan_snapshot 실행" 4. "Project Control이 RegistryError 없이 읽히는지 확인" 5. "git diff --check" 6. "변경 파일이 master-plan, handoff, task-0141뿐인지 확인" | 1 §2 필드 집합 동일, 값 변경은 자유 텍스트 2개뿐, §5 표와 §4 package evidence 절 바이트 동일 / 2 §2 모든 값 500자 이하 / 3 `read_master_plan_snapshot()` 오류 없음 / 4 `/api/overview` 200, Project Control 오류·RegistryError 없음 / 5 exit 0 / 6 변경 파일 3개 (검증 절 V1~V6) |
+| 18 | "그 다음 fresh Reviewer → QA 순서로 진행한다." / "Reviewer는 jarvis-reviewer-call Skill을 사용하고 baseline/evidence path를 포함한다." | jarvis-reviewer-call Skill로 만든 호출문에 baseline 전체 hash와 evidence path를 넣어 fresh Reviewer를 부르고, 그 뒤 QA |
 | 19 | "코드나 다른 문서는 수정하지 말고, 각 단계 결과는 PASS/FINDINGS와 핵심 내용만 보고해." | 변경 파일 3개. Owner 보고 형식 |
 
 ## 비범위로 둔 관찰
@@ -104,4 +104,8 @@ Reviewer는 jarvis-reviewer-call Skill을 사용하고 baseline/evidence path를
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=0
+retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+
+| # | 원인 | 조치 |
+| --- | --- | --- |
+| 1 | Reviewer FINDINGS (candidate `a4b8d090ca4834fafa914816b677601dca645e86`): major 1 — handoff Decision Log가 task-0134·0135·0139에 FINDINGS를 받고 대체된 candidate를 인용. minor — `.claude/` 행에 Skill prototype·경로 미확정 한정어 없음, Manager 요약 17·18행이 승인 조건을 그대로 옮기지 않음, 검증 재현은 QA 몫 | Decision Log를 최종 검증 candidate(task-0134 `6b9176f`, task-0135 `f0af74f`, task-0139 `badb33e`)로 고치고, `.claude/` 행에 한정어 추가, 요약 17·18행을 승인 원문대로 정정. 새 candidate에 fresh Reviewer → QA |
