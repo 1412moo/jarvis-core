@@ -800,6 +800,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/retro today - 오늘 회고 요약",
             "/work <요청> - Studyroom 콘텐츠 작업 준비 (Owner)",
             "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
+            "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
         ],
     }
 
@@ -1867,11 +1868,21 @@ def _run_work(command_text: str) -> dict[str, Any]:
 
 
 def _run_go(command_text: str) -> dict[str, Any]:
-    """Owner approval for one prepared task: TODO (or FAILED, as a retry) -> DOING."""
+    """Owner approval for one prepared task: TODO (or FAILED, as a retry) -> DOING.
+
+    task-0144: `/go <task-id> resume` (FAILED only) carries the latest failed attempt's
+    changes onto a new attempt from the current main instead of starting over.
+    """
 
     parts = command_text.strip().split()
-    if len(parts) != 2 or parts[0] != "/go" or not TASK_ID_PATTERN.fullmatch(parts[1].strip().lower()):
-        return _error_payload("usage:/go <task-id>")
+    if (
+        len(parts) not in (2, 3)
+        or parts[0] != "/go"
+        or not TASK_ID_PATTERN.fullmatch(parts[1].strip().lower())
+        or (len(parts) == 3 and parts[2] != "resume")
+    ):
+        return _error_payload("usage:/go <task-id> [resume]")
+    resume = len(parts) == 3
     task_id = parts[1].strip().lower()
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
     if not task_file.is_file():
@@ -1881,6 +1892,8 @@ def _run_go(command_text: str) -> dict[str, Any]:
     request = metadata.get("title", "")
     if status not in ("TODO", "FAILED"):
         return _error_payload(f"status_not_startable:{status or 'unknown'}")
+    if resume and status != "FAILED":
+        return _error_payload(f"resume_requires_failed:{status}")
     if not _WORKER_LOCK.acquire(blocking=False):
         return _error_payload("worker_busy")
     try:
@@ -1911,11 +1924,12 @@ def _run_go(command_text: str) -> dict[str, Any]:
         "request": request,
         "command": command_text.strip(),
         "retry": status == "FAILED",
+        "resume": resume,
         "audit_error": audit_error,
     }
 
 
-def _run_worker_job(task_id: str, request: str, command: str) -> dict[str, Any]:
+def _run_worker_job(task_id: str, request: str, command: str, resume: bool = False) -> dict[str, Any]:
     """Run the pipeline once and record the outcome on the task. Releases the lock."""
 
     candidate_info = {
@@ -1947,7 +1961,12 @@ def _run_worker_job(task_id: str, request: str, command: str) -> dict[str, Any]:
 
     try:
         outcome = claude_worker.run_pipeline(
-            task_id=task_id, request=request, approval_command=command, repo_root=REPO_ROOT, record_result=record
+            task_id=task_id,
+            request=request,
+            approval_command=command,
+            repo_root=REPO_ROOT,
+            record_result=record,
+            resume=resume,
         )
     finally:
         _WORKER_LOCK.release()
@@ -1968,7 +1987,7 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             f"승인하려면 `/go {task_id}`"
         )
     if result_type == "work_started":
-        retry = " (재시도)" if result.get("retry") else ""
+        retry = " (resume)" if result.get("resume") else (" (재시도)" if result.get("retry") else "")
         return f"▶️ 승인됨{retry}: {task_id} → Claude Worker 시작. 끝나면 이 채널에 보고합니다."
     if result.get("ok"):
         files = ", ".join(result.get("changed_files") or [])
@@ -1978,6 +1997,9 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             f"- 테스트: {result.get('test_summary')}\n"
             f"- Reviewer: {result.get('reviewer_verdict')}\n"
             f"- QA: PASS ({len(result.get('qa_checks') or {})}개 검사)\n"
+            f"- 자동 repair: {result.get('repairs', 0)}회"
+            + (f" / resume: {result.get('resumed_from')}" if result.get("resumed_from") else "")
+            + "\n"
             f"- candidate: {str(result.get('candidate'))[:7]} / checkpoint: {str(result.get('checkpoint'))[:7]}\n"
             "- push: 하지 않음"
         )
@@ -1986,13 +2008,17 @@ def _format_work_reply(result: dict[str, Any]) -> str:
     if detail:
         lines.append(f"- 상세: {detail}")
     if result.get("candidate"):
-        lines.append(f"- candidate: {str(result.get('candidate'))[:7]} (브랜치 {result.get('branch')} 보존)")
+        shown = ", ".join(str(c)[:7] for c in (result.get("candidates") or [result.get("candidate")]))
+        lines.append(f"- candidate: {shown} (브랜치 {result.get('branch')} 보존, 자동 repair {result.get('repairs', 0)}회)")
+    if "exhausted" in str(result.get("detail") or ""):
+        lines.append("- repair 예산을 모두 썼습니다. Owner 결정이 필요합니다.")
     if result.get("stage") == "checkpoint":
         lines.append("- main 반영 뒤 기록 단계에서 실패했습니다. 확인이 필요합니다. push는 없습니다.")
     else:
         lines.append("- main은 변경되지 않았고 push도 없습니다.")
     lines.append(
-        f"다음 선택지: `/go {task_id}` 재시도 · `/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
+        f"다음 선택지: `/go {task_id}` 처음부터 재시도 · `/go {task_id} resume` 이 시도에서 이어가기 · "
+        f"`/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
     )
     return "\n".join(lines)
 
@@ -3603,7 +3629,11 @@ async def _start_discord_bot() -> None:
         if result.get("result_type") == "work_started":
             async def _report_worker() -> None:
                 job = await asyncio.to_thread(
-                    _run_worker_job, str(result["task_id"]), str(result["request"]), str(result["command"])
+                    _run_worker_job,
+                    str(result["task_id"]),
+                    str(result["request"]),
+                    str(result["command"]),
+                    bool(result.get("resume")),
                 )
                 await message.channel.send(_format_reply(job))
 

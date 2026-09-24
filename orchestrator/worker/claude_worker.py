@@ -1,4 +1,4 @@
-"""Jarvis v0.2 minimal Claude Worker pipeline (task-0142).
+"""Jarvis v0.2 minimal Claude Worker pipeline (task-0142, repair and resume task-0144).
 
 One Owner-approved Studyroom content change, run end to end without a person in
 the terminal:
@@ -44,6 +44,8 @@ WORKER_TIMEOUT_SECONDS = int(os.environ.get("JARVIS_WORKER_TIMEOUT", "900"))
 REVIEWER_TIMEOUT_SECONDS = int(os.environ.get("JARVIS_REVIEWER_TIMEOUT", "900"))
 TEST_TIMEOUT_SECONDS = 300
 GIT_TIMEOUT_SECONDS = 60
+# Same meaning as the SOP repair_budget: source-changing repairs allowed before escalation.
+REPAIR_BUDGET = int(os.environ.get("JARVIS_REPAIR_BUDGET", "1"))
 
 WORKER_ALLOWED_TOOLS = "Read,Edit,Write,Glob,Grep"
 WORKER_DISALLOWED_TOOLS = "Bash,NotebookEdit,WebFetch,WebSearch"
@@ -80,6 +82,9 @@ class WorkerRunResult:
     reviewer_verdict: str = ""
     reviewer_excerpt: str = ""
     qa_checks: dict[str, bool] = field(default_factory=dict)
+    repairs: int = 0
+    candidates: list[str] = field(default_factory=list)
+    resumed_from: str = ""
     pushed: bool = False
 
     def to_dict(self) -> dict:
@@ -220,6 +225,8 @@ def reviewer_call(
     request: str,
     approval_command: str,
     evidence: list[str] | None = None,
+    parent: str | None = None,
+    repair: int = 0,
 ) -> str:
     scope = "\n".join(f"- {p}" for p in changed_files)
     evidence_block = (
@@ -229,12 +236,20 @@ def reviewer_call(
         if evidence
         else ""
     )
+    purpose = "first review of this candidate" if not repair else f"fresh review after repair {repair}"
+    structure = (
+        f"Commit structure: baseline {baseline} -> previous candidate {parent} (Reviewer FINDINGS, now invalid) "
+        f"-> this repair candidate {candidate}. Review the whole baseline..candidate change set.\n\n"
+        if repair
+        else ""
+    )
     return (
-        f"Review request from Manager (the caller): {task_id}, first review of this candidate "
+        f"Review request from Manager (the caller): {task_id}, {purpose} "
         "(Jarvis v0.2 worker pipeline).\n\n"
         f"Candidate commit (full hash): {candidate}\n"
-        f"Parent: {baseline}\n"
+        f"Parent: {parent or baseline}\n"
         f"Baseline (full hash): {baseline}\n\n"
+        f"{structure}"
         f"File scope:\n{scope}\n\n"
         f"{evidence_block}"
         "Never access `jarvis.bat`.\n\n"
@@ -251,6 +266,15 @@ def reviewer_call(
     )
 
 
+def repair_prompt(task_id: str, request: str, candidate: str, review_text: str) -> str:
+    return (
+        worker_prompt(task_id, request)
+        + "\n\nThis is a repair. The Reviewer returned FINDINGS on candidate "
+        f"{candidate}. Reviewer report (verbatim):\n{review_text}\n\n"
+        "Fix only what these findings require. Do not change anything else."
+    )
+
+
 def _ensure_outside_repo(path: Path, repo_root: Path) -> None:
     resolved = path.resolve()
     try:
@@ -258,6 +282,109 @@ def _ensure_outside_repo(path: Path, repo_root: Path) -> None:
     except ValueError:
         return
     raise StageFailure("worktree", "worktree_inside_repo", str(resolved))
+
+
+def _attempt_name(task_id: str, attempt: int) -> str:
+    return task_id if attempt == 1 else f"{task_id}-r{attempt}"
+
+
+def _existing_attempts(repo_root: Path, worktree_root: Path, task_id: str) -> list[int]:
+    attempts, attempt = [], 1
+    while (worktree_root / _attempt_name(task_id, attempt)).exists() or _branch_exists(
+        repo_root, f"jarvis/{_attempt_name(task_id, attempt)}"
+    ):
+        attempts.append(attempt)
+        attempt += 1
+    return attempts
+
+
+def _run_worker(worktree: Path, prompt: str) -> None:
+    try:
+        completed = _run(
+            [
+                *_claude_command(),
+                "-p",
+                "--output-format",
+                "json",
+                "--permission-mode",
+                "acceptEdits",
+                "--allowedTools",
+                WORKER_ALLOWED_TOOLS,
+                "--disallowedTools",
+                WORKER_DISALLOWED_TOOLS,
+            ],
+            cwd=worktree,
+            timeout=WORKER_TIMEOUT_SECONDS,
+            stdin_text=prompt,
+        )
+    except subprocess.TimeoutExpired:
+        raise StageFailure("worker", "worker_timeout", f"{WORKER_TIMEOUT_SECONDS}s")
+    if completed.returncode != 0:
+        raise StageFailure("worker", "worker_failed", (completed.stderr or completed.stdout).strip()[:200])
+
+
+def _run_reviewer(repo_root: Path, call: str) -> tuple[str, str]:
+    """Return (verdict, full report text)."""
+
+    try:
+        review = _run(
+            [*_claude_command(), "-p", "--agent", "reviewer", "--output-format", "json", "--allowedTools", *REVIEWER_ALLOWED_TOOLS],
+            cwd=repo_root,
+            timeout=REVIEWER_TIMEOUT_SECONDS,
+            stdin_text=call,
+        )
+    except subprocess.TimeoutExpired:
+        raise StageFailure("reviewer", "reviewer_timeout", f"{REVIEWER_TIMEOUT_SECONDS}s")
+    text = review.stdout
+    try:
+        text = str(json.loads(review.stdout).get("result", review.stdout))
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    match = VERDICT_PATTERN.search(text)
+    verdict = match.group(1) if match else "UNKNOWN"
+    if review.returncode != 0 and verdict == "PASS":
+        verdict = "UNKNOWN"
+    return verdict, text
+
+
+def _cumulative_paths(worktree: Path, baseline: str) -> list[str]:
+    committed = _git(["diff", "--name-only", baseline, "HEAD"], worktree).splitlines()
+    return sorted(set(committed) | set(_changed_paths(worktree)))
+
+
+def _apply_previous_attempt(
+    repo_root: Path, worktree_root: Path, task_id: str, baseline: str, worktree: Path, current_attempt: int
+) -> str:
+    """resume: copy the latest failed attempt's allowed-path changes onto the new worktree."""
+
+    attempts = [
+        a
+        for a in _existing_attempts(repo_root, worktree_root, task_id)
+        if a < current_attempt and (worktree_root / _attempt_name(task_id, a)).exists()
+    ]
+    if not attempts:
+        raise StageFailure("resume", "resume_no_previous_attempt")
+    name = _attempt_name(task_id, attempts[-1])
+    previous = worktree_root / name
+    prev_branch = f"jarvis/{name}"
+    prev_base = _git(["merge-base", prev_branch, baseline], repo_root)
+    paths = _cumulative_paths(previous, prev_base)
+    if not paths:
+        raise StageFailure("resume", "resume_no_changes", name)
+    violations = _scope_violations(paths)
+    if violations:
+        raise StageFailure("resume", "resume_scope_violation", ", ".join(violations)[:200])
+    moved = _git(["diff", "--name-only", prev_base, baseline, "--", *paths], repo_root)
+    if moved:
+        raise StageFailure("resume", "resume_conflict", moved.replace("\n", ", ")[:200])
+    for path in paths:
+        source, target = previous / path, worktree / path
+        if source.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
+        elif target.exists():
+            target.unlink()
+    return prev_branch
 
 
 def run_pipeline(
@@ -268,21 +395,14 @@ def run_pipeline(
     repo_root: Path = REPO_ROOT,
     worktree_root: Path | None = None,
     record_result: Callable[[bool, str], tuple[bool, str]] | None = None,
+    resume: bool = False,
+    repair_budget: int | None = None,
 ) -> WorkerRunResult:
     """Run the whole slice once. Never raises; the result says where it stopped."""
 
     result = WorkerRunResult(task_id=task_id)
     worktree_root = worktree_root or WORKTREE_ROOT
-    attempt = 1
-    while (worktree_root / (task_id if attempt == 1 else f"{task_id}-r{attempt}")).exists() or (
-        _branch_exists(repo_root, f"jarvis/{task_id}" if attempt == 1 else f"jarvis/{task_id}-r{attempt}")
-    ):
-        attempt += 1
-    suffix = "" if attempt == 1 else f"-r{attempt}"
-    worktree = worktree_root / f"{task_id}{suffix}"
-    branch = f"jarvis/{task_id}{suffix}"
-    result.branch = branch
-    result.worktree = str(worktree)
+    budget = REPAIR_BUDGET if repair_budget is None else repair_budget
     task_file = f"memory/tasks/{task_id}.md"
     try:
         # 1. Preflight: main is on main and clean (tracked files).
@@ -294,81 +414,65 @@ def run_pipeline(
         baseline = _git(["rev-parse", "HEAD"], repo_root)
         result.baseline = baseline
 
-        # 2. Isolated worktree outside the repository.
+        # 2. A new isolated worktree outside the repository; earlier attempts are never removed.
         result.stage = "worktree"
+        attempt = len(_existing_attempts(repo_root, worktree_root, task_id)) + 1
+        name = _attempt_name(task_id, attempt)
+        worktree = worktree_root / name
+        branch = f"jarvis/{name}"
+        result.branch = branch
+        result.worktree = str(worktree)
         _ensure_outside_repo(worktree, repo_root)
         worktree_root.mkdir(parents=True, exist_ok=True)
+        if resume:
+            # Validate the previous attempt before creating anything.
+            result.stage = "resume"
+            if not [a for a in range(1, attempt) if (worktree_root / _attempt_name(task_id, a)).exists()]:
+                raise StageFailure("resume", "resume_no_previous_attempt")
         _git(["worktree", "add", "-b", branch, str(worktree), baseline], repo_root)
 
-        # 3. Worker.
-        result.stage = "worker"
-        try:
-            completed = _run(
-                [
-                    *_claude_command(),
-                    "-p",
-                    "--output-format",
-                    "json",
-                    "--permission-mode",
-                    "acceptEdits",
-                    "--allowedTools",
-                    WORKER_ALLOWED_TOOLS,
-                    "--disallowedTools",
-                    WORKER_DISALLOWED_TOOLS,
-                ],
-                cwd=worktree,
-                timeout=WORKER_TIMEOUT_SECONDS,
-                stdin_text=worker_prompt(task_id, request),
-            )
-        except subprocess.TimeoutExpired:
-            raise StageFailure("worker", "worker_timeout", f"{WORKER_TIMEOUT_SECONDS}s")
-        if completed.returncode != 0:
-            raise StageFailure("worker", "worker_failed", (completed.stderr or completed.stdout).strip()[:200])
+        # 3. Worker, or the previous attempt's changes on resume.
+        if resume:
+            result.stage = "resume"
+            result.resumed_from = _apply_previous_attempt(repo_root, worktree_root, task_id, baseline, worktree, attempt)
+        else:
+            result.stage = "worker"
+            _run_worker(worktree, worker_prompt(task_id, request))
 
-        # 4. Scope.
-        result.stage = "scope"
-        changed = _changed_paths(worktree)
-        result.changed_files = changed
-        if not changed:
-            raise StageFailure("scope", "no_changes")
-        violations = _scope_violations(changed)
-        if violations:
-            raise StageFailure("scope", "scope_violation", ", ".join(violations)[:200])
+        parent: str | None = None
+        while True:
+            # 4. Scope, cumulative from the baseline.
+            result.stage = "scope"
+            working = _changed_paths(worktree)
+            changed = _cumulative_paths(worktree, baseline)
+            result.changed_files = changed
+            if not working:
+                raise StageFailure("scope", "no_changes" if parent is None else "repair_no_changes")
+            violations = _scope_violations(changed)
+            if violations:
+                raise StageFailure("scope", "scope_violation", ", ".join(violations)[:200])
 
-        # 5. Tests.
-        result.stage = "tests"
-        passed, summary = _run_tests(worktree)
-        result.test_summary = summary
-        if not passed:
-            raise StageFailure("tests", "tests_failed", summary)
+            # 5. Tests.
+            result.stage = "tests"
+            passed, summary = _run_tests(worktree)
+            result.test_summary = summary
+            if not passed:
+                raise StageFailure("tests", "tests_failed", summary)
 
-        # 6. Candidate commit on the worktree branch.
-        result.stage = "candidate"
-        _git(["add", "--", *changed], worktree)
-        _git(
-            ["commit", "-q", "-m", f"feat(studyroom): {task_id} Jarvis worker candidate\n\n{request[:300]}"],
-            worktree,
-        )
-        candidate = _git(["rev-parse", "HEAD"], worktree)
-        result.candidate = candidate
+            # 6. Candidate commit on the attempt branch (a repair candidate's parent is the previous candidate).
+            result.stage = "candidate"
+            _git(["add", "--", *working], worktree)
+            label = "candidate" if parent is None else f"repair {result.repairs} candidate"
+            _git(["commit", "-q", "-m", f"feat(studyroom): {task_id} Jarvis worker {label}\n\n{request[:300]}"], worktree)
+            candidate = _git(["rev-parse", "HEAD"], worktree)
+            result.candidate = candidate
+            result.candidates.append(candidate)
 
-        # 7. Reviewer, pinned to the candidate, with the Owner text verbatim.
-        result.stage = "reviewer"
-        try:
-            review = _run(
-                [
-                    *_claude_command(),
-                    "-p",
-                    "--agent",
-                    "reviewer",
-                    "--output-format",
-                    "json",
-                    "--allowedTools",
-                    *REVIEWER_ALLOWED_TOOLS,
-                ],
-                cwd=repo_root,
-                timeout=REVIEWER_TIMEOUT_SECONDS,
-                stdin_text=reviewer_call(
+            # 7. Reviewer, pinned to the candidate, with the Owner text verbatim.
+            result.stage = "reviewer"
+            verdict, review_text = _run_reviewer(
+                repo_root,
+                reviewer_call(
                     task_id=task_id,
                     candidate=candidate,
                     baseline=baseline,
@@ -376,23 +480,29 @@ def run_pipeline(
                     request=request,
                     approval_command=approval_command,
                     evidence=evidence_paths(repo_root, candidate, request, task_id),
+                    parent=parent,
+                    repair=result.repairs,
                 ),
             )
-        except subprocess.TimeoutExpired:
-            raise StageFailure("reviewer", "reviewer_timeout", f"{REVIEWER_TIMEOUT_SECONDS}s")
-        review_text = review.stdout
-        try:
-            review_text = str(json.loads(review.stdout).get("result", review.stdout))
-        except (json.JSONDecodeError, AttributeError):
-            pass
-        match = VERDICT_PATTERN.search(review_text)
-        result.reviewer_verdict = match.group(1) if match else "UNKNOWN"
-        findings = review_text.split("findings:", 1)[-1] if "findings:" in review_text else review_text
-        result.reviewer_excerpt = " ".join(findings.split())[:300]
-        if review.returncode != 0 or result.reviewer_verdict != "PASS":
-            raise StageFailure("reviewer", f"reviewer_{result.reviewer_verdict.lower()}", result.reviewer_excerpt)
+            result.reviewer_verdict = verdict
+            findings = review_text.split("findings:", 1)[-1] if "findings:" in review_text else review_text
+            result.reviewer_excerpt = " ".join(findings.split())[:300]
+            if verdict == "PASS":
+                break
+            if result.repairs >= budget:
+                raise StageFailure(
+                    "reviewer",
+                    f"reviewer_{verdict.lower()}",
+                    f"repair budget {budget} exhausted, Owner decision needed. {result.reviewer_excerpt}"[:300],
+                )
 
-        # 8. QA: deterministic checks on the exact candidate.
+            # 8. Repair: the Worker fixes only the findings in the same worktree.
+            result.repairs += 1
+            parent = candidate
+            result.stage = "repair"
+            _run_worker(worktree, repair_prompt(task_id, request, candidate, review_text))
+
+        # 9. QA: deterministic checks on the exact candidate, cumulative from the baseline.
         result.stage = "qa"
         qa: dict[str, bool] = {}
         qa["head_is_candidate"] = _git(["rev-parse", "HEAD"], worktree) == candidate
@@ -413,7 +523,7 @@ def run_pipeline(
         if not all(qa.values()):
             raise StageFailure("qa", "qa_failed", ",".join(k for k, v in qa.items() if not v))
 
-        # 9. Integrate: ff-only, and only if main has not moved.
+        # 10. Integrate: ff-only, and only if main has not moved.
         result.stage = "integrate"
         if _git(["rev-parse", "HEAD"], repo_root) != baseline:
             raise StageFailure("integrate", "baseline_moved")
@@ -421,10 +531,12 @@ def run_pipeline(
             raise StageFailure("integrate", "main_tree_dirty")
         _git(["merge", "--ff-only", "-q", branch], repo_root)
 
-        # 10. Task result (DOING -> DONE) and checkpoint commit.
+        # 11. Task result (DOING -> DONE) and checkpoint commit.
         result.stage = "checkpoint"
         if record_result is not None:
-            applied, why = record_result(True, f"worker candidate {candidate[:7]} passed Reviewer and QA")
+            applied, why = record_result(
+                True, f"worker candidate {candidate[:7]} passed Reviewer and QA after {result.repairs} repair(s)"
+            )
             if not applied:
                 raise StageFailure("checkpoint", "task_result_not_recorded", why)
         if (repo_root / task_file).exists():

@@ -8,6 +8,7 @@ untouched.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -28,11 +29,18 @@ FAKE_CLAUDE = textwrap.dedent(
     from pathlib import Path
     args = sys.argv[1:]
     prompt = sys.stdin.read()
+    if os.environ.get("FAKE_LOG"):
+        with open(os.environ["FAKE_LOG"], "a", encoding="utf-8") as log:
+            log.write(("REVIEWER" if "--agent" in args else "WORKER") + "\\n" + prompt + "\\n=====\\n")
     if "--agent" in args:
         mode = os.environ.get("FAKE_REVIEW", "pass")
         if mode == "move":
             subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "moved"], check=True)
             mode = "pass"
+        if mode == "once":
+            state = Path(os.environ["FAKE_STATE"])
+            mode = "pass" if state.exists() else "findings"
+            state.write_text("seen", encoding="utf-8")
         if mode == "needevidence":
             mode = "pass" if "Evidence paths" in prompt and "- memory/tasks/task-0142-" in prompt else "findings"
         verdict = "PASS" if mode == "pass" else "FINDINGS"
@@ -45,6 +53,8 @@ FAKE_CLAUDE = textwrap.dedent(
     if mode == "fail":
         print("boom", file=sys.stderr)
         sys.exit(3)
+    if mode == "scope_on_repair":
+        mode = "scope" if "This is a repair." in prompt else "ok"
     if mode == "scope":
         Path("docs/should-not-change.md").write_text("x\\n", encoding="utf-8")
     elif mode == "jarvisbat":
@@ -54,7 +64,7 @@ FAKE_CLAUDE = textwrap.dedent(
     elif mode == "ok":
         p = Path("apps/studyroom/content/glossary.json")
         data = json.loads(p.read_text(encoding="utf-8"))
-        data.append({"id": "fake-term", "term": "Fake", "dev_definition": "d", "simple_explanation": "s", "jarvis_example": "e"})
+        data.append({"id": f"fake-term-{len(data)}", "term": "Fake", "dev_definition": "d", "simple_explanation": "s", "jarvis_example": "e"})
         p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8", newline="\\n")
     print(json.dumps({"result": "edited"}))
     """
@@ -94,7 +104,7 @@ def write_task(clone: Path, task_id: str) -> None:
 
 
 def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: str = "pass", prepare=None,
-             request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None):
+             request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None, resume: bool = False):
     os.environ["FAKE_WORKER"] = worker
     os.environ["FAKE_REVIEW"] = review
     task_id = task_id or f"task-8000-{name}"
@@ -116,6 +126,7 @@ def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: st
         repo_root=clone,
         worktree_root=worktrees,
         record_result=record,
+        resume=resume,
     )
     after = git(["rev-parse", "HEAD"], clone)
     check(f"{name}: no push", git(["rev-parse", "origin/main"], clone) == origin_before and not result.pushed)
@@ -178,6 +189,8 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           and f"memory/tasks/{task_id}.md" in git(["show", "--name-only", "--format=", "HEAD"], clone)
           and git(["rev-list", "--count", f"{head_before}..HEAD"], clone) == "2")
     check("bot: execution results audited", audits.count("execution") == 2)
+    check("bot: /go resume on a non-FAILED task is refused", bot._run_command(f"/go {task_id} resume").get("reason", "").startswith(("resume_requires_failed", "status_not_startable")))
+    check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume]")
     check("bot: finished task is not startable again", bot._run_command(f"/go {task_id}").get("reason") == "status_not_startable:DONE")
 
 
@@ -233,6 +246,55 @@ def main() -> int:
         check("retry: new attempt succeeds under a new name", new.ok and new.branch == "jarvis/task-8000-keep-r2", f"{new.branch}:{new.stage}:{new.reason}")
         check("retry: earlier candidate branch and worktree preserved", bool(git(["branch", "--list", old.branch], clone)) and Path(old.worktree).exists()
               and git(["rev-parse", old.branch], clone) == old.candidate)
+        # task-0144: automatic repair (budget 1) and /go resume.
+        log = worktrees.parent / "fake.log"
+        os.environ["FAKE_LOG"] = str(log)
+        os.environ["FAKE_STATE"] = str(worktrees.parent / "fake.state")
+        log.write_text("", encoding="utf-8")
+        r, calls, before, after = run_case("repairpass", clone, worktrees, worker="ok", review="once")
+        check("repair: FINDINGS -> 1 repair -> PASS", r.ok and r.repairs == 1 and len(r.candidates) == 2, f"{r.stage}:{r.reason}:{r.detail}")
+        check("repair: repair candidate's parent is the first candidate", git(["rev-parse", f"{r.candidates[1]}^"], clone) == r.candidates[0] if len(r.candidates) == 2 else False)
+        text = log.read_text(encoding="utf-8")
+        check("repair: Worker got the Reviewer report verbatim", "This is a repair." in text and "verdict: FINDINGS" in text)
+        check("repair: fresh Reviewer names the previous candidate as parent", "fresh review after repair 1" in text and f"Parent: {r.candidates[0]}" in text if r.candidates else False)
+        n = git(["rev-list", "--count", f"{before}..{after}"], clone)
+        check("repair: main advanced by first candidate, repair candidate, checkpoint", n == "3", n)
+
+        r = run_case("repairexhausted", clone, worktrees, worker="ok", review="findings")[0]
+        check("repair: second FINDINGS stops with budget exhausted", (not r.ok) and r.reason == "reviewer_findings" and r.repairs == 1
+              and "exhausted" in r.detail and len(r.candidates) == 2, f"{r.stage}:{r.reason}:{r.repairs}:{r.detail}")
+        exhausted = r
+
+        r = run_case("repairscope", clone, worktrees, worker="scope_on_repair", review="findings")[0]
+        check("repair: scope violation during repair fails", (not r.ok) and r.stage == "scope" and r.reason == "scope_violation" and r.repairs == 1)
+
+        r = run_case("resumenone", clone, worktrees, worker="ok", resume=True)[0]
+        check("resume: no previous attempt is refused before any worktree", (not r.ok) and r.reason == "resume_no_previous_attempt"
+              and not (worktrees / "task-8000-resumenone").exists())
+
+        # Previous attempt = the exhausted run. Add an uncommitted fix there and move main in another file.
+        prev_wt = Path(exhausted.worktree)
+        glossary = prev_wt / "apps/studyroom/content/glossary.json"
+        data = json.loads(glossary.read_text(encoding="utf-8"))
+        data.append({"id": "resumed-term", "term": "Resumed", "dev_definition": "d", "simple_explanation": "s", "jarvis_example": "e"})
+        glossary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+        (clone / "docs" / "moved-main.md").write_text("x\n", encoding="utf-8")
+        git(["add", "docs/moved-main.md"], clone)
+        git(["commit", "-q", "-m", "move main"], clone)
+        r, calls, before, after = run_case("resume", clone, worktrees, worker="fail", resume=True, task_id="task-8000-repairexhausted")
+        check("resume: previous changes re-applied on current main without calling the Worker", r.ok and r.resumed_from == exhausted.branch
+              and r.baseline == before, f"{r.stage}:{r.reason}:{r.detail}")
+        check("resume: candidate carries the uncommitted fix", "resumed-term" in git(["show", f"{r.candidate}:apps/studyroom/content/glossary.json"], clone) if r.candidate else False)
+        check("resume: previous attempt branch, candidate and worktree preserved", prev_wt.exists()
+              and git(["rev-parse", exhausted.branch], clone) == exhausted.candidate and "resumed-term" in glossary.read_text(encoding="utf-8"))
+
+        old = run_case("conflictprev", clone, worktrees, worker="ok", review="findings")[0]
+        g = clone / "apps/studyroom/content/glossary.json"
+        g.write_text(g.read_text(encoding="utf-8").replace('"Fake"', '"Fake2"', 1), encoding="utf-8")
+        git(["commit", "-q", "-am", "main changes glossary"], clone)
+        r = run_case("conflict", clone, worktrees, worker="ok", resume=True, task_id="task-8000-conflictprev")[0]
+        check("resume: same file changed on main is refused", (not r.ok) and r.reason == "resume_conflict", f"{r.stage}:{r.reason}")
+        os.environ.pop("FAKE_LOG", None)
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
         bot_flow(clone, worktrees)
     finally:
