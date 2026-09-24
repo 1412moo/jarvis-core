@@ -2,10 +2,10 @@
 
 - id: `task-0140-task-0137-metadata-and-learn-link-fix`
 - title: `task-0137 summary metadata 복구와 learn-baseline-candidate의 Recordroom 연결 정정`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 11:30 UTC`
-- updated_at: `2026-09-24 11:30 UTC`
+- updated_at: `2026-09-24 11:36 UTC`
 - summary: `task-0137 summary 안의 이스케이프된 백틱 2개 때문에 Console이 그 기록을 METADATA_REVIEW로 표시하고 writer 검증도 실패하던 문제를, 백틱 2개만 지우고 updated_at을 갱신해 고친다. learn.json의 learn-baseline-candidate가 내용과 무관한 rec-0004에 연결돼 있던 것을 task-0136을 다루는 rec-0026으로 바꾼다. DONE은 Reviewer/QA 후 Owner가 Console Complete로 결정한다.`
 - source_command: `Owner 지시: task-0140으로 task-0137 metadata와 learn-baseline-candidate 연결을 최소 수정`
 
