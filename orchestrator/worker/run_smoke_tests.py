@@ -27,12 +27,14 @@ FAKE_CLAUDE = textwrap.dedent(
     import json, os, subprocess, sys, time
     from pathlib import Path
     args = sys.argv[1:]
-    sys.stdin.read()
+    prompt = sys.stdin.read()
     if "--agent" in args:
         mode = os.environ.get("FAKE_REVIEW", "pass")
         if mode == "move":
             subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "moved"], check=True)
             mode = "pass"
+        if mode == "needevidence":
+            mode = "pass" if "Evidence paths" in prompt and "- memory/tasks/task-0142-" in prompt else "findings"
         verdict = "PASS" if mode == "pass" else "FINDINGS"
         body = "findings: []" if mode == "pass" else "findings: - {severity: major, evidence: fake}"
         print(json.dumps({"result": f"candidate_hash: x\\nverdict: {verdict}\\n{body}"}))
@@ -91,10 +93,11 @@ def write_task(clone: Path, task_id: str) -> None:
     (clone / "memory" / "tasks" / f"{task_id}.md").write_text(f"# {task_id}\n", encoding="utf-8")
 
 
-def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: str = "pass", prepare=None):
+def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: str = "pass", prepare=None,
+             request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None):
     os.environ["FAKE_WORKER"] = worker
     os.environ["FAKE_REVIEW"] = review
-    task_id = f"task-8000-{name}"
+    task_id = task_id or f"task-8000-{name}"
     write_task(clone, task_id)
     if prepare:
         prepare(clone)
@@ -108,7 +111,7 @@ def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: st
     origin_before = git(["rev-parse", "origin/main"], clone)
     result = claude_worker.run_pipeline(
         task_id=task_id,
-        request="Studyroom glossary에 용어 1개 추가",
+        request=request,
         approval_command=f"/go {task_id}",
         repo_root=clone,
         worktree_root=worktrees,
@@ -219,6 +222,17 @@ def main() -> int:
         git(["checkout", "--", "README.md"], clone)
         expect_fail("moved", "ok", "integrate", "baseline_moved", review="move")
 
+        # task-0143 follow-up: evidence paths reach the Reviewer, retries keep earlier attempts.
+        r, *_ = run_case("evidence", clone, worktrees, worker="ok", review="needevidence",
+                         request="Studyroom glossary에 용어 1개 추가 (jarvis_example은 task-0142 기록에 있는 사실만)")
+        check("evidence: Reviewer received the exact task-0142 record path", r.ok and r.reviewer_verdict == "PASS", f"{r.stage}:{r.reason}")
+        r, *_ = run_case("noevidence", clone, worktrees, worker="ok", review="needevidence")
+        check("evidence: no task reference, no evidence block", (not r.ok) and r.reason == "reviewer_findings")
+        old = run_case("keep", clone, worktrees, worker="ok", review="findings")[0]
+        new = run_case("keep", clone, worktrees, worker="ok", task_id="task-8000-keep")[0]
+        check("retry: new attempt succeeds under a new name", new.ok and new.branch == "jarvis/task-8000-keep-r2", f"{new.branch}:{new.stage}:{new.reason}")
+        check("retry: earlier candidate branch and worktree preserved", bool(git(["branch", "--list", old.branch], clone)) and Path(old.worktree).exists()
+              and git(["rev-parse", old.branch], clone) == old.candidate)
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
         bot_flow(clone, worktrees)
     finally:

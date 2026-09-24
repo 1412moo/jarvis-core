@@ -60,6 +60,7 @@ REVIEWER_ALLOWED_TOOLS = (
     "Bash(git status:*)",
 )
 VERDICT_PATTERN = re.compile(r"^\s*verdict:\s*(PASS|FINDINGS|BLOCKED)\b", re.MULTILINE)
+TASK_REF_PATTERN = re.compile(r"task-(\d{4})(?!\d)")
 
 
 @dataclass
@@ -135,6 +136,11 @@ def _git(args: list[str], cwd: Path) -> str:
     return completed.stdout.strip()
 
 
+def _branch_exists(repo_root: Path, branch: str) -> bool:
+    completed = _run(["git", "branch", "--list", branch], cwd=repo_root, timeout=GIT_TIMEOUT_SECONDS)
+    return bool(completed.stdout.strip())
+
+
 def _claude_command() -> list[str]:
     resolved = shutil.which(CLAUDE_BIN)
     if resolved is None:
@@ -190,6 +196,21 @@ def worker_prompt(task_id: str, request: str) -> str:
     )
 
 
+def evidence_paths(repo_root: Path, candidate: str, request: str, task_id: str) -> list[str]:
+    """Task records named in the Owner request, as exact paths in the candidate tree."""
+
+    wanted = set(TASK_REF_PATTERN.findall(request))
+    if not wanted:
+        return []
+    listing = _git(["ls-tree", "--name-only", candidate, "memory/tasks/"], repo_root).splitlines()
+    paths = []
+    for path in listing:
+        match = re.match(r"memory/tasks/task-(\d{4})-[^/]+\.md$", path)
+        if match and match.group(1) in wanted and path != f"memory/tasks/{task_id}.md":
+            paths.append(path)
+    return sorted(paths)
+
+
 def reviewer_call(
     *,
     task_id: str,
@@ -198,8 +219,16 @@ def reviewer_call(
     changed_files: list[str],
     request: str,
     approval_command: str,
+    evidence: list[str] | None = None,
 ) -> str:
     scope = "\n".join(f"- {p}" for p in changed_files)
+    evidence_block = (
+        "Evidence paths (read-only, not scope; read only at the candidate hash):\n"
+        + "\n".join(f"- {p}" for p in evidence)
+        + "\n\n"
+        if evidence
+        else ""
+    )
     return (
         f"Review request from Manager (the caller): {task_id}, first review of this candidate "
         "(Jarvis v0.2 worker pipeline).\n\n"
@@ -207,6 +236,7 @@ def reviewer_call(
         f"Parent: {baseline}\n"
         f"Baseline (full hash): {baseline}\n\n"
         f"File scope:\n{scope}\n\n"
+        f"{evidence_block}"
         "Never access `jarvis.bat`.\n\n"
         "=== COMMAND FORM REQUIREMENT ===\n"
         'Follow the "Allowed commands" section of your own definition exactly as written.\n\n'
@@ -243,8 +273,14 @@ def run_pipeline(
 
     result = WorkerRunResult(task_id=task_id)
     worktree_root = worktree_root or WORKTREE_ROOT
-    worktree = worktree_root / task_id
-    branch = f"jarvis/{task_id}"
+    attempt = 1
+    while (worktree_root / (task_id if attempt == 1 else f"{task_id}-r{attempt}")).exists() or (
+        _branch_exists(repo_root, f"jarvis/{task_id}" if attempt == 1 else f"jarvis/{task_id}-r{attempt}")
+    ):
+        attempt += 1
+    suffix = "" if attempt == 1 else f"-r{attempt}"
+    worktree = worktree_root / f"{task_id}{suffix}"
+    branch = f"jarvis/{task_id}{suffix}"
     result.branch = branch
     result.worktree = str(worktree)
     task_file = f"memory/tasks/{task_id}.md"
@@ -261,10 +297,6 @@ def run_pipeline(
         # 2. Isolated worktree outside the repository.
         result.stage = "worktree"
         _ensure_outside_repo(worktree, repo_root)
-        if worktree.exists():
-            _git(["worktree", "remove", "--force", str(worktree)], repo_root)
-        if _git(["branch", "--list", branch], repo_root):
-            _git(["branch", "-D", branch], repo_root)
         worktree_root.mkdir(parents=True, exist_ok=True)
         _git(["worktree", "add", "-b", branch, str(worktree), baseline], repo_root)
 
@@ -343,6 +375,7 @@ def run_pipeline(
                     changed_files=changed,
                     request=request,
                     approval_command=approval_command,
+                    evidence=evidence_paths(repo_root, candidate, request, task_id),
                 ),
             )
         except subprocess.TimeoutExpired:
