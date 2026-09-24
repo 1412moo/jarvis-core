@@ -2,10 +2,10 @@
 
 - id: `task-0145-reviewer-call-owner-verbatim-and-repairable-findings`
 - title: `Worker 파이프라인 Reviewer 호출의 고정 Manager Summary를 Owner 요청 원문 전달로 바꾸고 콘텐츠와 무관한 FINDINGS는 repair 없이 escalation`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 16:47 UTC`
-- updated_at: `2026-09-24 16:59 UTC`
+- updated_at: `2026-09-24 17:02 UTC`
 - summary: `task-0143 resume E2E에서 reviewer_call의 고정 Manager Summary가 Owner 승인 범위를 넓게 바꿔 쓰고 Reviewer가 확인할 수 없는 Worker 동작과 테스트 통과를 주장해 FINDINGS가 났고, 콘텐츠만 고칠 수 있는 repair Worker는 변경 없이 끝났다. Summary를 Owner 요청 원문, git diff로 확인 가능한 변경 파일과 Pipeline limit로 바꾸고, 변경 파일과 무관한 FINDINGS만 있으면 repair 없이 reviewer_findings_not_repairable로 실패시킨다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: read-only 조사 결과 기준으로 task-0145 진행`
 
