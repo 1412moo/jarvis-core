@@ -2,10 +2,10 @@
 
 - id: `task-0141-master-plan-handoff-current-state-sync`
 - title: `master-plan과 chatgpt-handoff 현재 상태를 HEAD 57faa34 기준 task-0133~0140 완료 사실로 갱신`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 11:41 UTC`
-- updated_at: `2026-09-24 11:46 UTC`
+- updated_at: `2026-09-24 11:55 UTC`
 - summary: `두 문서가 task-0132에서 멈춰 task-0133~0140의 Reviewer 규칙 강화, jarvis-reviewer-call Skill, Studyroom 작업이 빠져 있던 것을, 구조화 필드·enum·ID·hash와 §5 작업 축 표는 그대로 두고 자유 텍스트만 최소 수정해 HEAD 57faa34 기준으로 맞춘다. master-plan은 Owner Dashboard 항목 2개, §4 SOP 보강 단락, §2 Current milestone과 Recent completed 압축을, handoff는 기준 HEAD, 저장소 구조, task 수, Decision Log, 기술부채 한 줄을 갱신한다. DONE은 Reviewer/QA 후 Owner가 Console Complete로 결정한다.`
 - source_command: `Owner 지시: task-0141로 master-plan과 chatgpt-handoff 현재 상태를 HEAD 57faa34에 맞춰 갱신`
 
