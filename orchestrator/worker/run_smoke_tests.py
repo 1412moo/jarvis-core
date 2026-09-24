@@ -43,6 +43,9 @@ FAKE_CLAUDE = textwrap.dedent(
             state.write_text("seen", encoding="utf-8")
         if mode == "needevidence":
             mode = "pass" if "Evidence paths" in prompt and "- memory/tasks/task-0142-" in prompt else "findings"
+        if mode in ("blocked", "garbage"):
+            print(json.dumps({"result": "verdict: BLOCKED" if mode == "blocked" else "no verdict here"}))
+            sys.exit(0)
         verdict = "PASS" if mode == "pass" else "FINDINGS"
         body = "findings: []" if mode == "pass" else "findings: - {severity: major, evidence: fake}"
         print(json.dumps({"result": f"candidate_hash: x\\nverdict: {verdict}\\n{body}"}))
@@ -104,7 +107,7 @@ def write_task(clone: Path, task_id: str) -> None:
 
 
 def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: str = "pass", prepare=None,
-             request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None, resume: bool = False):
+             request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None, resume: bool = False, repair_budget: int | None = None):
     os.environ["FAKE_WORKER"] = worker
     os.environ["FAKE_REVIEW"] = review
     task_id = task_id or f"task-8000-{name}"
@@ -127,6 +130,7 @@ def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: st
         worktree_root=worktrees,
         record_result=record,
         resume=resume,
+        repair_budget=repair_budget,
     )
     after = git(["rev-parse", "HEAD"], clone)
     check(f"{name}: no push", git(["rev-parse", "origin/main"], clone) == origin_before and not result.pushed)
@@ -294,6 +298,13 @@ def main() -> int:
         git(["commit", "-q", "-am", "main changes glossary"], clone)
         r = run_case("conflict", clone, worktrees, worker="ok", resume=True, task_id="task-8000-conflictprev")[0]
         check("resume: same file changed on main is refused", (not r.ok) and r.reason == "resume_conflict", f"{r.stage}:{r.reason}")
+        check("resume: a refused resume leaves no new attempt behind", not (worktrees / "task-8000-conflictprev-r2").exists()
+              and not git(["branch", "--list", "jarvis/task-8000-conflictprev-r2"], clone))
+        for mode, reason in (("blocked", "reviewer_blocked"), ("garbage", "reviewer_unknown")):
+            r = run_case(f"verdict{mode}", clone, worktrees, worker="ok", review=mode)[0]
+            check(f"repair: {mode} verdict fails without a repair", (not r.ok) and r.reason == reason and r.repairs == 0, f"{r.reason}:{r.repairs}")
+        capped = run_case("budgetcap", clone, worktrees, worker="ok", review="findings", repair_budget=5)[0]
+        check("repair: a requested budget of 5 is capped at 1", capped.repairs == 1 and len(capped.candidates) == 2 and "budget 1 exhausted" in capped.detail, f"{capped.repairs}:{capped.detail}")
         os.environ.pop("FAKE_LOG", None)
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
         bot_flow(clone, worktrees)

@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 14:02 UTC`
-- updated_at: `2026-09-24 14:02 UTC`
+- updated_at: `2026-09-24 14:15 UTC`
 - summary: `task-0142 Worker 파이프라인은 Reviewer FINDINGS에서 바로 FAILED가 되고 재시도는 매번 main에서 처음부터 다시 작성했다. Reviewer FINDINGS가 나오면 같은 candidate worktree에서 Worker가 지적만 고쳐 repair candidate를 만들고 fresh Reviewer와 QA를 다시 거치는 자동 repair를 최대 1회(SOP repair_budget 기본값) 추가하고, /go <task-id> resume으로 이전 실패 시도의 허용 경로 변경을 현재 main 위 새 시도에 재적용해 이어가게 한다. DONE은 Reviewer/QA 후 Owner가 Console Complete로 결정한다.`
 - source_command: `Owner 지시: Worker 파이프라인 Reviewer FINDINGS → repair 1회 → 재검증과 /go resume을 task-0144로 구현`
 
@@ -64,7 +64,7 @@
 
 | # | 항목 | 결과 |
 | --- | --- | --- |
-| V1 | `python -B orchestrator/worker/run_smoke_tests.py` | 102/102 PASS (기존 74 + repair·resume 28) |
+| V1 | `python -B orchestrator/worker/run_smoke_tests.py` | 112/112 PASS (기존 74 + repair·resume 38, repair 1 후) |
 | V2 | `python -B adapters/discord/bot_minimal.py --self-check-suite` (UTF-8 모드) | 92/92 ok |
 | V3 | `orchestrator/discord-intake`, `orchestrator/audit-chain`, `apps/studyroom` smoke | 모두 PASS |
 | V4 | `git diff --check` | exit 0 |
@@ -74,4 +74,8 @@
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=0
+retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+
+| # | 원인 | 조치 |
+| --- | --- | --- |
+| 1 | Reviewer FINDINGS (candidate `89686fb5f6309d94b1806f7f837e4b4324a67cb2`): major 1 — FINDINGS가 아닌 BLOCKED·UNKNOWN 판정도 자동 repair를 시작함. minor — 환경변수로 repair 예산을 1보다 크게 올릴 수 있음, 거절된 resume이 빈 시도를 남겨 다음 resume이 그것을 고름, Manager 요약이 checkpoint commit 시점을 밝히지 않음, 테스트·보존 주장은 QA 재현 대상 | FINDINGS일 때만 repair하고 다른 비PASS 판정은 즉시 실패, 예산을 최대 1로 제한(REPAIR_BUDGET_MAX), resume 검사를 새 worktree 생성 전으로 이동, smoke에 BLOCKED·UNKNOWN·예산 상한·거절된 resume 무흔적 검증 추가. checkpoint commit은 QA 후 이 기록의 QA 결과를 남기는 commit이다. 새 candidate에 fresh Reviewer → QA |

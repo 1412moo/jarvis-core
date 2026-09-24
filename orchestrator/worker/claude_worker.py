@@ -45,7 +45,9 @@ REVIEWER_TIMEOUT_SECONDS = int(os.environ.get("JARVIS_REVIEWER_TIMEOUT", "900"))
 TEST_TIMEOUT_SECONDS = 300
 GIT_TIMEOUT_SECONDS = 60
 # Same meaning as the SOP repair_budget: source-changing repairs allowed before escalation.
-REPAIR_BUDGET = int(os.environ.get("JARVIS_REPAIR_BUDGET", "1"))
+# The Owner approved 1 (task-0144); nothing here can raise it - only lower it to 0.
+REPAIR_BUDGET_MAX = 1
+REPAIR_BUDGET = max(0, min(REPAIR_BUDGET_MAX, int(os.environ.get("JARVIS_REPAIR_BUDGET", "1"))))
 
 WORKER_ALLOWED_TOOLS = "Read,Edit,Write,Glob,Grep"
 WORKER_DISALLOWED_TOOLS = "Bash,NotebookEdit,WebFetch,WebSearch"
@@ -352,10 +354,10 @@ def _cumulative_paths(worktree: Path, baseline: str) -> list[str]:
     return sorted(set(committed) | set(_changed_paths(worktree)))
 
 
-def _apply_previous_attempt(
-    repo_root: Path, worktree_root: Path, task_id: str, baseline: str, worktree: Path, current_attempt: int
-) -> str:
-    """resume: copy the latest failed attempt's allowed-path changes onto the new worktree."""
+def _plan_resume(
+    repo_root: Path, worktree_root: Path, task_id: str, baseline: str, current_attempt: int
+) -> tuple[Path, str, list[str]]:
+    """resume: pick the latest earlier attempt and check it, before any new worktree exists."""
 
     attempts = [
         a
@@ -377,6 +379,10 @@ def _apply_previous_attempt(
     moved = _git(["diff", "--name-only", prev_base, baseline, "--", *paths], repo_root)
     if moved:
         raise StageFailure("resume", "resume_conflict", moved.replace("\n", ", ")[:200])
+    return previous, prev_branch, paths
+
+
+def _copy_attempt_changes(previous: Path, worktree: Path, paths: list[str]) -> None:
     for path in paths:
         source, target = previous / path, worktree / path
         if source.exists():
@@ -384,7 +390,6 @@ def _apply_previous_attempt(
             target.write_bytes(source.read_bytes())
         elif target.exists():
             target.unlink()
-    return prev_branch
 
 
 def run_pipeline(
@@ -402,7 +407,7 @@ def run_pipeline(
 
     result = WorkerRunResult(task_id=task_id)
     worktree_root = worktree_root or WORKTREE_ROOT
-    budget = REPAIR_BUDGET if repair_budget is None else repair_budget
+    budget = max(0, min(REPAIR_BUDGET_MAX, REPAIR_BUDGET if repair_budget is None else repair_budget))
     task_file = f"memory/tasks/{task_id}.md"
     try:
         # 1. Preflight: main is on main and clean (tracked files).
@@ -424,17 +429,18 @@ def run_pipeline(
         result.worktree = str(worktree)
         _ensure_outside_repo(worktree, repo_root)
         worktree_root.mkdir(parents=True, exist_ok=True)
+        plan = None
         if resume:
-            # Validate the previous attempt before creating anything.
+            # Every resume check runs before a new worktree exists, so a refused resume leaves nothing.
             result.stage = "resume"
-            if not [a for a in range(1, attempt) if (worktree_root / _attempt_name(task_id, a)).exists()]:
-                raise StageFailure("resume", "resume_no_previous_attempt")
+            plan = _plan_resume(repo_root, worktree_root, task_id, baseline, attempt)
         _git(["worktree", "add", "-b", branch, str(worktree), baseline], repo_root)
 
         # 3. Worker, or the previous attempt's changes on resume.
-        if resume:
+        if plan is not None:
             result.stage = "resume"
-            result.resumed_from = _apply_previous_attempt(repo_root, worktree_root, task_id, baseline, worktree, attempt)
+            previous, result.resumed_from, paths = plan
+            _copy_attempt_changes(previous, worktree, paths)
         else:
             result.stage = "worker"
             _run_worker(worktree, worker_prompt(task_id, request))
@@ -489,6 +495,8 @@ def run_pipeline(
             result.reviewer_excerpt = " ".join(findings.split())[:300]
             if verdict == "PASS":
                 break
+            if verdict != "FINDINGS":
+                raise StageFailure("reviewer", f"reviewer_{verdict.lower()}", result.reviewer_excerpt)
             if result.repairs >= budget:
                 raise StageFailure(
                     "reviewer",
