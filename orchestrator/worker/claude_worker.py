@@ -258,23 +258,55 @@ def reviewer_call(
         "=== COMMAND FORM REQUIREMENT ===\n"
         'Follow the "Allowed commands" section of your own definition exactly as written.\n\n'
         "=== MANAGER SUMMARY ===\n"
-        f"| 1 | Owner request | The worker changed only files under {ALLOWED_PREFIX} to satisfy the request. |\n"
-        "| 2 | Worker limits | No commands, no commit, no push by the worker; the pipeline committed the candidate. |\n"
-        "| 3 | Facts | Content must use only facts confirmed in this repository. |\n"
-        "| 4 | Tests | Studyroom smoke tests passed in the isolated worktree before this call. |\n\n"
+        # task-0145: no paraphrase of the Owner condition and no claim the Reviewer cannot check.
+        f"- Owner condition (verbatim, the only one): {request}\n"
+        f"- Candidate change set, baseline..candidate (check with git diff --name-status): {', '.join(changed_files)}\n"
+        f"- Pipeline limit, not an Owner condition: the pipeline refuses any change outside {ALLOWED_PREFIX} "
+        "and any change to jarvis.bat; check it against the change set above.\n"
+        "- Not claimed here: how the Worker ran and whether tests passed. The QA stage re-runs the tests "
+        "after this review.\n\n"
         "=== OWNER APPROVAL (verbatim) ===\n"
         f"/work {request}\n"
         f"{approval_command}\n"
     )
 
 
-def repair_prompt(task_id: str, request: str, candidate: str, review_text: str) -> str:
+def repair_prompt(task_id: str, request: str, candidate: str, review_text: str, changed_files: list[str]) -> str:
     return (
         worker_prompt(task_id, request)
         + "\n\nThis is a repair. The Reviewer returned FINDINGS on candidate "
         f"{candidate}. Reviewer report (verbatim):\n{review_text}\n\n"
-        "Fix only what these findings require. Do not change anything else."
+        f"Candidate changed files: {', '.join(changed_files)}\n"
+        "Fix only the findings whose evidence points at these files, and only what they require. "
+        "Ignore findings about the Manager summary, the approval text or evidence paths: they are not yours to fix. "
+        "Do not change anything else."
     )
+
+
+def _split_findings(review_text: str) -> list[str]:
+    """The findings items of a Reviewer report, one string per `- {...}` item."""
+
+    body = review_text.split("findings:", 1)[1] if "findings:" in review_text else ""
+    body = re.split(r"\n\s*note:", body, maxsplit=1)[0]
+    return [item.strip() for item in re.split(r"(?:^|\n)\s*-\s*(?=\{)", body) if item.strip().startswith("{")]
+
+
+def findings_repairable(review_text: str, changed_files: list[str]) -> bool:
+    """False only when every finding's evidence points away from the candidate files.
+
+    A repair Worker can only edit the candidate files, so findings about the Manager
+    summary, the approval text or evidence paths leave it nothing to do (task-0143 r3).
+    A report in an unknown shape stays repairable, as before task-0145.
+    """
+
+    items = _split_findings(review_text)
+    if not items or not all("evidence:" in item for item in items):
+        return True
+    for item in items:
+        evidence = re.split(r",\s*(?:impact|minimum_correction)\s*:", item.split("evidence:", 1)[1], maxsplit=1)[0]
+        if any(path in evidence for path in changed_files):
+            return True
+    return False
 
 
 def _ensure_outside_repo(path: Path, repo_root: Path) -> None:
@@ -499,6 +531,13 @@ def run_pipeline(
                 break
             if verdict != "FINDINGS":
                 raise StageFailure("reviewer", f"reviewer_{verdict.lower()}", result.reviewer_excerpt)
+            if not findings_repairable(review_text, changed):
+                # Nothing a repair Worker may touch; the budget stays unspent (task-0145).
+                raise StageFailure(
+                    "reviewer",
+                    "reviewer_findings_not_repairable",
+                    f"findings do not point at the candidate files, Owner decision needed. {result.reviewer_excerpt}"[:300],
+                )
             if result.repairs >= budget:
                 raise StageFailure(
                     "reviewer",
@@ -510,7 +549,7 @@ def run_pipeline(
             result.repairs += 1
             parent = candidate
             result.stage = "repair"
-            _run_worker(worktree, repair_prompt(task_id, request, candidate, review_text))
+            _run_worker(worktree, repair_prompt(task_id, request, candidate, review_text, changed))
 
         # 9. QA: deterministic checks on the exact candidate, cumulative from the baseline.
         result.stage = "qa"

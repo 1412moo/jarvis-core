@@ -37,17 +37,24 @@ FAKE_CLAUDE = textwrap.dedent(
         if mode == "move":
             subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "moved"], check=True)
             mode = "pass"
-        if mode == "once":
+        if mode in ("once", "mixedonce"):
             state = Path(os.environ["FAKE_STATE"])
-            mode = "pass" if state.exists() else "findings"
+            mode = "pass" if state.exists() else ("findings" if mode == "once" else "mixed")
             state.write_text("seen", encoding="utf-8")
+        summary_item = ("- {severity: minor, evidence: the Manager summary restates the approval more broadly, impact: x, "
+                        "minimum_correction: name the term in apps/studyroom/content/glossary.json in the summary}")
+        content_item = "- {severity: major, evidence: apps/studyroom/content/glossary.json adds an unsupported fact, impact: x, minimum_correction: y}"
+        if mode in ("summaryonly", "mixed"):
+            items = [summary_item, summary_item] if mode == "summaryonly" else [summary_item, content_item]
+            print(json.dumps({"result": "candidate_hash: x\\nverdict: FINDINGS\\nfindings: " + "\\n  ".join(items) + "\\nnote: n"}))
+            sys.exit(0)
         if mode == "needevidence":
             mode = "pass" if "Evidence paths" in prompt and "- memory/tasks/task-0142-" in prompt else "findings"
         if mode in ("blocked", "garbage"):
             print(json.dumps({"result": "verdict: BLOCKED" if mode == "blocked" else "no verdict here"}))
             sys.exit(0)
         verdict = "PASS" if mode == "pass" else "FINDINGS"
-        body = "findings: []" if mode == "pass" else "findings: - {severity: major, evidence: fake}"
+        body = "findings: []" if mode == "pass" else "findings: " + content_item
         print(json.dumps({"result": f"candidate_hash: x\\nverdict: {verdict}\\n{body}"}))
         sys.exit(3 if mode == "crashfindings" else 0)
     mode = os.environ.get("FAKE_WORKER", "ok")
@@ -305,6 +312,39 @@ def main() -> int:
             check(f"repair: {mode} verdict fails without a repair", (not r.ok) and r.reason == reason and r.repairs == 0, f"{r.reason}:{r.repairs}")
         capped = run_case("budgetcap", clone, worktrees, worker="ok", review="findings", repair_budget=5)[0]
         check("repair: a requested budget of 5 is capped at 1", capped.repairs == 1 and len(capped.candidates) == 2 and "budget 1 exhausted" in capped.detail, f"{capped.repairs}:{capped.detail}")
+
+        # task-0145: Owner request verbatim, no unverifiable claims, non-repairable FINDINGS escalate.
+        log.write_text("", encoding="utf-8")
+        run_case("summarycall", clone, worktrees, worker="ok")
+        text = log.read_text(encoding="utf-8")
+        check("summary: Reviewer call quotes the Owner request verbatim",
+              "Owner condition (verbatim, the only one): Studyroom glossary에 용어 1개 추가" in text)
+        check("summary: pipeline limit is separate from the Owner condition and names the change set",
+              "Pipeline limit, not an Owner condition" in text and "(check with git diff --name-status): apps/studyroom/content/glossary.json" in text)
+        check("summary: no Worker or test claims", "smoke tests passed" not in text and "No commands, no commit" not in text
+              and "Content must use only facts confirmed" not in text)
+        log.write_text("", encoding="utf-8")
+        r = run_case("summaryonly", clone, worktrees, worker="ok", review="summaryonly")[0]
+        text = log.read_text(encoding="utf-8")
+        check("not repairable: summary-only FINDINGS fail without a repair", (not r.ok) and r.stage == "reviewer"
+              and r.reason == "reviewer_findings_not_repairable" and r.repairs == 0 and len(r.candidates) == 1, f"{r.stage}:{r.reason}:{r.repairs}")
+        check("not repairable: the repair Worker was never called", text.count("WORKER\n") == 1 and "This is a repair." not in text)
+        log.write_text("", encoding="utf-8")
+        Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
+        r = run_case("mixed", clone, worktrees, worker="ok", review="mixedonce")[0]
+        text = log.read_text(encoding="utf-8")
+        check("mixed: content + summary FINDINGS -> 1 repair -> PASS", r.ok and r.repairs == 1, f"{r.stage}:{r.reason}:{r.detail}")
+        check("mixed: repair prompt limits the Worker to findings on the changed files",
+              "Candidate changed files: apps/studyroom/content/glossary.json" in text and "Ignore findings about the Manager summary" in text)
+        r3_like = ("verdict: FINDINGS\nfindings:       - {severity: minor, evidence: the verbatim approval states x, but the Manager summary "
+                   "states y, impact: z, minimum_correction: state the bound in apps/studyroom/content/glossary.json}\n"
+                   "                - {severity: minor, evidence: Manager summary rows 2 and 4 assert tests passed, impact: z, minimum_correction: w}\n"
+                   "note: n")
+        files = ["apps/studyroom/content/glossary.json"]
+        check("classify: task-0143 r3 shaped findings are not repairable", not claude_worker.findings_repairable(r3_like, files))
+        check("classify: evidence on a changed file is repairable",
+              claude_worker.findings_repairable("findings: - {severity: major, evidence: apps/studyroom/content/glossary.json:5 wrong, impact: z}", files))
+        check("classify: unknown report shape stays repairable", claude_worker.findings_repairable("verdict: FINDINGS\nsomething is off", files))
         os.environ.pop("FAKE_LOG", None)
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
         bot_flow(clone, worktrees)

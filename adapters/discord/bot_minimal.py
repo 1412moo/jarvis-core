@@ -2012,6 +2012,8 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         lines.append(f"- candidate: {shown} (브랜치 {result.get('branch')} 보존, 자동 repair {result.get('repairs', 0)}회)")
     if "exhausted" in str(result.get("detail") or ""):
         lines.append("- repair 예산을 모두 썼습니다. Owner 결정이 필요합니다.")
+    if result.get("reason") == "reviewer_findings_not_repairable":
+        lines.append("- Reviewer 지적이 변경 파일과 무관해 Worker가 고칠 수 없습니다. Owner 결정이 필요합니다.")
     if result.get("stage") == "checkpoint":
         lines.append("- main 반영 뒤 기록 단계에서 실패했습니다. 확인이 필요합니다. push는 없습니다.")
     else:

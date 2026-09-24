@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 16:47 UTC`
-- updated_at: `2026-09-24 16:47 UTC`
+- updated_at: `2026-09-24 16:50 UTC`
 - summary: `task-0143 resume E2E에서 reviewer_call의 고정 Manager Summary가 Owner 승인 범위를 넓게 바꿔 쓰고 Reviewer가 확인할 수 없는 Worker 동작과 테스트 통과를 주장해 FINDINGS가 났고, 콘텐츠만 고칠 수 있는 repair Worker는 변경 없이 끝났다. Summary를 Owner 요청 원문, git diff로 확인 가능한 변경 파일과 Pipeline limit로 바꾸고, 변경 파일과 무관한 FINDINGS만 있으면 repair 없이 reviewer_findings_not_repairable로 실패시킨다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: read-only 조사 결과 기준으로 task-0145 진행`
 
@@ -59,6 +59,19 @@ task-0143 r2/r3 worktree와 기존 미커밋 수정 보존.
 | 이 기록 | 신규 |
 
 유지: TODO/DOING/DONE/FAILED 전환 계약, repair 예산 상한 1과 의미, resume, 허용 경로, Owner 전용 게이트. 제외: audit `/go` 문제, task-0142 DONE 처리, task-0143 재실행.
+
+## 검증 (Implementer 실행, QA 재현 대상)
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| V1 | `python -B orchestrator/worker/run_smoke_tests.py` | 131/131 PASS (task-0144 115 + task-0145 16) |
+| V2 | `python -B adapters/discord/bot_minimal.py --self-check-suite` (UTF-8 모드) | 92/92 ok |
+| V3 | `orchestrator/discord-intake`, `orchestrator/audit-chain`, `apps/studyroom` smoke | 모두 PASS |
+| V4 | `git diff --check` | exit 0 |
+| V5 | task-0143 보존 | `a02dde9`, r2 `6eec227`과 미커밋 수정, r3 `e05c69c` 그대로 |
+| V6 | 실제 task-0143 r3 Reviewer 보고(세션 기록에서 읽음, 저장소 밖)로 분류 함수 확인 | 항목 3개, repair 불가로 분류 |
+
+구현 메모: 가짜 Reviewer의 기본 FINDINGS가 evidence에 경로가 없는 형식이었어서, 새 분류에서는 repair 불가로 바뀌지 않도록 기본 FINDINGS의 evidence를 변경 파일 경로로 바꿨다. 기존 repair 사례들의 기대값은 그대로다.
 
 ## Repair 이력
 
