@@ -5,8 +5,8 @@
 - status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-22 10:00 UTC`
-- updated_at: `2026-09-22 23:20 UTC`
-- summary: `apps/studyroom/ — Jarvis-Core 자체를 교재 삼는 개인용 read-only 학습 SPA. A 단계(골격: Python stdlib 서버, path traversal 방어, 6-tab SPA, quiz+LocalStorage)는 코드로 이미 존재했으나 task 기록이 없었다. B 단계에서 recordroom 5건·glossary 15건·learn 10주제로 콘텐츠를 확장했다. 독립 Reviewer/QA가 glossary.json의 owner-approval·candidate 두 항목에서 사실 오류를 발견(PASS WITH MINOR)했고, 최소 범위로 수정한 뒤 재검증에서 PASS를 받았다. commit \`6dd2352df35ec3415f260ab4195753fe2e035cb1\`(12파일, "feat(studyroom): add v0.1 learning content")으로 반영했으며 push는 하지 않았다. Owner가 채팅에서 DONE 전환을 직접 지시했다.`
+- updated_at: `2026-09-24 11:30 UTC`
+- summary: `apps/studyroom/ — Jarvis-Core 자체를 교재 삼는 개인용 read-only 학습 SPA. A 단계(골격: Python stdlib 서버, path traversal 방어, 6-tab SPA, quiz+LocalStorage)는 코드로 이미 존재했으나 task 기록이 없었다. B 단계에서 recordroom 5건·glossary 15건·learn 10주제로 콘텐츠를 확장했다. 독립 Reviewer/QA가 glossary.json의 owner-approval·candidate 두 항목에서 사실 오류를 발견(PASS WITH MINOR)했고, 최소 범위로 수정한 뒤 재검증에서 PASS를 받았다. commit 6dd2352df35ec3415f260ab4195753fe2e035cb1(12파일, "feat(studyroom): add v0.1 learning content")으로 반영했으며 push는 하지 않았다. Owner가 채팅에서 DONE 전환을 직접 지시했다.`
 - source_command: `Owner가 채팅으로 직접 지시한 Studyroom task-0137-A 상태 확인(read-only) 및 task-0137-B 콘텐츠 구현`
 
 ## 기준선

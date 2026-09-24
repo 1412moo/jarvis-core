@@ -170,7 +170,7 @@
     "beginner_explanation": "시험 전 상태(baseline)와 답안지를 제출한 상태(candidate)는 다른 시점입니다. 두 시점을 같다고 착각하면 무엇이 달라졌는지 채점할 수 없습니다.",
     "jarvis_example": "task-0136 repair 2에서, SKILL.md 호출문 템플릿의 `Parent (baseline): <parent hash>` 한 줄이 parent와 baseline을 같은 값으로 적어 M1·M2 규칙과 실제로 모순되는 결함이 발견됐습니다. 이후 `Parent:`와 `Baseline:` 두 줄로 분리해 고쳤습니다.",
     "related_recordroom": [
-      "rec-0004"
+      "rec-0026"
     ],
     "quiz": [
       {
