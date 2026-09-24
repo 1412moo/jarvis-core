@@ -1,12 +1,12 @@
 # Jarvis-Core ChatGPT Handoff
 
-Last verified: 2026-09-09
+Last verified: 2026-09-24
 
 Repository: `C:\work\jarvis-core`
 
 Branch: `main`
 
-Verified at HEAD: `ad59fb15fb1d9d38f73a6057f678f74bfc5d894f`
+Verified at HEAD: `57faa34a382703eb4c3751be0cddcf1bfe1e589a`
 
 Historical reference — Open Created Task feature commit: `b80ed92901d0805e3064ef8f80c36654e48ee771`, `feat(console): open created task from receipt`. That commit is no longer the tip: 72 commits have landed since it, 41 of them touching product source.
 
@@ -62,16 +62,18 @@ Current local Git facts:
 | --- | --- | --- |
 | `apps/jarvis-console/` | Implemented | Primary local browser product, API server, UI, registry, Project Control, Task flows, and deterministic tests. |
 | `orchestrator/discord-intake/` | Implemented | Shared command parsing, Task draft creation, authoritative Task file writer, status transition writer, and completion-evidence writer. Despite the directory name, the writer is reused by Jarvis Console. |
-| `memory/tasks/` | Implemented | Markdown Task source of truth. 73 Task files are tracked, spanning `task-0001` through `task-0121`. Tracked and on-disk contents now match; the 23 dogfood Tasks were removed by the task-0094 decision. |
+| `memory/tasks/` | Implemented | Markdown Task source of truth. 92 Task files are tracked, spanning `task-0001` through `task-0140`. Tracked and on-disk contents now match; the 23 dogfood Tasks were removed by the task-0094 decision. |
 | `apps/hermes-manager-pilot/` | Implemented | Separately launched local workflow-management app with prompt rendering, review handoff, durable Review lifecycle, content-evidence binding, and reporting primitives. |
 | `apps/research-council/` | Implemented | Deterministic local idea-evaluation pipeline, desktop launcher, reports, profiles, golden cases, benchmark governance, and replay tools. |
 | `apps/daily-ai-radar/` | Implemented | Deterministic renderer that converts manually curated technology metadata into a bounded radar report. |
+| `apps/studyroom/` | Implemented | Separately launched local read-only learning SPA (Python stdlib server on port 8080, `studyroom.bat` double-click launcher) whose content is Jarvis-Core's own history, glossary, lessons, technologies and features. It does not change Jarvis runtime state. |
 | `adapters/web/` | Implemented | Older independent read-only Task dashboard at port `8765`; not the Jarvis Console UI. |
 | `adapters/discord/` | Implemented | Optional minimal Discord bot adapter. It needs a Discord token and is not launched by Jarvis Console. It has its own command and allowlisted-execution boundaries. |
 | `docs/` | Implemented | Contracts, designs, operating rules, Master Plan, and this handoff. Some older overview documents lag current source and are not implementation authority. |
 | `reports/` | Implemented | Report templates and examples. Jarvis Console only discovers existing reports; it does not create them. |
 | `scripts/` | Implemented | Research batch/comparison utilities and the Multi-Agent SOP validator. |
 | `skills/` | Implemented | Markdown descriptions for early repository skills. Jarvis Console's runtime card registry is instead `apps/jarvis-console/skills.json`. |
+| `.claude/` | Implemented | Claude Code project definitions: the Reviewer subagent `agents/reviewer.md`, kept in rule parity with `.codex/agents/reviewer.toml` and checked by the SOP validator, and the explicit-invocation Skill `skills/jarvis-reviewer-call/`. |
 | `configs/`, `prompts/` | Planned | Present as repository structure but currently contain no active product implementation. |
 | `jarvis.bat` | Planned | Protected, untracked local launcher. Do not touch, add, stage, or commit it without an explicit Owner decision. |
 
@@ -485,7 +487,7 @@ For documentation-only changes, do not launch the server or browser. Run `git di
 
 | Item | Status | Impact and minimum handling |
 | --- | --- | --- |
-| Master Plan baseline is stale relative to live Git | Resolved | The Owner decided on 2026-09-11 that a completed milestone ageing out of the window is not itself an operational block and approved separating historical evidence from current-state validation (task-0124). task-0126 implemented that separation: the Master Plan's historical evidence is verified by branch ancestry, so Manager/Director read `milestone_complete` with no source conflicts. The card's `attention` now comes from `Approval state: required`, not from Git evidence. `Last verified` and `Verified implementation HEAD` keep their 2026-07-23 values as historical references and do not make the reports blocked. Do not rewrite hashes or enlarge evidence windows. |
+| Master Plan baseline is stale relative to live Git | Resolved | The Owner decided on 2026-09-11 that a completed milestone ageing out of the window is not itself an operational block and approved separating historical evidence from current-state validation (task-0124). task-0126 implemented that separation: the Master Plan's historical evidence is verified by branch ancestry, so Manager/Director read `milestone_complete` with no source conflicts. The card's `attention` now comes from `Approval state: required`, not from Git evidence. `Last verified` and `Verified implementation HEAD` keep their 2026-07-23 values as historical references and do not make the reports blocked. Do not rewrite hashes or enlarge evidence windows. On 2026-09-24 task-0141 brought the Master Plan free-text current-state fields and this handoff to HEAD `57faa34` without changing those two historical fields. |
 | Broad Console self-test cannot be re-confirmed in the current Windows/Codex temp ACL environment | Planned | Product Task flows and dogfood remain usable, but full regression green cannot be claimed. Investigate the runner/filesystem ACL separately; do not mix the fix into a product feature. |
 | Root overview documentation lags Stage 2 | Planned | `README.md`, `docs/architecture.md`, and portions of `docs/master-plan.md` describe earlier bootstrap/Project Control stages. Use this handoff and current source first; update older docs only in bounded packages. |
 | Jarvis Console backend and self-tests are large single files | Planned | `run_smoke_tests.py` is about 224 KB and `run_web_app.py` about 176 KB. This raises review and static-assertion collision risk. No refactor is approved; keep feature changes narrow. |
@@ -523,6 +525,14 @@ Read-only Task Detail, Search/Filter, Canonical BLOCKED Workflow, and post-creat
 | 2026-07-30 | Keep write Receipt authoritative and separate it from Overview refresh outcome. | Implemented | Commit `91e0006`. |
 | 2026-07-30 | Recover Console launch without repository/system PATH changes, then complete five-minute smoke and one-hour/20-cycle dogfood. | Implemented | Local dogfood Tasks `task-0006` through `task-0028`; environment remained unchanged. Those 23 Task files were later removed on 2026-09-10; see task-0094. |
 | 2026-07-31 | Implement direct GET-only navigation from an authoritative Voice Create Receipt to the exact Project Control Task card. | Implemented | Commit `b80ed92`; exact-path feature package and deterministic harness. |
+| 2026-09-17 | Quote Owner approval conditions verbatim to Reviewer and QA, and ask before implementing when conditions conflict. | Implemented | task-0133; commit `af92914`. |
+| 2026-09-17 | Reviewer returns BLOCKED without the Owner approval verbatim; the validator checks the new SOP clause and the Codex Reviewer wording. | Implemented | task-0134; commit `172a599`. |
+| 2026-09-18 | Give the Claude and Codex Reviewer definitions the same role rules and validate both. | Implemented | task-0135; commits `28125a7`, `4d095b3`. |
+| 2026-09-21 | Fix the Reviewer call assembly as an explicit-invocation Claude Skill prototype. | Implemented | task-0136; `.claude/skills/jarvis-reviewer-call/SKILL.md`. |
+| 2026-09-22 | Add Studyroom v0.1 as a separate read-only learning app. | Implemented | task-0137; commit `6dd2352`. |
+| 2026-09-23 | Record the Studyroom launcher and content expansion, done without a task record, after the fact. | Implemented | task-0138; commits `45b6926` through `887daa9`. |
+| 2026-09-23 | Let the Reviewer check the baseline..candidate change set, read files at the candidate and read Manager-supplied evidence paths; forbid direct working-tree reads. | Implemented | task-0139; commits `a0f555b`, `ee813c4`. |
+| 2026-09-24 | Repair task-0137 summary metadata and one Learn Recordroom link. | Implemented | task-0140; commit `7f05e00`. |
 
 ## Glossary
 
