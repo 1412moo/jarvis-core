@@ -2,11 +2,11 @@
 
 - id: `task-0144-worker-repair-and-resume`
 - title: `Jarvis v0.2 Worker 파이프라인에 Reviewer FINDINGS 자동 repair 1회와 /go resume 추가`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 14:02 UTC`
-- updated_at: `2026-09-24 16:20 UTC`
-- summary: `task-0142 Worker 파이프라인은 Reviewer FINDINGS에서 바로 FAILED가 되고 재시도는 매번 main에서 처음부터 다시 작성했다. Reviewer FINDINGS가 나오면 같은 candidate worktree에서 Worker가 지적만 고쳐 repair candidate를 만들고 fresh Reviewer와 QA를 다시 거치는 자동 repair를 최대 1회(SOP repair_budget 기본값) 추가하고, /go <task-id> resume으로 이전 실패 시도의 허용 경로 변경을 현재 main 위 새 시도에 재적용해 이어가게 한다. DONE은 Reviewer/QA 후 Owner가 Console Complete로 결정한다.`
+- updated_at: `2026-09-24 16:34 UTC`
+- summary: `task-0142 Worker 파이프라인은 Reviewer FINDINGS에서 바로 FAILED가 되고 재시도는 매번 main에서 처음부터 다시 작성했다. Reviewer FINDINGS가 나오면 같은 candidate worktree에서 Worker가 지적만 고쳐 repair candidate를 만들고 fresh Reviewer와 QA를 다시 거치는 자동 repair를 최대 1회(SOP repair_budget 기본값) 추가하고, /go <task-id> resume으로 이전 실패 시도의 허용 경로 변경을 현재 main 위 새 시도에 재적용해 이어가게 한다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: Worker 파이프라인 Reviewer FINDINGS → repair 1회 → 재검증과 /go resume을 task-0144로 구현`
 
 ## 기준선
@@ -107,3 +107,75 @@ retry_budget=1, retry_count=0, repair_budget=2 (Owner가 repair 1 후 1회 추�
 | --- | --- | --- |
 | 1 | Reviewer FINDINGS (candidate `89686fb5f6309d94b1806f7f837e4b4324a67cb2`): major 1 — FINDINGS가 아닌 BLOCKED·UNKNOWN 판정도 자동 repair를 시작함. minor — 환경변수로 repair 예산을 1보다 크게 올릴 수 있음, 거절된 resume이 빈 시도를 남겨 다음 resume이 그것을 고름, Manager 요약이 checkpoint commit 시점을 밝히지 않음, 테스트·보존 주장은 QA 재현 대상 | FINDINGS일 때만 repair하고 다른 비PASS 판정은 즉시 실패, 예산을 최대 1로 제한(REPAIR_BUDGET_MAX), resume 검사를 새 worktree 생성 전으로 이동, smoke에 BLOCKED·UNKNOWN·예산 상한·거절된 resume 무흔적 검증 추가. checkpoint commit은 QA 후 이 기록의 QA 결과를 남기는 commit이다. 새 candidate에 fresh Reviewer → QA |
 | 2 | Reviewer FINDINGS (candidate `f34f204599b7a7e66787f1ca82450a0b8fc737e8`): minor 3 — Reviewer 프로세스가 non-zero로 끝나도 출력에 FINDINGS가 있으면 자동 repair를 시작함, Manager 요약에 "구현 전에 범위와 최소 변경 계획을 확정" 조건 대응이 없고 확정 시점 증거가 없음, V1–V5는 Reviewer가 확인할 수 없어 QA 재현 대상 | Reviewer non-zero exit는 출력과 무관하게 UNKNOWN으로 즉시 실패, smoke에 non-zero exit + FINDINGS 출력이 repair를 쓰지 않는 사례 추가, 계획 확정 시점 증거가 Git history에 없음을 명시, V1–V5는 QA에서 재현. 마지막 repair이며 다시 FINDINGS/UNKNOWN이면 FAILED + Owner escalation. 새 candidate에 fresh Reviewer → QA |
+
+## Reviewer 결과 (candidate `3f8ff94fb60459b3aab444fa81de5df1876632ae`)
+
+| 호출 | 결과 |
+| --- | --- |
+| repair 2 후 fresh Reviewer | FINDINGS minor 2 — Manager 요약의 audit `/go` 미수정 지시가 호출에 넣은 승인 원문에 없음, V1–V5는 QA 재현 대상 |
+| 같은 candidate Reviewer retry (Owner 지시 원문 추가) | FINDINGS minor 1 — Manager 요약이 세 번째 승인의 조건(재 FINDINGS 시 중단, PASS 시 QA → checkpoint, QA 재현 항목, 추가 repair 금지, 보고 형식)을 빠뜨림 |
+
+두 번 모두 코드가 아니라 호출 요약에 대한 지적이다. Owner는 추가 retry·repair 없이 이 candidate로 QA를 진행하라고 결정했다.
+
+Owner 결정 (원문, retry 전):
+
+```text
+1번으로 진행해.
+
+candidate 3f8ff94는 그대로 유지하고 코드 수정은 하지 말 것.
+
+이번 Reviewer retry에서만 누락된 Owner 지시 원문을 Reviewer 호출 입력/evidence에 포함해서 동일 candidate를 다시 검토해.
+
+- 추가 repair 금지
+- candidate 변경 금지
+- task-0143 r2 candidate 6eec227 및 기존 worktree/branch/미커밋 수정 보존
+- jarvis.bat 접근/수정/스테이징 금지
+- push 금지
+
+이번 retry 결과가 PASS이면 즉시 QA → checkpoint commit 순서로 마무리해.
+QA에서는 V1–V5와 115/115, 92/92, diff-check 및 task-0143 보존을 실제로 재현/검증할 것.
+
+retry에서 다시 FINDINGS/UNKNOWN이면 추가 retry나 repair 없이 Owner에게 보고하고 멈출 것.
+
+마지막에 Reviewer 결과, QA 결과, checkpoint commit hash만 간결하게 보고해.
+```
+
+Owner 결정 (원문, retry 후):
+
+```text
+현재 candidate 3f8ff94 그대로 진행해.
+
+추가 Reviewer retry나 repair는 하지 말 것.
+현재 Reviewer FINDINGS는 호출 요약 누락에 대한 것이므로 코드 수정 대상이 아니다.
+
+이제 QA를 실행해.
+다음을 실제로 재현/검증해:
+- Worker smoke 115/115
+- Discord self-check 92/92
+- git diff --check
+- task-0143 r2 candidate 6eec227 및 기존 worktree/branch/미커밋 수정 보존
+- task-0144 변경 범위
+- jarvis.bat 미변경
+- main baseline 대비 의도하지 않은 변경 없음
+
+QA PASS이면 task-0144 DONE 기록 후 checkpoint commit.
+QA FAIL이면 추가 repair/retry 없이 결과만 보고하고 멈춰.
+
+push 금지.
+```
+
+## QA 결과 (candidate `3f8ff94fb60459b3aab444fa81de5df1876632ae`): PASS
+
+| 항목 | 결과 |
+| --- | --- |
+| main HEAD | candidate와 같음 |
+| Worker smoke (V1) | 115/115 PASS |
+| Discord self-check (V2) | 92/92 ok, 실패 0 |
+| 기타 smoke (V3) | discord-intake 119/119, audit-chain PASS, studyroom 5/5 suite PASS |
+| `git diff --check` (V4) | baseline..candidate와 작업 트리 모두 exit 0 |
+| task-0143 보존 (V5) | 브랜치 `a02dde9`, r2 `6eec227`, 두 worktree 그대로, r2 worktree 미커밋 `glossary.json` 수정 1줄 유지 |
+| 변경 범위 | baseline `2a33b10`..candidate = `bot_minimal.py`, `claude_worker.py`, `run_smoke_tests.py`, 이 기록 4개. 범위 밖 변경 없음 |
+| `jarvis.bat` | candidate tree와 범위 내 commit에 없음, 미추적 그대로 |
+| 작업 트리 | tracked 수정 없음. 미추적은 `jarvis.bat`, task-0143 기록뿐 |
+
+DONE은 QA PASS 후 위 Owner 지시에 따라 이 checkpoint commit에서 기록했다. push는 하지 않았다.
