@@ -261,10 +261,9 @@ def reviewer_call(
         # task-0145: no paraphrase of the Owner condition and no claim the Reviewer cannot check.
         f"- Owner condition (verbatim, the only one): {request}\n"
         f"- Candidate change set, baseline..candidate (check with git diff --name-status): {', '.join(changed_files)}\n"
-        f"- Pipeline limit, not an Owner condition: the pipeline refuses any change outside {ALLOWED_PREFIX} "
-        "and any change to jarvis.bat; check it against the change set above.\n"
-        "- Not claimed here: how the Worker ran and whether tests passed. The QA stage re-runs the tests "
-        "after this review.\n\n"
+        f"- Pipeline limit, not an Owner condition (check it in the change set above): every changed file is "
+        f"expected under {ALLOWED_PREFIX} and none is jarvis.bat.\n"
+        "- This summary makes no claim about how the Worker ran or about test results.\n\n"
         "=== OWNER APPROVAL (verbatim) ===\n"
         f"/work {request}\n"
         f"{approval_command}\n"

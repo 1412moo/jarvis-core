@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 16:47 UTC`
-- updated_at: `2026-09-24 16:50 UTC`
+- updated_at: `2026-09-24 16:54 UTC`
 - summary: `task-0143 resume E2E에서 reviewer_call의 고정 Manager Summary가 Owner 승인 범위를 넓게 바꿔 쓰고 Reviewer가 확인할 수 없는 Worker 동작과 테스트 통과를 주장해 FINDINGS가 났고, 콘텐츠만 고칠 수 있는 repair Worker는 변경 없이 끝났다. Summary를 Owner 요청 원문, git diff로 확인 가능한 변경 파일과 Pipeline limit로 바꾸고, 변경 파일과 무관한 FINDINGS만 있으면 repair 없이 reviewer_findings_not_repairable로 실패시킨다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: read-only 조사 결과 기준으로 task-0145 진행`
 
@@ -64,15 +64,19 @@ task-0143 r2/r3 worktree와 기존 미커밋 수정 보존.
 
 | # | 항목 | 결과 |
 | --- | --- | --- |
-| V1 | `python -B orchestrator/worker/run_smoke_tests.py` | 131/131 PASS (task-0144 115 + task-0145 16) |
+| V1 | `python -B orchestrator/worker/run_smoke_tests.py` | 131/131 PASS (task-0144 115 + task-0145 16), repair 1 후 132/132 PASS |
 | V2 | `python -B adapters/discord/bot_minimal.py --self-check-suite` (UTF-8 모드) | 92/92 ok |
 | V3 | `orchestrator/discord-intake`, `orchestrator/audit-chain`, `apps/studyroom` smoke | 모두 PASS |
 | V4 | `git diff --check` | exit 0 |
 | V5 | task-0143 보존 | `a02dde9`, r2 `6eec227`과 미커밋 수정, r3 `e05c69c` 그대로 |
-| V6 | 실제 task-0143 r3 Reviewer 보고(세션 기록에서 읽음, 저장소 밖)로 분류 함수 확인 | 항목 3개, repair 불가로 분류 |
+| V6 | 실제 task-0143 r3 Reviewer 보고(세션 기록에서 읽음, 저장소 밖)로 분류 함수 확인 | 항목 3개, repair 불가로 분류. 저장소 밖 자료라 Reviewer·QA가 확인할 수 없는 Implementer 주장이다 |
 
 구현 메모: 가짜 Reviewer의 기본 FINDINGS가 evidence에 경로가 없는 형식이었어서, 새 분류에서는 repair 불가로 바뀌지 않도록 기본 FINDINGS의 evidence를 변경 파일 경로로 바꿨다. 기존 repair 사례들의 기대값은 그대로다.
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=0
+retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+
+| # | 원인 | 조치 |
+| --- | --- | --- |
+| 1 | Reviewer FINDINGS (candidate `99371ab9379918b7cfdf38202b1cac7c586e5aca`): minor 4 — Summary의 Pipeline limit 문장("the pipeline refuses …")과 QA 재실행 문장이 git diff로 확인할 수 없는 파이프라인 동작 주장임, 봇의 repair 불가 Owner 결정 안내 줄을 검사하는 smoke가 없음, V1–V6은 Reviewer가 재현할 수 없어 QA 대상이고 V6은 확인 불가 Implementer 주장, "read-only 조사 결과 기준" 조건은 조사가 채팅에만 있어 Reviewer가 대조하지 못함(candidate 수정 불필요) | Pipeline limit을 변경 파일 목록에서 확인할 기대값("every changed file is expected under apps/studyroom/content/ and none is jarvis.bat")으로 바꾸고 QA 문장을 삭제해 Summary 자체가 Worker·테스트 주장을 하지 않는다고만 밝힘, smoke에 파이프라인 동작 문장 부재와 봇 안내 줄 검사 추가, V6 표시 보강. 조사 대조 불가는 이 기록에 남긴다. 새 candidate에 fresh Reviewer → QA |

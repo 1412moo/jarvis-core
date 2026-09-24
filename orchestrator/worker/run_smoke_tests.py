@@ -189,6 +189,9 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     failed = bot._run_worker_job(task_id, started["request"], started["command"])
     reply = bot._format_reply(failed)
     check("bot: failure recorded as FAILED with options", status_of(task_id) == "FAILED" and "재시도" in reply and "scope_violation" in reply)
+    unfixable = bot._format_reply(dict(failed, stage="reviewer", reason="reviewer_findings_not_repairable"))
+    check("bot: not-repairable FINDINGS reply asks for an Owner decision",
+          "변경 파일과 무관해 Worker가 고칠 수 없습니다. Owner 결정이 필요합니다." in unfixable)
 
     os.environ["FAKE_WORKER"] = "ok"
     head_before = git(["rev-parse", "HEAD"], clone)
@@ -321,8 +324,8 @@ def main() -> int:
               "Owner condition (verbatim, the only one): Studyroom glossary에 용어 1개 추가" in text)
         check("summary: pipeline limit is separate from the Owner condition and names the change set",
               "Pipeline limit, not an Owner condition" in text and "(check with git diff --name-status): apps/studyroom/content/glossary.json" in text)
-        check("summary: no Worker or test claims", "smoke tests passed" not in text and "No commands, no commit" not in text
-              and "Content must use only facts confirmed" not in text)
+        check("summary: no Worker, test or pipeline-behaviour claims", "smoke tests passed" not in text and "No commands, no commit" not in text
+              and "Content must use only facts confirmed" not in text and "refuses" not in text and "re-runs the tests" not in text)
         log.write_text("", encoding="utf-8")
         r = run_case("summaryonly", clone, worktrees, worker="ok", review="summaryonly")[0]
         text = log.read_text(encoding="utf-8")
