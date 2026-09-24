@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 14:02 UTC`
-- updated_at: `2026-09-24 14:15 UTC`
+- updated_at: `2026-09-24 16:20 UTC`
 - summary: `task-0142 Worker 파이프라인은 Reviewer FINDINGS에서 바로 FAILED가 되고 재시도는 매번 main에서 처음부터 다시 작성했다. Reviewer FINDINGS가 나오면 같은 candidate worktree에서 Worker가 지적만 고쳐 repair candidate를 만들고 fresh Reviewer와 QA를 다시 거치는 자동 repair를 최대 1회(SOP repair_budget 기본값) 추가하고, /go <task-id> resume으로 이전 실패 시도의 허용 경로 변경을 현재 main 위 새 시도에 재적용해 이어가게 한다. DONE은 Reviewer/QA 후 Owner가 Console Complete로 결정한다.`
 - source_command: `Owner 지시: Worker 파이프라인 Reviewer FINDINGS → repair 1회 → 재검증과 /go resume을 task-0144로 구현`
 
@@ -49,6 +49,31 @@
 - 마지막에 변경 내용, 테스트, commit hash만 간결하게 보고
 ```
 
+추가 repair 승인 (repair 1 candidate `f34f204` Reviewer FINDINGS 후):
+
+```text
+1번으로 진행해.
+
+추가 repair 1회를 승인한다. 이번 repair를 마지막으로 하고 추가 repair는 금지한다.
+
+수정 범위:
+1. Reviewer 프로세스가 non-zero exit이면 출력에 "verdict: FINDINGS"가 있어도 UNKNOWN으로 처리하고 즉시 실패하도록 수정.
+2. 이 비정상 종료 경로가 자동 repair를 소비하지 않는 smoke test 1개 추가.
+3. "구현 전에 task-0144 범위와 최소 변경 계획을 확정했다"는 증거가 현재 Git history에 없다는 점을 task-0144 기록에 명시. 과거 기록을 조작하거나 소급해서 증거를 만들지 말 것.
+4. 112/112, 92/92, diff-check 및 task-0143 보존 검증은 QA에서 수행.
+
+그 후 순서:
+구현 → smoke/integration test → fresh Reviewer → QA → checkpoint commit.
+
+중요:
+- 이번 repair가 마지막이다. Reviewer가 다시 FINDINGS/UNKNOWN이면 추가 repair 없이 FAILED + Owner escalation.
+- task-0143 r2 candidate 6eec227 및 기존 worktree/branch와 미커밋 수정은 보존.
+- push 금지.
+- jarvis.bat 접근/수정/스테이징 금지.
+- 기존 DONE/FAILED 계약 유지.
+- 마지막에 변경 내용, 테스트 결과, Reviewer 결과, QA 결과, checkpoint commit hash만 간결하게 보고.
+```
+
 ## 확정한 범위와 최소 변경 계획
 
 | 파일 | 변경 |
@@ -58,13 +83,15 @@
 | `orchestrator/worker/run_smoke_tests.py` | FINDINGS→repair→PASS, FINDINGS→repair→FINDINGS→FAILED, repair 중 범위 위반, repair 프롬프트에 지적 전달, resume PASS(미커밋 수정 포함·Worker 미호출), resume 대상 없음, resume 충돌, 이전 시도 보존 |
 | 이 기록 | 신규 |
 
+계획 확정 시점: 이 표는 구현과 같은 commit `89686fb`에서 처음 추가됐다. 구현 전에 범위와 최소 변경 계획을 확정했다는 증거는 현재 Git history에 없다. 이 기록은 그 사실만 밝히며 소급해서 증거를 만들지 않는다.
+
 유지: 전환 계약(TODO/DOING/DONE/FAILED 쌍), task 기록 방식, 감사 hook 위치(/go source 감사 거부 문제는 별도 이슈로 미수정), Owner 전용 게이트, 허용 경로 `apps/studyroom/content/`, push 금지, `jarvis.bat` 금지.
 
 ## 검증 (Implementer 실행, QA 재현 대상)
 
 | # | 항목 | 결과 |
 | --- | --- | --- |
-| V1 | `python -B orchestrator/worker/run_smoke_tests.py` | 112/112 PASS (기존 74 + repair·resume 38, repair 1 후) |
+| V1 | `python -B orchestrator/worker/run_smoke_tests.py` | 112/112 PASS (repair 1 후), 115/115 PASS (repair 2 후, non-zero exit 사례 3개 검사 추가) |
 | V2 | `python -B adapters/discord/bot_minimal.py --self-check-suite` (UTF-8 모드) | 92/92 ok |
 | V3 | `orchestrator/discord-intake`, `orchestrator/audit-chain`, `apps/studyroom` smoke | 모두 PASS |
 | V4 | `git diff --check` | exit 0 |
@@ -74,8 +101,9 @@
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+retry_budget=1, retry_count=0, repair_budget=2 (Owner가 repair 1 후 1회 추가 승인, 이후 추가 repair 금지), repair_count=2
 
 | # | 원인 | 조치 |
 | --- | --- | --- |
 | 1 | Reviewer FINDINGS (candidate `89686fb5f6309d94b1806f7f837e4b4324a67cb2`): major 1 — FINDINGS가 아닌 BLOCKED·UNKNOWN 판정도 자동 repair를 시작함. minor — 환경변수로 repair 예산을 1보다 크게 올릴 수 있음, 거절된 resume이 빈 시도를 남겨 다음 resume이 그것을 고름, Manager 요약이 checkpoint commit 시점을 밝히지 않음, 테스트·보존 주장은 QA 재현 대상 | FINDINGS일 때만 repair하고 다른 비PASS 판정은 즉시 실패, 예산을 최대 1로 제한(REPAIR_BUDGET_MAX), resume 검사를 새 worktree 생성 전으로 이동, smoke에 BLOCKED·UNKNOWN·예산 상한·거절된 resume 무흔적 검증 추가. checkpoint commit은 QA 후 이 기록의 QA 결과를 남기는 commit이다. 새 candidate에 fresh Reviewer → QA |
+| 2 | Reviewer FINDINGS (candidate `f34f204599b7a7e66787f1ca82450a0b8fc737e8`): minor 3 — Reviewer 프로세스가 non-zero로 끝나도 출력에 FINDINGS가 있으면 자동 repair를 시작함, Manager 요약에 "구현 전에 범위와 최소 변경 계획을 확정" 조건 대응이 없고 확정 시점 증거가 없음, V1–V5는 Reviewer가 확인할 수 없어 QA 재현 대상 | Reviewer non-zero exit는 출력과 무관하게 UNKNOWN으로 즉시 실패, smoke에 non-zero exit + FINDINGS 출력이 repair를 쓰지 않는 사례 추가, 계획 확정 시점 증거가 Git history에 없음을 명시, V1–V5는 QA에서 재현. 마지막 repair이며 다시 FINDINGS/UNKNOWN이면 FAILED + Owner escalation. 새 candidate에 fresh Reviewer → QA |

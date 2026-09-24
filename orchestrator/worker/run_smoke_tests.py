@@ -49,7 +49,7 @@ FAKE_CLAUDE = textwrap.dedent(
         verdict = "PASS" if mode == "pass" else "FINDINGS"
         body = "findings: []" if mode == "pass" else "findings: - {severity: major, evidence: fake}"
         print(json.dumps({"result": f"candidate_hash: x\\nverdict: {verdict}\\n{body}"}))
-        sys.exit(0)
+        sys.exit(3 if mode == "crashfindings" else 0)
     mode = os.environ.get("FAKE_WORKER", "ok")
     if mode == "timeout":
         time.sleep(30)
@@ -300,7 +300,7 @@ def main() -> int:
         check("resume: same file changed on main is refused", (not r.ok) and r.reason == "resume_conflict", f"{r.stage}:{r.reason}")
         check("resume: a refused resume leaves no new attempt behind", not (worktrees / "task-8000-conflictprev-r2").exists()
               and not git(["branch", "--list", "jarvis/task-8000-conflictprev-r2"], clone))
-        for mode, reason in (("blocked", "reviewer_blocked"), ("garbage", "reviewer_unknown")):
+        for mode, reason in (("blocked", "reviewer_blocked"), ("garbage", "reviewer_unknown"), ("crashfindings", "reviewer_unknown")):
             r = run_case(f"verdict{mode}", clone, worktrees, worker="ok", review=mode)[0]
             check(f"repair: {mode} verdict fails without a repair", (not r.ok) and r.reason == reason and r.repairs == 0, f"{r.reason}:{r.repairs}")
         capped = run_case("budgetcap", clone, worktrees, worker="ok", review="findings", repair_budget=5)[0]

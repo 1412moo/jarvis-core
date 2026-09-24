@@ -344,7 +344,9 @@ def _run_reviewer(repo_root: Path, call: str) -> tuple[str, str]:
         pass
     match = VERDICT_PATTERN.search(text)
     verdict = match.group(1) if match else "UNKNOWN"
-    if review.returncode != 0 and verdict == "PASS":
+    # A Reviewer run that did not exit cleanly never counts, whatever it printed:
+    # partial FINDINGS text must not start the one automatic repair (task-0144 repair 2).
+    if review.returncode != 0:
         verdict = "UNKNOWN"
     return verdict, text
 
