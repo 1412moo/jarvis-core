@@ -8,7 +8,7 @@
 - 아래 정책은 `_apply_execution_result`(`adapters/discord/bot_minimal.py`)로 구현돼 있다. 현재 적용 방식은 "현재 적용 상태" 절을 따른다.
 
 ## 적용 범위
-- 대상: `/approve` 이후 생성될 수 있는 실행 결과(`execution_result_dry_run`, `execution_result`).
+- 대상: Owner가 승인한 실행(`/approve` 승인, `/run`, `/retry`, `/go`) 뒤 생성되는 실행 결과(`execution_result_dry_run`, `execution_result`).
 - 본 정책은 **execution 이후 후보 전이**만 다룬다.
 - `/approve` 자체 전이(`NEEDS_APPROVAL -> DOING/FAILED`) 규칙은 기존 contract를 그대로 따른다.
 
@@ -37,7 +37,6 @@
 - 허용 전이 쌍과 발생 경로는 `docs/task-model.md` 5-1, 5-2를 따른다.
 
 ## Future Scope
-- 후보 전이를 task writer에 안전하게 연결하는 절차 정의
 - 전이 적용 전 검증 조건(근거/로그/리뷰) 최소 기준 정의
 - 상태 전이 적용 이력 기록 포맷 정의
 
