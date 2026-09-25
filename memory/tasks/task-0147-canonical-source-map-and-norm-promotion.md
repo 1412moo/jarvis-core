@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-25 02:19 UTC`
-- updated_at: `2026-09-25 02:29 UTC`
+- updated_at: `2026-09-25 02:33 UTC`
 - summary: `과거 memory/tasks 기록과 폐기된 설계가 현재 규칙으로 오인되지 않도록 AGENTS.md에 영역별 기준 지도와 판정 규칙을 두고, 서로 다른 우선순위 선언 3곳을 영역 한정으로 위임한다. task-0142/0144/0145의 Worker 파이프라인 규칙을 SOP 10절(실행 범위와 규칙 분리)로, 실제 상태 전이를 task-model 5절(계약과 발생 경로 분리)로 승격하고 validator가 지도와 코드 값의 일치를 검사한다. 코드와 agent 정의는 바꾸지 않으며 DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: task-0147-canonical-source-map-and-norm-promotion 최종 설계 승인 후 구현`
 
@@ -272,6 +272,19 @@ task-0147-canonical-source-map-and-norm-promotion을 구현하라.
 - 설계 F1은 `adapters/discord/bot_minimal.py`도 읽기 대상으로 적었지만, 설계의 값 비교(F4·F5)가 그 파일을 쓰지 않아 읽지 않는다. 새 검사를 추가하지 않기 위한 선택이다.
 - §10.2 11항은 코드대로 적었다. ff-only 반영 전 실패는 main에 반영되지 않지만, 반영 뒤 기록 단계(checkpoint)에서 실패하면 candidate가 이미 main에 있다.
 - `execution-status-transition-policy.md`는 설계의 두 절 외에 목적 절의 "자동 전이 구현은 포함하지 않는다" 한 줄도 같은 사실로 바꿨다. 같은 주장이 남아 있으면 문서 안에서 모순되기 때문이다.
+
+위 네 가지 편차는 구현 뒤 Owner에게 보고했고 Owner가 모두 수용했다. §10.2 11항은 Owner 결정으로 확정됐고(아래 원문), `bot_minimal.py` 제외, 목적 절 수정, 사유 코드 비교 범위(`reviewer_<판정>` 형태 명시, `resume_*`·`repair_no_*`·`reviewer_findings_not_repairable`로 제한, `repair_budget` 제외)는 구현 편차로 수용됐다.
+
+§10.2 11항 Owner 결정 (원문):
+
+```text
+[Owner 결정]
+현재 구현에서는 ff-only main 반영(§10.2 9항)이 성공한 뒤에 실행 결과 기록과 checkpoint commit이 수행된다.
+따라서 §10.2 11항의 "실패 시 main에 반영하지 않는다"는 문구는 9항 이전의 실패에만 적용한다.
+9항의 main 반영 이후 기록/checkpoint 단계에서 실패한 경우에는 candidate가 이미 main에 반영된 상태이므로 자동으로 "main 미반영"으로 처리하지 않고 Owner 확인 대상으로 둔다.
+
+이 결정은 현재 task-0147의 규칙과 실제 코드의 일치를 위한 것이다.
+```
 
 ## 미결 사항 (다음 task의 Owner 결정)
 
