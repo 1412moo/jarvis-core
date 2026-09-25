@@ -220,14 +220,89 @@ Director Report는 Owner outcome, milestone result, bounded risk, Owner decision
 조건 하나라도 증명할 수 없으면 완료로 추정하지 않고 blocked 또는 escalation으로
 보고한다.
 
+DONE 경로는 두 가지다. 수동 SOP 작업의 DONE은 위 조건을 만족한 뒤 Owner가 Jarvis
+Console Complete(Preview + Confirm)로 결정한다. §10 Worker 파이프라인의 자동
+DONE은 §10.2의 적용 조건을 만족할 때만 파이프라인이 기록한다.
+
+미결: Reviewer PASS 없이 QA로 진행하는 예외는 정의돼 있지 않다. 과거 task 기록에서
+Owner가 Reviewer finding을 수용하고 QA로 진행한 사례는 그 task 범위의 결정이며
+일반 규칙이 아니다. 이 절차와 조건은 후속 task에서 Owner가 결정한다.
+
 ## 9. 현재 자동화 경계와 성숙도
 
 이 SOP는 조직 계약과 project custom-agent 설정을 제공하지만 Hermes가 자동으로
 Worker를 실행하는 runtime은 아니다. SDK/app-server, dispatcher subsystem,
-background execution과 queue persistence는 별도 승인 전까지 금지다.
+background execution과 queue persistence는 별도 승인 전까지 금지다. §10의 승인된
+예외는 이 금지에서 제외되며 그 범위와 규칙은 §10을 따른다.
 
 Manual Pilot v0.1A는 실제 Implementer candidate에서 Reviewer가 P2 finding을 찾고,
 Manager가 repair 1회를 지시한 뒤 새 candidate에 Reviewer와 QA를 다시 실행해
 완료했다. 이 SOP의 채택은 완료됐지만 운영 성숙도를 확정하려면 실제 기능
 work package 1~2개에서 같은 흐름을 반복 성공해야 한다. 그 뒤에만 Hermes 자동
 runtime 검토를 제안한다.
+
+## 10. 승인된 예외: Worker 파이프라인
+
+Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Worker
+파이프라인 `orchestrator/worker/claude_worker.py`를 실행한다. 이 절은 §9 금지의
+예외이며 두 부분으로 나뉜다. §10.1은 현재 실행 범위이고, §10.2는 범위 값과 무관한
+파이프라인 규칙이다.
+
+### 10.1 현재 실행 범위 (v0.2, 일반 규칙 아님)
+
+아래 값은 task-0142 Owner 승인이 정한 현재 실행 범위다. 범위를 넓히거나 바꾸려면
+새 Owner 승인과 이 표의 갱신이 필요하며, 다른 작업이나 저장소 전체의 규칙으로
+해석하지 않는다.
+
+| 항목 | 현재 값 | 코드 위치 |
+| --- | --- | --- |
+| 지원 작업 | Studyroom 콘텐츠 수정 1종. 요청에 studyroom 또는 스터디룸이 없으면 hold | `WORK_KIND_MARKERS` (`adapters/discord/bot_minimal.py`) |
+| Worker 변경 허용 경로 | `apps/studyroom/content/` | `ALLOWED_PREFIX` |
+| 파이프라인 보호 경로 | `jarvis.bat` | `PROTECTED_PATHS` |
+| 테스트 명령 | `apps/studyroom/run_smoke_tests.py` | `TEST_COMMAND` |
+| worktree 위치 | 저장소 상위 폴더의 `jarvis-core-worktrees` (`JARVIS_WORKTREE_ROOT`로 변경 가능) | `WORKTREE_ROOT` |
+| 진입 명령 | Owner 전용 `/work`(작업 준비, TODO 생성)와 `/go`(승인과 실행), 동시 실행 1개 | `PRIVILEGED_COMMANDS`, `_WORKER_LOCK` (`adapters/discord/bot_minimal.py`) |
+
+`jarvis.bat` 접근 금지 자체는 AGENTS.md와 §6의 일반 gate다. 이 표는 파이프라인
+범위 검사가 그 경로를 거부한다는 사실만 적는다.
+
+### 10.2 파이프라인 규칙
+
+1. Candidate. Worker 변경은 시도별 브랜치의 candidate commit으로만 만들어진다. 새
+   시도는 이전 시도의 worktree와 브랜치를 지우지 않는다. 성공한 시도만 반영 뒤
+   자기 worktree와 브랜치를 정리한다.
+2. Reviewer 호출. 요약에는 Owner 요청 원문, baseline..candidate 변경 파일 목록과
+   범위 기대값만 넣고 Worker 동작이나 테스트 결과는 주장하지 않는다. evidence는
+   요청에 이름이 나온 task 기록만 candidate 시점의 경로로 전달한다.
+3. 판정 처리. PASS면 QA로 간다. FINDINGS가 아닌 판정(BLOCKED, 판정 없음, Reviewer
+   비정상 종료)과 timeout은 repair 없이 즉시 실패한다(`reviewer_<판정>`,
+   `reviewer_timeout`).
+4. Repair 가능 판정. FINDINGS의 모든 항목에서 evidence가 candidate 변경 파일을
+   가리키지 않으면 repair하지 않고 `reviewer_findings_not_repairable`로 실패하며,
+   repair 예산을 쓰지 않는다. 한 항목이라도 변경 파일을 가리키거나 항목 형식을 알
+   수 없으면 repair 대상이다.
+5. Repair 예산. §5의 `repair_budget`과 같은 의미이며 파이프라인 상한은 1이다.
+   환경변수나 인자로 상한을 올릴 수 없다. 예산을 다 쓴 뒤 다시 FINDINGS면
+   `reviewer_findings`로 실패하고 Owner 결정을 기다린다.
+6. Repair 흐름. repair Worker는 같은 worktree에서 변경 파일을 가리키는 지적만
+   고친다. 변경이 없으면 `repair_no_changes`로 실패한다. 변경이 있으면 이전
+   candidate를 parent로 하는 새 candidate를 만들고, 이전 Reviewer 결과는 무효가
+   되며 fresh Reviewer가 baseline..새 candidate 전체를 검토한다.
+7. Resume. Owner가 FAILED task에 명시적으로 요청할 때만 한다. 직전 시도의 허용
+   경로 변경(commit된 것과 미커밋 모두)을 현재 main을 baseline으로 한 새 시도로
+   옮기며 Worker를 부르지 않는다. 모든 검사는 새 worktree를 만들기 전에 하고,
+   거절 사유는 `resume_no_previous_attempt`, `resume_no_changes`,
+   `resume_scope_violation`, `resume_conflict`다.
+8. QA. Reviewer PASS 뒤 같은 candidate에서 `head_is_candidate`,
+   `change_set_matches`, `diff_check`, `jarvis_bat_absent`, `json_valid`,
+   `tests_rerun`이 모두 통과해야 한다. 하나라도 실패하면 `qa_failed`로 실패한다.
+9. 반영. QA 통과 뒤 main HEAD가 baseline 그대로이고 tracked 변경이 없을 때만
+   ff-only로 반영한다. 아니면 반영하지 않고 실패한다(`baseline_moved`,
+   `main_tree_dirty`).
+10. 자동 DONE. 9가 성공한 경우에만 실행 결과 기록과 `DOING→DONE` 전이를 한 번의
+    원자적 쓰기로 적용하고 task 파일을 checkpoint commit한다. 이 예외는 파이프라인
+    경로에만 적용되며 수동 SOP 작업의 DONE 경로(§8)를 바꾸지 않는다.
+11. 실패 처리. 어느 단계에서 실패해도 실행 결과와 `DOING→FAILED` 전이를 기록하고
+    실패한 시도를 보존한다. 9 이전의 실패는 main에 반영되지 않는다. 9 뒤의 기록
+    단계에서 실패하면 candidate는 이미 main에 있으므로 Owner 확인이 필요하다. push는
+    어느 경우에도 하지 않는다.

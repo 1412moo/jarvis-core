@@ -105,6 +105,8 @@ flowchart TD
 
 ### Source-of-truth precedence
 
+This list is limited to the Jarvis Console implementation described in this snapshot. Judging between areas follows the source map in `AGENTS.md` (기준 지도).
+
 1. Executable source and deterministic tests define current behavior.
 2. `memory/tasks/*.md` defines Task state.
 3. `apps/jarvis-console/skills.json` defines runtime skill cards and deterministic routing metadata.

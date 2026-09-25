@@ -74,6 +74,52 @@ escalation gate다. 상세 상태 전이, report/evidence 계약과 agent별 경
 [`docs/jarvis-multi-agent-sop-v0.1.md`](docs/jarvis-multi-agent-sop-v0.1.md)를
 따른다.
 
+## 기준 지도
+
+이 절은 저장소의 문서와 코드 중 무엇이 어느 영역의 현재 기준인지 정한다. 다른
+문서의 우선순위 선언은 자기 영역 안에서만 유효하며, 영역 사이의 판정은 이 절을
+따른다.
+
+### 영역별 기준
+
+| 영역 | 기준 파일 | 강제 장치 |
+| --- | --- | --- |
+| 에이전트 행동 규칙 | `AGENTS.md` → `docs/jarvis-multi-agent-sop-v0.1.md`, `docs/codex-operating-rules.md` → `.claude/agents/reviewer.md`, `.codex/agents/*.toml` | `scripts/validate_multi_agent_sop.py` |
+| 현재 시스템 동작 | 실행 코드와 결정론적 테스트 | 각 smoke test와 self-check |
+| task 상태 | 각 `memory/tasks/*.md`의 메타데이터 필드, 형식·전이 계약 `docs/task-model.md` | `orchestrator/discord-intake/task_file_writer.py`, `apps/jarvis-console/run_web_app.py` |
+| 목표·milestone·approval state | `docs/master-plan.md` (이 영역 한정) | `apps/jarvis-console/run_web_app.py`, `scripts/validate_multi_agent_sop.py` |
+
+### History로 취급하는 것
+
+다음은 작성 당시의 기록이며 현재 규칙이나 현재 동작의 근거가 아니다. 인용할
+때는 "기록에 따르면" 형태로만 쓴다.
+
+- `memory/tasks/*.md`의 본문(승인 원문, 요약, 검증, repair 이력). 메타데이터
+  필드는 위 표의 task 상태 영역이다.
+- 설계 문서(`docs/*-design.md` 등)
+- `docs/chatgpt-handoff.md` (특정 시점 스냅샷)
+- `docs/WORKFLOW.md`, `docs/codex-workflow.md`, `README.md`, `docs/architecture.md`
+- `docs/master-plan.md` 중 목표·milestone·approval state 밖의 서술
+
+### 판정 규칙
+
+1. 먼저 영역을 판정한다. 영역이 다른 기준 파일끼리는 충돌로 보지 않는다.
+2. 같은 영역에서는 위임 방향을 따른다. AGENTS.md가 위임한 세부는 하위 문서가
+   정하고, 하위 문서가 AGENTS.md의 원칙이나 escalation gate와 모순되면
+   AGENTS.md가 우선하며 그 모순은 validator 오류다.
+3. 안전 gate끼리 허용 범위가 다르면 더 제한적인 쪽을 적용하고
+   `gate_safety_conflict`로 Owner에게 escalation한다(fail closed).
+4. Owner 승인은 그 승인을 받은 task의 범위 안에서만 효력이 있다.
+5. 기준 문서와 코드가 다르면 drift로 기록하고 그 규칙에 기대는 실행을 멈춘다.
+   어느 한쪽을 조용히 따르지 않는다.
+6. History의 서술은 규칙의 근거가 되지 않는다.
+
+### Owner 승인의 효력과 승격
+
+task 승인으로 생긴 규칙이 그 task 뒤에도 계속 적용돼야 하면, 같은 task나 후속
+task에서 위 표의 기준 문서(해당 문서의 "승인된 예외" 절 등)로 옮겨야 한다.
+옮기기 전에는 task 기록에만 있는 규칙을 현재 규칙으로 쓰지 않는다.
+
 ## 변경 범위 관리
 - 한 번에 크게 만들지 않는다.
 - 단계별로 생성하고 검증 가능한 산출물만 남긴다.

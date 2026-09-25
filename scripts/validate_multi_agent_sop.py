@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 import tomllib
@@ -72,10 +73,64 @@ AGENT_SPECS: dict[str, dict[str, Any]] = {
     },
 }
 
+MAP_PATH = "AGENTS.md"
+TASK_MODEL_PATH = "docs/task-model.md"
+TRANSITION_POLICY_PATH = "docs/execution-status-transition-policy.md"
+
+# task-0147: each of these once claimed its own overall precedence; each now
+# limits its list to its own area and defers to the AGENTS.md source map.
+DELEGATION_CLAUSES = {
+    "docs/ai-team-operating-model.md": (
+        "영역 간 판정은 [`AGENTS.md`](../AGENTS.md)의 기준 지도를 따른다."
+    ),
+    "docs/chatgpt-handoff.md": (
+        "Judging between areas follows the source map in `AGENTS.md` (기준 지도)."
+    ),
+    "docs/manager-reporting-workflow-v0.1.md": (
+        "Judging between areas follows the source map in `AGENTS.md` (기준 지도)."
+    ),
+}
+
 DOCUMENT_PATHS = (
-    "AGENTS.md",
+    MAP_PATH,
     SOP_PATH,
     "docs/master-plan.md",
+    TASK_MODEL_PATH,
+    TRANSITION_POLICY_PATH,
+    *DELEGATION_CLAUSES,
+)
+
+# task-0147: read only to compare the values the documents state with the code.
+# They are not normative documents.
+WORKER_PATH = "orchestrator/worker/claude_worker.py"
+WRITER_PATH = "orchestrator/discord-intake/task_file_writer.py"
+CODE_PATHS = (WORKER_PATH, WRITER_PATH)
+
+MAP_AREAS = (
+    "에이전트 행동 규칙",
+    "현재 시스템 동작",
+    "task 상태",
+    "목표·milestone·approval state",
+)
+BEHAVIOR_AREA = "에이전트 행동 규칙"
+# History sources that must never back the agent-behavior area.
+NON_BEHAVIOR_SOURCES = (
+    "docs/master-plan.md",
+    "docs/chatgpt-handoff.md",
+    "memory/tasks",
+    "-design",
+)
+HISTORY_REQUIRED = ("memory/tasks/", "docs/chatgpt-handoff.md", "-design")
+MAP_RULE_CLAUSES = (
+    "### 판정 규칙",
+    "`gate_safety_conflict`로 Owner에게 escalation한다(fail closed).",
+    "Owner 승인은 그 승인을 받은 task의 범위 안에서만 효력이 있다.",
+    "### Owner 승인의 효력과 승격",
+    "옮기기 전에는 task 기록에만 있는 규칙을 현재 규칙으로 쓰지 않는다.",
+)
+SOP_PENDING_CLAUSE = "미결: Reviewer PASS 없이 QA로 진행하는 예외는 정의돼 있지 않다."
+PIPELINE_REASON_PATTERN = re.compile(
+    r"(?:resume_[a-z_]+|repair_no_[a-z_]+|reviewer_findings_not_repairable)"
 )
 
 MANAGER_GATES = {
@@ -143,6 +198,22 @@ CONTRADICTIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
             re.IGNORECASE,
         ),
     ),
+    (
+        "global_source_of_truth_contradiction",
+        re.compile(
+            r"(?:is the source of truth for (?:all areas|every area|all rules)"
+            r"|모든 영역의 기준(?:이다| 문서다))",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "findings_acceptance_rule_contradiction",
+        re.compile(
+            r"(?:Owner may accept Reviewer findings and proceed to QA"
+            r"|Owner가 Reviewer finding을 수용하면 QA로 진행(?:한다|할 수 있다))",
+            re.IGNORECASE,
+        ),
+    ),
 )
 
 
@@ -207,6 +278,8 @@ def _load_sources(errors: list[str]) -> dict[str, str]:
         relative_path = f".codex/agents/{path.name}"
         sources[relative_path] = _read_utf8(relative_path, errors)
     sources[CLAUDE_REVIEWER_PATH] = _read_utf8(CLAUDE_REVIEWER_PATH, errors)
+    for relative_path in CODE_PATHS:
+        sources[relative_path] = _read_utf8(relative_path, errors)
     return sources
 
 
@@ -717,7 +790,9 @@ def _validate_contradictions(
     sources: dict[str, str], errors: list[str]
 ) -> None:
     combined = "\n".join(
-        f"{path}\n{text}" for path, text in sorted(sources.items())
+        f"{path}\n{text}"
+        for path, text in sorted(sources.items())
+        if path not in CODE_PATHS
     )
     for code, pattern in CONTRADICTIONS:
         match = pattern.search(combined)
@@ -753,6 +828,185 @@ def _validate_reviewer_parity(
             )
 
 
+def _section(text: str, heading: str, end_pattern: str) -> str:
+    """The text after `heading` up to the first line matching `end_pattern`."""
+
+    start = text.find(heading)
+    if start < 0:
+        return ""
+    body = text[start + len(heading):]
+    end = re.search(end_pattern, body, re.MULTILINE)
+    return body[: end.start()] if end else body
+
+
+def _table_rows(text: str) -> list[list[str]]:
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("|") or set(line) <= set("|- "):
+            continue
+        rows.append([cell.strip() for cell in line.strip("|").split("|")])
+    return rows
+
+
+def _map_path_exists(token: str) -> bool:
+    if "*" in token:
+        return any(ROOT.glob(token))
+    return (ROOT / token).is_file()
+
+
+def _validate_source_map(sources: dict[str, str], errors: list[str]) -> None:
+    """task-0147: the AGENTS.md source map names every area and only real files."""
+
+    section = _section(sources.get(MAP_PATH, ""), "## 기준 지도", r"^## ")
+    if not section:
+        _error(errors, "source_map_missing", f"{MAP_PATH} has no '## 기준 지도' section")
+        return
+    table = _section(section, "### 영역별 기준", r"^### ")
+    rows = {row[0]: row for row in _table_rows(table)[1:] if row}
+    for area in MAP_AREAS:
+        if area not in rows:
+            _error(errors, "source_map_area", f"source map lacks the area {area!r}")
+    for area, row in rows.items():
+        for token in re.findall(r"`([^`]+)`", " ".join(row[1:])):
+            if ("/" in token or token.endswith((".md", ".py", ".toml"))) and not _map_path_exists(token):
+                _error(errors, "source_map_path", f"source map row {area!r} names a missing file {token!r}")
+    behavior = " ".join(rows.get(BEHAVIOR_AREA, [])[1:])
+    for fragment in NON_BEHAVIOR_SOURCES:
+        if fragment in behavior:
+            _error(errors, "source_map_behavior_source", f"agent-behavior row names history source {fragment!r}")
+    history = _section(section, "### History로 취급하는 것", r"^### ")
+    for fragment in HISTORY_REQUIRED:
+        if fragment not in history:
+            _error(errors, "source_map_history", f"history list lacks {fragment!r}")
+    _require_all(errors, "source_map_rules", MAP_PATH, section, MAP_RULE_CLAUSES)
+    for path, clause in DELEGATION_CLAUSES.items():
+        _require_all(errors, "source_map_delegation", path, sources.get(path, ""), (clause,))
+
+
+def _module_constant(tree: ast.Module, name: str) -> ast.expr | None:
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in node.targets
+        ):
+            return node.value
+    return None
+
+
+def _parse_code(sources: dict[str, str], path: str, errors: list[str]) -> ast.Module | None:
+    try:
+        return ast.parse(sources.get(path, ""))
+    except SyntaxError as exc:
+        _error(errors, "code_parse", f"{path} does not parse ({exc.msg})")
+        return None
+
+
+def _validate_pipeline_parity(sources: dict[str, str], errors: list[str]) -> None:
+    """task-0147: SOP section 10 states the values the Worker pipeline really uses."""
+
+    sop = sources.get(SOP_PATH, "")
+    rules = _section(sop, "### 10.2 파이프라인 규칙", r"^## ")
+    scope = _section(sop, "### 10.1 현재 실행 범위", r"^### ")
+    tree = _parse_code(sources, WORKER_PATH, errors)
+    if tree is None:
+        return
+    if not rules or not scope:
+        _error(errors, "pipeline_section_missing", f"{SOP_PATH} lacks section 10.1 or 10.2")
+        return
+
+    budget_node = _module_constant(tree, "REPAIR_BUDGET_MAX")
+    stated = re.search(r"파이프라인 상한은 (\d+)이다", rules)
+    try:
+        budget = ast.literal_eval(budget_node) if budget_node is not None else None
+    except ValueError:
+        budget = None
+    if stated is None or budget is None or int(stated.group(1)) != budget:
+        _error(errors, "pipeline_budget_parity", f"SOP states {stated and stated.group(1)!r}, code REPAIR_BUDGET_MAX is {budget!r}")
+
+    code_reasons = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and PIPELINE_REASON_PATTERN.fullmatch(node.value)
+    }
+    doc_reasons = {
+        token for token in re.findall(r"`([^`]+)`", rules) if PIPELINE_REASON_PATTERN.fullmatch(token)
+    }
+    if code_reasons != doc_reasons:
+        _error(
+            errors,
+            "pipeline_reason_parity",
+            f"only in code {sorted(code_reasons - doc_reasons)!r}, only in SOP {sorted(doc_reasons - code_reasons)!r}",
+        )
+
+    code_qa = {
+        node.slice.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "qa"
+        and isinstance(node.slice, ast.Constant)
+    }
+    qa_item = re.search(r"^8\. QA\.(.*?)^9\. ", rules, re.MULTILINE | re.DOTALL)
+    doc_qa = set(re.findall(r"`([a-z_]+)`", qa_item.group(1))) - {"qa_failed"} if qa_item else set()
+    if code_qa != doc_qa:
+        _error(errors, "pipeline_qa_parity", f"code QA keys {sorted(code_qa)!r}, SOP {sorted(doc_qa)!r}")
+
+    # Section 10.1 records scope values, not rules; they must still match the code.
+    expected: dict[str, set[str]] = {}
+    for name in ("ALLOWED_PREFIX", "PROTECTED_PATHS", "TEST_COMMAND"):
+        node = _module_constant(tree, name)
+        if isinstance(node, ast.Call) and node.args:  # frozenset({...})
+            node = node.args[0]
+        elements = node.elts if isinstance(node, (ast.Tuple, ast.Set)) else [node]
+        strings = {elt.value for elt in elements if isinstance(elt, ast.Constant) and isinstance(elt.value, str)}
+        # TEST_COMMAND also carries interpreter flags; only its script path is a scope value.
+        expected[name] = {s for s in strings if "/" in s} if name == "TEST_COMMAND" else strings
+    for row in _table_rows(scope)[1:]:
+        cells = " ".join(row)
+        for name, values in expected.items():
+            if f"`{name}`" in cells:
+                stated_values = set(re.findall(r"`([^`]+)`", row[1] if len(row) > 1 else ""))
+                if not values or stated_values != values:
+                    _error(errors, "pipeline_scope_parity", f"section 10.1 {name} states {sorted(stated_values)!r}, code {sorted(values)!r}")
+                expected[name] = set()
+    for name, values in expected.items():
+        if values:
+            _error(errors, "pipeline_scope_parity", f"section 10.1 has no row for {name}")
+
+
+def _validate_transition_contract(sources: dict[str, str], errors: list[str]) -> None:
+    """task-0147: task-model 5-1 is exactly the writer's pairs; 5-2 uses only those."""
+
+    tree = _parse_code(sources, WRITER_PATH, errors)
+    if tree is None:
+        return
+    node = _module_constant(tree, "TASK_STATUS_TRANSITIONS")
+    try:
+        code_pairs = set(ast.literal_eval(node.args[0])) if isinstance(node, ast.Call) and node.args else set()
+    except ValueError:
+        code_pairs = set()
+    model = sources.get(TASK_MODEL_PATH, "")
+    contract = _section(model, "### 5-1) 허용 전이 계약", r"^### ")
+    paths = _section(model, "### 5-2) 전이 발생 경로", r"^## ")
+    doc_pairs = {
+        (match.group(1), match.group(2))
+        for match in re.finditer(r"^\|\s*`([A-Z_]+)`\s*\|\s*`([A-Z_]+)`", contract, re.MULTILINE)
+    }
+    if not code_pairs or doc_pairs != code_pairs:
+        _error(
+            errors,
+            "transition_contract_parity",
+            f"only in writer {sorted(code_pairs - doc_pairs)!r}, only in task-model {sorted(doc_pairs - code_pairs)!r}",
+        )
+    if re.search(r"(?<![\w`])/[a-z]+", contract):
+        _error(errors, "transition_contract_command_name", "task-model 5-1 names a command; commands belong in 5-2")
+    for match in re.finditer(r"`([A-Z_]+)` → `([A-Z_]+)`", paths):
+        if (match.group(1), match.group(2)) not in doc_pairs:
+            _error(errors, "transition_path_unknown", f"task-model 5-2 uses {match.group(0)!r}, not in 5-1")
+
+
 def _validate_sources(sources: dict[str, str]) -> list[str]:
     errors: list[str] = []
     agents = _parse_agents(sources, errors)
@@ -762,6 +1016,10 @@ def _validate_sources(sources: dict[str, str]) -> list[str]:
     _validate_escalation_gates(sources, agents, errors)
     _validate_master_plan(sources, errors)
     _validate_contradictions(sources, errors)
+    _validate_source_map(sources, errors)
+    _validate_pipeline_parity(sources, errors)
+    _validate_transition_contract(sources, errors)
+    _require_all(errors, "sop_pending_findings_acceptance", SOP_PATH, sources.get(SOP_PATH, ""), (SOP_PENDING_CLAUSE,))
     return sorted(set(errors))
 
 
@@ -975,6 +1233,75 @@ def _run_negative_mutation_checks(
             "Judge diff scope against the summary",
             "reviewer_approval_binding",
         ),
+        # task-0147: source map, pipeline parity and transition contract.
+        ("source_map_removed", MAP_PATH, "## 기준 지도", "## 지도 없음", "source_map_missing"),
+        ("source_map_area_removed", MAP_PATH, "| 현재 시스템 동작 |", "| 기타 |", "source_map_area"),
+        (
+            "source_map_missing_file",
+            MAP_PATH,
+            "`docs/task-model.md` |",
+            "`docs/missing-task-model.md` |",
+            "source_map_path",
+        ),
+        (
+            "source_map_behavior_from_handoff",
+            MAP_PATH,
+            "`.codex/agents/*.toml` |",
+            "`.codex/agents/*.toml`, `docs/chatgpt-handoff.md` |",
+            "source_map_behavior_source",
+        ),
+        (
+            "source_map_history_handoff_removed",
+            MAP_PATH,
+            "- `docs/chatgpt-handoff.md` (특정 시점 스냅샷)",
+            "- 스냅샷",
+            "source_map_history",
+        ),
+        (
+            "source_map_scope_rule_removed",
+            MAP_PATH,
+            "Owner 승인은 그 승인을 받은 task의 범위 안에서만 효력이 있다.",
+            "Owner 승인은 계속 효력이 있다.",
+            "source_map_rules",
+        ),
+        *(
+            (f"delegation_removed_{index}", path, "기준 지도", "지도", "source_map_delegation")
+            for index, path in enumerate(DELEGATION_CLAUSES, start=1)
+        ),
+        ("pipeline_budget_raised", SOP_PATH, "파이프라인 상한은 1이다", "파이프라인 상한은 2이다", "pipeline_budget_parity"),
+        ("pipeline_reason_dropped_from_sop", SOP_PATH, "`resume_conflict`다", "충돌 거절이다", "pipeline_reason_parity"),
+        ("pipeline_reason_renamed_in_code", WORKER_PATH, '"resume_conflict"', '"resume_clash"', "pipeline_reason_parity"),
+        ("pipeline_qa_key_dropped", SOP_PATH, "`json_valid`,", "", "pipeline_qa_parity"),
+        (
+            "pipeline_scope_prefix_changed",
+            SOP_PATH,
+            "| `apps/studyroom/content/` | `ALLOWED_PREFIX` |",
+            "| `apps/other/` | `ALLOWED_PREFIX` |",
+            "pipeline_scope_parity",
+        ),
+        (
+            "transition_added_to_contract",
+            TASK_MODEL_PATH,
+            "| `FAILED` | `TODO` |",
+            "| `FAILED` | `TODO` |\n| `DONE` | `TODO` |",
+            "transition_contract_parity",
+        ),
+        ("transition_removed_from_writer", WRITER_PATH, '("FAILED", "TODO"),', "", "transition_contract_parity"),
+        (
+            "transition_contract_names_command",
+            TASK_MODEL_PATH,
+            "| `TODO` | `DOING` |",
+            "| `TODO` | `DOING` (/go) |",
+            "transition_contract_command_name",
+        ),
+        (
+            "transition_path_outside_contract",
+            TASK_MODEL_PATH,
+            "성공 `DOING` → `DONE`",
+            "성공 `DOING` → `ARCHIVED`",
+            "transition_path_unknown",
+        ),
+        ("sop_pending_clause_removed", SOP_PATH, SOP_PENDING_CLAUSE, "미결 없음.", "sop_pending_findings_acceptance"),
     )
     for label, path, old, new, expected_code in cases:
         try:
@@ -1017,6 +1344,18 @@ def _run_negative_mutation_checks(
             SOP_PATH,
             "Prior Reviewer and QA evidence remains valid after a candidate change.",
             "stale_evidence_reuse_contradiction",
+        ),
+        (
+            "handoff_claims_every_area",
+            "docs/chatgpt-handoff.md",
+            "This handoff is the source of truth for all areas.",
+            "global_source_of_truth_contradiction",
+        ),
+        (
+            "findings_acceptance_made_general",
+            SOP_PATH,
+            "Owner가 Reviewer finding을 수용하면 QA로 진행한다.",
+            "findings_acceptance_rule_contradiction",
         ),
     )
     for label, path, clause, expected_code in contradiction_cases:

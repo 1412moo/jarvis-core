@@ -54,6 +54,37 @@
 - `BLOCKED`는 차단 사유를 `summary`에 명시한다.
 - `NEEDS_APPROVAL`는 승인 요청 항목/사유를 `summary`에 남긴다.
 
+### 5-1) 허용 전이 계약
+
+코드가 적용하는 상태 전이는 아래 6쌍뿐이다. 표에 없는 전이는 durable writer가
+거부한다.
+
+| from | to |
+| --- | --- |
+| `TODO` | `DOING` |
+| `DOING` | `DONE` |
+| `DOING` | `FAILED` |
+| `FAILED` | `TODO` |
+| `NEEDS_APPROVAL` | `DOING` |
+| `NEEDS_APPROVAL` | `FAILED` |
+
+자동 전이는 Owner가 승인한 실행의 결과로 코드가 적용하는 전이를 뜻한다. 그런
+실행 없이 스스로 일어나는 전이는 없다.
+
+### 5-2) 전이 발생 경로
+
+아래는 현재 구현에서 5-1의 전이를 일으키는 경로다. 새 경로는 5-1에 있는 전이만
+쓸 수 있다.
+
+| 경로 | 적용 전이 |
+| --- | --- |
+| Jarvis Console Start | `TODO` → `DOING` |
+| Jarvis Console Complete | `DOING` → `DONE` |
+| Discord `/go` (TODO task) | `TODO` → `DOING` |
+| Discord `/go` 재시도·resume, `/retry` (FAILED task) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
+| Discord `/approve` 승인 / 거절 | `NEEDS_APPROVAL` → `DOING` / `NEEDS_APPROVAL` → `FAILED` |
+| 실행 결과 기록 `_apply_execution_result` (`/approve`·`/run`·`/retry`·`/go` 실행 뒤) | 성공 `DOING` → `DONE`, 실패 `DOING` → `FAILED` |
+
 ## 6) 새 Task 생성 체크리스트
 새 Task를 만들 때 아래 항목을 순서대로 확인한다.
 

@@ -27,6 +27,8 @@ and Voice Inbox auto-save remain separate Owner gates.
 
 ## Source hierarchy
 
+This hierarchy is limited to Manager reporting. Judging between areas follows the source map in `AGENTS.md` (기준 지도).
+
 1. `docs/master-plan.md` is the source of truth for the overall goal, current
    milestone, workstream state, and locked capabilities.
 2. Worker Report, Review Record, Prompt Queue evaluation, and current Git

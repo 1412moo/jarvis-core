@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-25 02:19 UTC`
-- updated_at: `2026-09-25 02:19 UTC`
+- updated_at: `2026-09-25 02:29 UTC`
 - summary: `과거 memory/tasks 기록과 폐기된 설계가 현재 규칙으로 오인되지 않도록 AGENTS.md에 영역별 기준 지도와 판정 규칙을 두고, 서로 다른 우선순위 선언 3곳을 영역 한정으로 위임한다. task-0142/0144/0145의 Worker 파이프라인 규칙을 SOP 10절(실행 범위와 규칙 분리)로, 실제 상태 전이를 task-model 5절(계약과 발생 경로 분리)로 승격하고 validator가 지도와 코드 값의 일치를 검사한다. 코드와 agent 정의는 바꾸지 않으며 DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: task-0147-canonical-source-map-and-norm-promotion 최종 설계 승인 후 구현`
 
@@ -254,6 +254,24 @@ task-0147-canonical-source-map-and-norm-promotion을 구현하라.
 설계와 코드 대조 결과(구현 전): §10.1 범위 값은 `ALLOWED_PREFIX`, `PROTECTED_PATHS`, `TEST_COMMAND`, `WORKTREE_ROOT`, `WORK_KIND_MARKERS`, `_WORKER_LOCK`과 일치. 사유 코드는 `resume_*` 4개, `repair_no_changes`, `reviewer_findings_not_repairable`이 문자열로 있고 `reviewer_findings`는 `reviewer_{판정}` 형태로 만들어진다. QA 키 6개 일치. `TASK_STATUS_TRANSITIONS`는 6쌍. 전이 발생 경로는 `/approve`(NEEDS_APPROVAL→DOING, 거절 시 NEEDS_APPROVAL→FAILED), `/run`(DOING에서 실행), `/retry`(FAILED→TODO→DOING 또는 DOING), `/go`(TODO→DOING, 재시도·resume은 FAILED→TODO→DOING), Console Start(TODO→DOING)·Complete(DOING→DONE), 실행 결과 기록 `_apply_execution_result`(DOING→DONE/FAILED)로 설계와 일치.
 
 제외: 코드와 agent 정의, `docs/master-plan.md`, `docs/codex-operating-rules.md`, WORKFLOW 계열 문서, 새 DECISIONS/ADR, audit `/go` 문제, task-0142 DONE, task-0146 재실행, push. 이번 task에서 확정하지 않는 것: Reviewer FINDINGS를 Owner가 수용하고 QA로 진행하는 절차(미결). canonical로 승격하지 않는 것: memory/tasks 일반 본문, 과거 design 문서, handoff, master-plan의 목표·milestone·approval state 외 서술, §10.1 범위 값.
+
+## 검증 (Implementer 실행, QA 재현 대상)
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| V1 | `python -B scripts/validate_multi_agent_sop.py` | PASS, documents=8, negative_checks=113(기존 92 + 신규 21), negative_failures=0 |
+| V2 | 변경 범위 | 계획 commit의 이 기록 + 8개 파일(`AGENTS.md`, SOP, `task-model.md`, `execution-status-transition-policy.md`, 위임 문서 3개, validator). 코드·agent 정의·master-plan·codex-operating-rules·WORKFLOW 계열 무변경 |
+| V3 | 줄바꿈 | `git diff --stat`과 `git diff --ignore-cr-at-eol --stat`이 같음(507 추가, 9 삭제). 대상 파일 index EOL 전후 동일(i/lf). CRLF 작업 파일 3개는 CRLF만, 나머지는 LF만 |
+| V4 | `git diff --check` | exit 0 |
+| V5 | 코드 무변경 smoke | Worker 132/132, Discord self-check 92/92, discord-intake 122/122(task 파일 수에 따라 늘어남, 실패 0), audit-chain PASS, studyroom 5/5, Jarvis Console smoke PASS |
+| V6 | 보존 | task-0143 worktree/branch 3개와 r2 미커밋 수정, task-0146 worktree/branch와 candidate 2개, `jarvis.bat` 미추적 |
+
+구현 메모:
+
+- validator 사유 코드 비교 범위는 설계대로 `resume_*`, `repair_no_*`, `reviewer_findings_not_repairable`이다. 처음 패턴 `repair_*`는 SOP §5 budget 이름 `repair_budget`까지 잡아서 설계 범위로 좁혔다. `reviewer_findings`는 코드에서 `reviewer_{판정}` 템플릿으로 만들어지므로 값 비교 대상이 아니다.
+- 설계 F1은 `adapters/discord/bot_minimal.py`도 읽기 대상으로 적었지만, 설계의 값 비교(F4·F5)가 그 파일을 쓰지 않아 읽지 않는다. 새 검사를 추가하지 않기 위한 선택이다.
+- §10.2 11항은 코드대로 적었다. ff-only 반영 전 실패는 main에 반영되지 않지만, 반영 뒤 기록 단계(checkpoint)에서 실패하면 candidate가 이미 main에 있다.
+- `execution-status-transition-policy.md`는 설계의 두 절 외에 목적 절의 "자동 전이 구현은 포함하지 않는다" 한 줄도 같은 사실로 바꿨다. 같은 주장이 남아 있으면 문서 안에서 모순되기 때문이다.
 
 ## 미결 사항 (다음 task의 Owner 결정)
 

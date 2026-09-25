@@ -5,7 +5,7 @@
 
 ## 목적
 - 본 문서는 `execution_result`를 task 상태 전이와 연결할 때의 **최소 정책**을 정의한다.
-- 현재 단계는 정책 문서화만 수행하며, 자동 전이 구현은 포함하지 않는다.
+- 아래 정책은 `_apply_execution_result`(`adapters/discord/bot_minimal.py`)로 구현돼 있다. 현재 적용 방식은 "현재 적용 상태" 절을 따른다.
 
 ## 적용 범위
 - 대상: `/approve` 이후 생성될 수 있는 실행 결과(`execution_result_dry_run`, `execution_result`).
@@ -30,10 +30,11 @@
 - 대상: `execution_result_dry_run`
 - 정책: 상태 변경 없음
 
-## 자동 적용을 아직 하지 않는 이유
-- 현재 실행 contract 범위는 결과 스키마 정리 중심이며, 상태 자동 전이 처리기는 미구현이다.
-- 오탐/미탐을 줄이기 위한 검증·승인 단계 없이 자동 반영하면 운영 리스크가 크다.
-- 따라서 본 단계에서는 "전이 후보 정책"만 문서화하고 실제 반영은 보류한다.
+## 현재 적용 상태
+- 위 전이는 `_apply_execution_result`가 실행 결과 메타데이터와 함께 한 번의 원자적 쓰기로 적용한다(task-0053, task-0055).
+- 이 적용은 Owner가 승인한 실행(`/approve` 승인, `/run`, `/retry`, `/go`)의 결과로만 일어난다. 그런 실행 없이 스스로 일어나는 전이는 없다.
+- 미실행 결과는 메타데이터만 기록하고 상태를 바꾸지 않는다.
+- 허용 전이 쌍과 발생 경로는 `docs/task-model.md` 5-1, 5-2를 따른다.
 
 ## Future Scope
 - 후보 전이를 task writer에 안전하게 연결하는 절차 정의
@@ -41,7 +42,6 @@
 - 상태 전이 적용 이력 기록 포맷 정의
 
 ## Out of Scope (이번 단계)
-- 자동 상태 전이 구현
 - 코드 변경(approve/execution/task writer)
 - whitelist 확장
 - 기존 상태 전이 규칙 변경
