@@ -64,6 +64,8 @@ REVIEWER_ALLOWED_TOOLS = (
     "Bash(git status:*)",
 )
 VERDICT_PATTERN = re.compile(r"^\s*verdict:\s*(PASS|FINDINGS|BLOCKED)\b", re.MULTILINE)
+# task-0148: the report fields that follow `findings:` in the Reviewer template.
+REPORT_FIELD_END = re.compile(r"\n\s*(?:unverified|self_deviations|note):")
 TASK_REF_PATTERN = re.compile(r"task-(\d{4})(?!\d)")
 
 
@@ -87,6 +89,8 @@ class WorkerRunResult:
     repairs: int = 0
     candidates: list[str] = field(default_factory=list)
     resumed_from: str = ""
+    reviewer_retries: int = 0
+    reviewer_unverified: list[str] = field(default_factory=list)
     pushed: bool = False
 
     def to_dict(self) -> dict:
@@ -195,8 +199,10 @@ def worker_prompt(task_id: str, request: str) -> str:
         "Rules:\n"
         f"- Change only files under {ALLOWED_PREFIX}. Keep each JSON file's existing schema and formatting "
         "(2-space indent, UTF-8, ensure_ascii off). Keep existing entries unchanged.\n"
-        "- Use only facts you can confirm by reading files in this repository (memory/tasks, docs, git-tracked "
-        "sources). Do not invent facts.\n"
+        "- If the Owner request names a source (for example a task record), use only facts stated in that source, "
+        "in its own wording, and add no detail from other files. Do not invent facts.\n"
+        "- Task records under memory/tasks and design documents are history: cite them as what the record says, "
+        "never as current rules. Describe current behavior only from source code.\n"
         "- Never read, open or change jarvis.bat or any .env file.\n"
         "- Do not run commands, do not commit, do not push. Only edit files.\n"
         "- When done, reply with one short line naming the file(s) you changed."
@@ -286,8 +292,18 @@ def _split_findings(review_text: str) -> list[str]:
     """The findings items of a Reviewer report, one string per `- {...}` item."""
 
     body = review_text.split("findings:", 1)[1] if "findings:" in review_text else ""
-    body = re.split(r"\n\s*note:", body, maxsplit=1)[0]
+    body = REPORT_FIELD_END.split(body, maxsplit=1)[0]
     return [item.strip() for item in re.split(r"(?:^|\n)\s*-\s*(?=\{)", body) if item.strip().startswith("{")]
+
+
+def report_field(review_text: str, name: str) -> list[str]:
+    """task-0148: the `- ...` entries of one Reviewer report field; [] when absent or empty."""
+
+    match = re.search(rf"^\s*{name}:", review_text, re.MULTILINE)
+    if match is None:
+        return []
+    body = REPORT_FIELD_END.split(review_text[match.end():], maxsplit=1)[0]
+    return [line.strip()[1:].strip() for line in body.splitlines() if line.strip().startswith("-")]
 
 
 def findings_repairable(review_text: str, changed_files: list[str]) -> bool:
@@ -509,22 +525,31 @@ def run_pipeline(
 
             # 7. Reviewer, pinned to the candidate, with the Owner text verbatim.
             result.stage = "reviewer"
-            verdict, review_text = _run_reviewer(
-                repo_root,
-                reviewer_call(
-                    task_id=task_id,
-                    candidate=candidate,
-                    baseline=baseline,
-                    changed_files=changed,
-                    request=request,
-                    approval_command=approval_command,
-                    evidence=evidence_paths(repo_root, candidate, request, task_id),
-                    parent=parent,
-                    repair=result.repairs,
-                ),
+            call = reviewer_call(
+                task_id=task_id,
+                candidate=candidate,
+                baseline=baseline,
+                changed_files=changed,
+                request=request,
+                approval_command=approval_command,
+                evidence=evidence_paths(repo_root, candidate, request, task_id),
+                parent=parent,
+                repair=result.repairs,
             )
+            verdict, review_text = _run_reviewer(repo_root, call)
+            if report_field(review_text, "self_deviations"):
+                # task-0148: a review that broke its command contract is invalid. It is
+                # retried once on the same candidate; it never spends the repair budget.
+                result.reviewer_retries += 1
+                verdict, review_text = _run_reviewer(repo_root, call)
+                deviations = report_field(review_text, "self_deviations")
+                if deviations:
+                    raise StageFailure("reviewer", "reviewer_self_deviation", " ".join(deviations)[:300])
             result.reviewer_verdict = verdict
+            # Not part of the verdict; recorded so the Owner sees what QA must still cover.
+            result.reviewer_unverified = report_field(review_text, "unverified")
             findings = review_text.split("findings:", 1)[-1] if "findings:" in review_text else review_text
+            findings = REPORT_FIELD_END.split(findings, maxsplit=1)[0]
             result.reviewer_excerpt = " ".join(findings.split())[:300]
             if verdict == "PASS":
                 break

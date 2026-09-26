@@ -45,6 +45,9 @@ Owner milestone approval
 → Owner
 ```
 
+Reviewer minor finding을 Owner가 수용하고 QA로 진행하는 예외는
+[`docs/jarvis-multi-agent-sop-v0.1.md`](docs/jarvis-multi-agent-sop-v0.1.md) §8의 조건을 따른다.
+
 - Director는 Owner와 소통하는 primary Codex task다. Manager의 계획과 최종
   결과를 평가하고 Owner에게 최종 Director Report 한 번만 제출한다. Worker의
   assignment, 순서, retry 또는 repair를 직접 결정하지 않는다.

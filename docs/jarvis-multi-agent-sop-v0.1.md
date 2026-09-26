@@ -104,6 +104,12 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
 - Manager가 지정한 exact candidate commit에 고정된다.
 - strict read-only로 diff와 관련 contract를 검토한다.
 - actionable finding만 severity, evidence와 최소 correction 조건으로 보고한다.
+- 허용 명령으로 확인할 수 없는 요구와 주장은 finding이 아니라 `unverified`로,
+  자기 명령의 허용 형식 이탈은 `self_deviations`로 보고한다. 판정은 findings로만
+  정한다.
+- findings가 없으면 Reviewer 단계는 PASS가 될 수 있다. 이 PASS는 task 전체의 PASS나
+  DONE이 아니다. `unverified` 항목은 반드시 QA로 넘기고, 최종 acceptance는 QA
+  검증 뒤에 결정한다.
 - Manager 요약과 Owner 승인 원문을 함께 받고, diff의 범위는 승인 원문을 기준으로
   대조한다. Manager 요약이 승인 원문과 다르면 그 차이를 finding으로 보고한다.
 - tracked/untracked file을 수정하거나 stage/commit하지 않는다.
@@ -152,6 +158,11 @@ repair_count=0
 
 - Retry는 source 변경이 없는 test 재실행, 일시적 환경 복구 또는 동일 candidate의
   evidence 재수집이다. retry를 실행할 때 `retry_count += 1`이다.
+- Reviewer 보고의 `self_deviations`로 무효가 된 검토의 재검토와, Manager 요약·승인
+  원문 전달 누락(호출 결함)을 고친 같은 candidate의 재검토는 candidate를 바꾸지
+  않으므로 retry이며 repair 예산을 쓰지 않는다. `self_deviations`에 따른 재검토는
+  한 candidate에 1회까지이고, 재검토에서도 다시 나오면 그 검토는 실패로 보고
+  Manager가 Director에게 escalation한다.
 - Repair는 Reviewer finding 또는 QA 실패를 해결하기 위해 tracked source를 바꾸는
   correction이다. source-changing repair마다 `repair_count += 1`이다.
 - budget 1은 Manager가 Owner 개입 없이 해당 동작을 한 번 실행할 수 있다는 뜻이다.
@@ -224,9 +235,15 @@ DONE 경로는 두 가지다. 수동 SOP 작업의 DONE은 위 조건을 만족�
 Console Complete(Preview + Confirm)로 결정한다. §10 Worker 파이프라인의 자동
 DONE은 §10.2의 적용 조건을 만족할 때만 파이프라인이 기록한다.
 
-미결: Reviewer PASS 없이 QA로 진행하는 예외는 정의돼 있지 않다. 과거 task 기록에서
-Owner가 Reviewer finding을 수용하고 QA로 진행한 사례는 그 task 범위의 결정이며
-일반 규칙이 아니다. 이 절차와 조건은 후속 task에서 Owner가 결정한다.
+Owner의 minor finding 수용(수동 경로 한정). Reviewer FINDINGS의 지적이 모두
+minor이면 Owner는 지적별로 수용할 수 있고, 그때 같은 candidate로 QA를 진행한다.
+
+- blocking과 major는 수용할 수 없다.
+- 지적마다 Owner의 수용 원문을 task 기록에 남긴다.
+- 수용은 그 candidate에만 효력이 있고 candidate가 바뀌면 무효다.
+- QA는 그대로 전부 통과해야 하며 수용이 QA를 대신하지 않는다.
+- Manager는 finding을 수용할 수 없다.
+- §10 Worker 파이프라인에는 적용하지 않는다.
 
 ## 9. 현재 자동화 경계와 성숙도
 
@@ -274,7 +291,11 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
    기대값만 전달한다. Worker 동작이나 테스트 결과를 주장하지 않는다. evidence는
    요청에 이름이 나온 task 기록만 candidate 시점 기준으로 준다.
 3. 판정 처리. PASS면 QA로 간다. FINDINGS가 아닌 판정(BLOCKED, UNKNOWN, Reviewer
-   오류 종료)은 repair 없이 즉시 실패한다(`reviewer_<판정>`).
+   오류 종료)은 repair 없이 즉시 실패한다(`reviewer_<판정>`). Reviewer 보고의
+   `self_deviations`가 비어 있지 않으면 그 검토는 무효이며 같은 호출로 1회만 다시
+   검토한다(retry). 재검토에서도 다시 나오면 `reviewer_self_deviation`으로 실패하고
+   repair 예산은 쓰지 않는다. `unverified` 항목은 판정에 쓰지 않고 결과에 기록하며,
+   PASS 뒤에도 8항 QA를 그대로 거친다.
 4. Repair 가능 판정. FINDINGS의 모든 항목 evidence가 candidate 변경 파일을
    가리키지 않으면 `reviewer_findings_not_repairable`로 실패한다. 이 경우 repair
    예산을 쓰지 않는다. 한 항목이라도 가리키면 repair 대상이다.

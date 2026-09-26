@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-26 08:41 UTC`
-- updated_at: `2026-09-26 08:41 UTC`
+- updated_at: `2026-09-26 08:50 UTC`
 - summary: `Reviewer 보고에서 확인할 수 없는 항목(unverified)과 Reviewer 자신의 명령 이탈(self_deviations)을 findings와 분리해 판정은 findings로만 정하고, unverified는 QA로 넘기며 이탈은 retry 1회 뒤 reviewer_self_deviation으로 실패시킨다. Owner의 minor finding 수용을 수동 경로 한정 조건부 규칙으로 SOP 8절에 정하고, Worker가 요청이 지정한 출처의 사실만 쓰도록 worker_prompt를 바꾼다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: 결정 1·2 권장안 확정과 task-0148 설계 승인`
 
@@ -130,6 +130,24 @@
 `evidence_paths`는 이번 task에서 변경하지 않는다(Owner 확정).
 
 제외: 파이프라인 FINDINGS 수용 명령, `adapters/discord/bot_minimal.py`, `evidence_paths`, audit `/go` 문제, task-0142 DONE, task-0143 정리, task-0146 재실행, 봇 재시작, push, master-plan, codex-operating-rules, task-model, 나머지 agent 정의, Skill, 새 DECISIONS/ADR.
+
+## 검증 (Implementer 실행, QA 재현 대상)
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| V0 | 작업 전 확인 | tracked 변경 없음, 대상 파일 EOL 기록(기준선 표) |
+| V1 | `python -B scripts/validate_multi_agent_sop.py` | PASS, negative_checks=125(기존 113 + 신규 12), negative_failures=0 |
+| V2 | Worker smoke | 147/147(기존 132 + 신규 15). Reviewer 단계 PASS와 QA 6항목 통과를 따로 확인, 이탈 1회 재검토 뒤 PASS, 이탈 반복 시 `reviewer_self_deviation`과 repair 0회 |
+| V3 | 기타 smoke | Discord self-check 92/92, discord-intake 123/123(task 파일 수에 따라 늘어남, 실패 0), audit-chain PASS, studyroom 5/5, Jarvis Console smoke PASS |
+| V4 | `git diff --check`, 줄바꿈 | exit 0. `git diff --stat`과 `--ignore-cr-at-eol --stat` 동일. `AGENTS.md` 작업 파일은 CRLF만 |
+| V5 | 변경 범위 | 계획 commit의 이 기록 + 7개 파일. `bot_minimal.py`, `evidence_paths`, master-plan 무변경 |
+| V6 | 보존 | `jarvis.bat` 미추적, task-0143·task-0146 worktree/branch/candidate |
+| V7 | 이 기록의 task 파서 | `valid`, `DOING` |
+
+구현 메모:
+
+- SOP §5의 새 문장은 처음에 "Manager → Director로 escalation한다."로 썼다가, 기존 budget 소진 조항과 같은 조각이 먼저 나와 validator 음성 테스트(`budget_escalation_removed`)의 치환 대상이 바뀌었다. 뜻은 같게 "Manager가 Director에게 escalation한다."로 바꿨다.
+- 파이프라인은 `unverified` 항목을 결과(`reviewer_unverified`)에 기록한다. 봇 보고 문구는 이번 범위(`bot_minimal.py` 무변경)가 아니어서 바꾸지 않았다.
 
 ## 최종 설계 (대화 보고 원문)
 

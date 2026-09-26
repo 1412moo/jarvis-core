@@ -47,6 +47,11 @@ REVIEWER_ROLE_CLAUSES = (
     "`severity` is exactly one of `blocking`, `major`, `minor`.",
     "`verdict` follows `findings` mechanically",
     "Reviewer PASS는 QA PASS·승인·release 권한이 아니다",
+    # task-0148: report fields that never change the verdict.
+    "The approved contract is the Owner's verbatim approval plus the files Manager (the caller) supplied as scope or as evidence paths.",
+    "`unverified` never changes `verdict`, and a PASS with `unverified` entries is a Reviewer-stage PASS only: every `unverified` entry goes to QA, and final acceptance is decided after QA.",
+    "A non-empty `self_deviations` makes this review invalid",
+    "`unverified` and `self_deviations` never change `verdict`.",
 )
 CALLER_NAME = "Manager (the caller)"
 
@@ -128,9 +133,18 @@ MAP_RULE_CLAUSES = (
     "### Owner 승인의 효력과 승격",
     "옮기기 전에는 task 기록에만 있는 규칙을 현재 규칙으로 쓰지 않는다.",
 )
-SOP_PENDING_CLAUSE = "미결: Reviewer PASS 없이 QA로 진행하는 예외는 정의돼 있지 않다."
+# task-0148 decision 1: the conditions under which the Owner may accept minor findings.
+SOP_ACCEPTANCE_CLAUSES = (
+    "Owner의 minor finding 수용(수동 경로 한정).",
+    "- blocking과 major는 수용할 수 없다.",
+    "- 지적마다 Owner의 수용 원문을 task 기록에 남긴다.",
+    "- 수용은 그 candidate에만 효력이 있고 candidate가 바뀌면 무효다.",
+    "- QA는 그대로 전부 통과해야 하며 수용이 QA를 대신하지 않는다.",
+    "- Manager는 finding을 수용할 수 없다.",
+    "- §10 Worker 파이프라인에는 적용하지 않는다.",
+)
 PIPELINE_REASON_PATTERN = re.compile(
-    r"(?:resume_[a-z_]+|repair_no_[a-z_]+|reviewer_findings_not_repairable)"
+    r"(?:resume_[a-z_]+|repair_no_[a-z_]+|reviewer_findings_not_repairable|reviewer_self_deviation)"
 )
 
 MANAGER_GATES = {
@@ -209,8 +223,10 @@ CONTRADICTIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "findings_acceptance_rule_contradiction",
         re.compile(
-            r"(?:Owner may accept Reviewer findings and proceed to QA"
-            r"|Owner가 Reviewer finding을 수용하면 QA로 진행(?:한다|할 수 있다))",
+            r"(?:Manager may accept Reviewer findings"
+            r"|Manager가 (?:Reviewer )?finding을 수용(?:한다|할 수 있다)"
+            r"|(?:blocking|major)(?:와|과|도)?[^.\n]{0,20}수용할 수 있다"
+            r"|파이프라인[^.\n]{0,30}자동으로 수용)",
             re.IGNORECASE,
         ),
     ),
@@ -1019,7 +1035,7 @@ def _validate_sources(sources: dict[str, str]) -> list[str]:
     _validate_source_map(sources, errors)
     _validate_pipeline_parity(sources, errors)
     _validate_transition_contract(sources, errors)
-    _require_all(errors, "sop_pending_findings_acceptance", SOP_PATH, sources.get(SOP_PATH, ""), (SOP_PENDING_CLAUSE,))
+    _require_all(errors, "sop_findings_acceptance", SOP_PATH, sources.get(SOP_PATH, ""), SOP_ACCEPTANCE_CLAUSES)
     return sorted(set(errors))
 
 
@@ -1301,7 +1317,9 @@ def _run_negative_mutation_checks(
             "성공 `DOING` → `ARCHIVED`",
             "transition_path_unknown",
         ),
-        ("sop_pending_clause_removed", SOP_PATH, SOP_PENDING_CLAUSE, "미결 없음.", "sop_pending_findings_acceptance"),
+        ("sop_acceptance_major_clause_removed", SOP_PATH, "- blocking과 major는 수용할 수 없다.", "- 수용 제한 없음.", "sop_findings_acceptance"),
+        ("sop_acceptance_pipeline_clause_removed", SOP_PATH, "- §10 Worker 파이프라인에는 적용하지 않는다.", "", "sop_findings_acceptance"),
+        ("pipeline_self_deviation_dropped_from_sop", SOP_PATH, "`reviewer_self_deviation`으로", "재검토 실패로", "pipeline_reason_parity"),
     )
     for label, path, old, new, expected_code in cases:
         try:
@@ -1354,7 +1372,19 @@ def _run_negative_mutation_checks(
         (
             "findings_acceptance_made_general",
             SOP_PATH,
-            "Owner가 Reviewer finding을 수용하면 QA로 진행한다.",
+            "Manager가 finding을 수용할 수 있다.",
+            "findings_acceptance_rule_contradiction",
+        ),
+        (
+            "findings_acceptance_major_allowed",
+            SOP_PATH,
+            "major도 Owner가 수용할 수 있다.",
+            "findings_acceptance_rule_contradiction",
+        ),
+        (
+            "findings_acceptance_pipeline_automatic",
+            SOP_PATH,
+            "파이프라인은 minor finding을 자동으로 수용한다.",
             "findings_acceptance_rule_contradiction",
         ),
     )

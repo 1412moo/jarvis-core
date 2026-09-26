@@ -48,6 +48,17 @@ FAKE_CLAUDE = textwrap.dedent(
             items = [summary_item, summary_item] if mode == "summaryonly" else [summary_item, content_item]
             print(json.dumps({"result": "candidate_hash: x\\nverdict: FINDINGS\\nfindings: " + "\\n  ".join(items) + "\\nnote: n"}))
             sys.exit(0)
+        # task-0148: report fields that never change the verdict.
+        if mode == "deviateonce":
+            state = Path(os.environ["FAKE_STATE"])
+            mode = "unverifiedpass" if state.exists() else "deviate"
+            state.write_text("seen", encoding="utf-8")
+        if mode in ("unverifiedpass", "deviate", "deviatealways"):
+            unverified = "- {item: Studyroom smoke tests pass, not_run: python -B apps/studyroom/run_smoke_tests.py}"
+            deviation = "- {command: git grep -n a|b x -- f, rule: single grep pattern}" if mode != "unverifiedpass" else "[]"
+            print(json.dumps({"result": "candidate_hash: x\\nverdict: PASS\\nfindings: []\\nunverified: " + unverified
+                              + "\\nself_deviations: " + deviation + "\\n\\nnote: n"}))
+            sys.exit(0)
         if mode == "needevidence":
             mode = "pass" if "Evidence paths" in prompt and "- memory/tasks/task-0142-" in prompt else "findings"
         if mode in ("blocked", "garbage"):
@@ -348,6 +359,40 @@ def main() -> int:
         check("classify: evidence on a changed file is repairable",
               claude_worker.findings_repairable("findings: - {severity: major, evidence: apps/studyroom/content/glossary.json:5 wrong, impact: z}", files))
         check("classify: unknown report shape stays repairable", claude_worker.findings_repairable("verdict: FINDINGS\nsomething is off", files))
+
+        # task-0148: unverified and self_deviations are separate from findings.
+        r = run_case("unverifiedpass", clone, worktrees, worker="ok", review="unverifiedpass")[0]
+        check("fields: unverified alone gives a Reviewer-stage PASS, recorded, not a verdict", r.reviewer_verdict == "PASS"
+              and len(r.reviewer_unverified) == 1 and r.repairs == 0, f"{r.stage}:{r.reason}:{r.reviewer_unverified}")
+        check("fields: a Reviewer-stage PASS with unverified still goes through all QA checks", r.ok and len(r.qa_checks) == 6
+              and all(r.qa_checks.values()), f"{r.stage}:{r.reason}:{r.qa_checks}")
+        log.write_text("", encoding="utf-8")
+        Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
+        r = run_case("deviateonce", clone, worktrees, worker="ok", review="deviateonce")[0]
+        text = log.read_text(encoding="utf-8")
+        check("fields: self_deviations -> one review retry -> PASS, no repair", r.ok and r.reviewer_retries == 1 and r.repairs == 0
+              and text.count("REVIEWER\n") == 2 and "This is a repair." not in text, f"{r.stage}:{r.reason}:{r.reviewer_retries}")
+        log.write_text("", encoding="utf-8")
+        r = run_case("deviatealways", clone, worktrees, worker="ok", review="deviatealways")[0]
+        text = log.read_text(encoding="utf-8")
+        check("fields: self_deviations again after the retry fails as reviewer_self_deviation", (not r.ok) and r.stage == "reviewer"
+              and r.reason == "reviewer_self_deviation" and r.reviewer_retries == 1, f"{r.stage}:{r.reason}:{r.reviewer_retries}")
+        check("fields: that failure never spends the repair budget", r.repairs == 0 and len(r.candidates) == 1
+              and text.count("REVIEWER\n") == 2 and "This is a repair." not in text)
+        report = ("verdict: FINDINGS\nfindings:       - {severity: minor, evidence: the Manager summary omits a condition, impact: x, minimum_correction: y}\n"
+                  "unverified:     - {item: apps/studyroom/content/glossary.json passes the smoke tests, not_run: python}\n"
+                  "self_deviations: []\n\nnote: n")
+        check("fields: findings end where unverified starts", len(claude_worker._split_findings(report)) == 1
+              and claude_worker.report_field(report, "unverified") and claude_worker.report_field(report, "self_deviations") == [])
+        check("fields: a changed file named only under unverified does not make findings repairable",
+              not claude_worker.findings_repairable(report, files))
+        check("classify: a finding on a fact outside the named record (task-0146 shape) stays repairable",
+              claude_worker.findings_repairable("findings: - {severity: minor, evidence: apps/studyroom/content/glossary.json:336 states a clause "
+                                                "the task-0142 record does not have, impact: x, minimum_correction: y}", files))
+        prompt = claude_worker.worker_prompt("task-8000-x", "req")
+        check("worker prompt: facts only from the source the request names, history cited as history",
+              "use only facts stated in that source" in prompt and "cite them as what the record says" in prompt
+              and "Describe current behavior only from source code" in prompt and "(memory/tasks, docs, git-tracked" not in prompt)
         os.environ.pop("FAKE_LOG", None)
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
         bot_flow(clone, worktrees)
