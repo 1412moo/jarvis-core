@@ -311,14 +311,36 @@ def _split_findings(review_text: str) -> list[str]:
     return [item.strip() for item in re.split(r"(?:^|\n)\s*-\s*(?=\{)", body) if item.strip().startswith("{")]
 
 
-def report_field(review_text: str, name: str) -> list[str]:
-    """task-0148: the `- ...` entries of one Reviewer report field; [] when absent or empty."""
+def report_field(review_text: str, name: str) -> list[str] | None:
+    """task-0148: the `- {...}` entries of one Reviewer report field.
+
+    `[]` is an empty list. A missing field, or a body that is not `[]` and not made only
+    of `- {...}` entries, cannot be classified and returns None (fail closed).
+    """
 
     match = re.search(rf"^\s*{name}:", review_text, re.MULTILINE)
     if match is None:
-        return []
+        return None
     body = REPORT_FIELD_END.split(review_text[match.end():], maxsplit=1)[0]
-    return [line.strip()[1:].strip() for line in body.splitlines() if line.strip().startswith("-")]
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if lines == ["[]"]:
+        return []
+    if not lines or not all(re.fullmatch(r"-\s*\{.*\}", line) for line in lines):
+        return None
+    return [line[1:].strip() for line in lines]
+
+
+def _review_invalid(verdict: str, review_text: str) -> bool:
+    """True when a readable review reports self_deviations or its field cannot be read.
+
+    An UNKNOWN verdict (no verdict line, or a Reviewer that did not exit cleanly) already
+    fails at once under the non-FINDINGS rule, so it is not retried here.
+    """
+
+    if verdict == "UNKNOWN":
+        return False
+    deviations = report_field(review_text, "self_deviations")
+    return deviations is None or bool(deviations)
 
 
 def findings_repairable(review_text: str, changed_files: list[str]) -> bool:
@@ -552,17 +574,23 @@ def run_pipeline(
                 repair=result.repairs,
             )
             verdict, review_text = _run_reviewer(repo_root, call)
-            if report_field(review_text, "self_deviations"):
-                # task-0148: a review that broke its command contract is invalid. It is
-                # retried once on the same candidate; it never spends the repair budget.
+            if _review_invalid(verdict, review_text):
+                # task-0148: a review that broke its command contract, or whose
+                # self_deviations field cannot be read, is invalid. It is retried once on
+                # the same candidate; it never spends the repair budget.
                 result.reviewer_retries += 1
                 verdict, review_text = _run_reviewer(repo_root, call)
-                deviations = report_field(review_text, "self_deviations")
-                if deviations:
-                    raise StageFailure("reviewer", "reviewer_self_deviation", " ".join(deviations)[:300])
+                if _review_invalid(verdict, review_text):
+                    deviations = report_field(review_text, "self_deviations")
+                    detail = " ".join(deviations) if deviations else "self_deviations field missing or malformed"
+                    raise StageFailure("reviewer", "reviewer_self_deviation", detail[:300])
             result.reviewer_verdict = verdict
             # Not part of the verdict; matched against the QA checks after QA (step 9).
-            result.reviewer_unverified = report_field(review_text, "unverified")
+            # An unreadable field is one unpaired entry, so it stops for the Owner.
+            unverified = report_field(review_text, "unverified")
+            result.reviewer_unverified = (
+                unverified if unverified is not None else ["unverified field missing or malformed"]
+            )
             findings = review_text.split("findings:", 1)[-1] if "findings:" in review_text else review_text
             findings = REPORT_FIELD_END.split(findings, maxsplit=1)[0]
             result.reviewer_excerpt = " ".join(findings.split())[:300]

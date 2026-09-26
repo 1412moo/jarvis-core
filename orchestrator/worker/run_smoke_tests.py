@@ -46,9 +46,24 @@ FAKE_CLAUDE = textwrap.dedent(
         content_item = "- {severity: major, evidence: apps/studyroom/content/glossary.json adds an unsupported fact, impact: x, minimum_correction: y}"
         if mode in ("summaryonly", "mixed"):
             items = [summary_item, summary_item] if mode == "summaryonly" else [summary_item, content_item]
-            print(json.dumps({"result": "candidate_hash: x\\nverdict: FINDINGS\\nfindings: " + "\\n  ".join(items) + "\\nnote: n"}))
+            print(json.dumps({"result": "candidate_hash: x\\nverdict: FINDINGS\\nfindings: " + "\\n  ".join(items)
+                              + "\\nunverified: []\\nself_deviations: []\\nnote: n"}))
             sys.exit(0)
         # task-0148: report fields that never change the verdict.
+        # Repair 2: a missing or malformed field cannot be classified.
+        if mode == "badselfdevonce":
+            state = Path(os.environ["FAKE_STATE"])
+            mode = "unverifiedpass" if state.exists() else "badselfdev"
+            state.write_text("seen", encoding="utf-8")
+        if mode in ("nounverified", "badunverified", "noselfdev", "badselfdev"):
+            fields = {
+                "nounverified": "self_deviations: []",
+                "badunverified": "unverified: {item: tests pass, not_run: python, qa: tests_rerun}\\nself_deviations: []",
+                "noselfdev": "unverified: []",
+                "badselfdev": "unverified: []\\nself_deviations: none that I noticed",
+            }[mode]
+            print(json.dumps({"result": "candidate_hash: x\\nverdict: PASS\\nfindings: []\\n" + fields + "\\n\\nnote: n"}))
+            sys.exit(0)
         if mode == "deviateonce":
             state = Path(os.environ["FAKE_STATE"])
             mode = "unverifiedpass" if state.exists() else "deviate"
@@ -69,11 +84,12 @@ FAKE_CLAUDE = textwrap.dedent(
         if mode == "needevidence":
             mode = "pass" if "Evidence paths" in prompt and "- memory/tasks/task-0142-" in prompt else "findings"
         if mode in ("blocked", "garbage"):
-            print(json.dumps({"result": "verdict: BLOCKED" if mode == "blocked" else "no verdict here"}))
+            print(json.dumps({"result": "verdict: BLOCKED\\nfindings: []\\nunverified: []\\nself_deviations: []"
+                              if mode == "blocked" else "no verdict here"}))
             sys.exit(0)
         verdict = "PASS" if mode == "pass" else "FINDINGS"
         body = "findings: []" if mode == "pass" else "findings: " + content_item
-        print(json.dumps({"result": f"candidate_hash: x\\nverdict: {verdict}\\n{body}"}))
+        print(json.dumps({"result": f"candidate_hash: x\\nverdict: {verdict}\\n{body}\\nunverified: []\\nself_deviations: []"}))
         sys.exit(3 if mode == "crashfindings" else 0)
     mode = os.environ.get("FAKE_WORKER", "ok")
     if mode == "timeout":
@@ -403,6 +419,30 @@ def main() -> int:
                   and "the new term matches" in r.detail and "Studyroom smoke tests" not in r.detail
                   and git(["rev-parse", r.branch], clone) == r.candidate, f"{r.stage}:{r.reason}:{r.detail}")
             check(f"qa pairing: {mode} records FAILED, not DONE", bool(calls) and calls[-1][0] is False)
+        # task-0148 repair 2: a missing or malformed field is unclassifiable, never "no entries".
+        for mode in ("nounverified", "badunverified"):
+            r, calls, before, after = run_case(mode, clone, worktrees, worker="ok", review=mode)
+            check(f"fail closed: {mode} stops for the Owner after QA, main untouched", (not r.ok) and r.stage == "qa"
+                  and r.reason == "qa_unverified_owner_review" and "unverified field missing or malformed" in r.detail
+                  and all(r.qa_checks.values()) and before == after and bool(calls) and calls[-1][0] is False,
+                  f"{r.stage}:{r.reason}:{r.detail}")
+        log.write_text("", encoding="utf-8")
+        r = run_case("noselfdev", clone, worktrees, worker="ok", review="noselfdev")[0]
+        text = log.read_text(encoding="utf-8")
+        check("fail closed: a missing self_deviations field is an invalid review, retried once, then reviewer_self_deviation",
+              (not r.ok) and r.reason == "reviewer_self_deviation" and r.reviewer_retries == 1 and r.repairs == 0
+              and "missing or malformed" in r.detail and text.count("REVIEWER\n") == 2 and "This is a repair." not in text,
+              f"{r.stage}:{r.reason}:{r.reviewer_retries}:{r.detail}")
+        log.write_text("", encoding="utf-8")
+        Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
+        r = run_case("badselfdevonce", clone, worktrees, worker="ok", review="badselfdevonce")[0]
+        text = log.read_text(encoding="utf-8")
+        check("fail closed: a malformed self_deviations field is retried once and a clean review proceeds",
+              r.ok and r.reviewer_retries == 1 and r.repairs == 0 and text.count("REVIEWER\n") == 2, f"{r.stage}:{r.reason}")
+        check("fail closed: `[]` is an empty list, a missing field is None",
+              claude_worker.report_field("unverified: []\nself_deviations: []", "unverified") == []
+              and claude_worker.report_field("self_deviations: []", "unverified") is None
+              and claude_worker.report_field("unverified: {item: x}\nself_deviations: []", "unverified") is None)
         call = claude_worker.reviewer_call(task_id="t", candidate="c", baseline="b", changed_files=["f"], request="r",
                                            approval_command="/go t")
         check("qa pairing: the Reviewer call names every pipeline QA check",

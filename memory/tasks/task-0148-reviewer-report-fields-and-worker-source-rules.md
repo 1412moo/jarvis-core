@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-26 08:41 UTC`
-- updated_at: `2026-09-26 09:32 UTC`
+- updated_at: `2026-09-26 10:00 UTC`
 - summary: `Reviewer 보고에서 확인할 수 없는 항목(unverified)과 Reviewer 자신의 명령 이탈(self_deviations)을 findings와 분리해 판정은 findings로만 정하고, unverified는 QA로 넘기며 이탈은 retry 1회 뒤 reviewer_self_deviation으로 실패시킨다. Owner의 minor finding 수용을 수동 경로 한정 조건부 규칙으로 SOP 8절에 정하고, Worker가 요청이 지정한 출처의 사실만 쓰도록 worker_prompt를 바꾼다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: 결정 1·2 권장안 확정과 task-0148 설계 승인`
 
@@ -137,7 +137,7 @@
 | --- | --- | --- |
 | V0 | 작업 전 확인 | tracked 변경 없음, 대상 파일 EOL 기록(기준선 표) |
 | V1 | `python -B scripts/validate_multi_agent_sop.py` | PASS, negative_checks=125(기존 113 + 신규 12), negative_failures=0. repair 1 뒤 128 |
-| V2 | Worker smoke | 147/147(기존 132 + 신규 15), repair 1 뒤 160/160(`qa` 짝 사례 13 추가). Reviewer 단계 PASS와 QA 6항목 통과를 따로 확인, 이탈 1회 재검토 뒤 PASS, 이탈 반복 시 `reviewer_self_deviation`과 repair 0회 |
+| V2 | Worker smoke | 147/147(기존 132 + 신규 15), repair 1 뒤 160/160(`qa` 짝 사례 13 추가), repair 2 뒤 173/173. Reviewer 단계 PASS와 QA 6항목 통과를 따로 확인, 이탈 1회 재검토 뒤 PASS, 이탈 반복 시 `reviewer_self_deviation`과 repair 0회 |
 | V3 | 기타 smoke | Discord self-check 92/92, discord-intake 123/123(task 파일 수에 따라 늘어남, 실패 0), audit-chain PASS, studyroom 5/5, Jarvis Console smoke PASS |
 | V4 | `git diff --check`, 줄바꿈 | exit 0. `git diff --stat`과 `--ignore-cr-at-eol --stat` 동일. `AGENTS.md` 작업 파일은 CRLF만 |
 | V5 | 변경 범위 | 계획 commit의 이 기록 + 7개 파일. `bot_minimal.py`, `evidence_paths`, master-plan 무변경 |
@@ -267,6 +267,34 @@ QA 6항목 자체는 바꾸지 않습니다. 새 규칙은 "어떤 `unverified`�
 repair 후 fresh Reviewer → QA 순서로 진행하고, 기존 Git 정책대로 테스트 후 checkpoint commit까지 진행하세요.
 
 `evidence_paths`는 이번에도 변경하지 않습니다.
+```
+
+## repair 2: 누락·형식 오류 필드의 fail-closed 처리
+
+repair 1 candidate `8ff5d20eec78533e388a3c83a970c3d33e542fae`의 retry 검토가 FINDINGS minor 1건(누락·형식 오류 필드가 "항목 없음"으로 처리돼 fail-closed 원칙을 위반할 수 있음)을 보고했다. repair 예산 1/1을 이미 쓴 뒤라 Owner가 아래와 같이 추가 repair 1회를 승인했다. 이것은 이 task의 예외이며 repair budget을 올리는 일반 규칙이 아니다.
+
+구현: `report_field`가 `[]`는 빈 목록, 필드 누락이나 `- {...}` 목록이 아닌 본문은 `None`(분류 불가)으로 돌려준다. `self_deviations`가 분류 불가이면 검토 무효로 보고 retry 1회, 재검토에서도 무효이면 `reviewer_self_deviation`. `unverified`가 분류 불가이면 짝 없는 항목 하나("unverified field missing or malformed")로 기록해 QA 뒤 `qa_unverified_owner_review`로 멈춘다. SOP §10.2 3·9항에 한 문장씩 추가. smoke 5개 검사 추가(가짜 Reviewer 정상 보고에는 두 필드를 넣음). 그 외 설계와 범위는 바꾸지 않았다.
+
+구현 메모: 판정 줄이 없거나 Reviewer가 비정상 종료한 UNKNOWN 판정은 기존 규칙(FINDINGS가 아닌 판정은 즉시 실패, `reviewer_unknown`)이 먼저 적용되므로 `self_deviations` 무효 retry 대상에서 뺐다. 읽을 수 있는 판정(PASS, FINDINGS, BLOCKED)에만 적용한다.
+
+추가 repair 승인 Owner 원문:
+
+```text
+추가 repair 1회를 승인합니다.
+
+이번 지적은 minor 수용하지 않고 수정합니다. 확정한 fail-closed 원칙을 실제 파서가 위반할 수 있는 빈틈이므로 고쳐야 합니다.
+
+다음 조건으로 좁게 수정해 주세요.
+
+- `unverified` / `self_deviations` 필드가 없거나 예상 형식이 아니면 "항목 없음"으로 처리하지 말고 분류 불가로 처리
+- `[]`는 정상적인 빈 목록으로 처리
+- `unverified`의 분류 불가 항목은 `qa_unverified_owner_review`로 중단
+- `self_deviations`의 분류 불가 항목은 검토 무효로 처리하고 retry
+- 관련 smoke 사례를 각각 추가
+- 그 외 설계와 범위는 변경하지 않음
+
+수정 후 fresh Reviewer → QA → checkpoint 순서로 진행해 주세요.
+이번에도 repair 예산과 retry 처리 결과를 정확히 기록해 주세요.
 ```
 
 ## 후속 task 후보 (task-0149)
@@ -431,8 +459,10 @@ task-0147 구조를 그대로 씁니다.
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+retry_budget=1, retry_count=1, repair_budget=1, repair_count=2 (1/1 소진 뒤 Owner가 추가 repair 1회를 별도 승인한 예외, 일반 규칙 아님)
 
 | # | 원인 | 조치 |
 | --- | --- | --- |
 | 1 | Reviewer FINDINGS (candidate `580aa40e2107dc321e388694b9b5b47a9813c158`): major 1 — 파이프라인에서 `unverified`가 QA로 전달되지 않고 코드 주석이 부정확함. minor 2 — V0–V7은 QA 재현 대상, Reviewer 자신의 명령 형식 이탈 3건(이 세션 Reviewer는 기존 정의로 실행) | Owner 확정 설계대로 `qa` 짝 규칙과 `qa_unverified_owner_review` 멈춤 구현, 주석 정정. V0–V7은 QA에서 재현. 명령 형식 이탈은 새 candidate의 fresh Reviewer로 해소. 새 candidate에 fresh Reviewer → QA |
+| retry 1 | candidate `8ff5d20eec78533e388a3c83a970c3d33e542fae`의 fresh 검토가 PASS였지만 `self_deviations` 2건(부모 해시를 직접 쓴 `git diff --stat`, 출력이 너무 커서 다 읽지 못한 `git show`) | 이 candidate의 SOP §5 규칙대로 검토 무효, 같은 candidate로 retry 1회(repair 예산 미사용). retry 검토는 `self_deviations: []` |
+| 2 | retry 검토 FINDINGS (candidate `8ff5d20eec78533e388a3c83a970c3d33e542fae`): minor 1 — 누락·형식 오류 필드가 "항목 없음"으로 처리됨 | Owner의 추가 repair 승인(예외)에 따라 fail-closed 파싱으로 수정. 새 candidate에 fresh Reviewer → QA |

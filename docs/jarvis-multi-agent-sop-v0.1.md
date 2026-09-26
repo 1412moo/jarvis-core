@@ -294,8 +294,9 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
    오류 종료)은 repair 없이 즉시 실패한다(`reviewer_<판정>`). Reviewer 보고의
    `self_deviations`가 비어 있지 않으면 그 검토는 무효이며 같은 호출로 1회만 다시
    검토한다(retry). 재검토에서도 다시 나오면 `reviewer_self_deviation`으로 실패하고
-   repair 예산은 쓰지 않는다. `unverified` 항목은 판정에 쓰지 않고 8항 QA로 넘긴다
-   (처리는 9항).
+   repair 예산은 쓰지 않는다. `self_deviations` 필드가 없거나 `[]`도 `- {...}` 항목
+   목록도 아니면 분류할 수 없으므로 같은 방식으로 무효로 본다. `unverified` 항목은
+   판정에 쓰지 않고 8항 QA로 넘긴다(처리는 9항).
 4. Repair 가능 판정. FINDINGS의 모든 항목 evidence가 candidate 변경 파일을
    가리키지 않으면 `reviewer_findings_not_repairable`로 실패한다. 이 경우 repair
    예산을 쓰지 않는다. 한 항목이라도 가리키면 repair 대상이다.
@@ -318,7 +319,8 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
    적는다. 모든 `unverified` 항목의 `qa`가 6개 검사 중 하나이면 QA 통과로 확인된
    것으로 본다. `qa`가 `none`이거나 없거나 목록 밖이면 QA가 통과해도 반영하지 않고
    `qa_unverified_owner_review`로 실패해 Owner 확인 대상으로 남긴다(candidate 보존,
-   새 상태 없음). 그다음 main HEAD가 baseline과 같을 때만 ff-only로 반영한다. main이
+   새 상태 없음). `unverified` 필드가 없거나 `[]`도 `- {...}` 항목 목록도 아니면
+   분류할 수 없는 항목이 있는 것으로 보고 같이 멈춘다. 그다음 main HEAD가 baseline과 같을 때만 ff-only로 반영한다. main이
    움직였으면 반영하지 않고 실패한다.
 10. 자동 DONE. 9가 성공한 경우에만 실행 결과 기록과 함께 `DOING→DONE`을 한 번의
     원자적 쓰기로 적용하고 task 파일을 checkpoint commit한다. 이것은 파이프라인
