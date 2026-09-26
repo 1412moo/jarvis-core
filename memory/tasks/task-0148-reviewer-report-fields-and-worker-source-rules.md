@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-26 08:41 UTC`
-- updated_at: `2026-09-26 10:00 UTC`
+- updated_at: `2026-09-26 10:08 UTC`
 - summary: `Reviewer 보고에서 확인할 수 없는 항목(unverified)과 Reviewer 자신의 명령 이탈(self_deviations)을 findings와 분리해 판정은 findings로만 정하고, unverified는 QA로 넘기며 이탈은 retry 1회 뒤 reviewer_self_deviation으로 실패시킨다. Owner의 minor finding 수용을 수동 경로 한정 조건부 규칙으로 SOP 8절에 정하고, Worker가 요청이 지정한 출처의 사실만 쓰도록 worker_prompt를 바꾼다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: 결정 1·2 권장안 확정과 task-0148 설계 승인`
 
@@ -296,6 +296,30 @@ repair 1 candidate `8ff5d20eec78533e388a3c83a970c3d33e542fae`의 retry 검토가
 수정 후 fresh Reviewer → QA → checkpoint 순서로 진행해 주세요.
 이번에도 repair 예산과 retry 처리 결과를 정확히 기록해 주세요.
 ```
+
+## Reviewer 결과 (candidate `9315f472931360181409f9622c7b4c607c89a36c`, repair 2 뒤 fresh)
+
+PASS. findings `[]`, self_deviations `[]`. unverified 7건(V0–V7 재현, task-0143/0146 보존, 이전 검토 결과 기록의 사실 여부)은 아래 QA로 넘겼다.
+
+## QA 결과 (candidate `9315f472931360181409f9622c7b4c607c89a36c`): PASS
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| V0 | 작업 전 확인 | 계획 commit `6a47fdd`는 baseline 대비 이 기록 추가 1건뿐 |
+| V1 | validator | PASS, negative_checks=128, negative_failures=0 |
+| V2 | Worker smoke | 173/173 |
+| V3 | 기타 smoke | Discord self-check 92/92, discord-intake 123/123(실패 0), audit-chain PASS, studyroom 5/5, Jarvis Console smoke PASS |
+| V4 | `git diff --check`, 줄바꿈 | baseline..candidate exit 0. `--stat`과 `--ignore-cr-at-eol --stat` 모두 8개 파일 769 추가, 47 삭제로 같음. 8개 파일 index 모두 i/lf, candidate의 `AGENTS.md`에 CR 없음 |
+| V5 | 변경 범위 | 8개 파일(설계 B의 7개 + 이 기록). `adapters`, `apps`, master-plan, codex-operating-rules, task-model, 나머지 agent 정의, Skill 변경 0 |
+| V6 | 보존 | `jarvis.bat` 미추적·commit 이력 없음. task-0143 worktree/branch 3개(`a02dde9`, r2 `6eec227` 미커밋 `glossary.json` 수정 유지, r3 `e05c69c`), task-0146 worktree/branch `a0079a1`(parent `7cc2b34`) 그대로 |
+| V7 | task 파서 | candidate의 이 기록이 `valid`, `DOING` |
+| H.5 | 새 Reviewer 정의 실제 출력 | `claude -p --agent reviewer`를 파이프라인 호출 형식으로 1회 실행. `unverified`와 `self_deviations` 필드가 출력됐고, `unverified` 항목마다 `qa: <검사 이름 또는 none>`이 붙었으며 `report_field`가 읽었다. 이 확인용 호출은 범위를 AGENTS.md 하나로 좁혀서 범위 밖 변경을 이유로 FINDINGS가 나왔고, candidate 결함 지적은 아니다 |
+
+Reviewer unverified 중 "이전 검토 결과 기록의 사실 여부"는 이 세션의 Reviewer 보고(저장소 밖)를 근거로 Implementer가 기록한 것이라 QA로 재현할 수 없다.
+
+## 다음 단계
+
+status는 `DOING`으로 둔다. 이 checkpoint commit 뒤 Owner가 Jarvis Console Complete로 DONE을 결정한다. push는 Owner 지시가 있을 때만 한다.
 
 ## 후속 task 후보 (task-0149)
 
