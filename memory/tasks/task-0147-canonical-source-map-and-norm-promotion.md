@@ -2,10 +2,10 @@
 
 - id: `task-0147-canonical-source-map-and-norm-promotion`
 - title: `AGENTS.md 기준 지도, Worker 파이프라인 규칙과 상태 전이 계약의 기준 문서 승격, validator 일관성 검사`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-25 02:19 UTC`
-- updated_at: `2026-09-26 05:57 UTC`
+- updated_at: `2026-09-26 08:15 UTC`
 - summary: `과거 memory/tasks 기록과 폐기된 설계가 현재 규칙으로 오인되지 않도록 AGENTS.md에 영역별 기준 지도와 판정 규칙을 두고, 서로 다른 우선순위 선언 3곳을 영역 한정으로 위임한다. task-0142/0144/0145의 Worker 파이프라인 규칙을 SOP 10절(실행 범위와 규칙 분리)로, 실제 상태 전이를 task-model 5절(계약과 발생 경로 분리)로 승격하고 validator가 지도와 코드 값의 일치를 검사한다. 코드와 agent 정의는 바꾸지 않으며 DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: task-0147-canonical-source-map-and-norm-promotion 최종 설계 승인 후 구현`
 
