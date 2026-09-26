@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-25 02:19 UTC`
-- updated_at: `2026-09-26 05:43 UTC`
+- updated_at: `2026-09-26 05:53 UTC`
 - summary: `과거 memory/tasks 기록과 폐기된 설계가 현재 규칙으로 오인되지 않도록 AGENTS.md에 영역별 기준 지도와 판정 규칙을 두고, 서로 다른 우선순위 선언 3곳을 영역 한정으로 위임한다. task-0142/0144/0145의 Worker 파이프라인 규칙을 SOP 10절(실행 범위와 규칙 분리)로, 실제 상태 전이를 task-model 5절(계약과 발생 경로 분리)로 승격하고 validator가 지도와 코드 값의 일치를 검사한다. 코드와 agent 정의는 바꾸지 않으며 DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: task-0147-canonical-source-map-and-norm-promotion 최종 설계 승인 후 구현`
 
@@ -363,6 +363,29 @@ Owner 결정:
 이번 추가 repair가 마지막이다.
 ```
 
+## repair 3: 설계 E 범위로 되돌리기와 11항 수정
+
+repair 2 candidate `b44577dc3da7bc40f0354338e79264c463c3b31b`의 Reviewer FINDINGS 뒤 Owner가 아래와 같이 결정했다. SOP §10.1과 §10.2에서 설계 E와 Owner 수용 목록에 없는 세부 문장(§10.1의 스터디룸 표기·worktree 위치 설명·진입 명령 설명·코드 위치 파일 경로, §10.2의 성공 시 정리, `reviewer_timeout`, 형식 불명 보고의 repair 대상, baseline..새 candidate 전체 검토, resume 시 Worker 미호출, `qa_failed`, tracked 변경 조건과 `baseline_moved`·`main_tree_dirty`, push 문장)을 제거해 설계 E 범위로 되돌렸다. 남은 설계 E와의 차이는 Owner가 수용한 것뿐이다: 3항의 `reviewer_<판정>` 표기(편차 4), 11항(§10.2 11항 Owner 결정과 이 결정 2번의 문구). 3번(Reviewer grep 형식 이탈 재발)은 후속 Reviewer 정의 task의 범위로 남기고, 4·5번은 QA와 이 기록에서 확인 가능한 범위로 처리한다.
+
+repair 3 Owner 결정 (원문):
+
+```text
+1번: 되돌리기.
+승인된 설계 E와 Owner 수용 목록에 없는 세부 문장은 제거하고, 해당 부분을 승인된 설계 원문 범위로 되돌려 주세요. 코드상 사실이라는 이유로 설계에 없는 내용을 추가하지 않습니다.
+
+2번: 수정 승인.
+제안한 문구 방향으로 수정하세요:
+"DONE 기록 전의 실패는 `DOING→FAILED`로 기록한다. DONE 기록 뒤의 실패는 task가 DONE으로 남으므로 Owner 확인 대상이다."
+
+3~5번: 수용.
+3번은 결정 4에 따라 후속 Reviewer 정의 task의 범위로 남겨 주세요.
+4~5번은 QA/기록에서 확인 가능한 범위대로 처리하세요.
+
+이번 repair 후에는 추가 설계 확장 없이 QA에서 V0–V7을 재현하고 결과를 보고해 주세요.
+
+현재 단계에서는 push하지 마세요.
+```
+
 ## 미결 사항 (다음 task의 Owner 결정)
 
 1. Reviewer FINDINGS를 Owner가 수용하고 QA로 진행할 수 있는지와 그 조건. 수동 경로와 파이프라인 경로 각각.
@@ -373,6 +396,7 @@ Owner 결정:
 이번 task는 Worker/Reviewer 코드와 agent 정의를 바꾸지 않았다. 다음 별도 task에서 할 일(최종 설계 J):
 
 - 위 미결 사항 1·2의 Owner 결정
+- Reviewer의 grep 단일 패턴 규칙 위반 재발(task-0147 repair 1·repair 2 검토에서 각 1회, repair 3 Owner 결정 3번)
 - `worker_prompt`의 사실 출처 규칙: 요청이 출처를 지정하면 그 파일의 문구만 쓰고, History는 "기록에 따르면"으로만 인용하며, 현재 동작은 코드에서만 가져온다
 - `evidence_paths`에 기준 지도나 구현 파일을 포함할지 결정
 - `.claude/agents/reviewer.md`와 `.codex/agents/reviewer.toml`을 함께 수정: "approved contract" 정의, 미결 2 반영, validator의 Reviewer 문구 일치 조항 갱신
@@ -635,9 +659,10 @@ task-0147 최종 설계입니다. 요청하신 세 가지를 반영했고, 파�
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=2 (1/1 소진 뒤 Owner가 추가 repair 1회를 별도 승인한 예외, 일반 규칙 아님)
+retry_budget=1, retry_count=0, repair_budget=1, repair_count=3 (1/1 소진 뒤 Owner가 추가 repair 2회를 각각 별도 승인한 예외, 일반 규칙 아님)
 
 | # | 원인 | 조치 |
 | --- | --- | --- |
 | 1 | Reviewer FINDINGS (candidate `188655172f7366af0f4cb4020e2ea2d1ef3232a4`): minor 6 — `execution-status-transition-policy.md`의 적용 범위 줄과 Future Scope 첫 항목이 새 "현재 적용 상태" 절과 모순, 요약에 설계 요청 8의 "기존 변경 먼저 확인"이 없음, 설계 요청 7의 Worker/Reviewer 연결 분리가 기록에 없음, 구현 승인의 "task 파서 적합성" 검증 항목이 없음, 설계 A–K가 저장소에 없어 대조 불가, V1–V6은 Reviewer가 재현할 수 없어 QA 대상 | 적용 범위 줄을 승인된 실행 4개로 맞추고 이미 구현된 Future Scope 항목을 삭제(같은 문서 안 모순 제거, Owner가 수용한 목적 절 수정과 같은 원칙), 검증 표에 V0(작업 전 확인)과 V7(task 파서) 추가, "후속 task" 절 추가, 최종 설계 보고의 압축 전사를 이 기록에 옮김. V1–V7은 QA에서 재현. 새 candidate에 fresh Reviewer → QA |
 | 2 | Reviewer FINDINGS (candidate `946273b0347b96c19f2ef9211e7d4ba3bfe4b780`): minor 6 — repair 1의 정책 문서 두 곳 추가 수정에 Owner 승인이 없음, 편차 3건의 Owner 수용이 원문으로 기록·전달되지 않음, repair 이력의 "원문" 표기가 실제(압축 전사)와 다름, 설계 A–K가 압축 전사로만 있음, V0–V7은 QA 대상, Reviewer 자신의 grep 형식 이탈 1건 | Owner의 추가 repair 승인(budget 소진 뒤 예외)에 따라 기록과 증거 정합성만 수정: 편차 수용 메시지와 추가 repair 승인 메시지를 원문으로 기록하고 repair 1 추가 수정의 사후 수용을 명시, 이력 표기를 "압축 전사"로 정정, 압축 전사를 대화 기록에서 옮긴 최종 설계 원문으로 대체. 정책·기능·범위 변경 없음. grep 형식 이탈은 수정 대상이 아니며 새 Reviewer에서 재발 여부만 확인. 새 candidate에 fresh Reviewer → PASS면 QA → checkpoint |
+| 3 | Reviewer FINDINGS (candidate `b44577dc3da7bc40f0354338e79264c463c3b31b`): minor 5 — SOP §10.1·§10.2에 설계 E와 Owner 수용 목록에 없는 세부 문장, §10.2 11항 첫 문장이 DONE 기록 뒤 실패와 맞지 않음, Reviewer grep 형식 이탈 재발, repair 2 삭제 줄 미검토, 설계 사본 원문 여부와 V0–V7은 Reviewer가 확인 불가 | Owner 결정(repair 3 원문)에 따라 §10.1·§10.2를 설계 E 범위로 되돌리고 11항을 Owner 문구로 수정. grep 재발은 후속 task로, 설계 사본은 Implementer가 대화 기록 파일과 글자 단위로 대조해 일치 확인(저장소 밖 자료라 Reviewer·QA 재현 불가), V0–V7은 QA에서 재현. Owner 지시로 이 candidate는 fresh Reviewer 없이 QA로 진행 |
