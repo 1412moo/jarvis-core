@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-25 02:19 UTC`
-- updated_at: `2026-09-26 05:53 UTC`
+- updated_at: `2026-09-26 05:57 UTC`
 - summary: `과거 memory/tasks 기록과 폐기된 설계가 현재 규칙으로 오인되지 않도록 AGENTS.md에 영역별 기준 지도와 판정 규칙을 두고, 서로 다른 우선순위 선언 3곳을 영역 한정으로 위임한다. task-0142/0144/0145의 Worker 파이프라인 규칙을 SOP 10절(실행 범위와 규칙 분리)로, 실제 상태 전이를 task-model 5절(계약과 발생 경로 분리)로 승격하고 validator가 지도와 코드 값의 일치를 검사한다. 코드와 agent 정의는 바꾸지 않으며 DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: task-0147-canonical-source-map-and-norm-promotion 최종 설계 승인 후 구현`
 
@@ -385,6 +385,27 @@ repair 3 Owner 결정 (원문):
 
 현재 단계에서는 push하지 마세요.
 ```
+
+## QA 결과 (candidate `7bccda9debffcf13e4a3f04c26feff5655bd9ca5`): PASS
+
+Owner 지시에 따라 repair 3 뒤 fresh Reviewer 없이 QA로 V0–V7을 재현했다.
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| V0 | 작업 전 확인 | 계획 commit `cfe3bc4`는 baseline 대비 이 기록 추가 1건뿐. baseline 시점 tracked 변경 없음은 기준선 표 기록 |
+| V1 | validator | PASS, documents=8, negative_checks=113, negative_failures=0 |
+| V2 | 변경 범위 | baseline..candidate 9개 파일(승인 범위 그대로). 코드·agent 정의·master-plan·codex-operating-rules·WORKFLOW 계열 변경 0 |
+| V3 | 줄바꿈 | `git diff --stat`과 `git diff --ignore-cr-at-eol --stat` 모두 9개 파일 1171 추가, 11 삭제로 같음. 9개 파일 index 모두 i/lf, candidate의 `AGENTS.md`에 CR 없음 |
+| V4 | `git diff --check` baseline..candidate | exit 0 |
+| V5 | 코드 무변경 smoke | Worker 132/132, Discord self-check 92/92, discord-intake 122/122(실패 0), audit-chain PASS, studyroom 5/5, Jarvis Console smoke PASS |
+| V6 | 보존 | `jarvis.bat` 미추적·commit 이력 없음. task-0143 worktree/branch 3개(`a02dde9`, r2 `6eec227`, r3 `e05c69c`) 그대로, r2만 미커밋 `glossary.json` 수정 유지. task-0146 worktree/branch `a0079a1`(parent `7cc2b34`) 그대로 |
+| V7 | task 파서 | candidate의 이 기록이 `parse_task_view_text`로 `valid`, `DOING` |
+
+Reviewer 지적 4·5번 처리: repair 2의 삭제 줄은 결과 문서 기준으로만 확인됐다. 설계 사본이 원문과 같은지는 Implementer가 대화 기록 파일과 글자 단위로 대조해 일치를 확인했다(저장소 밖 자료라 QA 재현 불가).
+
+## 다음 단계
+
+status는 `DOING`으로 둔다. 이 checkpoint commit 뒤 Owner가 Jarvis Console Complete로 DONE을 결정한다. push는 Owner 지시가 있을 때만 한다.
 
 ## 미결 사항 (다음 task의 Owner 결정)
 
