@@ -2,10 +2,10 @@
 
 - id: `task-0148-reviewer-report-fields-and-worker-source-rules`
 - title: `Reviewer 보고의 확인 불가·자기 이탈 필드 분리, Owner의 조건부 minor 수용 규칙, Worker 사실 출처 규칙`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-26 08:41 UTC`
-- updated_at: `2026-09-26 10:08 UTC`
+- updated_at: `2026-09-26 10:09 UTC`
 - summary: `Reviewer 보고에서 확인할 수 없는 항목(unverified)과 Reviewer 자신의 명령 이탈(self_deviations)을 findings와 분리해 판정은 findings로만 정하고, unverified는 QA로 넘기며 이탈은 retry 1회 뒤 reviewer_self_deviation으로 실패시킨다. Owner의 minor finding 수용을 수동 경로 한정 조건부 규칙으로 SOP 8절에 정하고, Worker가 요청이 지정한 출처의 사실만 쓰도록 worker_prompt를 바꾼다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: 결정 1·2 권장안 확정과 task-0148 설계 승인`
 
