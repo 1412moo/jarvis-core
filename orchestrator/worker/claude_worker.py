@@ -66,6 +66,17 @@ REVIEWER_ALLOWED_TOOLS = (
 VERDICT_PATTERN = re.compile(r"^\s*verdict:\s*(PASS|FINDINGS|BLOCKED)\b", re.MULTILINE)
 # task-0148: the report fields that follow `findings:` in the Reviewer template.
 REPORT_FIELD_END = re.compile(r"\n\s*(?:unverified|self_deviations|note):")
+# task-0148: the pipeline's fixed QA checks, named to the Reviewer so it can pair each
+# `unverified` entry with the one check that verifies it (`qa: <name>`), or `qa: none`.
+QA_CHECKS = {
+    "head_is_candidate": "the attempt worktree HEAD is the reviewed candidate commit",
+    "change_set_matches": "baseline..candidate changes exactly the listed files, all inside the allowed path",
+    "diff_check": "git diff --check baseline..candidate reports no whitespace errors",
+    "jarvis_bat_absent": "jarvis.bat is not in the candidate tree",
+    "json_valid": "every changed .json file parses as JSON",
+    "tests_rerun": f"the test command ({' '.join(TEST_COMMAND[1:])}) passes in the attempt worktree",
+}
+QA_LABEL_PATTERN = re.compile(r"\bqa:\s*([A-Za-z_]+)")
 TASK_REF_PATTERN = re.compile(r"task-(\d{4})(?!\d)")
 
 
@@ -260,6 +271,10 @@ def reviewer_call(
         f"{structure}"
         f"File scope:\n{scope}\n\n"
         f"{evidence_block}"
+        "QA checks the pipeline runs on this candidate after a Reviewer-stage PASS "
+        "(use these names for `qa` in `unverified` entries):\n"
+        + "".join(f"- {name}: {meaning}\n" for name, meaning in QA_CHECKS.items())
+        + "\n"
         "Never access `jarvis.bat`.\n\n"
         "=== COMMAND FORM REQUIREMENT ===\n"
         'Follow the "Allowed commands" section of your own definition exactly as written.\n\n'
@@ -546,7 +561,7 @@ def run_pipeline(
                 if deviations:
                     raise StageFailure("reviewer", "reviewer_self_deviation", " ".join(deviations)[:300])
             result.reviewer_verdict = verdict
-            # Not part of the verdict; recorded so the Owner sees what QA must still cover.
+            # Not part of the verdict; matched against the QA checks after QA (step 9).
             result.reviewer_unverified = report_field(review_text, "unverified")
             findings = review_text.split("findings:", 1)[-1] if "findings:" in review_text else review_text
             findings = REPORT_FIELD_END.split(findings, maxsplit=1)[0]
@@ -595,6 +610,16 @@ def run_pipeline(
         result.qa_checks = qa
         if not all(qa.values()):
             raise StageFailure("qa", "qa_failed", ",".join(k for k, v in qa.items() if not v))
+        # task-0148: an unverified entry counts as verified only when the Reviewer paired it
+        # with one of the QA checks above (all of which just passed). Anything else stays
+        # for the Owner: nothing is integrated and the task is not marked DONE.
+        pending = [
+            entry
+            for entry in result.reviewer_unverified
+            if (QA_LABEL_PATTERN.findall(entry) or ["none"])[-1] not in QA_CHECKS
+        ]
+        if pending:
+            raise StageFailure("qa", "qa_unverified_owner_review", " | ".join(pending)[:300])
 
         # 10. Integrate: ff-only, and only if main has not moved.
         result.stage = "integrate"

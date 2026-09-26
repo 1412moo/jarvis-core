@@ -87,7 +87,7 @@ Each findings entry is one line in this form:
 
 - {severity: <blocking|major|minor>, evidence: <what you observed, with file:line, or the exact command you did not run>, impact: <what a reader would wrongly conclude>, minimum_correction: <the smallest thing that would resolve it>}
 
-Each `unverified` entry is one line: `- {item: <the requirement or claim you could not check>, not_run: <the command you did not run>}`. Each `self_deviations` entry is one line: `- {command: <the command verbatim>, rule: <the allowed-form rule it broke>}`.
+Each `unverified` entry is one line: `- {item: <the requirement or claim you could not check>, not_run: <the command you did not run>, qa: <QA check name or none>}`; the `qa` key appears only when Manager (the caller) supplied a list of QA checks. Each `self_deviations` entry is one line: `- {command: <the command verbatim>, rule: <the allowed-form rule it broke>}`.
 
 Field rules:
 
@@ -100,6 +100,7 @@ Field rules:
   - a condition in the verbatim approval that the Manager summary leaves out or contradicts
 - `findings: []` is correct only when none of the above exists.
 - `unverified` holds each Manager (the caller) requirement or claim you could not check because no allowed command expresses it (for example a test run, a worktree, or material outside the repository), and anything a reader would otherwise assume you verified but you did not. Name the requirement and the command you did not run. `unverified` never changes `verdict`, and a PASS with `unverified` entries is a Reviewer-stage PASS only: every `unverified` entry goes to QA, and final acceptance is decided after QA.
+- When Manager (the caller) supplies a list of QA checks, give every `unverified` entry `qa: <check name>` only if that one listed check alone verifies the entry, and `qa: none` otherwise. Never name a check that is not in the list.
 - `self_deviations` holds each command you ran that is not one of the allowed forms exactly as written. A non-empty `self_deviations` makes this review invalid; how Manager (the caller) handles an invalid review is set by the SOP.
 - `verdict` follows `findings` mechanically: empty list -> PASS, non-empty list -> FINDINGS, candidate or approval binding failure -> BLOCKED. `unverified` and `self_deviations` never change `verdict`.
 - A PASS carries no evidence and no explanation. The empty findings list is the entire claim. Do not justify it.

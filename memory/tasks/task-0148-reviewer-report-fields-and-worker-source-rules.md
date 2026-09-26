@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-26 08:41 UTC`
-- updated_at: `2026-09-26 08:50 UTC`
+- updated_at: `2026-09-26 09:32 UTC`
 - summary: `Reviewer 보고에서 확인할 수 없는 항목(unverified)과 Reviewer 자신의 명령 이탈(self_deviations)을 findings와 분리해 판정은 findings로만 정하고, unverified는 QA로 넘기며 이탈은 retry 1회 뒤 reviewer_self_deviation으로 실패시킨다. Owner의 minor finding 수용을 수동 경로 한정 조건부 규칙으로 SOP 8절에 정하고, Worker가 요청이 지정한 출처의 사실만 쓰도록 worker_prompt를 바꾼다. DONE은 Reviewer/QA 후 Owner가 결정한다.`
 - source_command: `Owner 지시: 결정 1·2 권장안 확정과 task-0148 설계 승인`
 
@@ -136,8 +136,8 @@
 | # | 항목 | 결과 |
 | --- | --- | --- |
 | V0 | 작업 전 확인 | tracked 변경 없음, 대상 파일 EOL 기록(기준선 표) |
-| V1 | `python -B scripts/validate_multi_agent_sop.py` | PASS, negative_checks=125(기존 113 + 신규 12), negative_failures=0 |
-| V2 | Worker smoke | 147/147(기존 132 + 신규 15). Reviewer 단계 PASS와 QA 6항목 통과를 따로 확인, 이탈 1회 재검토 뒤 PASS, 이탈 반복 시 `reviewer_self_deviation`과 repair 0회 |
+| V1 | `python -B scripts/validate_multi_agent_sop.py` | PASS, negative_checks=125(기존 113 + 신규 12), negative_failures=0. repair 1 뒤 128 |
+| V2 | Worker smoke | 147/147(기존 132 + 신규 15), repair 1 뒤 160/160(`qa` 짝 사례 13 추가). Reviewer 단계 PASS와 QA 6항목 통과를 따로 확인, 이탈 1회 재검토 뒤 PASS, 이탈 반복 시 `reviewer_self_deviation`과 repair 0회 |
 | V3 | 기타 smoke | Discord self-check 92/92, discord-intake 123/123(task 파일 수에 따라 늘어남, 실패 0), audit-chain PASS, studyroom 5/5, Jarvis Console smoke PASS |
 | V4 | `git diff --check`, 줄바꿈 | exit 0. `git diff --stat`과 `--ignore-cr-at-eol --stat` 동일. `AGENTS.md` 작업 파일은 CRLF만 |
 | V5 | 변경 범위 | 계획 commit의 이 기록 + 7개 파일. `bot_minimal.py`, `evidence_paths`, master-plan 무변경 |
@@ -147,7 +147,133 @@
 구현 메모:
 
 - SOP §5의 새 문장은 처음에 "Manager → Director로 escalation한다."로 썼다가, 기존 budget 소진 조항과 같은 조각이 먼저 나와 validator 음성 테스트(`budget_escalation_removed`)의 치환 대상이 바뀌었다. 뜻은 같게 "Manager가 Director에게 escalation한다."로 바꿨다.
-- 파이프라인은 `unverified` 항목을 결과(`reviewer_unverified`)에 기록한다. 봇 보고 문구는 이번 범위(`bot_minimal.py` 무변경)가 아니어서 바꾸지 않았다.
+- 파이프라인은 `unverified` 항목을 결과(`reviewer_unverified`)에 기록한다. 봇 보고 문구는 이번 범위(`bot_minimal.py` 무변경)가 아니어서 바꾸지 않았다. repair 1 뒤에는 각 항목의 `qa` 짝을 QA 뒤에 확인한다(아래 repair 1).
+
+## repair 1: `unverified`의 QA 짝 규칙
+
+Reviewer FINDINGS(candidate `580aa40e2107dc321e388694b9b5b47a9813c158`)의 major — 파이프라인에서 `unverified`가 실제로 QA로 전달되지 않음 — 뒤 Owner가 처리 규칙 설계를 요청했고, 설계안을 확정했다. 구현: Reviewer 정의 두 파일에 `qa` 짝 규칙, Reviewer 호출에 파이프라인 QA 6개 검사 목록(`QA_CHECKS`), QA 통과 뒤 `qa`가 6개 검사 중 하나가 아닌 항목이 있으면 반영 전에 `qa_unverified_owner_review`로 실패(candidate 보존, main 무변경, FAILED 기록, 새 상태 없음), SOP §10.2 3·9항, validator 조항과 사유 코드, smoke. 봇, 전이 계약, `evidence_paths`는 바꾸지 않았다. 부정확했던 코드 주석("Owner가 보도록 기록")은 실제 동작에 맞게 고쳤다.
+
+처리 규칙 설계 요청 Owner 원문:
+
+```text
+Reviewer 결과 확인했습니다.
+
+B안을 그대로 확정하지 말고, `unverified`를 자동으로 무시하거나 무조건 FAILED로 만드는 대신 검증 가능 여부에 따라 처리하는 방안을 먼저 설계해 주세요.
+
+원칙은 다음과 같습니다.
+
+- Reviewer의 `unverified` 자체는 FINDINGS가 아닙니다.
+- QA가 자동으로 검증할 수 있는 항목이면 QA가 검증하고 계속 진행합니다.
+- QA에서도 검증할 수 없는 항목이면 자동 DONE시키지 않고 Owner 확인 대상으로 남겨야 합니다.
+- 따라서 `unverified`가 있다는 이유만으로 항상 실패해서도 안 되고, 항상 무시해서도 안 됩니다.
+- 기존 고정 QA 6항목과 어떤 관계로 처리할지 명확히 설계해 주세요.
+- 이 구조가 현재 task-0148 범위에 들어갈 정도인지, 아니면 별도 task로 분리하는 게 맞는지도 판단해 주세요.
+
+그리고 현재 candidate에 대해서는 지금 바로 repair하지 말고, 위 처리 규칙을 먼저 확정한 뒤 진행합시다.
+```
+
+처리 규칙 설계 보고(대화 기록에서 그대로 옮김):
+
+```text
+`unverified` 처리 규칙을 설계했습니다. 파일은 수정하지 않았고 repair도 하지 않았습니다. 핵심은 Reviewer가 확인하지 못한 항목마다 "파이프라인 QA의 어느 검사가 이것을 대신 확인하는지"를 명시적으로 짝지어 적게 하고, 짝이 없는 항목이 하나라도 있으면 자동 DONE을 막는 것입니다.
+
+## 1. 처리 규칙
+1. `unverified`는 판정에 쓰지 않습니다(결정 2 그대로).
+2. 각 `unverified` 항목은 두 종류 중 하나로 나뉩니다.
+   - **QA로 검증 가능:** 파이프라인 고정 QA 6항목 중 하나가 그 항목을 직접 확인합니다.
+   - **QA로 검증 불가:** 6항목 중 어느 것도 확인하지 못합니다.
+3. 파이프라인은 Reviewer 단계 PASS 뒤 QA 6항목을 그대로 돌립니다.
+   - 모든 `unverified` 항목이 검증 가능이고 해당 QA 검사가 통과하면 → 그대로 반영과 자동 DONE으로 진행합니다.
+   - 검증 불가 항목이 하나라도 있으면 → QA가 통과해도 **반영 전에 멈춥니다**. main 반영과 자동 DONE은 하지 않고 Owner 확인 대상으로 남깁니다.
+   - `unverified`가 없으면 → 지금과 같습니다.
+4. 분류가 불확실하면 검증 불가로 봅니다(fail closed). 짝이 적혀 있지 않거나, 목록에 없는 검사 이름이거나, `none`인 경우입니다.
+
+## 2. 고정 QA 6항목과의 관계
+
+| QA 검사 | 대신 확인하는 `unverified` 예 |
+| --- | --- |
+| `tests_rerun` | "Studyroom smoke test가 통과한다" (Reviewer가 가장 자주 적는 항목) |
+| `diff_check` | 공백·줄 끝 오류 없음 |
+| `json_valid` | 콘텐츠 JSON이 올바름 |
+| `change_set_matches` | 변경 파일이 목록과 같고 허용 경로 안임 |
+| `jarvis_bat_absent` | `jarvis.bat`이 candidate에 없음 |
+| `head_is_candidate` | worktree HEAD가 검토한 candidate임 |
+| 없음 (`none`) | 저장소 밖 자료, 사실 정확성, 사람 판단이 필요한 것 |
+
+QA 6항목 자체는 바꾸지 않습니다. 새 규칙은 "어떤 `unverified`가 이 6개로 확인되는가"만 판정합니다.
+
+## 3. 분류는 누가 하는가
+
+| 안 | 방식 | 평가 |
+| --- | --- | --- |
+| **L. Reviewer가 짝을 적음 (권장)** | 파이프라인이 Reviewer 호출에 QA 검사 목록과 각 검사의 의미를 넣습니다. Reviewer는 각 `unverified` 항목에 `qa: <검사 이름 또는 none>`을 붙입니다 | 판단 근거가 보고서에 남음. 목록 밖 이름이나 누락은 검증 불가로 처리 |
+| K. 파이프라인이 문구로 추측 | "test", "json" 같은 단어로 짝을 추측 | 오분류가 생기면 확인 안 된 항목이 자동 DONE으로 넘어갈 수 있음. 권장하지 않음 |
+
+**L안의 세부**
+- Reviewer 정의 두 파일에 한 줄을 추가합니다. `qa` 값은 Manager가 QA 검사 목록을 준 경우에만 적고, 그 검사 하나만으로 그 항목이 확인될 때만 그 이름을 씁니다. 아니면 `none`입니다.
+- 수동 경로에서는 Manager가 목록을 주지 않으므로 `qa`가 없어도 됩니다. 수동 QA는 지금처럼 사람이 판단합니다.
+- 남는 위험은 Reviewer가 짝을 잘못 적는 경우입니다. 목록 밖 이름과 누락은 검증 불가로 막지만, 틀린 짝 자체는 막지 못합니다. Reviewer 정의에 "그 검사 하나로 확인될 때만"을 명시해 좁힙니다.
+
+## 4. "Owner 확인 대상"으로 남기는 방법
+- 현재 전이 계약(6쌍)에는 DOING에서 "보류"로 가는 전이가 없습니다. 그래서 실행 결과를 **FAILED**로 기록하고 사유를 `qa_unverified_owner_review`로 구분합니다. 검증 불가 항목은 사유 상세에 남깁니다.
+- candidate, worktree, branch는 보존하고, main에는 반영하지 않습니다.
+- **한계:** FAILED는 "목표 달성 실패"라는 뜻이라 "Owner 확인 대기"와 의미가 딱 맞지 않습니다. 새 상태나 새 전이를 만들려면 전이 계약(task-model 5-1)을 바꿔야 하므로 범위 밖으로 둡니다.
+- **Owner가 확인한 뒤 이어가는 방법:** 보존된 candidate를 반영하는 명령(예: `/go <id> accept`)이 아직 없습니다. 당분간은 수동 SOP 경로로 처리합니다.
+
+## 5. 범위 판단: 두 task로 나누기를 권장
+
+**task-0148에 넣을 것** (repair 1회, 설계 보완으로 처리)
+- 분류 규칙과 멈춤: SOP §10.2 3·9항 문구, `claude_worker.py`
+  - Reviewer 호출에 QA 검사 목록 추가
+  - `qa` 짝 파싱
+  - 검증 불가 항목이 있으면 반영 전에 `qa_unverified_owner_review`로 멈춤
+- Reviewer 정의 두 파일에 `qa` 항목 한 줄
+- validator: 새 조항과 새 사유 코드의 일치 검사
+- smoke 사례:
+  - `qa: tests_rerun`만 있으면 진행
+  - `none`이 있으면 멈춤
+  - 목록 밖 이름이면 멈춤
+  - 멈춘 뒤 main이 바뀌지 않았는지
+- 이 정도면 결정 2와 명확화 1을 실제로 충족하는 최소 구현이고, 봇과 전이 계약은 건드리지 않습니다.
+
+**별도 task(task-0149 후보)로 나눌 것**
+- Owner가 확인한 뒤 보존된 candidate를 반영하는 명령(`/go <id> accept` 등): 봇 명령, 감사, 상태 처리가 필요합니다.
+- "Owner 확인 대기"를 FAILED가 아닌 별도 상태로 둘지: 전이 계약 변경이 필요합니다.
+- 봇 보고에 `unverified` 항목 표시
+
+**이렇게 나누면**
+- task-0148 뒤 task-0146을 다시 돌릴 때 Reviewer가 "테스트 미실행"만 적으면 `tests_rerun`으로 확인되어 성공 경로로 갈 수 있습니다.
+- 사실 정확성처럼 QA로 확인할 수 없는 항목이 나오면 자동 DONE하지 않고 멈춥니다.
+
+**확정해 주실 것**
+1. 분류 방식: L안(Reviewer가 짝을 적음)
+2. 멈춤 기록 방식: FAILED + `qa_unverified_owner_review`, 새 상태는 만들지 않음
+3. 범위: 위 내용은 task-0148 repair 1회로 반영하고, 이어가기 명령과 상태 확장은 별도 task로
+
+확정하시면 현재 candidate `580aa40`에 repair 1을 적용한 뒤 fresh Reviewer → QA 순서로 진행합니다.
+```
+
+확정 Owner 원문:
+
+```text
+세 가지 모두 확정합니다.
+
+1. L안 채택: Reviewer가 각 `unverified`에 `qa`를 명시합니다.
+2. 검증 불가 항목은 `FAILED + qa_unverified_owner_review`로 기록하고, 새 상태/전이는 만들지 않습니다.
+3. 제안한 task-0148 범위만 구현하고, Owner가 보존 candidate를 이어가는 명령/별도 상태/봇 보고는 별도 task-0149 후보로 분리합니다.
+
+추가 설계안까지 확인했으니 현재 candidate `580aa40`에 repair 1을 적용하세요.
+
+repair 후 fresh Reviewer → QA 순서로 진행하고, 기존 Git 정책대로 테스트 후 checkpoint commit까지 진행하세요.
+
+`evidence_paths`는 이번에도 변경하지 않습니다.
+```
+
+## 후속 task 후보 (task-0149)
+
+- Owner가 `qa_unverified_owner_review`로 멈춘 보존 candidate를 이어가는 명령
+- "Owner 확인 대기"를 FAILED가 아닌 별도 상태로 둘지(전이 계약 변경)
+- 봇 보고에 `unverified` 항목 표시
 
 ## 최종 설계 (대화 보고 원문)
 
@@ -305,4 +431,8 @@ task-0147 구조를 그대로 씁니다.
 
 ## Repair 이력
 
-retry_budget=1, retry_count=0, repair_budget=1, repair_count=0
+retry_budget=1, retry_count=0, repair_budget=1, repair_count=1
+
+| # | 원인 | 조치 |
+| --- | --- | --- |
+| 1 | Reviewer FINDINGS (candidate `580aa40e2107dc321e388694b9b5b47a9813c158`): major 1 — 파이프라인에서 `unverified`가 QA로 전달되지 않고 코드 주석이 부정확함. minor 2 — V0–V7은 QA 재현 대상, Reviewer 자신의 명령 형식 이탈 3건(이 세션 Reviewer는 기존 정의로 실행) | Owner 확정 설계대로 `qa` 짝 규칙과 `qa_unverified_owner_review` 멈춤 구현, 주석 정정. V0–V7은 QA에서 재현. 명령 형식 이탈은 새 candidate의 fresh Reviewer로 해소. 새 candidate에 fresh Reviewer → QA |

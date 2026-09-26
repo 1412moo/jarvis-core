@@ -53,8 +53,15 @@ FAKE_CLAUDE = textwrap.dedent(
             state = Path(os.environ["FAKE_STATE"])
             mode = "unverifiedpass" if state.exists() else "deviate"
             state.write_text("seen", encoding="utf-8")
+        if mode in ("unverifiednone", "unverifiedbadqa", "unverifiednoqa"):
+            qa = {"unverifiednone": ", qa: none", "unverifiedbadqa": ", qa: tests_passed", "unverifiednoqa": ""}[mode]
+            entries = ("- {item: Studyroom smoke tests pass, not_run: python -B apps/studyroom/run_smoke_tests.py, qa: tests_rerun}\\n  "
+                       "- {item: the new term matches the task-0142 record, not_run: none" + qa + "}")
+            print(json.dumps({"result": "candidate_hash: x\\nverdict: PASS\\nfindings: []\\nunverified: " + entries
+                              + "\\nself_deviations: []\\n\\nnote: n"}))
+            sys.exit(0)
         if mode in ("unverifiedpass", "deviate", "deviatealways"):
-            unverified = "- {item: Studyroom smoke tests pass, not_run: python -B apps/studyroom/run_smoke_tests.py}"
+            unverified = "- {item: Studyroom smoke tests pass, not_run: python -B apps/studyroom/run_smoke_tests.py, qa: tests_rerun}"
             deviation = "- {command: git grep -n a|b x -- f, rule: single grep pattern}" if mode != "unverifiedpass" else "[]"
             print(json.dumps({"result": "candidate_hash: x\\nverdict: PASS\\nfindings: []\\nunverified: " + unverified
                               + "\\nself_deviations: " + deviation + "\\n\\nnote: n"}))
@@ -389,6 +396,17 @@ def main() -> int:
         check("classify: a finding on a fact outside the named record (task-0146 shape) stays repairable",
               claude_worker.findings_repairable("findings: - {severity: minor, evidence: apps/studyroom/content/glossary.json:336 states a clause "
                                                 "the task-0142 record does not have, impact: x, minimum_correction: y}", files))
+        for mode in ("unverifiednone", "unverifiedbadqa", "unverifiednoqa"):
+            r, calls, before, after = run_case(mode, clone, worktrees, worker="ok", review=mode)
+            check(f"qa pairing: {mode} passes QA but stops for the Owner, main untouched", (not r.ok) and r.stage == "qa"
+                  and r.reason == "qa_unverified_owner_review" and all(r.qa_checks.values()) and before == after
+                  and "the new term matches" in r.detail and "Studyroom smoke tests" not in r.detail
+                  and git(["rev-parse", r.branch], clone) == r.candidate, f"{r.stage}:{r.reason}:{r.detail}")
+            check(f"qa pairing: {mode} records FAILED, not DONE", bool(calls) and calls[-1][0] is False)
+        call = claude_worker.reviewer_call(task_id="t", candidate="c", baseline="b", changed_files=["f"], request="r",
+                                           approval_command="/go t")
+        check("qa pairing: the Reviewer call names every pipeline QA check",
+              all(f"- {name}: " in call for name in claude_worker.QA_CHECKS) and "use these names for `qa`" in call)
         prompt = claude_worker.worker_prompt("task-8000-x", "req")
         check("worker prompt: facts only from the source the request names, history cited as history",
               "use only facts stated in that source" in prompt and "cite them as what the record says" in prompt

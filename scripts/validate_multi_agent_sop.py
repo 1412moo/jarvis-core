@@ -52,6 +52,7 @@ REVIEWER_ROLE_CLAUSES = (
     "`unverified` never changes `verdict`, and a PASS with `unverified` entries is a Reviewer-stage PASS only: every `unverified` entry goes to QA, and final acceptance is decided after QA.",
     "A non-empty `self_deviations` makes this review invalid",
     "`unverified` and `self_deviations` never change `verdict`.",
+    "give every `unverified` entry `qa: <check name>` only if that one listed check alone verifies the entry, and `qa: none` otherwise. Never name a check that is not in the list.",
 )
 CALLER_NAME = "Manager (the caller)"
 
@@ -144,7 +145,7 @@ SOP_ACCEPTANCE_CLAUSES = (
     "- §10 Worker 파이프라인에는 적용하지 않는다.",
 )
 PIPELINE_REASON_PATTERN = re.compile(
-    r"(?:resume_[a-z_]+|repair_no_[a-z_]+|reviewer_findings_not_repairable|reviewer_self_deviation)"
+    r"(?:resume_[a-z_]+|repair_no_[a-z_]+|reviewer_findings_not_repairable|reviewer_self_deviation|qa_unverified_owner_review)"
 )
 
 MANAGER_GATES = {
@@ -1320,6 +1321,7 @@ def _run_negative_mutation_checks(
         ("sop_acceptance_major_clause_removed", SOP_PATH, "- blocking과 major는 수용할 수 없다.", "- 수용 제한 없음.", "sop_findings_acceptance"),
         ("sop_acceptance_pipeline_clause_removed", SOP_PATH, "- §10 Worker 파이프라인에는 적용하지 않는다.", "", "sop_findings_acceptance"),
         ("pipeline_self_deviation_dropped_from_sop", SOP_PATH, "`reviewer_self_deviation`으로", "재검토 실패로", "pipeline_reason_parity"),
+        ("pipeline_unverified_review_dropped_from_sop", SOP_PATH, "`qa_unverified_owner_review`로", "Owner 확인 실패로", "pipeline_reason_parity"),
     )
     for label, path, old, new, expected_code in cases:
         try:
