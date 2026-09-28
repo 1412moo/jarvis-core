@@ -5,7 +5,7 @@
 - status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 13:29 UTC`
-- updated_at: `2026-09-28 13:23 UTC`
+- updated_at: `2026-09-28 17:53 UTC`
 - summary: `Discord에서 Owner가 /work로 Studyroom 콘텐츠 작업을 준비하고 /go로 승인하면, 저장소 밖 worktree에서 Claude Code Worker가 작업하고 테스트, candidate commit, Reviewer(claude --agent reviewer), 결정론적 QA, baseline이 그대로일 때만 main ff-only 반영, task DONE 기록과 checkpoint commit, Discord 결과 보고까지 자동으로 이어지는 최소 vertical slice다. 실패·timeout·범위 위반은 FAILED로 기록하고 선택지를 보고하며, push·외부 API·credential·Codex·다중 Worker·jarvis.bat 접근은 범위 밖이다.`
 - source_command: `Owner 지시: Jarvis v0.2 첫 실제 end-to-end 자동 실행 최소 vertical slice 구현`
 
@@ -107,7 +107,7 @@ Owner가 Discord에서 `/work`와 `/go`를 직접 보내 실행했다. 아래는
 
 task-0146 재시도에서 성공 경로도 실제로 확인됐다: Reviewer PASS 이후의 QA, main ff-only 반영, task DONE 기록(task-0146 `status: DONE`, `success: true`), checkpoint commit, Discord 성공 보고. 성공 보고 메시지 내용은 Owner가 Discord에서 확인해 원문을 전달했다(아래 완료 근거).
 
-알려진 별도 이슈: 실행 결과 감사 기록이 `invalid_payload_source detail=/go`로 거부된다(Owner 지시로 미수정).
+알려진 별도 이슈: 실행 결과 감사 기록이 `invalid_payload_source detail=/go`로 거부된다(Owner 지시로 미수정). → 커밋 2b03f23에서 source를 go로 바꿔 해결됐고, task-0149 실제 Discord /go에서 감사 체인에 execution_result(source: "go")가 정상 기록되고 [audit] append failed가 없음을 확인했다.
 
 ## 완료 근거 (task-model §8)
 
@@ -129,5 +129,5 @@ jarvis-bot앱 — 2026-09-26 오후 7:20
 ```
 
 3. 이 task의 성공 조건 밖으로 남은 항목. 착수하려면 별도 task와 Owner 승인이 필요하다.
-   - `/go` 실행 결과 감사 기록의 `invalid_payload_source detail=/go` 거부
+   - `/go` 실행 결과 감사 기록의 `invalid_payload_source detail=/go` 거부 → 해결(2b03f23, task-0149 E2E에서 확인)
    - 실패 시도의 브랜치·worktree 정리(task-0143 ×3, task-0146 첫 시도 ×1)
