@@ -130,4 +130,4 @@ jarvis-bot앱 — 2026-09-26 오후 7:20
 
 3. 이 task의 성공 조건 밖으로 남은 항목. 착수하려면 별도 task와 Owner 승인이 필요하다.
    - `/go` 실행 결과 감사 기록의 `invalid_payload_source detail=/go` 거부
-   - 실패 시도의 브랜치·worktree 정리(task-0143 ×3, task-0146 첫 시도 ×1)와 untracked task-0143 기록 처리
+   - 실패 시도의 브랜치·worktree 정리(task-0143 ×3, task-0146 첫 시도 ×1)
