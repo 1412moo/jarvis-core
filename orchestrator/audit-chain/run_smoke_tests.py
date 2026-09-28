@@ -159,6 +159,24 @@ def test_schema_and_payload_validation() -> None:
         expected_detail="discord_user_id",
     )
 
+    # Execution result source: /go records "go"; the slash form and unknown values stay rejected
+    valid_execution = {
+        "source": "go",
+        "execution_status_transition_applied": True,
+        "execution_status_transition_reason": "",
+        "result_kind": "success",
+    }
+    _assert(
+        validate_payload("execution_result", valid_execution)["source"] == "go",
+        "Validation failed on source go",
+    )
+    for bad_source in ("/go", "bogus", ""):
+        _assert_error(
+            lambda: validate_payload("execution_result", dict(valid_execution, source=bad_source)),
+            "invalid_payload_source",
+            expected_detail=bad_source,
+        )
+
     # Actor-kind mismatch
     _assert_error(
         lambda: create_audit_entry(

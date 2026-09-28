@@ -195,7 +195,27 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     bot.write_task_file = functools.partial(bot.write_task_file, tasks_dir=clone / "memory" / "tasks")
     audits: list[str] = []
     bot._audit_owner_approval = lambda **kw: audits.append("approval") or None
-    bot._audit_execution_result = lambda **kw: audits.append("execution") or None
+
+    # The execution audit runs the adapter's real payload build and the real payload
+    # validator; only the chain append is replaced, so a rejected source shows up here.
+    from audit_entry import validate_payload
+
+    execution_sources: list[str] = []
+    execution_audit_errors: list[str | None] = []
+
+    def validate_execution_record(**fields: object) -> None:
+        execution_sources.append(str(fields["source"]))
+        validate_payload("execution_result", {key: value for key, value in fields.items() if key != "task_id"})
+
+    bot.record_execution_result = validate_execution_record
+    real_audit_execution_result = bot._audit_execution_result
+
+    def audit_execution_result(**kw: object) -> str | None:
+        audits.append("execution")
+        execution_audit_errors.append(real_audit_execution_result(**kw))
+        return execution_audit_errors[-1]
+
+    bot._audit_execution_result = audit_execution_result
     claude_worker.WORKTREE_ROOT = worktrees
 
     def status_of(task_id: str) -> str:
@@ -237,6 +257,8 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           and f"memory/tasks/{task_id}.md" in git(["show", "--name-only", "--format=", "HEAD"], clone)
           and git(["rev-list", "--count", f"{head_before}..HEAD"], clone) == "2")
     check("bot: execution results audited", audits.count("execution") == 2)
+    check("bot: /go execution audits send source go", execution_sources == ["go", "go"], str(execution_sources))
+    check("bot: /go execution audits pass the payload validator", execution_audit_errors == [None, None], str(execution_audit_errors))
     check("bot: /go resume on a non-FAILED task is refused", bot._run_command(f"/go {task_id} resume").get("reason", "").startswith(("resume_requires_failed", "status_not_startable")))
     check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume]")
     check("bot: finished task is not startable again", bot._run_command(f"/go {task_id}").get("reason") == "status_not_startable:DONE")

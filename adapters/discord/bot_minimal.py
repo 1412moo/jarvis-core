@@ -1955,7 +1955,7 @@ def _run_worker_job(task_id: str, request: str, command: str, resume: bool = Fal
         }
         applied, reason = _apply_execution_result(task_id, execution_result, candidate_info, execution_request)
         _audit_execution_result(
-            task_id=task_id, source="/go", execution_result=execution_result, applied=applied, reason=reason
+            task_id=task_id, source="go", execution_result=execution_result, applied=applied, reason=reason
         )
         return applied, reason
 

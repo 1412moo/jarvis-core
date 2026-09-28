@@ -38,7 +38,7 @@ KIND_ACTOR_MAP = {
 ALLOWED_STATUSES = frozenset(
     {"NEEDS_APPROVAL", "BLOCKED", "ON_HOLD", "FAILED", "DOING", "TODO", "DONE"}
 )
-ALLOWED_EXECUTION_SOURCES = frozenset({"approve_file_write_result", "run", "retry"})
+ALLOWED_EXECUTION_SOURCES = frozenset({"approve_file_write_result", "run", "retry", "go"})
 ALLOWED_RESULT_KINDS = frozenset({"dry_run", "success", "failure"})
 
 FORBIDDEN_PAYLOAD_KEYS = frozenset(
