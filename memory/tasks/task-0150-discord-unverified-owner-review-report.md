@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-09-30 05:55 UTC`
-- updated_at: `2026-09-30 07:50 UTC`
+- updated_at: `2026-09-30 13:11 UTC`
 - summary: `Worker 파이프라인이 qa_unverified_owner_review로 멈췄을 때 Discord 실패 보고에 QA 6개 검사는 통과했지만 Owner 확인이 필요하다는 사실과 확인 대기 unverified 항목(최대 5건, 항목당 200자, 초과는 외 N건)을 표시한다. 확인 대기 계산은 claude_worker.py의 공통 함수 하나로 두고 봇은 그 함수를 쓴다. accept/반영 명령과 선택지 문구 변경은 범위 밖이다.`
 - source_command: `Owner 지시: task-0150 계획 승인과 결정 1~5`
 
@@ -124,4 +124,69 @@ QA 6항목과 `qa` 짝 규칙, Reviewer 정의, SOP, validator, 성공·다른 �
 - 2000자 처리: 전체 reply가 2000자를 넘을 때만 항목 폭을 10자씩 줄인다(최소 40자). 다른 줄은 줄이지
   않는다. 그래서 다른 줄만으로 약 1650자를 넘는 극단적인 경우(비정상적으로 긴 task id나 worktree 경로)에는
   2000자 초과를 막지 못한다. 이런 줄의 길이 제한은 변경 전에도 없었다. smoke는 100자 task id, 300자 상세,
-  200자 worktree 경로, 500자 항목 12건에서 2000자 이하를 확인했다.
+  200자 worktree 경로, 500자 항목 12건에서 2000자 이하를 확인했다. (이 한계는 아래 repair 1로 고쳤다.)
+
+## Reviewer 결과 (candidate `5cb506e2e45dbe1898ed9cd802ecd81f425b870a`): FINDINGS
+
+minor 3건, `self_deviations: []`, `unverified` 7건(smoke·validator·diff check·baseline 비교·task 파일 선작성·
+`jarvis.bat`과 push 상태).
+
+1. minor, candidate 결함: 최소 폭 40자에서도 다른 줄이 약 1650자를 넘으면 이 task가 추가한 줄 때문에 reply가
+   2000자를 넘어 전송이 실패할 수 있다. Owner 결정 5와 어긋난다.
+2. minor, 호출 결함: Manager 요약에 승인 조건 "더 적은 파일로 구현 가능하면 불필요한 변경은 하지 말 것"과
+   4개 파일 각각의 필요성이 없다.
+3. minor, 호출 결함: Manager 요약에 결정 3의 "`/go <id> accept`는 별도 후속 task로 분리"가 없다.
+
+## repair 1: 2000자 제한 보장
+
+Owner가 1번 지적에 repair 1회를 승인했다. repair_budget 1 중 1을 사용했고(repair_count=1), 이 task의 repair
+예산은 소진됐다. 2·3번은 코드 수정 대상이 아니며 다음 Reviewer 호출의 Manager 요약에 반영한다.
+
+repair 승인 Owner 원문:
+
+```text
+(a) repair 1회로 진행해줘.
+Reviewer minor #1의 2000자 제한 결함을 수정해줘.
+조건:
+
+* repair_budget 1 중 이번 1회만 사용
+* 최소 폭(40자)에서도 전체 Discord reply가 2000자를 넘을 수 있는 경우를 처리
+* 항목 줄을 더 줄일 수 없으면 해당 항목들을 생략하고 `외 N건` 등 개수 정보만 남기는 방식으로 전체 메시지가 반드시 2000자 이하가 되게 할 것
+* 이 경로를 검증하는 smoke test 추가
+* 기존 정상적인 표시 동작은 유지
+* Reviewer가 지적한 minor #2, #3은 코드 수정 대상이 아님. 다음 Reviewer 호출의 Manager Summary에 필요한 내용을 정확히 포함할 것
+* `/go <id> accept` 기능은 이번 repair에 추가하지 말 것
+* 다른 범위의 개선/리팩터링 금지
+* `jarvis.bat` 절대 건드리거나 stage하지 말 것
+
+repair 후:
+
+1. 새 candidate SHA를 보고
+2. 추가/변경된 파일을 보고
+3. 해당 candidate의 검증 결과를 보고
+4. 아직 Reviewer 재실행은 하지 말고 여기서 멈춰줘.
+```
+
+구현: `bot_minimal.py`의 owner review 줄 계산을 `_owner_review_lines()`로 모았다. 안내 줄과 항목 줄만 줄이고
+다른 reply 줄은 그대로 둔다. 순서는 다음과 같다.
+
+1. 항목 폭 200자에서 10자씩 줄여 40자까지 시도한다.
+2. 그래도 넘으면 항목을 생략하고 안내 줄과 `- 확인 대기 N건: Discord 메시지 길이 제한으로 항목 내용을 생략했습니다`
+   한 줄만 남긴다.
+3. 그래도 넘으면 owner review 줄을 추가하지 않는다.
+
+그래서 이 task가 추가하는 줄 때문에 2000자를 넘는 일은 없다. 다만 기존 줄만으로 이미 2000자를 넘는
+reply는 변경 전과 같으며, 이 task에서 다루지 않는다. 정상 경우의 표시 위치와 문구는 그대로다.
+`claude_worker.py`는 바꾸지 않았다.
+
+repair 1 검증 (Implementer 실행):
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| R1 | Worker smoke (`PYTHONUTF8=1`) | 194/194 PASS (기존 191 + 신규 3: 개수 줄만 남는 경우, 아무 줄도 추가하지 않는 경우, worktree 길이 0–2000을 25자 간격으로 바꿔 가며 "추가 줄이 없으면 2000자 이하인 reply가 추가 줄 때문에 2000자를 넘는 일이 없다"를 확인) |
+| R2 | baseline `6b07294` 대비 reply 문구 | 12개 결과 중 달라진 것은 `qa_unverified_owner_review` 1개. 비교용 임시 worktree는 다시 제거했다 |
+| R3 | Discord self-check suite | 92/92 PASS |
+| R4 | discord-intake smoke | 125/125, 실패 0 |
+| R5 | `validate_multi_agent_sop.py` | PASS, negative_checks=128, negative_failures=0 |
+| R6 | `git diff --check` | exit 0 |
+| R7 | 변경 범위 | `bot_minimal.py`, `run_smoke_tests.py`, 이 기록. `jarvis.bat` untracked 유지 |

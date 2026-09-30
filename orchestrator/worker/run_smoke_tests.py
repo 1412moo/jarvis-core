@@ -297,6 +297,24 @@ def owner_review_replies(results: dict[str, dict]) -> None:
     check("owner review reply: an entry is cut at 200 characters when there is room",
           len(entry_lines) == 1 and len(entry_lines[0].split(": ", 1)[1]) == 200 and entry_lines[0].endswith("…"), str(entry_lines))
 
+    # task-0150 repair 1: when 40-character entries still do not fit, only a count line stays,
+    # and when that does not fit either, no owner review line is added at all.
+    def owner_review_part(line: str) -> bool:
+        return line.startswith(("- 확인 대기", "- 외 ")) or ("개 검사는 모두 통과했지만" in line and line.startswith("- QA "))
+
+    counted = bot._format_reply(dict(many, worktree="C:/" + "w" * 700))
+    check("owner review reply: past the minimum width only the count line stays, within 2000",
+          len(counted) <= 2000 and "- 확인 대기 12건: Discord 메시지 길이 제한으로 항목 내용을 생략했습니다" in counted
+          and "확인 대기 1/12" not in counted and "- 외 " not in counted and "개 검사는 모두 통과했지만" in counted,
+          f"{len(counted)}:{counted[-400:]}")
+    bare = bot._format_reply(dict(many, worktree="C:/" + "w" * 900))
+    check("owner review reply: when even the count line does not fit, no owner review line is added",
+          len(bare) <= 2000 and not any(owner_review_part(line) for line in bare.splitlines()), f"{len(bare)}")
+    overflow = [length for length in range(0, 2001, 25)
+                for reply in [bot._format_reply(dict(many, worktree="C:/" + "w" * length))]
+                if len("\n".join(line for line in reply.splitlines() if not owner_review_part(line))) <= 2000 < len(reply)]
+    check("owner review reply: the added lines never push a reply that fits over 2000", overflow == [], str(overflow))
+
     # Unchanged: the success reply and other failure replies, even when unverified entries are present.
     common = {"result_type": "work_result", "task_id": "task-8000-x", "reviewer_unverified": ["{item: a, qa: none}"]}
     success = dict(common, ok=True, changed_files=["apps/studyroom/content/glossary.json"], test_summary="5/5",

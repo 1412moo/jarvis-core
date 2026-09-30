@@ -2023,10 +2023,6 @@ def _format_work_reply(result: dict[str, Any]) -> str:
     if result.get("reason") == "reviewer_findings_not_repairable":
         lines.append("- Reviewer 지적이 변경 파일과 무관해 Worker가 고칠 수 없습니다. Owner 결정이 필요합니다.")
     if result.get("reason") == "qa_unverified_owner_review":
-        lines.append(
-            f"- QA {len(result.get('qa_checks') or {})}개 검사는 모두 통과했지만, Reviewer가 확인하지 못했고 "
-            "QA 검사로도 확인되지 않은 항목이 있어 main에 반영하지 않았습니다. Owner 확인이 필요합니다."
-        )
         pending_at = len(lines)
     if result.get("stage") == "checkpoint":
         lines.append("- main 반영 뒤 기록 단계에서 실패했습니다. 확인이 필요합니다. push는 없습니다.")
@@ -2039,15 +2035,31 @@ def _format_work_reply(result: dict[str, Any]) -> str:
     if pending_at >= 0:
         # task-0150: the same pending rule the pipeline stopped on, never a copy of it.
         pending = claude_worker.unverified_pending(list(result.get("reviewer_unverified") or []))
-        rest = len("\n".join(lines))
-        width = UNVERIFIED_ENTRY_CHARS
-        entries = _unverified_entry_lines(pending, width)
-        # Narrow the entries, never the other lines, until the reply fits one Discord message.
-        while width > UNVERIFIED_ENTRY_MIN_CHARS and rest + sum(len(line) + 1 for line in entries) > DISCORD_MESSAGE_CHARS:
-            width -= 10
-            entries = _unverified_entry_lines(pending, width)
-        lines[pending_at:pending_at] = entries
+        lines[pending_at:pending_at] = _owner_review_lines(
+            len(result.get("qa_checks") or {}), pending, len("\n".join(lines))
+        )
     return "\n".join(lines)
+
+
+def _owner_review_lines(qa_count: int, pending: list[str], rest: int) -> list[str]:
+    """task-0150: the owner review lines that fit one Discord message beside `rest` characters.
+
+    Only these lines give way, never the other reply lines: the entries narrow down to
+    UNVERIFIED_ENTRY_MIN_CHARS, then collapse into one count line (repair 1), and when even
+    that does not fit none are added, so they never push a reply over the limit.
+    """
+
+    notice = (
+        f"- QA {qa_count}개 검사는 모두 통과했지만, Reviewer가 확인하지 못했고 "
+        "QA 검사로도 확인되지 않은 항목이 있어 main에 반영하지 않았습니다. Owner 확인이 필요합니다."
+    )
+    counted = f"- 확인 대기 {len(pending)}건: Discord 메시지 길이 제한으로 항목 내용을 생략했습니다"
+    candidates = [[notice, *_unverified_entry_lines(pending, width)]
+                  for width in range(UNVERIFIED_ENTRY_CHARS, UNVERIFIED_ENTRY_MIN_CHARS - 1, -10)]
+    for block in (*candidates, [notice, counted]):
+        if rest + sum(len(line) + 1 for line in block) <= DISCORD_MESSAGE_CHARS:
+            return block
+    return []
 
 
 def _unverified_entry_lines(pending: list[str], width: int) -> list[str]:
