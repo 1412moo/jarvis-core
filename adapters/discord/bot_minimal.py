@@ -1973,6 +1973,13 @@ def _run_worker_job(task_id: str, request: str, command: str, resume: bool = Fal
     return {"result_type": "work_result", **outcome.to_dict()}
 
 
+# task-0150: bounds for the pending unverified entries in a qa_unverified_owner_review reply.
+UNVERIFIED_SHOWN_MAX = 5
+UNVERIFIED_ENTRY_CHARS = 200
+UNVERIFIED_ENTRY_MIN_CHARS = 40
+DISCORD_MESSAGE_CHARS = 2000
+
+
 def _format_work_reply(result: dict[str, Any]) -> str:
     result_type = result.get("result_type")
     task_id = result.get("task_id", "")
@@ -2003,6 +2010,7 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             f"- candidate: {str(result.get('candidate'))[:7]} / checkpoint: {str(result.get('checkpoint'))[:7]}\n"
             "- push: 하지 않음"
         )
+    pending_at = -1
     lines = [f"❌ 실패: {task_id} — 단계 `{result.get('stage')}`, 사유 `{result.get('reason')}`"]
     detail = str(result.get("detail") or "")[:300]
     if detail:
@@ -2014,6 +2022,12 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         lines.append("- repair 예산을 모두 썼습니다. Owner 결정이 필요합니다.")
     if result.get("reason") == "reviewer_findings_not_repairable":
         lines.append("- Reviewer 지적이 변경 파일과 무관해 Worker가 고칠 수 없습니다. Owner 결정이 필요합니다.")
+    if result.get("reason") == "qa_unverified_owner_review":
+        lines.append(
+            f"- QA {len(result.get('qa_checks') or {})}개 검사는 모두 통과했지만, Reviewer가 확인하지 못했고 "
+            "QA 검사로도 확인되지 않은 항목이 있어 main에 반영하지 않았습니다. Owner 확인이 필요합니다."
+        )
+        pending_at = len(lines)
     if result.get("stage") == "checkpoint":
         lines.append("- main 반영 뒤 기록 단계에서 실패했습니다. 확인이 필요합니다. push는 없습니다.")
     else:
@@ -2022,7 +2036,33 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         f"다음 선택지: `/go {task_id}` 처음부터 재시도 · `/go {task_id} resume` 이 시도에서 이어가기 · "
         f"`/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
     )
+    if pending_at >= 0:
+        # task-0150: the same pending rule the pipeline stopped on, never a copy of it.
+        pending = claude_worker.unverified_pending(list(result.get("reviewer_unverified") or []))
+        rest = len("\n".join(lines))
+        width = UNVERIFIED_ENTRY_CHARS
+        entries = _unverified_entry_lines(pending, width)
+        # Narrow the entries, never the other lines, until the reply fits one Discord message.
+        while width > UNVERIFIED_ENTRY_MIN_CHARS and rest + sum(len(line) + 1 for line in entries) > DISCORD_MESSAGE_CHARS:
+            width -= 10
+            entries = _unverified_entry_lines(pending, width)
+        lines[pending_at:pending_at] = entries
     return "\n".join(lines)
+
+
+def _unverified_entry_lines(pending: list[str], width: int) -> list[str]:
+    """task-0150: at most UNVERIFIED_SHOWN_MAX pending entries of at most `width` characters."""
+
+    entries = []
+    for number, entry in enumerate(pending[:UNVERIFIED_SHOWN_MAX], start=1):
+        if entry == claude_worker.UNVERIFIED_UNREADABLE:
+            entry = "Reviewer 보고의 unverified 필드가 없거나 형식이 맞지 않아 항목을 읽을 수 없습니다"
+        if len(entry) > width:
+            entry = entry[: width - 1] + "…"
+        entries.append(f"- 확인 대기 {number}/{len(pending)}: {entry}")
+    if len(pending) > UNVERIFIED_SHOWN_MAX:
+        entries.append(f"- 외 {len(pending) - UNVERIFIED_SHOWN_MAX}건")
+    return entries
 
 
 # ---------------------------------------------------------------------------

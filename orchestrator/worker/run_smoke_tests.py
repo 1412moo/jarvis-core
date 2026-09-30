@@ -264,10 +264,61 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     check("bot: finished task is not startable again", bot._run_command(f"/go {task_id}").get("reason") == "status_not_startable:DONE")
 
 
+def owner_review_replies(results: dict[str, dict]) -> None:
+    """task-0150: the Discord reply for qa_unverified_owner_review lists the pending entries."""
+
+    import bot_minimal as bot
+
+    for mode in ("unverifiednone", "unverifiedbadqa", "unverifiednoqa"):
+        reply = bot._format_reply(results[mode])
+        check(f"owner review reply: {mode} lists the pending entry and says QA passed",
+              "- QA 6개 검사는 모두 통과했지만" in reply and "Owner 확인이 필요합니다." in reply
+              and "- 확인 대기 1/1: {item: the new term matches the task-0142 record" in reply, reply)
+        check(f"owner review reply: {mode} leaves out the entry paired with tests_rerun",
+              "Studyroom smoke tests" not in reply and "확인 대기 2/" not in reply, reply)
+    for mode in ("nounverified", "badunverified"):
+        reply = bot._format_reply(results[mode])
+        check(f"owner review reply: {mode} explains the unreadable field",
+              "- 확인 대기 1/1: Reviewer 보고의 unverified 필드가 없거나 형식이 맞지 않아 항목을 읽을 수 없습니다" in reply, reply)
+
+    base = results["unverifiednone"]
+    long_id = "task-9999-" + "x" * 90
+    many = dict(base, task_id=long_id, detail="d" * 400, worktree="C:/" + "w" * 200, branch="jarvis/" + long_id,
+                candidates=["a" * 40, "b" * 40, "c" * 40],
+                reviewer_unverified=[f"{{item: entry {i:02d} " + "y" * 480 + ", qa: none}" for i in range(12)])
+    reply = bot._format_reply(many)
+    check("owner review reply: 12 pending entries show 5 and 외 7건", "- 확인 대기 5/12: {item: entry 04" in reply
+          and "확인 대기 6/12" not in reply and "- 외 7건" in reply, reply[-600:])
+    check("owner review reply: the whole reply stays within 2000 characters", len(reply) <= 2000, str(len(reply)))
+    check("owner review reply: other lines are kept when entries are narrowed",
+          f"다음 선택지: `/go {long_id}` 처음부터 재시도" in reply and "- 상세: " + "d" * 300 in reply, reply[:200])
+    roomy = dict(base, reviewer_unverified=["{item: " + "z" * 300 + ", qa: none}", "{item: short, qa: tests_rerun}"])
+    entry_lines = [line for line in bot._format_reply(roomy).splitlines() if line.startswith("- 확인 대기")]
+    check("owner review reply: an entry is cut at 200 characters when there is room",
+          len(entry_lines) == 1 and len(entry_lines[0].split(": ", 1)[1]) == 200 and entry_lines[0].endswith("…"), str(entry_lines))
+
+    # Unchanged: the success reply and other failure replies, even when unverified entries are present.
+    common = {"result_type": "work_result", "task_id": "task-8000-x", "reviewer_unverified": ["{item: a, qa: none}"]}
+    success = dict(common, ok=True, changed_files=["apps/studyroom/content/glossary.json"], test_summary="5/5",
+                   reviewer_verdict="PASS", qa_checks={"a": True}, repairs=0, resumed_from="", candidate="c" * 40, checkpoint="d" * 40)
+    check("owner review reply: success reply unchanged", bot._format_reply(success) == (
+        "✅ 완료: task-8000-x\n- 변경 파일: apps/studyroom/content/glossary.json\n- 테스트: 5/5\n- Reviewer: PASS\n"
+        "- QA: PASS (1개 검사)\n- 자동 repair: 0회\n- candidate: ccccccc / checkpoint: ddddddd\n- push: 하지 않음"))
+    for reason in ("qa_failed", "scope_violation", "reviewer_findings"):
+        failed = dict(common, ok=False, stage="qa", reason=reason, detail="tests_rerun", candidate="c" * 40,
+                      candidates=["c" * 40], branch="jarvis/task-8000-x", repairs=1, worktree="W")
+        check(f"owner review reply: {reason} failure reply unchanged", bot._format_reply(failed) == (
+            f"❌ 실패: task-8000-x — 단계 `qa`, 사유 `{reason}`\n- 상세: tests_rerun\n"
+            "- candidate: ccccccc (브랜치 jarvis/task-8000-x 보존, 자동 repair 1회)\n- main은 변경되지 않았고 push도 없습니다.\n"
+            "다음 선택지: `/go task-8000-x` 처음부터 재시도 · `/go task-8000-x resume` 이 시도에서 이어가기 · "
+            "`/status task-8000-x` 상태 확인 · 직접 개입(worktree W)"))
+
+
 def main() -> int:
     claude_worker.CLAUDE_BIN = "fakeclaude"
     claude_worker.WORKER_TIMEOUT_SECONDS = 5
     tmp = Path(tempfile.mkdtemp(prefix="jarvis_worker_smoke_"))
+    owner_review_results: dict[str, dict] = {}
     try:
         clone, fake_dir = make_env(tmp)
         os.environ["PATH"] = str(fake_dir) + os.pathsep + os.environ["PATH"]
@@ -441,6 +492,7 @@ def main() -> int:
                   and "the new term matches" in r.detail and "Studyroom smoke tests" not in r.detail
                   and git(["rev-parse", r.branch], clone) == r.candidate, f"{r.stage}:{r.reason}:{r.detail}")
             check(f"qa pairing: {mode} records FAILED, not DONE", bool(calls) and calls[-1][0] is False)
+            owner_review_results[mode] = {"result_type": "work_result", **r.to_dict()}
         # task-0148 repair 2: a missing or malformed field is unclassifiable, never "no entries".
         for mode in ("nounverified", "badunverified"):
             r, calls, before, after = run_case(mode, clone, worktrees, worker="ok", review=mode)
@@ -448,6 +500,7 @@ def main() -> int:
                   and r.reason == "qa_unverified_owner_review" and "unverified field missing or malformed" in r.detail
                   and all(r.qa_checks.values()) and before == after and bool(calls) and calls[-1][0] is False,
                   f"{r.stage}:{r.reason}:{r.detail}")
+            owner_review_results[mode] = {"result_type": "work_result", **r.to_dict()}
         log.write_text("", encoding="utf-8")
         r = run_case("noselfdev", clone, worktrees, worker="ok", review="noselfdev")[0]
         text = log.read_text(encoding="utf-8")
@@ -476,6 +529,7 @@ def main() -> int:
         os.environ.pop("FAKE_LOG", None)
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
         bot_flow(clone, worktrees)
+        owner_review_replies(owner_review_results)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

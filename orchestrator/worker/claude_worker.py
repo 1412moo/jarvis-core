@@ -77,6 +77,8 @@ QA_CHECKS = {
     "tests_rerun": f"the test command ({' '.join(TEST_COMMAND[1:])}) passes in the attempt worktree",
 }
 QA_LABEL_PATTERN = re.compile(r"\bqa:\s*([A-Za-z_]+)")
+# task-0148 repair 2: the one entry recorded when the `unverified` field cannot be read.
+UNVERIFIED_UNREADABLE = "unverified field missing or malformed"
 TASK_REF_PATTERN = re.compile(r"task-(\d{4})(?!\d)")
 
 
@@ -328,6 +330,16 @@ def report_field(review_text: str, name: str) -> list[str] | None:
     if not lines or not all(re.fullmatch(r"-\s*\{.*\}", line) for line in lines):
         return None
     return [line[1:].strip() for line in lines]
+
+
+def unverified_pending(entries: list[str]) -> list[str]:
+    """task-0148: the `unverified` entries no QA check verifies (last `qa:` label not in QA_CHECKS).
+
+    The pipeline stops on these as qa_unverified_owner_review; the Discord report (task-0150)
+    lists the same entries, so the rule lives only here.
+    """
+
+    return [entry for entry in entries if (QA_LABEL_PATTERN.findall(entry) or ["none"])[-1] not in QA_CHECKS]
 
 
 def _review_invalid(verdict: str, review_text: str) -> bool:
@@ -589,7 +601,7 @@ def run_pipeline(
             # An unreadable field is one unpaired entry, so it stops for the Owner.
             unverified = report_field(review_text, "unverified")
             result.reviewer_unverified = (
-                unverified if unverified is not None else ["unverified field missing or malformed"]
+                unverified if unverified is not None else [UNVERIFIED_UNREADABLE]
             )
             findings = review_text.split("findings:", 1)[-1] if "findings:" in review_text else review_text
             findings = REPORT_FIELD_END.split(findings, maxsplit=1)[0]
@@ -641,11 +653,7 @@ def run_pipeline(
         # task-0148: an unverified entry counts as verified only when the Reviewer paired it
         # with one of the QA checks above (all of which just passed). Anything else stays
         # for the Owner: nothing is integrated and the task is not marked DONE.
-        pending = [
-            entry
-            for entry in result.reviewer_unverified
-            if (QA_LABEL_PATTERN.findall(entry) or ["none"])[-1] not in QA_CHECKS
-        ]
+        pending = unverified_pending(result.reviewer_unverified)
         if pending:
             raise StageFailure("qa", "qa_unverified_owner_review", " | ".join(pending)[:300])
 
