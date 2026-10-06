@@ -2,10 +2,10 @@
 
 - id: `task-0150-discord-unverified-owner-review-report`
 - title: `qa_unverified_owner_review 중단 시 Discord 보고에 확인 대기 unverified 항목 표시`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-09-30 05:55 UTC`
-- updated_at: `2026-10-05 14:40 UTC`
+- updated_at: `2026-10-06 01:42 UTC`
 - summary: `Worker 파이프라인이 qa_unverified_owner_review로 멈췄을 때 Discord 실패 보고에 QA 6개 검사는 통과했지만 Owner 확인이 필요하다는 사실과 확인 대기 unverified 항목(최대 5건, 항목당 200자, 초과는 외 N건)을 표시한다. 확인 대기 계산은 claude_worker.py의 공통 함수 하나로 두고 봇은 그 함수를 쓴다. accept/반영 명령과 선택지 문구 변경은 범위 밖이다.`
 - source_command: `Owner 지시: task-0150 계획 승인과 결정 1~5`
 
