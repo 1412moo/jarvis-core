@@ -2115,9 +2115,17 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         lines.append("- main 반영 뒤 기록 단계에서 실패했습니다. 확인이 필요합니다. push는 없습니다.")
     else:
         lines.append("- main은 변경되지 않았고 push도 없습니다.")
+    # task-0151: while the task still holds the record accept needs, the accept choice is always
+    # offered. It is placed before the owner review lines are sized (repair 1), so those lines
+    # narrow or collapse to make room for it, never the other way round.
+    accept = (
+        f"`/go {task_id} accept` 확인을 마친 candidate 반영 · "
+        if result.get("reason") == "qa_unverified_owner_review" or result.get("accept_retryable")
+        else ""
+    )
     lines.append(
         f"다음 선택지: `/go {task_id}` 처음부터 재시도 · `/go {task_id} resume` 이 시도에서 이어가기 · "
-        f"`/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
+        f"{accept}`/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
     )
     if pending_at >= 0:
         # task-0150: the same pending rule the pipeline stopped on, never a copy of it.
@@ -2125,14 +2133,6 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         lines[pending_at:pending_at] = _owner_review_lines(
             len(result.get("qa_checks") or {}), pending, len("\n".join(lines))
         )
-    if result.get("reason") == "qa_unverified_owner_review" or result.get("accept_retryable"):
-        # task-0151: offered only while the task still holds the record accept needs, and only in
-        # the room left after the owner review lines, so it never pushes a reply over the limit.
-        offered = lines[-1].replace(
-            f"`/status {task_id}`", f"`/go {task_id} accept` 확인을 마친 candidate 반영 · `/status {task_id}`", 1
-        )
-        if len("\n".join([*lines[:-1], offered])) <= DISCORD_MESSAGE_CHARS:
-            lines[-1] = offered
     return "\n".join(lines)
 
 

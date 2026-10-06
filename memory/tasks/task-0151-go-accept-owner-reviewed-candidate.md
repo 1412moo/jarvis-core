@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-06 03:14 UTC`
-- updated_at: `2026-10-06 04:10 UTC`
-- summary: `Worker 파이프라인이 qa_unverified_owner_review로 멈춘 FAILED task에서, Owner가 확인을 마친 뒤 /go <id> accept로 보존된 마지막 attempt candidate를 반영하게 한다. 대상 식별·QA 6개 재실행·main baseline 일치를 모두 fail-closed로 검증하고 기존 허용 전이(FAILED→TODO→DOING→DONE)만 쓰며 새 상태는 만들지 않는다. 구현과 Implementer 검증을 마쳤고 commit·Reviewer·QA는 Owner 결정 대기다.`
+- updated_at: `2026-10-06 05:20 UTC`
+- summary: `Worker 파이프라인이 qa_unverified_owner_review로 멈춘 FAILED task에서, Owner가 확인을 마친 뒤 /go <id> accept로 보존된 마지막 attempt candidate를 반영하게 한다. 대상 식별·QA 6개 재실행·main baseline 일치를 모두 fail-closed로 검증하고 기존 허용 전이(FAILED→TODO→DOING→DONE)만 쓰며 새 상태는 만들지 않는다. 구현은 candidate commit으로 기록되었으며(Reviewer minor 2건에 repair 1회) Reviewer·QA는 Owner 지시 대기다.`
 - source_command: `Owner 지시: task-0151 Owner 결정 1~4와 추가 안전 조건, task 파일 생성까지만`
 
 ## 기준선
@@ -273,7 +273,8 @@ Owner 지시("task-0151 TODO→DOING 하고 구현 시작해")로 `2026-10-06 03
 
 ## 구현 (Implementer)
 
-baseline `753e5dbe1ae3ecb13e6a9c88d4881acac2ed00a5`. 아직 commit하지 않았다.
+baseline `753e5dbe1ae3ecb13e6a9c88d4881acac2ed00a5`. 아래 "candidate commit 근거"의 지시로 candidate commit
+`0b079555cc7d14dd24e5ede449d1e547611b5569`에 기록되었다.
 
 | 파일 | 변경 |
 | --- | --- |
@@ -352,7 +353,90 @@ jarvis.bat은 반드시 제외하세요.
 commit 후 candidate SHA와 변경 파일, working tree 상태만 보고하세요.
 ```
 
+## Reviewer 결과 (candidate `0b079555cc7d14dd24e5ede449d1e547611b5569`): FINDINGS
+
+baseline `753e5dbe1ae3ecb13e6a9c88d4881acac2ed00a5`, 7개 파일. minor 2건, `self_deviations: []`, `unverified` 9건
+(smoke 4종·validator·diff check·`jarvis.bat`과 작업 트리·worktree 목록·실제 git/Discord E2E).
+
+1. minor: `bot_minimal.py`가 확인 대기 줄을 먼저 2000자 안에 배치하고 남는 공간에만 accept 선택지를 넣어, 긴 확인 대기
+   항목이 많으면 선택지가 안내 없이 빠진다. 승인 1 결정 4는 조건 없이 선택지 추가를 요구하며, Manager 요약 A.4의
+   "2000자에 들어갈 때만"은 승인에 없는 조건이다.
+2. minor: candidate 안의 이 기록 `summary`와 구현 절이 "commit·Reviewer·QA는 Owner 결정 대기", "아직 commit하지 않았다"로
+   commit 이전 상태를 적었다.
+
+## repair 1: accept 선택지 우선 배치와 기록 상태 정정
+
+Owner가 두 지적에 repair 1회를 승인했다. repair_budget 1 중 1을 사용했고(repair_count=1) 남은 예산은 0이다.
+
+repair 승인 Owner 원문:
+
+```text
+Reviewer FINDINGS 2건에 대해 repair 1회를 승인합니다.
+
+두 건을 이번 repair 1회에서 함께 수정하세요.
+
+1. `adapters/discord/bot_minimal.py`
+- `/go <id> accept` 선택지는 조건 없이 유지되어야 합니다.
+- 확인 대기 줄을 먼저 2000자까지 채운 뒤 남는 공간에 accept를 넣는 현재 방식은 폐기하세요.
+- accept 선택지 자리를 먼저 확보하고, 확인 대기 항목의 표시 폭을 그에 맞춰 줄이세요.
+- 긴 확인 대기 항목이 많은 경우에도 accept 선택지가 정상적으로 남아야 합니다.
+- 단, 전체 reply가 2000자를 넘는 상황에서는 기존 2000자 제한을 지키는 방식으로 개수/표시를 줄일 수 있습니다.
+- 이 동작을 보장하는 회귀 smoke 테스트를 추가하세요.
+
+2. `memory/tasks/task-0151-go-accept-owner-reviewed-candidate.md`
+- 현재 candidate commit 상태에 맞지 않는 "아직 commit하지 않았다" 등의 문구를 정정하세요.
+- 의미는 다음과 같이 맞추세요:
+  "candidate commit으로 기록되었으며 Reviewer·QA는 Owner 지시 대기"
+- commit 직전/이후 상태가 모순되지 않도록 관련 summary/구현 기록을 최소 수정하세요.
+
+제약:
+- repair 예산은 이번 1회만 사용합니다.
+- `_existing_attempts()`는 수정하지 마세요.
+- 이번 Reviewer finding과 직접 관련 없는 코드/문서는 수정하지 마세요.
+- `jarvis.bat`은 절대 건드리거나 stage하지 마세요.
+- push하지 마세요.
+- repair 후 기존 candidate를 덮어쓰지 말고 새 candidate commit을 만드세요.
+- repair 전후 diff 범위를 확인하세요.
+
+수정 후:
+1. 관련 smoke 테스트를 실행하고
+2. 기존 전체 Worker smoke 및 필요한 회귀 검사를 실행하고
+3. `git diff --check`
+4. 변경 범위 확인
+5. 새 candidate commit 생성
+
+그 다음에는 Reviewer와 QA를 임의로 실행하지 말고, 새 candidate SHA와 repair 내용, 테스트 결과만 보고하세요.
+```
+
+구현:
+
+- `bot_minimal.py` `_format_work_reply`: accept 선택지를 `다음 선택지` 줄에 먼저 넣고, 그 줄까지 포함한 길이로
+  `_owner_review_lines()`가 확인 대기 줄의 폭을 정한다. 확인 대기 줄은 200자에서 40자까지 좁아지고, 그래도 넘으면 개수
+  줄만, 그것도 넘으면 줄을 넣지 않는다(task-0150 단계 그대로). accept 선택지는 `qa_unverified_owner_review`와 재-accept
+  가능한 accept 실패에서 항상 남는다. 남는 공간에만 넣던 방식은 없앴다.
+- `run_smoke_tests.py`: 긴 항목 12건에서 선택지와 확인 대기 5건이 함께 2000자 안에 있는지, 다른 줄 길이를 0~2000자로 바꿔도
+  선택지가 빠지지 않는지, 개수 줄만 남는 경우·확인 대기 줄이 없는 경우·재-accept 가능한 실패에서도 선택지가 있는지 검사를
+  추가했다. task-0150의 "개수 줄만 남는 경우" 검사는 선택지가 먼저 자리를 차지해 그 구간이 앞당겨졌으므로 다른 줄 길이를
+  700자에서 560자로, "확인 대기 줄이 없는 경우" 검사는 900자에서 700자로 바꿨다(개수 줄 구간 440~670자, 675자부터
+  줄 없음). 900자에서는 확인 대기 줄을 모두 빼도 다른 줄과 accept 선택지만으로 2084자가 되어 아래 한계에 해당한다.
+- 이 기록: `summary`와 구현 절의 commit 상태 문구를 candidate commit 기준으로 정정했다.
+
+남는 한계: 확인 대기 줄을 모두 빼도 다른 줄과 accept 선택지만으로 2000자를 넘는 reply(비정상적으로 긴 task id나 worktree
+경로)는 2000자를 넘는다. 이런 경우 선택지를 빼지 않는 것은 "조건 없이 유지"에 따른 것이며, 다른 줄의 길이 제한은
+task-0150 수용 해석처럼 이 task 밖이다.
+
+repair 1 검증 (Implementer 실행, 이전 candidate `0b07955` 대비):
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| R1 | Worker smoke (`PYTHONUTF8=1`) | 289/289 PASS (이전 285 + accept 선택지 검사 4). 첫 실행은 task-0150 "확인 대기 줄이 없는 경우" 검사 1건이 900자 설정에서 2084자로 실패해 위 한계에 해당함을 확인했고, 검사를 700자로 옮긴 뒤 전체 PASS |
+| R2 | Discord self-check suite | 92/92 PASS |
+| R3 | discord-intake smoke | 126/126, failed=0 |
+| R4 | Jarvis Console smoke | PASS |
+| R5 | `validate_multi_agent_sop.py` | PASS, negative_checks=129, negative_failures=0 |
+| R6 | `git diff --check` | exit 0. `--stat`과 `--ignore-cr-at-eol --stat` 모두 3개 파일 100 추가, 16 삭제(이 표 기록 전) |
+| R7 | 변경 범위 | `bot_minimal.py`, `run_smoke_tests.py`, 이 기록. `_existing_attempts()`와 그 밖의 파일 변경 없음, `jarvis.bat` untracked 유지 |
+
 ## 다음 단계
 
-status는 `DOING`이다. 구현과 Implementer 검증 뒤 위 지시로 candidate commit을 만든다. Reviewer·QA는 Owner 지시를
-기다린다. push는 하지 않는다.
+status는 `DOING`이다. repair 1 candidate commit 뒤 Reviewer·QA는 Owner 지시를 기다린다. push는 하지 않는다.

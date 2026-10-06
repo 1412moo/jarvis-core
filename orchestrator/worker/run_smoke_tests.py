@@ -536,18 +536,30 @@ def owner_review_replies(results: dict[str, dict]) -> None:
     def owner_review_part(line: str) -> bool:
         return line.startswith(("- 확인 대기", "- 외 ")) or ("개 검사는 모두 통과했지만" in line and line.startswith("- QA "))
 
-    counted = bot._format_reply(dict(many, worktree="C:/" + "w" * 700))
+    # task-0151 repair 1: the accept choice is placed first, so the count-line regime starts earlier.
+    counted = bot._format_reply(dict(many, worktree="C:/" + "w" * 560))
     check("owner review reply: past the minimum width only the count line stays, within 2000",
           len(counted) <= 2000 and "- 확인 대기 12건: Discord 메시지 길이 제한으로 항목 내용을 생략했습니다" in counted
           and "확인 대기 1/12" not in counted and "- 외 " not in counted and "개 검사는 모두 통과했지만" in counted,
           f"{len(counted)}:{counted[-400:]}")
-    bare = bot._format_reply(dict(many, worktree="C:/" + "w" * 900))
+    bare = bot._format_reply(dict(many, worktree="C:/" + "w" * 700))
     check("owner review reply: when even the count line does not fit, no owner review line is added",
           len(bare) <= 2000 and not any(owner_review_part(line) for line in bare.splitlines()), f"{len(bare)}")
     overflow = [length for length in range(0, 2001, 25)
                 for reply in [bot._format_reply(dict(many, worktree="C:/" + "w" * length))]
                 if len("\n".join(line for line in reply.splitlines() if not owner_review_part(line))) <= 2000 < len(reply)]
     check("owner review reply: the added lines never push a reply that fits over 2000", overflow == [], str(overflow))
+
+    # task-0151 repair 1: the accept choice is always offered; the owner review lines give way to it.
+    accept_choice = f"`/go {long_id} accept` 확인을 마친 candidate 반영"
+    check("accept choice: offered beside 5 long entries within 2000", accept_choice in reply and "- 확인 대기 5/12:" in reply
+          and len(reply) <= 2000, f"{len(reply)}")
+    missing = [length for length in range(0, 2001, 25)
+               if accept_choice not in bot._format_reply(dict(many, worktree="C:/" + "w" * length))]
+    check("accept choice: never dropped, whatever the length of the other lines", missing == [], str(missing))
+    check("accept choice: the count-line and no-review-line replies keep it", accept_choice in counted and accept_choice in bare)
+    retryable = bot._format_reply(dict(many, stage="accept", reason="accept_qa_failed", detail="tests_rerun", accept_retryable=True))
+    check("accept choice: offered after an accept refusal that kept the record", accept_choice in retryable and len(retryable) <= 2000)
 
     # Unchanged: the success reply and other failure replies, even when unverified entries are present.
     common = {"result_type": "work_result", "task_id": "task-8000-x", "reviewer_unverified": ["{item: a, qa: none}"]}
