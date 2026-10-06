@@ -144,8 +144,10 @@ SOP_ACCEPTANCE_CLAUSES = (
     "- Manager는 finding을 수용할 수 없다.",
     "- §10 Worker 파이프라인에는 적용하지 않는다.",
 )
+# task-0151: accept_* are the `/go <id> accept` refusals, held to the same SOP 10.2 parity.
 PIPELINE_REASON_PATTERN = re.compile(
-    r"(?:resume_[a-z_]+|repair_no_[a-z_]+|reviewer_findings_not_repairable|reviewer_self_deviation|qa_unverified_owner_review)"
+    r"(?:resume_[a-z_]+|repair_no_[a-z_]+|reviewer_findings_not_repairable|reviewer_self_deviation|qa_unverified_owner_review"
+    r"|accept_[a-z_]+)"
 )
 
 MANAGER_GATES = {
@@ -1322,6 +1324,7 @@ def _run_negative_mutation_checks(
         ("sop_acceptance_pipeline_clause_removed", SOP_PATH, "- §10 Worker 파이프라인에는 적용하지 않는다.", "", "sop_findings_acceptance"),
         ("pipeline_self_deviation_dropped_from_sop", SOP_PATH, "`reviewer_self_deviation`으로", "재검토 실패로", "pipeline_reason_parity"),
         ("pipeline_unverified_review_dropped_from_sop", SOP_PATH, "`qa_unverified_owner_review`로", "Owner 확인 실패로", "pipeline_reason_parity"),
+        ("pipeline_accept_reason_dropped_from_sop", SOP_PATH, "`accept_qa_failed`로", "QA 재실행 실패로", "pipeline_reason_parity"),
     )
     for label, path, old, new, expected_code in cases:
         try:

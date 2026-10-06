@@ -278,7 +278,7 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 | 파이프라인 보호 경로 | `jarvis.bat` | `PROTECTED_PATHS` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py` | `TEST_COMMAND` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
-| 진입 명령 | Owner 전용 `/work`, `/go`, 동시 실행 1개 | `bot_minimal.py` |
+| 진입 명령 | Owner 전용 `/work`, `/go`(`resume`, `accept` 포함), 동시 실행 1개 | `bot_minimal.py` |
 
 `jarvis.bat` 금지 자체는 이미 AGENTS.md와 §6의 일반 gate다. §10.1은 파이프라인
 범위 검사가 이것을 강제한다는 사실만 적고 새 규칙을 만들지 않는다.
@@ -319,7 +319,9 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
    적는다. 모든 `unverified` 항목의 `qa`가 6개 검사 중 하나이면 QA 통과로 확인된
    것으로 본다. `qa`가 `none`이거나 없거나 목록 밖이면 QA가 통과해도 반영하지 않고
    `qa_unverified_owner_review`로 실패해 Owner 확인 대상으로 남긴다(candidate 보존,
-   새 상태 없음). `unverified` 필드가 없거나 `[]`도 `- {...}` 항목 목록도 아니면
+   새 상태 없음). 이때 실패 기록은
+   `qa:qa_unverified_owner_review candidate=<40hex> baseline=<40hex> attempt=<N>`이다(12항).
+   `unverified` 필드가 없거나 `[]`도 `- {...}` 항목 목록도 아니면
    분류할 수 없는 항목이 있는 것으로 보고 같이 멈춘다. 그다음 main HEAD가 baseline과 같을 때만 ff-only로 반영한다. main이
    움직였으면 반영하지 않고 실패한다.
 10. 자동 DONE. 9가 성공한 경우에만 실행 결과 기록과 함께 `DOING→DONE`을 한 번의
@@ -329,3 +331,20 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
     실패는 task가 DONE으로 남으므로 Owner 확인 대상이다. 9 이전의 실패는 main에
     반영되지 않는다. 9 뒤의 기록·checkpoint 단계에서 실패하면 candidate는 이미
     main에 있으므로 Owner 확인 대상이다. 실패한 시도는 보존한다.
+12. Accept. `/go <id> accept`는 9항의 실패 기록이 있는 FAILED task에만, Owner가 확인 대기
+    항목을 확인한 뒤 명시적으로 요청할 때만 한다. 순서는 candidate 식별 → main baseline 확인 →
+    8항 QA 6개 재실행 → 승인 전이(`FAILED→TODO→DOING`, `/go`와 같은 Owner 승인 감사) → baseline
+    재확인 → ff-only → `DOING→DONE` → checkpoint이며 Reviewer는 다시 호출하지 않는다. 식별은
+    기록된 candidate·baseline·attempt를 git 상태와 대조한다. 기록 형식이 다르면
+    `accept_record_invalid`, attempt 이름이 다른 task와 겹치면 `accept_attempt_ambiguous`, 기록보다
+    높은 번호의 attempt가 있으면 `accept_newer_attempt`, attempt branch나 worktree가 없으면
+    `accept_branch_missing`·`accept_worktree_missing`, worktree가 그 branch로 등록돼 있지 않으면
+    `accept_worktree_mismatch`, branch tip·worktree HEAD·기록 candidate가 다르면
+    `accept_candidate_mismatch`, worktree에 변경이 있으면(QA 재실행 뒤 포함) `accept_worktree_dirty`,
+    baseline에서 candidate까지가 Worker candidate commit 사슬이 아니면 `accept_chain_mismatch`,
+    변경이 허용 경로를 벗어나면 `accept_scope_violation`, main이 checkout돼 있지 않거나 baseline과
+    다르거나 tracked 변경이 있으면 `accept_main_not_checked_out`·`accept_baseline_moved`·
+    `accept_main_dirty`, QA가 실패하면 `accept_qa_failed`로 거절한다. 이 거절들은 승인 전이 전이라
+    상태·실패 기록·main·attempt를 바꾸지 않고 감사도 남기지 않으므로 다시 accept할 수 있다. 승인
+    전이가 적용되지 않으면 `accept_transition_failed`다. 승인 전이 뒤의 실패는 9~11항과 같이
+    처리하며 다시 accept하지 않는다. main이 baseline과 다르면 rebase·merge·resume으로 우회하지 않는다.

@@ -82,6 +82,7 @@
 | Jarvis Console Complete | `DOING` → `DONE` |
 | Discord `/go` (TODO task) | `TODO` → `DOING` |
 | Discord `/go` 재시도·resume, `/retry` (FAILED task) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
+| Discord `/go <id> accept` (`qa_unverified_owner_review` 기록이 있는 FAILED task, QA 재실행 통과 뒤에만) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
 | Discord `/approve` 승인 / 거절 | `NEEDS_APPROVAL` → `DOING` / `NEEDS_APPROVAL` → `FAILED` |
 | 실행 결과 기록 `_apply_execution_result` (`/approve`·`/run`·`/retry`·`/go` 실행 뒤) | 성공 `DOING` → `DONE`, 실패 `DOING` → `FAILED` |
 

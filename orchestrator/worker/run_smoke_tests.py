@@ -260,8 +260,240 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     check("bot: /go execution audits send source go", execution_sources == ["go", "go"], str(execution_sources))
     check("bot: /go execution audits pass the payload validator", execution_audit_errors == [None, None], str(execution_audit_errors))
     check("bot: /go resume on a non-FAILED task is refused", bot._run_command(f"/go {task_id} resume").get("reason", "").startswith(("resume_requires_failed", "status_not_startable")))
-    check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume]")
+    check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume|accept]")
     check("bot: finished task is not startable again", bot._run_command(f"/go {task_id}").get("reason") == "status_not_startable:DONE")
+
+    # task-0151: /go <id> accept through the adapter.
+    check("bot: accept on a DONE task is refused", bot._run_command(f"/go {task_id} accept").get("reason") == "accept_requires_failed:DONE")
+    other = bot._run_command("/work Studyroom glossary에 용어 1개 더 추가").get("task_id", "")
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "scope", "pass"
+    started = bot._run_command(f"/go {other}")
+    bot._run_worker_job(other, started["request"], started["command"])
+    check("bot: accept on a task failed for another reason is refused", status_of(other) == "FAILED"
+          and bot._run_command(f"/go {other} accept").get("reason") == "accept_record_invalid")
+
+    owner_task = bot._run_command("/work Studyroom glossary에 확인 대기 용어 추가").get("task_id", "")
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "unverifiednone"
+    started = bot._run_command(f"/go {owner_task}")
+    stopped = bot._run_worker_job(owner_task, started["request"], started["command"])
+    task_path = clone / "memory" / "tasks" / f"{owner_task}.md"
+    record = bot._owner_review_record(task_path)
+    check("bot: qa_unverified_owner_review stop leaves FAILED and the exact record", status_of(owner_task) == "FAILED"
+          and record == claude_worker.owner_review_record(stopped["candidate"], stopped["baseline"], 1), str(record))
+    check("bot: that reply offers /go <id> accept", f"`/go {owner_task} accept` 확인을 마친 candidate 반영" in bot._format_reply(stopped))
+
+    approvals_before = audits.count("approval")
+    started = bot._run_command(f"/go {owner_task} accept")
+    check("bot: accept starts without a status change or approval audit", started.get("result_type") == "work_started"
+          and started.get("accept") is True and status_of(owner_task) == "FAILED" and audits.count("approval") == approvals_before)
+    check("bot: accept started reply", bot._format_reply(started).startswith(f"▶️ 승인됨 (accept): {owner_task} → "))
+    check("bot: a second /go while accept runs is refused", bot._run_command(f"/go {owner_task} accept").get("reason") == "worker_busy")
+    real_run_tests = claude_worker._run_tests
+    claude_worker._run_tests = lambda worktree: (False, "forced failure")
+    qa_failed = bot._run_worker_job(owner_task, started["request"], started["command"], False, True)
+    claude_worker._run_tests = real_run_tests
+    check("bot: accept QA failure keeps FAILED, the record and no approval audit", qa_failed.get("reason") == "accept_qa_failed"
+          and status_of(owner_task) == "FAILED" and bot._owner_review_record(task_path) == record
+          and audits.count("approval") == approvals_before and qa_failed.get("audit_error") is None)
+    check("bot: that reply offers accept again", f"`/go {owner_task} accept`" in bot._format_reply(qa_failed))
+
+    head_before = git(["rev-parse", "HEAD"], clone)
+    executions_before = audits.count("execution")
+    started = bot._run_command(f"/go {owner_task} accept")
+    accepted = bot._run_worker_job(owner_task, started["request"], started["command"], False, True)
+    check("bot: accept integrates and marks DONE", accepted.get("ok") is True and status_of(owner_task) == "DONE"
+          and git(["rev-parse", "HEAD^"], clone) == stopped["candidate"] and git(["rev-list", "--count", f"{head_before}..HEAD"], clone) == "2",
+          f"{accepted.get('stage')}:{accepted.get('reason')}:{accepted.get('detail')}")
+    check("bot: accept audits the approval once and the execution with source go",
+          audits.count("approval") == approvals_before + 1 and audits.count("execution") == executions_before + 1
+          and execution_sources[-1] == "go" and execution_audit_errors[-1] is None)
+    check("bot: accept success reply says the Reviewer was not called again", "- Reviewer: 재호출 없음 (Owner accept)" in bot._format_reply(accepted))
+
+
+def attempt_of(task_id: str, branch: str) -> int:
+    name = branch[len("jarvis/"):]
+    return 1 if name == task_id else int(name.rsplit("-r", 1)[1])
+
+
+def accept_flow(clone: Path, worktrees: Path) -> None:
+    """task-0151: claude_worker.accept_candidate against preserved qa_unverified_owner_review attempts."""
+
+    def owner_review_attempt(task_id: str, earlier: tuple[str, ...] = ()):
+        for review in earlier:
+            run_case(task_id[len("task-8000-"):], clone, worktrees, worker="ok", review=review, task_id=task_id)
+        r, calls, *_ = run_case(task_id[len("task-8000-"):], clone, worktrees, worker="ok", review="unverifiednone", task_id=task_id)
+        return r, calls[-1][1]
+
+    def accept(task_id: str, record: str, approve_result: tuple[bool, str] = (True, ""), before_approve=None):
+        approvals: list[int] = []
+        calls: list[tuple[bool, str]] = []
+
+        def approve() -> tuple[bool, str]:
+            approvals.append(1)
+            if before_approve:
+                before_approve()
+            return approve_result
+
+        def record_result(success: bool, summary: str) -> tuple[bool, str]:
+            calls.append((success, summary))
+            return True, ""
+
+        origin_before = git(["rev-parse", "origin/main"], clone)
+        r = claude_worker.accept_candidate(task_id=task_id, record=record, approve=approve, repo_root=clone,
+                                           worktree_root=worktrees, record_result=record_result)
+        check(f"accept {task_id}: no push", git(["rev-parse", "origin/main"], clone) == origin_before and not r.pushed)
+        return r, approvals, calls
+
+    def refused(name: str, r, approvals, calls, reason: str, head: str, attempt) -> None:
+        check(f"accept refusal: {name} -> {reason}, nothing changed or recorded",
+              (not r.ok) and r.reason == reason and r.accept_retryable and not approvals and not calls
+              and git(["rev-parse", "HEAD"], clone) == head and git(["rev-parse", attempt.branch], clone) == attempt.candidate
+              and Path(attempt.worktree).exists(), f"{r.stage}:{r.reason}:{r.detail}")
+
+    # The failure record names the exact candidate; other failure records stay "stage:reason".
+    attempt, record = owner_review_attempt("task-8000-accref")
+    check("accept record: qa_unverified_owner_review records candidate, baseline and attempt",
+          record == claude_worker.owner_review_record(attempt.candidate, attempt.baseline, attempt_of("task-8000-accref", attempt.branch))
+          and claude_worker.parse_owner_review_record(record) == (attempt.candidate, attempt.baseline, 1), record)
+    head = git(["rev-parse", "HEAD"], clone)
+    wt, branch = Path(attempt.worktree), attempt.branch
+
+    r, a, c = accept("task-8000-accref", "qa:qa_unverified_owner_review")
+    refused("bare record", r, a, c, "accept_record_invalid", head, attempt)
+    r, a, c = accept("task-8000-accref", record.replace(attempt.candidate, attempt.baseline))
+    refused("tip differs from the recorded candidate", r, a, c, "accept_candidate_mismatch", head, attempt)
+    r, a, c = accept("task-8000-accref", record.replace(attempt.baseline, git(["rev-parse", f"{attempt.baseline}^"], clone)))
+    refused("recorded baseline is not the candidate's parent", r, a, c, "accept_chain_mismatch", head, attempt)
+
+    git(["update-ref", "-d", f"refs/heads/{branch}"], clone)
+    r, a, c = accept("task-8000-accref", record)
+    git(["update-ref", f"refs/heads/{branch}", attempt.candidate], clone)
+    refused("branch missing", r, a, c, "accept_branch_missing", head, attempt)
+
+    moved_wt = wt.with_name(wt.name + "-moved")
+    wt.rename(moved_wt)
+    r, a, c = accept("task-8000-accref", record)
+    moved_wt.rename(wt)
+    refused("worktree missing", r, a, c, "accept_worktree_missing", head, attempt)
+
+    git(["checkout", "-q", "--detach"], wt)
+    r, a, c = accept("task-8000-accref", record)
+    git(["checkout", "-q", branch], wt)
+    refused("worktree not on the attempt branch", r, a, c, "accept_worktree_mismatch", head, attempt)
+
+    git(["update-ref", f"refs/heads/{branch}", f"{attempt.candidate}^"], clone)
+    r, a, c = accept("task-8000-accref", record)
+    git(["update-ref", f"refs/heads/{branch}", attempt.candidate], clone)
+    refused("HEAD and tip moved off the candidate", r, a, c, "accept_candidate_mismatch", head, attempt)
+
+    (wt / "apps/studyroom/content/untracked.txt").write_text("x\n", encoding="utf-8")
+    r, a, c = accept("task-8000-accref", record)
+    (wt / "apps/studyroom/content/untracked.txt").unlink()
+    refused("dirty worktree", r, a, c, "accept_worktree_dirty", head, attempt)
+
+    (wt / "docs" / "outside.md").write_text("x\n", encoding="utf-8")
+    git(["add", "docs/outside.md"], wt)
+    git(["commit", "-q", "-m", "feat(studyroom): task-8000-accref Jarvis worker repair 1 candidate"], wt)
+    outside = git(["rev-parse", "HEAD"], wt)
+    r, a, c = accept("task-8000-accref", record.replace(attempt.candidate, outside))
+    git(["reset", "-q", "--hard", attempt.candidate], wt)
+    refused("a candidate chain that leaves the allowed path", r, a, c, "accept_scope_violation", head, attempt)
+
+    (clone / "memory" / "tasks" / "task-8000-accref-r2.md").write_text("# task-8000-accref-r2\n", encoding="utf-8")
+    r, a, c = accept("task-8000-accref", record)
+    (clone / "memory" / "tasks" / "task-8000-accref-r2.md").unlink()
+    refused("another task named like an attempt", r, a, c, "accept_attempt_ambiguous", head, attempt)
+
+    (clone / "docs" / "accept-moved.md").write_text("x\n", encoding="utf-8")
+    git(["add", "docs/accept-moved.md"], clone)
+    git(["commit", "-q", "-m", "move main"], clone)
+    r, a, c = accept("task-8000-accref", record)
+    check("accept refusal: main moved off the baseline, main left where it is", (not r.ok) and r.reason == "accept_baseline_moved"
+          and r.accept_retryable and not a and not c and git(["rev-parse", "HEAD^"], clone) == head, f"{r.reason}")
+    git(["reset", "-q", "--hard", head], clone)
+
+    readme = clone / "README.md"
+    readme.write_text(readme.read_text(encoding="utf-8") + "x\n", encoding="utf-8")
+    r, a, c = accept("task-8000-accref", record)
+    git(["checkout", "--", "README.md"], clone)
+    refused("main has tracked changes", r, a, c, "accept_main_dirty", head, attempt)
+
+    real_run_tests = claude_worker._run_tests
+    claude_worker._run_tests = lambda worktree: (False, "forced failure")
+    r, a, c = accept("task-8000-accref", record)
+    claude_worker._run_tests = real_run_tests
+    refused("QA re-run fails", r, a, c, "accept_qa_failed", head, attempt)
+    check("accept refusal: the QA failure names the failed check", r.detail == "tests_rerun" and r.qa_checks.get("tests_rerun") is False, r.detail)
+
+    def dirtying_tests(worktree: Path) -> tuple[bool, str]:
+        (worktree / "apps/studyroom/content/left-behind.txt").write_text("x\n", encoding="utf-8")
+        return True, "ok"
+
+    claude_worker._run_tests = dirtying_tests
+    r, a, c = accept("task-8000-accref", record)
+    claude_worker._run_tests = real_run_tests
+    (wt / "apps/studyroom/content/left-behind.txt").unlink()
+    refused("QA run leaves changes behind", r, a, c, "accept_worktree_dirty", head, attempt)
+
+    r, a, c = accept("task-8000-accref", record, approve_result=(False, "status_mismatch"))
+    check("accept: a refused approval transition records nothing and is not offered again", (not r.ok)
+          and r.reason == "accept_transition_failed" and a == [1] and not c and not r.accept_retryable
+          and git(["rev-parse", "HEAD"], clone) == head, f"{r.reason}")
+
+    def move_main() -> None:
+        (clone / "docs" / "accept-race.md").write_text("x\n", encoding="utf-8")
+        git(["add", "docs/accept-race.md"], clone)
+        git(["commit", "-q", "-m", "move main during approval"], clone)
+
+    r, a, c = accept("task-8000-accref", record, before_approve=move_main)
+    check("accept: main moving after approval fails like run_pipeline (integrate:baseline_moved recorded, no ff)",
+          (not r.ok) and r.stage == "integrate" and r.reason == "baseline_moved" and not r.accept_retryable
+          and c == [(False, "integrate:baseline_moved")] and git(["rev-parse", "HEAD^"], clone) == head
+          and git(["rev-parse", branch], clone) == attempt.candidate and wt.exists(), f"{r.stage}:{r.reason}:{c}")
+    git(["reset", "-q", "--hard", head], clone)
+
+    # After every refusal above the same record still accepts (QA failure included).
+    r, a, c = accept("task-8000-accref", record)
+    check("accept: the recorded candidate integrates after earlier refusals", r.ok and r.stage == "done" and r.accepted
+          and a == [1] and len(c) == 1 and c[0][0] is True and "accepted by the Owner" in c[0][1], f"{r.stage}:{r.reason}:{r.detail}")
+    check("accept: main is candidate + checkpoint, attempt cleaned", git(["rev-parse", "HEAD^"], clone) == attempt.candidate
+          and git(["rev-list", "--count", f"{head}..HEAD"], clone) == "2" and r.checkpoint == git(["rev-parse", "HEAD"], clone)
+          and not wt.exists() and not git(["branch", "--list", branch], clone), f"{r.checkpoint}")
+    check("accept: all six QA checks re-ran and the Reviewer was not called", len(r.qa_checks) == 6 and all(r.qa_checks.values())
+          and r.reviewer_verdict == "")
+    check("accept: jarvis.bat never in main index or tree", not git(["ls-files", "--", "jarvis.bat"], clone))
+
+    r, a, c = accept("task-8000-accnone", claude_worker.owner_review_record("a" * 40, "b" * 40, 1))
+    check("accept refusal: no attempt at all -> accept_branch_missing", (not r.ok) and r.reason == "accept_branch_missing" and not a and not c, r.reason)
+
+    # A later attempt exists: the record is stale.
+    stale, stale_record = owner_review_attempt("task-8000-accnewer")
+    run_case("accnewer", clone, worktrees, worker="ok", review="findings", task_id="task-8000-accnewer")
+    head = git(["rev-parse", "HEAD"], clone)
+    r, a, c = accept("task-8000-accnewer", stale_record)
+    refused("a later attempt exists", r, a, c, "accept_newer_attempt", head, stale)
+
+    # task-0149 shape: two attempts on the same baseline with the same commit subject; the record picks its own.
+    two, two_record = owner_review_attempt("task-8000-acctwo", earlier=("findings",))
+    first = git(["rev-parse", "jarvis/task-8000-acctwo"], clone)
+    check("accept setup: two attempts share the baseline", two.branch == "jarvis/task-8000-acctwo-r2"
+          and git(["merge-base", first, two.candidate], clone) == two.baseline)
+    head = git(["rev-parse", "HEAD"], clone)
+    r, a, c = accept("task-8000-acctwo", two_record)
+    check("accept: with an earlier attempt on the same baseline, the recorded one integrates", r.ok
+          and git(["rev-parse", "HEAD^"], clone) == two.candidate and git(["rev-parse", "jarvis/task-8000-acctwo"], clone) == first,
+          f"{r.stage}:{r.reason}:{r.detail}")
+
+    # task-0143 shape: earlier attempts removed, only -r3 left.
+    gap, gap_record = owner_review_attempt("task-8000-accgap", earlier=("findings", "findings"))
+    for name in ("task-8000-accgap", "task-8000-accgap-r2"):
+        git(["worktree", "remove", "--force", str(worktrees / name)], clone)
+        git(["branch", "-D", f"jarvis/{name}"], clone)
+    check("accept setup: only -r3 is left", gap.branch == "jarvis/task-8000-accgap-r3"
+          and claude_worker._attempt_numbers(clone, worktrees, "task-8000-accgap") == ({3}, False))
+    r, a, c = accept("task-8000-accgap", gap_record)
+    check("accept: a gap in attempt numbers does not hide the recorded attempt", r.ok and git(["rev-parse", "HEAD^"], clone) == gap.candidate,
+          f"{r.stage}:{r.reason}:{r.detail}")
 
 
 def owner_review_replies(results: dict[str, dict]) -> None:
@@ -276,6 +508,8 @@ def owner_review_replies(results: dict[str, dict]) -> None:
               and "- 확인 대기 1/1: {item: the new term matches the task-0142 record" in reply, reply)
         check(f"owner review reply: {mode} leaves out the entry paired with tests_rerun",
               "Studyroom smoke tests" not in reply and "확인 대기 2/" not in reply, reply)
+        check(f"owner review reply: {mode} offers /go <id> accept (task-0151)",
+              f"· `/go {results[mode]['task_id']} accept` 확인을 마친 candidate 반영 · `/status " in reply, reply)
     for mode in ("nounverified", "badunverified"):
         reply = bot._format_reply(results[mode])
         check(f"owner review reply: {mode} explains the unreadable field",
@@ -357,6 +591,8 @@ def main() -> int:
             if reason != "baseline_moved":
                 check(f"{name}: main unchanged", before == after)
             check(f"{name}: task recorded as failure", bool(calls) and calls[-1][0] is False)
+            check(f"{name}: failure record stays stage:reason (task-0151)", bool(calls) and calls[-1][1] == f"{stage}:{reason}",
+                  calls[-1][1] if calls else "")
             return r
 
         expect_fail("scope", "scope", "scope", "scope_violation")
@@ -510,6 +746,9 @@ def main() -> int:
                   and "the new term matches" in r.detail and "Studyroom smoke tests" not in r.detail
                   and git(["rev-parse", r.branch], clone) == r.candidate, f"{r.stage}:{r.reason}:{r.detail}")
             check(f"qa pairing: {mode} records FAILED, not DONE", bool(calls) and calls[-1][0] is False)
+            check(f"qa pairing: {mode} failure record names candidate, baseline and attempt (task-0151)", bool(calls)
+                  and calls[-1][1] == claude_worker.owner_review_record(r.candidate, r.baseline, attempt_of(f"task-8000-{mode}", r.branch)),
+                  calls[-1][1] if calls else "")
             owner_review_results[mode] = {"result_type": "work_result", **r.to_dict()}
         # task-0148 repair 2: a missing or malformed field is unclassifiable, never "no entries".
         for mode in ("nounverified", "badunverified"):
@@ -548,6 +787,7 @@ def main() -> int:
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
         bot_flow(clone, worktrees)
         owner_review_replies(owner_review_results)
+        accept_flow(clone, worktrees)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

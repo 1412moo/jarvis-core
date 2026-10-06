@@ -1,0 +1,358 @@
+# task-0151-go-accept-owner-reviewed-candidate
+
+- id: `task-0151-go-accept-owner-reviewed-candidate`
+- title: `qa_unverified_owner_review로 멈춘 Worker candidate를 Owner 확인 뒤 /go <id> accept로 반영`
+- status: `DOING`
+- repo: `jarvis-core`
+- created_at: `2026-10-06 03:14 UTC`
+- updated_at: `2026-10-06 04:10 UTC`
+- summary: `Worker 파이프라인이 qa_unverified_owner_review로 멈춘 FAILED task에서, Owner가 확인을 마친 뒤 /go <id> accept로 보존된 마지막 attempt candidate를 반영하게 한다. 대상 식별·QA 6개 재실행·main baseline 일치를 모두 fail-closed로 검증하고 기존 허용 전이(FAILED→TODO→DOING→DONE)만 쓰며 새 상태는 만들지 않는다. 구현과 Implementer 검증을 마쳤고 commit·Reviewer·QA는 Owner 결정 대기다.`
+- source_command: `Owner 지시: task-0151 Owner 결정 1~4와 추가 안전 조건, task 파일 생성까지만`
+
+## 기준선
+
+| 항목 | 값 |
+| --- | --- |
+| baseline | `753e5dbe1ae3ecb13e6a9c88d4881acac2ed00a5` (main HEAD, push 전) |
+| 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
+| 선행 task | task-0150(DONE): `qa_unverified_owner_review` Discord 보고에 확인 대기 항목 표시. 결정 3에서 accept 명령을 별도 후속 task로 분리 |
+
+## 배경 (계획 단계 확인, 코드 기준)
+
+- `/go` 파싱과 검증은 `adapters/discord/bot_minimal.py`의 `_run_go`다. 형식은 `/go <task-id> [resume]`이고,
+  `TODO`·`FAILED`만 시작하며 `FAILED`는 `FAILED→TODO→DOING` 순서로 전이하고 `_audit_owner_approval`로 감사를 남긴다.
+- 실행은 `_run_worker_job`이 `claude_worker.run_pipeline`을 부른다. 반영은 main HEAD가 baseline과 같고 tracked가
+  깨끗할 때만 `merge --ff-only`이고, 그 뒤 `DOING→DONE` 기록, checkpoint commit, worktree·branch 정리다.
+- `qa_unverified_owner_review`는 `run_pipeline`의 QA 단계에서 QA 6개가 모두 통과한 뒤 `unverified_pending()`이 남으면
+  생긴다. `DOING→FAILED`로 기록하고 attempt worktree·branch를 보존한다(SOP §10.2 1·9·11항).
+- task 파일에 남는 것은 `execution_summary`와 `execution_result.error_reason`의 `qa:qa_unverified_owner_review`뿐이다.
+  candidate SHA, attempt 이름, 확인 대기 항목은 기록되지 않는다.
+- 상태 전이 계약(`docs/task-model.md` 5-1)에 `FAILED→DONE`은 없다. `FAILED→TODO`, `TODO→DOING`, `DOING→DONE`은 있다.
+  5-2는 "새 경로는 5-1에 있는 전이만 쓸 수 있다"고 정한다.
+- SOP §10.2 9항은 `qa_unverified_owner_review`를 "Owner 확인 대상으로 남긴다(candidate 보존, 새 상태 없음)"로 정한다.
+  §8의 minor 수용은 §10에 적용하지 않으므로 accept는 §10의 규칙으로 정해야 한다.
+- 감사 스키마(`orchestrator/audit-chain/audit_entry.py`)의 Owner 승인 항목은 `decision`이 `approve`/`reject`이고
+  `command` 원문(200자 이하)을 남긴다. `/go <id> accept`는 새 어휘 없이 기록할 수 있다.
+
+## Owner 결정 (원문)
+
+```text
+Owner 결정:
+
+1. A안 채택
+   * `FAILED` 상태를 그대로 유지한다.
+   * 새 `OWNER_REVIEW` 상태는 만들지 않는다.
+   * 기존 허용 전이만 사용한다: `FAILED → TODO → DOING → DONE`.
+   * task-model의 5-2에는 `/go <id> accept` 경로만 추가한다.
+2. 명령 형식은 `/go <id> accept`로 한다.
+   * SHA를 Owner가 직접 입력하도록 확장하지 않는다.
+   * 대신 가장 최근의 유효한 `qa_unverified_owner_review` attempt를 fail-closed 방식으로 식별한다.
+   * 여러 후보가 애매하게 남아 있거나 candidate 식별이 확실하지 않으면 반영하지 말고 거절한다.
+3. main HEAD가 attempt의 baseline과 다르면 무조건 거절한다.
+   * 자동 rebase, merge, resume으로 우회하지 않는다.
+   * main은 절대 건드리지 않는다.
+4. `qa_unverified_owner_review` 결과 보고에 `/go <id> accept` 선택지를 추가한다.
+   * Owner가 확인을 마친 뒤 명시적으로 accept를 실행할 수 있어야 한다.
+   * 단, 이번 task의 핵심은 accept 기능이며 기존 `resume`/재시도 의미는 바꾸지 않는다.
+
+추가 안전 조건:
+
+* `accept` 대상은 단순히 `execution_summary` 문자열만 보고 고르지 않는다.
+* 보존된 attempt의 branch/worktree/HEAD/candidate commit과 실패 시점·baseline을 함께 검증해서 해당 `qa_unverified_owner_review` candidate임을 확인한다.
+* 검증이 조금이라도 애매하면 fail-closed로 거절한다.
+* accept 시 QA 6개를 같은 candidate에서 다시 실행한다.
+* QA 실패 시 main과 task 상태를 변경하지 않는다.
+* Reviewer는 다시 호출하지 않는다.
+* 성공 시에만 기존 반영 경로를 이용해 ff-only → DONE → checkpoint → worktree/branch 정리를 수행한다.
+* push하지 않는다.
+* `jarvis.bat`은 건드리지 않는다.
+
+이제 구현하지 말고 task 파일 생성 단계까지만 진행해.
+task 생성 단계
+
+* 제목:
+`qa_unverified_owner_review로 멈춘 Worker candidate를 Owner 확인 뒤 /go <id> accept로 반영`
+* ID:
+`task-0151-go-accept-owner-reviewed-candidate`
+* 위 Owner 결정과 fail-closed 조건을 task 기록에 반영
+* 완료 조건은 네가 제안한 1~8을 위 결정에 맞게 정리
+* 범위 밖도 명시
+* task status는 기존 방식에 맞게 생성하고, 임의로 DOING/DONE으로 진행시키지 말 것
+
+task 파일을 만든 뒤 파일 경로, status, 완료 조건, 범위 밖만 보고해줘.
+코드 수정, commit, push는 하지 마.
+```
+
+## Owner 설계 결정 (원문)
+
+```text
+task-0151 구현 설계에 대한 Owner 결정을 반영해.
+Owner 결정
+
+1. `qa_unverified_owner_review` 실패 기록에 candidate/baseline/attempt 추가 — 승인
+형식:
+`qa:qa_unverified_owner_review candidate=<40hex> baseline=<40hex> attempt=<N>`
+기존 문자열 필드를 사용하는 것이므로 새로운 task schema/Writer schema는 만들지 않는다.
+2. 반영 중 실패 후 재-accept — 하지 않는다.
+   * 기존 `run_pipeline`과 동일하게 처리한다.
+   * `integrate:*`, `git:*` 등으로 실패 원인이 바뀌면 일반 실패로 종료한다.
+   * accept 전용 recovery 상태/기록 형식은 만들지 않는다.
+   * 필요하면 별도 recovery task로 다룬다.
+3. SOP validator 확장 — 승인
+   * `/go <id> accept`와 관련된 새 규칙을 validator가 검사하도록 한다.
+   * 단, 기존 validator 구조를 대규모로 변경하지 말고 이번 task에 필요한 최소 변경만 한다.
+4. task-0143의 `_existing_attempts()` 연속 번호 문제 — 이번 task에서 수정하지 않는다.
+   * accept 구현에서는 `_existing_attempts()`에 의존하지 않는다.
+   * 별도 결함/후속 task 후보로만 기록한다.
+5. accept 감사 시점 — 기존 `/go`와 동일하게 한다.
+   * candidate 식별 실패나 QA 실패 등 실제 승인 전이에 도달하지 못한 경우 audit을 남기지 않는다.
+   * 실제 `FAILED→TODO→DOING` 승인 전이를 수행할 때 Owner 명령 원문 `/go <id> accept`를 기존 audit schema로 남긴다.
+   * execution 결과 audit은 기존 흐름을 따른다.
+
+추가 Owner 결정
+QA 6개가 끝나기 전에는 `FAILED→TODO→DOING`으로 상태를 바꾸지 않는다.
+정확한 순서는:
+`candidate 식별 → baseline 확인 → QA 6개 → 승인 전이 FAILED→TODO→DOING → baseline 재확인 → ff-only → DONE → checkpoint`
+QA 실패 시에는 원래의 `FAILED` 상태와
+`qa:qa_unverified_owner_review candidate=... baseline=... attempt=...`
+기록을 그대로 유지해서 나중에 다시 accept할 수 있어야 한다.
+지금 할 작업
+
+* 위 결정들을 task-0151 기록에 반영
+* 설계 내용과 결정사항을 기록
+* task-0143 `_existing_attempts()` 문제는 별도 후속 후보로 기록
+* 아직 TODO→DOING 하지 말 것
+* 코드 수정하지 말 것
+* commit하지 말 것
+* push하지 말 것
+* `jarvis.bat` 건드리지 말 것
+
+반영 후 task-0151의 현재 status와 변경된 결정사항만 보고해줘.
+```
+
+## 설계 조사 (코드·저장소 기준, 2026-10-06)
+
+- candidate·baseline을 연결하는 기존 durable evidence는 없다. 실패 시 task 기록에는 `f"{stage}:{reason}"`만 남고
+  (`execution_summary`, `execution_result.error_reason`), 감사 chain의 Owner 승인·실행 결과 항목에도 candidate가 없다.
+  Discord 보고의 7자리 candidate는 durable하지 않다. 성공 기록은 이미 `worker candidate <7자> passed …`로 candidate를
+  담는다. 현재 `qa_unverified_owner_review` 실패 기록을 가진 task는 없다.
+- 실제 보존 사례:
+  - task-0143(FAILED): 남은 attempt는 `-r3` 하나(tip `e05c69c`, parent `7483e64`)다. 기록(`c5cf969`)은 3개 보존을
+    적었지만 r1·r2의 branch와 worktree는 현재 없다. 연속 번호만 세는 `_existing_attempts()`는 이 task에서 빈 목록을 낸다.
+  - task-0149(DONE): r1 `8f0c58e`와 r2 `bd1622e`가 같은 baseline `2b03f23`과 같은 commit 메시지로 남아 있고, 실제로
+    성공한 r3는 정리돼 없다. 남은 attempt 중 최신이 실제 마지막 실행이 아닐 수 있고, baseline·메시지·이름으로는 구분되지 않는다.
+- 결론: git·worktree 정보만으로는 "가장 최근 실행이 남긴 그 candidate"를 증명할 수 없다(최신 attempt가 지워지면 이전
+  attempt를 잘못 고를 수 있다). 실패 시점 기록에 candidate SHA를 남기고 git 상태와 대조한다(Owner 결정 1).
+
+## 구현 설계 (Owner 결정 반영)
+
+### 실패 기록 형식
+
+`run_pipeline`이 `qa_unverified_owner_review`로 실패할 때만 기록 문자열을
+`qa:qa_unverified_owner_review candidate=<40hex> baseline=<40hex> attempt=<N>`로 남긴다. 기존 문자열 필드
+(`execution_summary`, `execution_result.error_reason`, 상한 500자)를 그대로 쓰며 task·Writer 스키마는 바꾸지 않는다.
+다른 실패 사유의 기록 문자열은 바꾸지 않는다.
+
+### candidate 식별 (모두 통과해야 하며 애매하면 거절)
+
+1. 상태·사유: `status == FAILED`, `executed == true`, `success == false`. `execution_summary`와
+   `execution_result.error_reason`이 같은 문자열이고 위 형식에 엄격히 맞는다(40hex 2개, 양의 정수 attempt).
+2. attempt 유일성: `_existing_attempts()`를 쓰지 않는다. `refs/heads/jarvis/<id>`·`jarvis/<id>-r*` 전체와
+   `WORKTREE_ROOT/<id>`·`<id>-r*` 디렉터리 전체를 모으고, 기록된 attempt N보다 큰 번호가 하나라도 있으면 거절한다.
+3. branch·worktree: `_attempt_name(id, N)`의 branch와 worktree가 `git worktree list --porcelain`에서 경로·branch·HEAD로
+   한 항목에 묶여 있어야 한다. 한쪽만 있으면 거절한다.
+4. candidate: branch tip = worktree HEAD = 기록된 candidate. worktree `status --porcelain --untracked-files=all`이 비어 있다.
+5. baseline: 기록된 baseline이 candidate의 조상이고, `rev-list --first-parent baseline..candidate`가 1개 이상
+   `1+REPAIR_BUDGET_MAX`개 이하이며, 각 commit은 parent가 하나이고 메시지가 `feat(studyroom): <id> Jarvis worker`
+   `candidate` 또는 `repair N candidate` 형식이다. 가장 오래된 commit의 parent가 기록된 baseline이다. 변경 경로는
+   `_scope_violations`가 비어 있다.
+6. main: `symbolic-ref HEAD == main`, `rev-parse HEAD ==` 기록된 baseline, tracked 파일이 깨끗하다.
+7. 다른 attempt 오선택 방지: 기록된 candidate SHA와 branch tip 일치(4)와 상위 번호 부재(2)로 막는다. task-0149처럼 같은
+   baseline·메시지의 attempt가 여럿이어도 SHA가 다르므로 섞이지 않는다.
+
+### 실행 순서와 실패 시 상태 (Owner 추가 결정)
+
+`candidate 식별 → baseline 확인 → QA 6개 → 승인 전이 FAILED→TODO→DOING → baseline 재확인 → ff-only → DONE → checkpoint`
+(그 뒤 기존 경로대로 worktree·branch 정리)
+
+| 단계 | 실패 시 | 유지되는 것 |
+| --- | --- | --- |
+| 파싱·가벼운 검사, lock(`worker_busy`) | 사유 코드로 거절 | main, `FAILED`와 기록 문자열, attempt, 감사 없음 |
+| candidate 식별, baseline 확인 | 사유 코드로 거절 | 위와 같음 |
+| QA 6개 재실행(재실행 뒤 worktree 깨끗함 재확인 포함) | 사유 코드로 거절 | 위와 같음. 기록 문자열이 그대로라 다시 accept할 수 있다 |
+| 승인 전이 `FAILED→TODO→DOING` | 기존 `/go`와 같음 | main, attempt. 이 시점에 Owner 승인 감사(`/go <id> accept` 원문, 기존 스키마) |
+| baseline 재확인, ff-only | 기존 `run_pipeline`처럼 `DOING→FAILED`(`integrate:*`, `git:*`) | main(ff-only는 원자적), attempt. 기록 문자열이 바뀌므로 재-accept 대상이 아니다(Owner 결정 2) |
+| `DOING→DONE` 기록 | 기존과 같음(`checkpoint:task_result_not_recorded`) | candidate는 이미 main. SOP §10.2 11항의 Owner 확인 대상 |
+| checkpoint commit, 정리 | 기존과 같음 | main 반영, DONE 유지 |
+
+반영 이후 단계는 `run_pipeline`과 공통 함수를 쓰므로 실패 시 남는 상태가 같다. 실행 결과 감사는 기존 흐름(source `go`)을 따른다.
+
+### 코드 구조
+
+- `orchestrator/worker/claude_worker.py`: `run_pipeline`의 QA 6개를 `_qa_checks(...)`로, 반영·DONE·checkpoint·정리를
+  `_integrate_and_checkpoint(...)`로 추출(동작 불변). 실패 기록 형식과 엄격 parse, `find_owner_review_attempt(...)`,
+  `accept_candidate(...)` 추가.
+- `adapters/discord/bot_minimal.py`: `_run_go`에 `accept` 인자(상태 전이 없이 가벼운 검사와 lock만),
+  `_run_worker_job`의 accept 분기(QA 통과 뒤 승인 전이와 Owner 승인 감사, 기존 `record` 콜백), `_format_work_reply`의
+  `qa_unverified_owner_review` 선택지와 accept 결과 문구, 도움말·미지원 명령 안내.
+- 새 상태, Writer, 감사 스키마, Console 변경 없음. 기존 `_apply_task_status_transition`, `_apply_execution_result`,
+  `_audit_owner_approval`, `_audit_execution_result`를 쓴다.
+- validator: `/go <id> accept` 관련 새 규칙을 검사하는 최소 변경(Owner 결정 3).
+
+## fail-closed 조건 (Owner 결정 정리)
+
+accept는 아래 조건을 **모두** 만족할 때만 반영한다. 하나라도 확인할 수 없거나 애매하면 사유 코드와 함께 거절하고,
+main, task 상태, 기록 문자열, 보존된 attempt는 바꾸지 않는다.
+
+1. task `status`가 `FAILED`이고 실패 기록이 `qa:qa_unverified_owner_review candidate=<40hex> baseline=<40hex> attempt=<N>`
+   형식에 정확히 맞는다. 이 문자열만으로 대상을 고르지 않고 아래 git 검증을 함께 통과해야 한다.
+2. 기록된 attempt N보다 높은 번호의 attempt branch나 worktree가 없다. `_existing_attempts()`에 의존하지 않는다.
+3. attempt N의 branch와 worktree가 모두 있고 git worktree 목록에서 한 항목으로 묶이며, worktree가 깨끗하고 worktree HEAD가
+   branch tip과 같다.
+4. branch tip이 기록된 candidate이고, candidate 사슬이 기록된 baseline 위의 Worker candidate commit으로만 이뤄지며 변경
+   범위가 허용 경로 안이다.
+5. main HEAD가 기록된 baseline과 같고 main tracked 파일이 깨끗하다. 다르면 무조건 거절하며 rebase·merge·resume으로
+   우회하지 않는다. 반영 직전에 다시 확인한다.
+6. 같은 candidate에서 QA 6개(`head_is_candidate`, `change_set_matches`, `diff_check`, `jarvis_bat_absent`, `json_valid`,
+   `tests_rerun`)를 다시 실행해 모두 통과한다. QA가 끝나기 전에는 상태를 바꾸지 않고, 실패하면 `FAILED`와 기록 문자열을
+   그대로 둬 다시 accept할 수 있게 한다.
+7. Reviewer는 다시 호출하지 않는다.
+
+## 완료 조건
+
+1. `/go <id> accept`는 fail-closed 조건 1~5를 모두 만족하는 task에만 동작한다. 그 밖(상태가 `FAILED` 아님, 다른 실패
+   사유나 형식 불일치, 상위 번호 attempt 존재, branch·worktree 누락이나 불일치, worktree 더러움, HEAD≠tip≠기록 candidate,
+   candidate·baseline 사슬 불일치, 범위 밖 경로, main 이동, main 더러움)은 각각 사유 코드로 거절하고 main·task 상태·기록
+   문자열·attempt는 그대로이며 감사는 남지 않는다.
+2. 명령 형식은 `/go <id> accept` 하나이며 SHA 인자를 받지 않는다.
+3. `run_pipeline`이 `qa_unverified_owner_review`로 실패하면 기록 문자열이
+   `qa:qa_unverified_owner_review candidate=<40hex> baseline=<40hex> attempt=<N>`이다. 다른 실패 사유의 기록 문자열은 그대로다.
+4. 실행 순서는 `candidate 식별 → baseline 확인 → QA 6개 → FAILED→TODO→DOING → baseline 재확인 → ff-only → DONE →
+   checkpoint`다. QA 실패 시 `FAILED`와 기록 문자열이 그대로여서 다시 accept할 수 있다. Reviewer는 다시 호출하지 않는다.
+5. 상태 전이는 `docs/task-model.md` 5-1의 쌍만 쓴다. 새 상태를 만들지 않는다. 승인 전이를 수행할 때만 `/go <id> accept`
+   원문을 기존 Owner 승인 감사 스키마로 남기고, 실행 결과 감사는 기존 흐름을 따른다.
+6. 반영 이후(ff-only, DONE, checkpoint, 정리)는 `run_pipeline`과 같은 공통 함수로 하며, 그 단계의 실패는 기존과 같은
+   일반 실패로 끝난다(재-accept 없음). push하지 않는다.
+7. `qa_unverified_owner_review` 결과 보고에 `/go <id> accept` 선택지를 추가한다. 기존 `/go <id>` 재시도와
+   `/go <id> resume`의 의미와 동작, 성공 보고와 다른 실패 사유의 기존 문구, 2000자 보장은 바꾸지 않는다.
+8. `docs/task-model.md` 5-2 표에 `/go <id> accept` 경로를 추가하고 SOP §10.1(진입 명령)과 §10.2(accept 규칙, 실패 기록
+   형식)를 갱신한다. `validate_multi_agent_sop.py`는 accept 관련 새 규칙을 최소 변경으로 검사하고 PASS한다.
+9. 회귀 테스트와 기존 검사가 모두 PASS한다. 회귀 테스트: 정상 accept, attempt 0개, 상위 번호 attempt 존재, 낮은 번호만
+   남은 경우(task-0149 모양)와 번호가 띄엄띄엄인 경우(task-0143 모양)의 정상 식별, branch 없음, worktree 없음, dirty
+   worktree, HEAD≠tip·tip≠기록 candidate, 기록 형식·사슬·범위 불일치, QA 전후 main 이동, QA 재실행 실패 뒤 재-accept 가능,
+   다른 실패 사유·다른 상태, 기존 `/go`·`/go resume`, 실패 기록 형식, reply 문구. 기존 검사: worker smoke 전체, Discord
+   self-check, discord-intake smoke, Jarvis Console smoke, `git diff --check`, 실제 diff 범위 확인.
+
+## 범위 밖
+
+- 새 상태(`OWNER_REVIEW` 등)와 상태 전이 계약 5-1 변경
+- task·Writer 스키마(`task_file_writer.py`의 필드·상태·전이 정의), 감사 스키마(`audit_entry.py`), Jarvis Console 변경
+- Owner가 SHA를 직접 입력하는 명령 확장
+- main이 baseline과 다를 때 자동 rebase·merge·resume 등 우회 반영
+- 반영 중 실패 뒤 재-accept, accept 전용 recovery 상태나 기록 형식
+- accept 시 Reviewer 재호출
+- 확인 대기 항목을 task 기록에 저장
+- `_existing_attempts()` 연속 번호 결함 수정
+- 기존 `/go <id>` 재시도·`/go <id> resume` 의미 변경, 다른 결과 보고 문구 변경
+- validator 구조의 대규모 변경
+- 실제 Discord 경로 E2E 실행(별도 Owner 승인 대상)
+- push, PR, 외부 API·LLM 추가 호출, `jarvis.bat`
+
+## 후속 task 후보 (이번 task에서 다루지 않음)
+
+- `_existing_attempts()` 연속 번호 결함: `orchestrator/worker/claude_worker.py`의 `_existing_attempts()`는 attempt 1부터
+  연속으로 있을 때만 센다. task-0143처럼 앞 번호(r1, r2)가 지워지고 `-r3`만 남으면 빈 목록을 내므로, 그 task에서
+  `/go` 재시도는 attempt 1부터 다시 시작해 세 번째 시도에서 기존 `-r3` branch와 부딪치고, `/go resume`은
+  `resume_no_previous_attempt`로 실패한다. accept는 이 함수에 의존하지 않는다(Owner 결정 4).
+- 반영 중 실패한 accept의 recovery(Owner 결정 2: 필요하면 별도 recovery task).
+
+## 구현 착수
+
+Owner 지시("task-0151 TODO→DOING 하고 구현 시작해")로 `2026-10-06 03:52 UTC`에 Jarvis Console Start(Preview + Confirm,
+`START TASK`)로 `TODO→DOING`을 적용했다. Console 결과는 `result_type: updated`, `TODO → DOING`, `no_execution: true`였다.
+
+## 구현 (Implementer)
+
+baseline `753e5dbe1ae3ecb13e6a9c88d4881acac2ed00a5`. 아직 commit하지 않았다.
+
+| 파일 | 변경 |
+| --- | --- |
+| `orchestrator/worker/claude_worker.py` | `OWNER_REVIEW_RECORD_PATTERN`, `owner_review_record()`, `parse_owner_review_record()` 추가. `run_pipeline`의 QA 6개를 `_qa_checks()`로, 반영·DONE·checkpoint·정리를 `_integrate_and_checkpoint()`로 추출(동작 불변). `qa_unverified_owner_review` 실패일 때만 기록 문자열을 새 형식으로 남긴다. 식별용 `_attempt_numbers()`(연속 번호 가정 없음), `_worktree_entry()`, `_candidate_chain()`, `find_owner_review_attempt()`, `_accept_main_check()`와 `accept_candidate()` 추가. `WorkerRunResult`에 `accepted`, `accept_retryable` 필드 추가. `_existing_attempts()`는 바꾸지 않았고 accept는 쓰지 않는다 |
+| `adapters/discord/bot_minimal.py` | `/go <id> accept` 파싱(`usage:/go <task-id> [resume|accept]`). accept는 상태가 `FAILED`가 아니면 `accept_requires_failed:<상태>`, 기록이 맞지 않으면 `accept_record_invalid`로 거절하고, 상태 전이 없이 lock만 잡는다. `_owner_review_record()` 추가. `_run_worker_job`의 accept 분기는 QA 통과 뒤에만 `FAILED→TODO→DOING`과 Owner 승인 감사를 실행하는 `approve` 콜백을 넘긴다. accept 시작·성공 문구, `qa_unverified_owner_review`와 재-accept 가능한 accept 실패 보고에만 `/go <id> accept` 선택지(2000자 안에 들어갈 때만, 확인 대기 줄을 먼저 배치), 도움말 1줄. Discord 이벤트 처리에서 accept 플래그 전달 |
+| `orchestrator/worker/run_smoke_tests.py` | `accept_flow()`(worker 단위), `bot_flow` 끝의 accept 경로, 실패 기록 형식 검사, 보고 선택지 검사. 사용법 문구 기대값을 새 형식으로 바꿈 |
+| `docs/task-model.md` | 5-2 표에 `/go <id> accept` 경로 1줄 |
+| `docs/jarvis-multi-agent-sop-v0.1.md` | §10.1 진입 명령에 `resume`·`accept`, §10.2 9항에 실패 기록 형식, 12항(accept 규칙과 거절 사유 코드) 추가 |
+| `scripts/validate_multi_agent_sop.py` | `PIPELINE_REASON_PATTERN`에 `accept_[a-z_]+`를 넣어 SOP §10.2와 코드의 accept 거절 사유를 대조하고, negative check 1개(`pipeline_accept_reason_dropped_from_sop`) 추가 |
+
+구현 메모:
+
+- 첫 smoke 실행에서 task-0150 검사 "past the minimum width only the count line stays"가 실패했다. accept 선택지가 2000자
+  여유를 먼저 써서 확인 대기 개수 줄이 빠졌기 때문이다. 확인 대기 줄을 먼저 배치하고 남는 공간에만 accept 선택지를
+  넣도록 순서를 바꿨고, task-0150의 2000자 동작은 그대로다.
+- accept 승인 전이가 적용되지 않은 경우(`accept_transition_failed`)는 `FAILED→TODO`만 적용됐을 수 있어 재-accept 선택지를
+  보이지 않는다.
+- `_existing_attempts()` 결함은 고치지 않았다. smoke의 task-0143 모양 검사는 accept가 그 결함과 무관하게 `-r3`를 찾는지만 본다.
+
+## 검증 (Implementer 실행)
+
+| # | 항목 | 결과 |
+| --- | --- | --- |
+| V1 | Worker smoke (`PYTHONUTF8=1 python -B orchestrator/worker/run_smoke_tests.py`) | 285/285 PASS (baseline 194, 신규 91) |
+| V2 | Discord self-check suite | 92/92 PASS |
+| V3 | discord-intake smoke | 126/126, failed=0 (task 파일 수에 따라 늘어남) |
+| V4 | Jarvis Console smoke | PASS (self-test, smoke 모두) |
+| V5 | `python -B scripts/validate_multi_agent_sop.py` | PASS, negative_checks=129, negative_failures=0 |
+| V6 | `git diff --check` | exit 0. `--stat`과 `--ignore-cr-at-eol --stat`이 모두 6개 파일 676 추가, 57 삭제로 같다 |
+| V7 | 변경 범위 | 위 6개 파일과 이 기록. `task_file_writer.py`, `audit_entry.py`, Console 변경 없음. `jarvis.bat` untracked 유지 |
+| V8 | worktree | `git worktree list`는 main과 보존 대상 3개(task-0143 r3, task-0149 2개)뿐이다. smoke는 임시 디렉터리에서만 실행했다 |
+
+V1의 신규 검사는 다음을 포함한다: 정상 accept(main이 candidate + checkpoint, attempt 정리, QA 6개 재실행, Reviewer 미호출,
+push 없음), 기록 형식 오류, tip≠기록 candidate, baseline 사슬 불일치, branch 없음, worktree 없음, worktree가 branch에 없음,
+HEAD·tip이 candidate에서 벗어남, dirty worktree, 허용 경로 밖 사슬, attempt 이름이 다른 task와 겹침, main 이동, main tracked
+변경, QA 재실행 실패, QA가 worktree를 더럽힘(이상 승인 전이 전 거절: 상태·기록·main·attempt 불변, 감사·기록 없음), 승인 전이
+실패, 승인 뒤 main 이동(`integrate:baseline_moved` 기록, ff 없음), 위 거절 뒤 같은 기록으로 accept 성공, attempt 0개, 상위 번호
+attempt 존재, 같은 baseline의 attempt 2개(task-0149 모양), 앞 번호가 지워진 `-r3`(task-0143 모양), 다른 실패 기록 형식 불변,
+봇 경로(DONE·다른 실패 사유 거절, 시작 시 상태·감사 불변, 실행 중 중복 거절, QA 실패 뒤 FAILED·기록·감사 불변과 재-accept
+선택지, 성공 시 DONE·승인 감사 1건·실행 감사 source `go`), 보고 문구(선택지 추가, 성공·다른 실패 문구 불변, 2000자).
+
+## candidate commit 근거
+
+이 candidate commit은 아래 Owner 지시로 만든다. 범위는 지시가 정한 7개 파일이며 `jarvis.bat`은 제외한다. 이 절은 commit
+직전에 기록했으므로 candidate SHA는 이 파일에 없다.
+
+```text
+task-0151 구현 결과를 candidate checkpoint로 만들 준비를 진행하세요.
+
+먼저 read-only로 현재 diff와 staged 대상 범위를 확인하세요.
+
+반드시 아래 7개 파일만 candidate 범위로 허용합니다.
+
+orchestrator/worker/claude_worker.py
+adapters/discord/bot_minimal.py
+orchestrator/worker/run_smoke_tests.py
+docs/task-model.md
+docs/jarvis-multi-agent-sop-v0.1.md
+scripts/validate_multi_agent_sop.py
+memory/tasks/task-0151-go-accept-owner-reviewed-candidate.md
+
+jarvis.bat은 반드시 제외하세요.
+다른 변경도 발견되면 commit하지 말고 먼저 보고하세요.
+
+범위가 정확하면:
+1. git diff --cached --check
+2. 위 7개만 stage
+3. staged diff를 다시 확인
+4. candidate commit 생성
+   메시지:
+   feat(discord): /go <id> accept for owner-reviewed candidates
+5. commit 후 HEAD와 working tree 상태를 확인
+6. push하지 마세요.
+7. 아직 Reviewer와 QA는 실행하지 마세요.
+
+commit 후 candidate SHA와 변경 파일, working tree 상태만 보고하세요.
+```
+
+## 다음 단계
+
+status는 `DOING`이다. 구현과 Implementer 검증 뒤 위 지시로 candidate commit을 만든다. Reviewer·QA는 Owner 지시를
+기다린다. push는 하지 않는다.

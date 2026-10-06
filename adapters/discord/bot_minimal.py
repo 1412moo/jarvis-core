@@ -801,6 +801,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/work <요청> - Studyroom 콘텐츠 작업 준비 (Owner)",
             "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
             "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
+            "/go <task-id> accept - Owner 확인 대기로 멈춘 candidate를 QA 재확인 뒤 반영 (Owner)",
         ],
     }
 
@@ -1872,6 +1873,10 @@ def _run_go(command_text: str) -> dict[str, Any]:
 
     task-0144: `/go <task-id> resume` (FAILED only) carries the latest failed attempt's
     changes onto a new attempt from the current main instead of starting over.
+
+    task-0151: `/go <task-id> accept` (FAILED at qa_unverified_owner_review only) takes the
+    recorded candidate after the Owner has checked the pending entries. Here it only checks
+    the record and takes the lock; the status stays FAILED until the job has re-run QA.
     """
 
     parts = command_text.strip().split()
@@ -1879,10 +1884,10 @@ def _run_go(command_text: str) -> dict[str, Any]:
         len(parts) not in (2, 3)
         or parts[0] != "/go"
         or not TASK_ID_PATTERN.fullmatch(parts[1].strip().lower())
-        or (len(parts) == 3 and parts[2] != "resume")
+        or (len(parts) == 3 and parts[2] not in ("resume", "accept"))
     ):
-        return _error_payload("usage:/go <task-id> [resume]")
-    resume = len(parts) == 3
+        return _error_payload("usage:/go <task-id> [resume|accept]")
+    resume = len(parts) == 3 and parts[2] == "resume"
     task_id = parts[1].strip().lower()
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
     if not task_file.is_file():
@@ -1890,6 +1895,24 @@ def _run_go(command_text: str) -> dict[str, Any]:
     metadata = _read_task_metadata(task_file) or {}
     status = metadata.get("status", "")
     request = metadata.get("title", "")
+    if len(parts) == 3 and parts[2] == "accept":
+        if status != "FAILED":
+            return _error_payload(f"accept_requires_failed:{status or 'unknown'}")
+        if _owner_review_record(task_file) is None:
+            return _error_payload("accept_record_invalid")
+        if not _WORKER_LOCK.acquire(blocking=False):
+            return _error_payload("worker_busy")
+        # The lock stays held until _run_worker_job finishes.
+        return {
+            "result_type": "work_started",
+            "task_id": task_id,
+            "request": request,
+            "command": command_text.strip(),
+            "retry": False,
+            "resume": False,
+            "accept": True,
+            "audit_error": None,
+        }
     if status not in ("TODO", "FAILED"):
         return _error_payload(f"status_not_startable:{status or 'unknown'}")
     if resume and status != "FAILED":
@@ -1929,8 +1952,33 @@ def _run_go(command_text: str) -> dict[str, Any]:
     }
 
 
-def _run_worker_job(task_id: str, request: str, command: str, resume: bool = False) -> dict[str, Any]:
-    """Run the pipeline once and record the outcome on the task. Releases the lock."""
+def _owner_review_record(task_file: Path) -> str | None:
+    """task-0151: the task's qa_unverified_owner_review failure record, when it is exactly one.
+
+    The stored summary and the stored error reason must be the same string, the run must have
+    executed and failed, and the string must parse as the record run_pipeline writes.
+    """
+
+    execution = _read_execution_review_metadata(task_file)
+    record = execution.get("execution_summary", "")
+    if (
+        execution.get("executed") != "true"
+        or execution.get("success") != "false"
+        or record != execution.get("reason", "")
+        or claude_worker.parse_owner_review_record(record) is None
+    ):
+        return None
+    return record
+
+
+def _run_worker_job(
+    task_id: str, request: str, command: str, resume: bool = False, accept: bool = False
+) -> dict[str, Any]:
+    """Run the pipeline once and record the outcome on the task. Releases the lock.
+
+    task-0151: with accept, run claude_worker.accept_candidate instead. The Owner approval
+    transition and its audit happen inside it, only after the QA checks passed again.
+    """
 
     candidate_info = {
         "result_type": "execution_candidate",
@@ -1959,18 +2007,51 @@ def _run_worker_job(task_id: str, request: str, command: str, resume: bool = Fal
         )
         return applied, reason
 
-    try:
-        outcome = claude_worker.run_pipeline(
-            task_id=task_id,
-            request=request,
-            approval_command=command,
-            repo_root=REPO_ROOT,
-            record_result=record,
-            resume=resume,
+    audit_errors: list[str | None] = []
+
+    def approve() -> tuple[bool, str]:
+        # The same approval transition and audit as /go on a FAILED task.
+        applied, reason = _apply_task_status_transition(task_id, "FAILED", "TODO")
+        if not applied:
+            return False, reason
+        applied, reason = _apply_task_status_transition(task_id, "TODO", "DOING")
+        audit_errors.append(
+            _audit_owner_approval(
+                command=command,
+                decision="approve",
+                transition_from="TODO",
+                transition_to="DOING",
+                applied=applied,
+                reason=reason,
+            )
         )
+        return applied, reason
+
+    try:
+        if accept:
+            task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+            outcome = claude_worker.accept_candidate(
+                task_id=task_id,
+                record=(_owner_review_record(task_file) if task_file.is_file() else None) or "",
+                approve=approve,
+                repo_root=REPO_ROOT,
+                record_result=record,
+            )
+        else:
+            outcome = claude_worker.run_pipeline(
+                task_id=task_id,
+                request=request,
+                approval_command=command,
+                repo_root=REPO_ROOT,
+                record_result=record,
+                resume=resume,
+            )
     finally:
         _WORKER_LOCK.release()
-    return {"result_type": "work_result", **outcome.to_dict()}
+    payload = {"result_type": "work_result", **outcome.to_dict()}
+    if accept:
+        payload["audit_error"] = audit_errors[-1] if audit_errors else None
+    return payload
 
 
 # task-0150: bounds for the pending unverified entries in a qa_unverified_owner_review reply.
@@ -1994,15 +2075,21 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             f"승인하려면 `/go {task_id}`"
         )
     if result_type == "work_started":
+        if result.get("accept"):
+            return (
+                f"▶️ 승인됨 (accept): {task_id} → 보존된 candidate의 QA를 다시 확인한 뒤 반영합니다. "
+                "끝나면 이 채널에 보고합니다."
+            )
         retry = " (resume)" if result.get("resume") else (" (재시도)" if result.get("retry") else "")
         return f"▶️ 승인됨{retry}: {task_id} → Claude Worker 시작. 끝나면 이 채널에 보고합니다."
     if result.get("ok"):
         files = ", ".join(result.get("changed_files") or [])
+        reviewer = "재호출 없음 (Owner accept)" if result.get("accepted") else result.get("reviewer_verdict")
         return (
             f"✅ 완료: {task_id}\n"
             f"- 변경 파일: {files}\n"
             f"- 테스트: {result.get('test_summary')}\n"
-            f"- Reviewer: {result.get('reviewer_verdict')}\n"
+            f"- Reviewer: {reviewer}\n"
             f"- QA: PASS ({len(result.get('qa_checks') or {})}개 검사)\n"
             f"- 자동 repair: {result.get('repairs', 0)}회"
             + (f" / resume: {result.get('resumed_from')}" if result.get("resumed_from") else "")
@@ -2038,6 +2125,14 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         lines[pending_at:pending_at] = _owner_review_lines(
             len(result.get("qa_checks") or {}), pending, len("\n".join(lines))
         )
+    if result.get("reason") == "qa_unverified_owner_review" or result.get("accept_retryable"):
+        # task-0151: offered only while the task still holds the record accept needs, and only in
+        # the room left after the owner review lines, so it never pushes a reply over the limit.
+        offered = lines[-1].replace(
+            f"`/status {task_id}`", f"`/go {task_id} accept` 확인을 마친 candidate 반영 · `/status {task_id}`", 1
+        )
+        if len("\n".join([*lines[:-1], offered])) <= DISCORD_MESSAGE_CHARS:
+            lines[-1] = offered
     return "\n".join(lines)
 
 
@@ -3688,6 +3783,7 @@ async def _start_discord_bot() -> None:
                     str(result["request"]),
                     str(result["command"]),
                     bool(result.get("resume")),
+                    bool(result.get("accept")),
                 )
                 await message.channel.send(_format_reply(job))
 

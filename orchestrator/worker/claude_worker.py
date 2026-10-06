@@ -8,6 +8,10 @@ the terminal:
     -> ff-only onto main (only if main is still at the baseline) -> task result
     -> checkpoint commit
 
+task-0151: accept_candidate() takes a candidate preserved at qa_unverified_owner_review once
+the Owner sends `/go <id> accept`: the six QA checks again, then the same integrate and
+checkpoint steps. The Reviewer is not called again.
+
 Boundaries, all enforced here rather than trusted to the model:
 - The worker runs in a worktree outside the repository, never in the main tree.
 - The worker has no Bash: it can read and edit files, nothing else.
@@ -79,6 +83,11 @@ QA_CHECKS = {
 QA_LABEL_PATTERN = re.compile(r"\bqa:\s*([A-Za-z_]+)")
 # task-0148 repair 2: the one entry recorded when the `unverified` field cannot be read.
 UNVERIFIED_UNREADABLE = "unverified field missing or malformed"
+# task-0151: the failure record a qa_unverified_owner_review stop leaves on the task. It is the
+# only durable link from the task to the candidate the Owner may later take with `/go <id> accept`.
+OWNER_REVIEW_RECORD_PATTERN = re.compile(
+    r"qa:qa_unverified_owner_review candidate=([0-9a-f]{40}) baseline=([0-9a-f]{40}) attempt=([1-9][0-9]*)"
+)
 TASK_REF_PATTERN = re.compile(r"task-(\d{4})(?!\d)")
 
 
@@ -104,6 +113,9 @@ class WorkerRunResult:
     resumed_from: str = ""
     reviewer_retries: int = 0
     reviewer_unverified: list[str] = field(default_factory=list)
+    # task-0151: an accept run, and whether a failed one left the task and its record as they were.
+    accepted: bool = False
+    accept_retryable: bool = False
     pushed: bool = False
 
     def to_dict(self) -> dict:
@@ -342,6 +354,19 @@ def unverified_pending(entries: list[str]) -> list[str]:
     return [entry for entry in entries if (QA_LABEL_PATTERN.findall(entry) or ["none"])[-1] not in QA_CHECKS]
 
 
+def owner_review_record(candidate: str, baseline: str, attempt: int) -> str:
+    """task-0151: the failure record of a qa_unverified_owner_review stop."""
+
+    return f"qa:qa_unverified_owner_review candidate={candidate} baseline={baseline} attempt={attempt}"
+
+
+def parse_owner_review_record(text: str) -> tuple[str, str, int] | None:
+    """task-0151: (candidate, baseline, attempt) from an exact failure record, else None."""
+
+    matched = OWNER_REVIEW_RECORD_PATTERN.fullmatch(text or "")
+    return (matched.group(1), matched.group(2), int(matched.group(3))) if matched else None
+
+
 def _review_invalid(verdict: str, review_text: str) -> bool:
     """True when a readable review reports self_deviations or its field cannot be read.
 
@@ -490,6 +515,189 @@ def _copy_attempt_changes(previous: Path, worktree: Path, paths: list[str]) -> N
             target.unlink()
 
 
+def _attempt_numbers(repo_root: Path, worktree_root: Path, task_id: str) -> tuple[set[int], bool]:
+    """task-0151: every attempt number with a branch or a worktree directory, gaps allowed.
+
+    Unlike _existing_attempts() this does not stop at the first missing number. The flag is
+    True when a name cannot be read as exactly one attempt of this task: an attempt-like name
+    _attempt_name() never produces, or a task id that is another task's attempt name.
+    """
+
+    refs = _git(["for-each-ref", "--format=%(refname:short)", "refs/heads/jarvis/"], repo_root).splitlines()
+    names = {ref[len("jarvis/"):] for ref in refs if ref.startswith("jarvis/")}
+    if worktree_root.is_dir():
+        names |= {entry.name for entry in worktree_root.iterdir()}
+    pattern = re.compile(rf"{re.escape(task_id)}(?:-r([0-9]+))?")
+    tasks_dir = repo_root / "memory" / "tasks"
+    numbers: set[int] = set()
+    ambiguous = False
+    for name in names:
+        matched = pattern.fullmatch(name)
+        if not matched:
+            continue
+        number = int(matched.group(1)) if matched.group(1) else 1
+        if _attempt_name(task_id, number) != name or (name != task_id and (tasks_dir / f"{name}.md").exists()):
+            ambiguous = True
+        numbers.add(number)
+    base = re.fullmatch(r"(.+)-r[0-9]+", task_id)
+    if base and (tasks_dir / f"{base.group(1)}.md").exists():
+        ambiguous = True
+    if tasks_dir.is_dir() and any(pattern.fullmatch(path.stem) and path.stem != task_id for path in tasks_dir.glob(f"{task_id}-r*.md")):
+        ambiguous = True
+    return numbers, ambiguous
+
+
+def _worktree_entry(repo_root: Path, worktree: Path) -> dict[str, str] | None:
+    """task-0151: the `git worktree list --porcelain` entry registered at exactly this path."""
+
+    target = os.path.normcase(str(worktree.resolve()))
+    entry: dict[str, str] = {}
+    for line in [*_git(["worktree", "list", "--porcelain"], repo_root).splitlines(), ""]:
+        if line.strip():
+            key, _, value = line.partition(" ")
+            entry[key] = value
+            continue
+        if entry.get("worktree") and os.path.normcase(str(Path(entry["worktree"]).resolve())) == target:
+            return entry
+        entry = {}
+    return None
+
+
+def _candidate_chain(repo_root: Path, task_id: str, baseline: str, candidate: str) -> list[str]:
+    """task-0151: the Worker candidate commits from baseline to candidate, oldest first.
+
+    Each commit has one parent, the first sits directly on the baseline, and the subjects are
+    exactly the candidate and repair candidate commits run_pipeline makes, in order.
+    """
+
+    ancestor = _run(["git", "merge-base", "--is-ancestor", baseline, candidate], cwd=repo_root, timeout=GIT_TIMEOUT_SECONDS)
+    if ancestor.returncode != 0:
+        raise StageFailure("accept", "accept_chain_mismatch", "the recorded baseline is not an ancestor of the candidate")
+    commits = list(reversed(_git(["rev-list", "--first-parent", f"{baseline}..{candidate}"], repo_root).split()))
+    if not 1 <= len(commits) <= 1 + REPAIR_BUDGET_MAX:
+        raise StageFailure("accept", "accept_chain_mismatch", f"{len(commits)} commits between baseline and candidate")
+    parent = baseline
+    for number, commit in enumerate(commits):
+        label = "candidate" if number == 0 else f"repair {number} candidate"
+        parents = _git(["rev-list", "--parents", "-n", "1", commit], repo_root).split()[1:]
+        subject = _git(["log", "-1", "--format=%s", commit], repo_root)
+        if parents != [parent] or subject != f"feat(studyroom): {task_id} Jarvis worker {label}":
+            raise StageFailure("accept", "accept_chain_mismatch", f"{commit[:7]} is not the expected {label} commit")
+        parent = commit
+    return commits
+
+
+def find_owner_review_attempt(
+    repo_root: Path, worktree_root: Path, task_id: str, record: str
+) -> tuple[Path, str, str, str, list[str], list[str]]:
+    """task-0151: the preserved attempt a qa_unverified_owner_review record points at.
+
+    Returns (worktree, branch, candidate, baseline, candidate chain, changed files), or raises
+    StageFailure when anything does not match exactly. Nothing is changed either way.
+    """
+
+    parsed = parse_owner_review_record(record)
+    if parsed is None:
+        raise StageFailure("accept", "accept_record_invalid", record[:200])
+    candidate, baseline, attempt = parsed
+    numbers, ambiguous = _attempt_numbers(repo_root, worktree_root, task_id)
+    if ambiguous:
+        raise StageFailure("accept", "accept_attempt_ambiguous", f"attempt names of {task_id} are not unique")
+    newer = sorted(number for number in numbers if number > attempt)
+    if newer:
+        raise StageFailure("accept", "accept_newer_attempt", f"recorded attempt {attempt}, later attempts {newer}")
+    name = _attempt_name(task_id, attempt)
+    branch = f"jarvis/{name}"
+    worktree = worktree_root / name
+    if not _branch_exists(repo_root, branch):
+        raise StageFailure("accept", "accept_branch_missing", branch)
+    if not worktree.is_dir():
+        raise StageFailure("accept", "accept_worktree_missing", str(worktree))
+    entry = _worktree_entry(repo_root, worktree)
+    if entry is None or entry.get("branch") != f"refs/heads/{branch}":
+        raise StageFailure("accept", "accept_worktree_mismatch", f"{worktree} is not the registered worktree of {branch}")
+    tip = _git(["rev-parse", f"refs/heads/{branch}"], repo_root)
+    head = _git(["rev-parse", "HEAD"], worktree)
+    if not tip == entry.get("HEAD") == head == candidate:
+        raise StageFailure("accept", "accept_candidate_mismatch", f"tip {tip[:7]}, HEAD {head[:7]}, recorded {candidate[:7]}")
+    if _changed_paths(worktree):
+        raise StageFailure("accept", "accept_worktree_dirty", str(worktree))
+    chain = _candidate_chain(repo_root, task_id, baseline, candidate)
+    changed = _cumulative_paths(worktree, baseline)
+    violations = _scope_violations(changed)
+    if not changed or violations:
+        raise StageFailure("accept", "accept_scope_violation", ", ".join(violations)[:200] or "no changes")
+    return worktree, branch, candidate, baseline, chain, changed
+
+
+def _accept_main_check(repo_root: Path, baseline: str) -> None:
+    if _git(["symbolic-ref", "--short", "HEAD"], repo_root) != "main":
+        raise StageFailure("accept", "accept_main_not_checked_out")
+    head = _git(["rev-parse", "HEAD"], repo_root)
+    if head != baseline:
+        raise StageFailure("accept", "accept_baseline_moved", f"main {head[:7]}, baseline {baseline[:7]}")
+    if _git(["status", "--porcelain", "--untracked-files=no"], repo_root):
+        raise StageFailure("accept", "accept_main_dirty")
+
+
+def _qa_checks(repo_root: Path, worktree: Path, baseline: str, candidate: str, changed: list[str]) -> dict[str, bool]:
+    """The deterministic QA checks on the exact candidate, cumulative from the baseline."""
+
+    qa: dict[str, bool] = {}
+    qa["head_is_candidate"] = _git(["rev-parse", "HEAD"], worktree) == candidate
+    diff_names = sorted(_git(["diff", "--name-only", baseline, candidate], repo_root).splitlines())
+    qa["change_set_matches"] = diff_names == changed and not _scope_violations(diff_names)
+    qa["diff_check"] = _run(["git", "diff", "--check", baseline, candidate], cwd=repo_root, timeout=GIT_TIMEOUT_SECONDS).returncode == 0
+    qa["jarvis_bat_absent"] = not _git(["ls-tree", "-r", "--name-only", candidate, "--", "jarvis.bat"], repo_root)
+    json_ok = True
+    for path in changed:
+        if path.endswith(".json"):
+            try:
+                json.loads((worktree / path).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                json_ok = False
+    qa["json_valid"] = json_ok
+    qa["tests_rerun"] = _run_tests(worktree)[0]
+    return qa
+
+
+def _integrate_and_checkpoint(
+    repo_root: Path,
+    result: WorkerRunResult,
+    *,
+    baseline: str,
+    branch: str,
+    worktree: Path,
+    candidate: str,
+    record_result: Callable[[bool, str], tuple[bool, str]] | None,
+    summary: str,
+) -> None:
+    """Integrate ff-only (only if main has not moved), record DONE, checkpoint, clean up."""
+
+    task_file = f"memory/tasks/{result.task_id}.md"
+    result.stage = "integrate"
+    if _git(["rev-parse", "HEAD"], repo_root) != baseline:
+        raise StageFailure("integrate", "baseline_moved")
+    if _git(["status", "--porcelain", "--untracked-files=no"], repo_root):
+        raise StageFailure("integrate", "main_tree_dirty")
+    _git(["merge", "--ff-only", "-q", branch], repo_root)
+
+    # Task result (DOING -> DONE) and checkpoint commit.
+    result.stage = "checkpoint"
+    if record_result is not None:
+        applied, why = record_result(True, summary)
+        if not applied:
+            raise StageFailure("checkpoint", "task_result_not_recorded", why)
+    if (repo_root / task_file).exists():
+        _git(["add", "--", task_file], repo_root)
+        _git(["commit", "-q", "-m", f"docs(tasks): record {result.task_id} Jarvis worker result\n\nCandidate {candidate}."], repo_root)
+    result.checkpoint = _git(["rev-parse", "HEAD"], repo_root)
+    _git(["worktree", "remove", str(worktree)], repo_root)
+    _git(["branch", "-d", branch], repo_root)
+    result.ok = True
+    result.stage = "done"
+
+
 def run_pipeline(
     *,
     task_id: str,
@@ -506,7 +714,7 @@ def run_pipeline(
     result = WorkerRunResult(task_id=task_id)
     worktree_root = worktree_root or WORKTREE_ROOT
     budget = max(0, min(REPAIR_BUDGET_MAX, REPAIR_BUDGET if repair_budget is None else repair_budget))
-    task_file = f"memory/tasks/{task_id}.md"
+    failure_record = ""
     try:
         # 1. Preflight: main is on main and clean (tracked files).
         result.stage = "preflight"
@@ -632,21 +840,7 @@ def run_pipeline(
 
         # 9. QA: deterministic checks on the exact candidate, cumulative from the baseline.
         result.stage = "qa"
-        qa: dict[str, bool] = {}
-        qa["head_is_candidate"] = _git(["rev-parse", "HEAD"], worktree) == candidate
-        diff_names = sorted(_git(["diff", "--name-only", baseline, candidate], repo_root).splitlines())
-        qa["change_set_matches"] = diff_names == changed and not _scope_violations(diff_names)
-        qa["diff_check"] = _run(["git", "diff", "--check", baseline, candidate], cwd=repo_root, timeout=GIT_TIMEOUT_SECONDS).returncode == 0
-        qa["jarvis_bat_absent"] = not _git(["ls-tree", "-r", "--name-only", candidate, "--", "jarvis.bat"], repo_root)
-        json_ok = True
-        for path in changed:
-            if path.endswith(".json"):
-                try:
-                    json.loads((worktree / path).read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    json_ok = False
-        qa["json_valid"] = json_ok
-        qa["tests_rerun"] = _run_tests(worktree)[0]
+        qa = _qa_checks(repo_root, worktree, baseline, candidate, changed)
         result.qa_checks = qa
         if not all(qa.values()):
             raise StageFailure("qa", "qa_failed", ",".join(k for k, v in qa.items() if not v))
@@ -655,32 +849,22 @@ def run_pipeline(
         # for the Owner: nothing is integrated and the task is not marked DONE.
         pending = unverified_pending(result.reviewer_unverified)
         if pending:
+            # task-0151: the record names the exact candidate, so `/go <id> accept` can find it again.
+            failure_record = owner_review_record(candidate, baseline, attempt)
             raise StageFailure("qa", "qa_unverified_owner_review", " | ".join(pending)[:300])
 
         # 10. Integrate: ff-only, and only if main has not moved.
-        result.stage = "integrate"
-        if _git(["rev-parse", "HEAD"], repo_root) != baseline:
-            raise StageFailure("integrate", "baseline_moved")
-        if _git(["status", "--porcelain", "--untracked-files=no"], repo_root):
-            raise StageFailure("integrate", "main_tree_dirty")
-        _git(["merge", "--ff-only", "-q", branch], repo_root)
-
         # 11. Task result (DOING -> DONE) and checkpoint commit.
-        result.stage = "checkpoint"
-        if record_result is not None:
-            applied, why = record_result(
-                True, f"worker candidate {candidate[:7]} passed Reviewer and QA after {result.repairs} repair(s)"
-            )
-            if not applied:
-                raise StageFailure("checkpoint", "task_result_not_recorded", why)
-        if (repo_root / task_file).exists():
-            _git(["add", "--", task_file], repo_root)
-            _git(["commit", "-q", "-m", f"docs(tasks): record {task_id} Jarvis worker result\n\nCandidate {candidate}."], repo_root)
-        result.checkpoint = _git(["rev-parse", "HEAD"], repo_root)
-        _git(["worktree", "remove", str(worktree)], repo_root)
-        _git(["branch", "-d", branch], repo_root)
-        result.ok = True
-        result.stage = "done"
+        _integrate_and_checkpoint(
+            repo_root,
+            result,
+            baseline=baseline,
+            branch=branch,
+            worktree=worktree,
+            candidate=candidate,
+            record_result=record_result,
+            summary=f"worker candidate {candidate[:7]} passed Reviewer and QA after {result.repairs} repair(s)",
+        )
         return result
     except StageFailure as failure:
         result.stage = failure.stage
@@ -689,6 +873,82 @@ def run_pipeline(
     except Exception as exc:  # noqa: BLE001 - the Owner must always get a report
         result.reason = "unexpected_error"
         result.detail = f"{type(exc).__name__}: {exc}"[:200]
+    if result.reason != "qa_unverified_owner_review":
+        failure_record = ""
+    if record_result is not None:
+        try:
+            record_result(False, failure_record or f"{result.stage}:{result.reason}")
+        except Exception:  # noqa: BLE001
+            pass
+    return result
+
+
+def accept_candidate(
+    *,
+    task_id: str,
+    record: str,
+    approve: Callable[[], tuple[bool, str]],
+    repo_root: Path = REPO_ROOT,
+    worktree_root: Path | None = None,
+    record_result: Callable[[bool, str], tuple[bool, str]] | None = None,
+) -> WorkerRunResult:
+    """task-0151: `/go <id> accept` for a task stopped at qa_unverified_owner_review.
+
+    Order: find the recorded candidate -> main at its baseline -> the six QA checks again
+    -> approve (the Owner approval transition FAILED -> TODO -> DOING) -> the same integrate
+    and checkpoint steps as run_pipeline. The Reviewer is not called again. Until approve()
+    has applied, nothing is changed or recorded, so the task keeps its FAILED status and its
+    record and can be accepted again. From then on a failure is recorded like any pipeline
+    failure. Never raises; the result says where it stopped.
+    """
+
+    result = WorkerRunResult(task_id=task_id, accepted=True)
+    worktree_root = worktree_root or WORKTREE_ROOT
+    approved = False
+    try:
+        result.stage = "accept"
+        worktree, branch, candidate, baseline, chain, changed = find_owner_review_attempt(
+            repo_root, worktree_root, task_id, record
+        )
+        result.worktree, result.branch, result.candidate, result.baseline = str(worktree), branch, candidate, baseline
+        result.candidates, result.repairs, result.changed_files = chain, len(chain) - 1, changed
+        _accept_main_check(repo_root, baseline)
+
+        qa = _qa_checks(repo_root, worktree, baseline, candidate, changed)
+        result.qa_checks = qa
+        if not all(qa.values()):
+            raise StageFailure("accept", "accept_qa_failed", ",".join(k for k, v in qa.items() if not v))
+        if _changed_paths(worktree):
+            raise StageFailure("accept", "accept_worktree_dirty", "the QA run left changes in the attempt worktree")
+
+        result.stage = "approval"
+        applied, why = approve()
+        if not applied:
+            raise StageFailure("approval", "accept_transition_failed", why)
+        approved = True
+
+        _integrate_and_checkpoint(
+            repo_root,
+            result,
+            baseline=baseline,
+            branch=branch,
+            worktree=worktree,
+            candidate=candidate,
+            record_result=record_result,
+            summary=f"worker candidate {candidate[:7]} accepted by the Owner after QA, Reviewer not called again",
+        )
+        return result
+    except StageFailure as failure:
+        result.stage = failure.stage
+        result.reason = failure.reason
+        result.detail = failure.detail
+    except Exception as exc:  # noqa: BLE001 - the Owner must always get a report
+        result.reason = "unexpected_error"
+        result.detail = f"{type(exc).__name__}: {exc}"[:200]
+    if not approved:
+        # The approval transition never applied: FAILED and the record are as they were.
+        result.accept_retryable = result.reason != "accept_transition_failed"
+        return result
     if record_result is not None:
         try:
             record_result(False, f"{result.stage}:{result.reason}")
