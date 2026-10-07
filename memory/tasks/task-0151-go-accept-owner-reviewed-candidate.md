@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-06 03:14 UTC`
-- updated_at: `2026-10-06 05:20 UTC`
-- summary: `Worker 파이프라인이 qa_unverified_owner_review로 멈춘 FAILED task에서, Owner가 확인을 마친 뒤 /go <id> accept로 보존된 마지막 attempt candidate를 반영하게 한다. 대상 식별·QA 6개 재실행·main baseline 일치를 모두 fail-closed로 검증하고 기존 허용 전이(FAILED→TODO→DOING→DONE)만 쓰며 새 상태는 만들지 않는다. 구현은 candidate commit으로 기록되었으며(Reviewer minor 2건에 repair 1회) Reviewer·QA는 Owner 지시 대기다.`
+- updated_at: `2026-10-07 07:12 UTC`
+- summary: `Worker 파이프라인이 qa_unverified_owner_review로 멈춘 FAILED task에서, Owner가 확인을 마친 뒤 /go <id> accept로 보존된 마지막 attempt candidate를 반영하게 한다. 대상 식별·QA 6개 재실행·main baseline 일치를 모두 fail-closed로 검증하고 기존 허용 전이(FAILED→TODO→DOING→DONE)만 쓰며 새 상태는 만들지 않는다. 구현은 candidate 457e724(repair 1회)로 기록됐고 Reviewer minor 2건과 QA 기록 불일치 1건은 SOP §8로 수용됐으며 QA는 통과했다. DONE·commit·push는 Owner 지시 대기다.`
 - source_command: `Owner 지시: task-0151 Owner 결정 1~4와 추가 안전 조건, task 파일 생성까지만`
 
 ## 기준선
@@ -265,6 +265,9 @@ main, task 상태, 기록 문자열, 보존된 attempt는 바꾸지 않는다.
   `/go` 재시도는 attempt 1부터 다시 시작해 세 번째 시도에서 기존 `-r3` branch와 부딪치고, `/go resume`은
   `resume_no_previous_attempt`로 실패한다. accept는 이 함수에 의존하지 않는다(Owner 결정 4).
 - 반영 중 실패한 accept의 recovery(Owner 결정 2: 필요하면 별도 recovery task).
+- 2000자 극단 경계: 확인 대기 줄을 모두 빼도 다른 줄과 accept 선택지만으로 2000자를 넘는 reply(task id 100자 기준 worktree
+  경로 약 820자 이상)에서는 2000자 제한과 accept 선택지 유지가 충돌한다. 아래 QA 결과 8번과 Owner 결정에 따라 이번 task의
+  결함으로 승격하지 않았다.
 
 ## 구현 착수
 
@@ -319,7 +322,10 @@ attempt 존재, 같은 baseline의 attempt 2개(task-0149 모양), 앞 번호가
 ## candidate commit 근거
 
 이 candidate commit은 아래 Owner 지시로 만든다. 범위는 지시가 정한 7개 파일이며 `jarvis.bat`은 제외한다. 이 절은 commit
-직전에 기록했으므로 candidate SHA는 이 파일에 없다.
+직전에 기록했으므로 그 시점(candidate `0b079555cc7d14dd24e5ede449d1e547611b5569`)에는 candidate SHA가 이 파일에 없었다.
+repair 1 candidate `457e72446650a288e5a90e92cc7663f51c3648ce`에서 구현 절에 `0b07955`를 기록했으므로, "candidate SHA는 이 파일에
+없다"는 그 뒤로 현재 상태와 맞지 않게 되었다. QA 지적(아래 QA 결과 9번)을 Owner가 SOP §8로 수용한 뒤 작업 트리에서 이렇게
+정정했다.
 
 ```text
 task-0151 구현 결과를 candidate checkpoint로 만들 준비를 진행하세요.
@@ -437,6 +443,175 @@ repair 1 검증 (Implementer 실행, 이전 candidate `0b07955` 대비):
 | R6 | `git diff --check` | exit 0. `--stat`과 `--ignore-cr-at-eol --stat` 모두 3개 파일 100 추가, 16 삭제(이 표 기록 전) |
 | R7 | 변경 범위 | `bot_minimal.py`, `run_smoke_tests.py`, 이 기록. `_existing_attempts()`와 그 밖의 파일 변경 없음, `jarvis.bat` untracked 유지 |
 
+## Reviewer 결과 (candidate `457e72446650a288e5a90e92cc7663f51c3648ce`, repair 1 뒤): FINDINGS
+
+baseline `753e5dbe1ae3ecb13e6a9c88d4881acac2ed00a5`, 누적 7개 파일. minor 2건, `self_deviations: []`, `unverified` 9건(smoke 4종·
+validator·diff check·2000자 경계와 구간·실제 Discord/worktree E2E·실제 accept의 감사 스키마). 같은 candidate에 대한 첫 호출은
+API 오류(HTTP 529)로 보고 없이 끝났고, Owner의 "다시 시도" 지시로 같은 내용을 다시 호출한 결과다.
+
+1. minor, 호출 결함: 승인 1의 "실패 시점·baseline을 함께 검증" 조건을 Manager 요약 A.5와 C가 어떻게 충족하는지 적지 않았다.
+2. minor, 호출 결함: 승인 4의 commit 메시지 조건과 그 충족을 Manager 요약이 적지 않았다.
+
+## Owner의 minor 수용 (SOP §8, candidate `457e72446650a288e5a90e92cc7663f51c3648ce` 한정)
+
+Owner가 위 2건을 지적별로 SOP §8 minor로 수용했다. 둘 다 코드 repair 대상이 아니며 추가 코드 수정은 없다. repair 예산은 이미
+소진됐다(0). 수용은 이 candidate에만 효력이 있고 candidate가 바뀌면 무효다. 수용은 QA를 대신하지 않는다.
+
+수용 이유와 충족 근거:
+
+1. '실패 시점' 조건은 구현돼 있고 요약 설명만 빠졌다. 실패 시점의 근거는 시각 비교가 아니라 `qa_unverified_owner_review`로
+   멈출 때 `run_pipeline`이 남기는 실패 기록(`qa:qa_unverified_owner_review candidate=<40hex> baseline=<40hex> attempt=<N>`,
+   `claude_worker.owner_review_record`)이다. accept는 이 기록의 candidate·baseline·attempt를 branch tip·worktree HEAD·candidate
+   사슬·baseline과 대조하고(`find_owner_review_attempt`), 기록보다 높은 번호의 attempt가 있으면 `accept_newer_attempt`로
+   거절한다. 시각(timestamp) 비교는 하지 않는다.
+2. 승인 4의 commit 메시지 조건은 충족됐다. candidate `0b079555cc7d14dd24e5ede449d1e547611b5569`의 제목이 지시된
+   `feat(discord): /go <id> accept for owner-reviewed candidates`와 같다(`git log`).
+
+2000자 극단 경계 사례(확인 대기 줄을 모두 빼도 다른 줄과 accept 선택지만으로 2000자를 넘는 경우)는 Owner 수용으로 확정하지
+않고 QA unverified 항목으로 유지한다.
+
+수용 Owner 원문:
+
+```text
+Reviewer FINDINGS 2건을 SOP §8에 따라 minor로 수용하고 QA 단계로 진행하세요.
+
+대상 candidate:
+457e72446650a288e5a90e92cc7663f51c3648ce
+
+baseline:
+753e5db
+
+수용하는 Reviewer findings:
+1. '실패 시점' 조건 자체는 구현되어 있으나 Manager 요약 A.5/C에 설명이 누락된 건
+2. 승인 4의 commit message 조건은 실제 candidate 0b07955가 충족했으나 Manager 요약에 명시가 누락된 건
+
+둘 다 코드 repair 대상으로 보지 않습니다.
+repair 예산은 이미 소진되었습니다.
+
+이번 acceptance에서 다음을 기록하세요.
+- Reviewer FINDINGS 2건
+- 두 건 모두 SOP §8 minor acceptance
+- acceptance 이유
+- 실제 구현/commit이 조건을 충족한다는 근거
+- 추가 코드 수정 없음
+
+2000자 극단 경계 사례는 별도 Owner 수용으로 확정하지 말고 QA unverified 항목으로 유지하세요.
+
+그 다음 QA를 실행하세요.
+
+QA에서 반드시 확인할 것:
+- Worker smoke
+- Discord self-check
+- discord-intake smoke
+- Console smoke
+- SOP validator
+- git diff --check
+- 변경 범위 / jarvis.bat 미포함
+- 2000자 경계 및 구간 테스트
+- task-0151 기록 상태/근거 일치 여부
+
+가능한 경우 실제 Discord/worktree E2E와 accept 시 audit schema도 확인하세요.
+QA에서 실패하면 임의 수정하지 말고 실패 원인과 현재 candidate를 그대로 보고하세요.
+
+QA PASS 이후에도 자동으로 DONE 처리하거나 push하지 마세요.
+먼저 QA 결과를 보고하세요.
+```
+
+이 절은 candidate 뒤에 작업 트리에서 기록했고 commit하지 않았다. candidate를 바꾸지 않기 위해서이며, 이 기록의 commit 여부와
+시점은 Owner 결정 대기다.
+
+## QA 결과 (candidate `457e72446650a288e5a90e92cc7663f51c3648ce`, baseline `753e5dbe1ae3ecb13e6a9c88d4881acac2ed00a5`)
+
+candidate를 detached로 checkout한 임시 clean worktree에서 candidate만 대상으로 실행했다. 작업 트리의 미commit 기록은 QA 대상에
+포함하지 않았다. QA 전, QA worktree HEAD, QA 뒤 모두 candidate와 main HEAD가 `457e72446650a288e5a90e92cc7663f51c3648ce`였다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | Worker smoke (`PYTHONUTF8=1`) | PASS, 289/289, failed=0 |
+| Q2 | Discord self-check suite | PASS, 92/92 |
+| Q3 | discord-intake smoke | PASS, 126/126, failed=0 |
+| Q4 | Jarvis Console smoke | PASS. 처음 만든 QA worktree에서는 실패했다. 이 저장소는 `core.autocrlf=true`라서 새 worktree가 CRLF로 checkout되는데 Console smoke의 한 검사가 `skills.json`을 LF 바이트로 비교하고, 다른 검사는 저장소가 `C:/work` 아래에 있어야 한다(경로 고정). baseline `753e5db` worktree에서도 같게 실패했고 candidate는 `apps/`를 바꾸지 않았다. `C:/work` 아래 LF checkout(`core.autocrlf=false`) worktree에서 다시 실행해 PASS |
+| Q5 | `validate_multi_agent_sop.py` | PASS, negative_checks=129, negative_failures=0 |
+| Q6 | `git diff --check 753e5db 457e724` | PASS, exit 0 |
+| Q7 | 변경 범위 | PASS. commit 2개(`0b07955`, `457e724`), 승인된 7개 파일. `jarvis.bat`은 candidate tree와 어떤 commit에도 없고 untracked |
+| Q8 | 2000자 경계와 구간 | 측정(아래). 결함으로 승격하지 않음(Owner 결정) |
+| Q9 | 이 기록의 상태·근거 정합성 | 불일치 1건: "candidate commit 근거" 절의 "candidate SHA는 이 파일에 없다"가 `457e724` 시점과 맞지 않음. 그 밖은 일치(status `DOING`, Console 파서 `valid`, summary·구현·repair 절) |
+| Q10 | 실제 git worktree + 실제 audit chain accept 경로 | PASS, 12/12 |
+
+Q8 측정(task id 100자, 긴 확인 대기 항목 12건): 다른 줄(worktree 경로) 길이에 따라 0~435자는 항목 표시, 440~670자는 개수 줄만,
+675자 이상은 확인 대기 줄 없음. accept 선택지는 0~2000자 전 구간에서 빠지지 않았고, 확인 대기 줄 때문에 2000자를 넘은 경우는
+없다. worktree 경로 약 820자부터 reply가 2000자를 넘으며(820자에서 2004자, accept 선택지를 빼면 1868자) 원인은 accept 선택지다.
+실제 길이의 task id·worktree 경로에서는 1953자이고 accept 선택지와 항목 5건이 표시된다.
+
+Q10: `/work` → `/go`(`qa_unverified_owner_review`로 멈춤) → `/go <id> accept`를 실제 봇 코드, 저장소 밖의 실제 git worktree,
+임시 state 디렉터리(`JARVIS_LOCAL_STATE_DIR`)의 실제 audit chain으로 실행했다. 가짜는 Claude(fake claude)와 Discord 전송뿐이다.
+실패 기록 형식, reply의 accept 선택지와 2000자 이하, accept 시작 시 FAILED 유지, accept 뒤 DONE과 main의 candidate+checkpoint,
+worktree·branch 정리, `verify_audit_chain` valid, 승인 항목 1건(`command: /go <id> accept`, `decision: approve`,
+`transition: TODO→DOING`, `applied: true`), 실행 결과 항목 2건(source `go`)을 확인했다. 실제 audit chain 파일은 바뀌지 않았다.
+
+실제 Discord E2E(봇 기동과 Owner의 Discord 명령)는 수행하지 않았다.
+
+정리: QA용 임시 worktree 4개(QA, baseline 비교, LF 재검증 2개)를 모두 `git worktree remove`로 삭제했고 목록과 디렉터리에서
+사라졌다. 보존 대상 task-0143 r3(`e05c69c`), task-0149 2개(`8f0c58e`, `bd1622e`)는 그대로다. 서버와 listener는 띄우지 않았다.
+`jarvis.bat`은 계속 untracked다.
+
+## Owner의 QA 결과 결정
+
+1. Q9 기록 불일치는 SOP §8 minor로 수용한다. candidate 코드·동작 결함이 아니며 repair 예산을 추가하지 않는다. stale 문구는
+   작업 트리에서 정정했고("candidate commit 근거" 절), 이 정정은 최종 task checkpoint commit에 포함한다.
+2. Q8의 2000자 한계는 이번 task의 결함으로 승격하지 않는다. 실제 길이에서는 1953자로 accept 선택지가 유지되며, worktree 경로
+   약 820자라는 비정상 조건에서만 2000자 제한과 accept 유지가 충돌한다. 이번 task의 PASS를 막지 않고 후속 task 후보로 남긴다.
+   추가 repair나 코드 수정은 없다.
+
+Owner 결정 원문:
+
+```text
+QA 결과를 기준으로 다음 Owner 결정을 적용하세요.
+
+1. QA의 task-0151 기록 불일치 1건은 SOP §8 minor로 수용합니다.
+- candidate 코드/동작 결함으로 보지 않습니다.
+- repair 예산을 추가하지 않습니다.
+- task 기록의 stale 문구는 현재 작업 트리에서 정정하세요.
+- 특히 `457e724` 시점에는 repair 구현 절에 `0b07955`가 기록되어 있으므로,
+  "candidate SHA는 이 파일에 없다"라는 문장은 현재 상태와 맞지 않게 되었음을 반영하세요.
+- 이 정정은 최종 task checkpoint commit에 포함하세요.
+
+2. 2000자 한계는 이번 task에서 별도 결함으로 승격하지 않습니다.
+- 실제 task/worktree 길이에서는 1953자로 accept 선택지가 정상 유지됩니다.
+- worktree 경로 약 820자라는 비정상적인 극단 조건에서만 2000자 제한과 accept 유지가 충돌한다는 점을 기록하세요.
+- 이번 task의 PASS를 막지 않습니다.
+- 후속 task 후보로 남기세요.
+- 이번 task에서 추가 repair나 코드 수정은 하지 마세요.
+
+3. QA 결과를 task-0151 기록에 완전히 반영하세요.
+반드시 기록:
+- Reviewer minor 2건의 acceptance
+- QA 결과
+  - Worker smoke 289/289
+  - Discord self-check 92/92
+  - discord-intake 126/126
+  - Console smoke PASS (autocrlf/path 환경 의존 문제로 정상 LF C:/work 환경에서 재검증)
+  - SOP validator PASS, negative 129
+  - git diff --check PASS
+  - 범위 PASS
+  - 2000자 경계 측정 결과
+  - 실제 git worktree + audit chain accept 경로 12/12 PASS
+- 실제 Discord E2E는 수행하지 않았다는 점
+- QA에서 사용한 임시 worktree는 모두 삭제했고 보존 worktree는 unchanged
+- 현재 candidate SHA `457e72446650a288e5a90e92cc7663f51c3648ce`
+- baseline `753e5db`
+- `jarvis.bat`은 계속 untracked
+
+4. 아직 DONE 처리하지 마세요.
+5. 아직 push하지 마세요.
+6. 코드 수정하지 마세요.
+7. task 기록만 수정하세요.
+8. 수정 후 `git diff --check`와 task 기록의 상태/근거 정합성을 다시 확인하세요.
+9. 그 결과를 먼저 보고하고, 별도 승인 없이 Console Complete나 commit을 실행하지 마세요.
+```
+
 ## 다음 단계
 
-status는 `DOING`이다. repair 1 candidate commit 뒤 Reviewer·QA는 Owner 지시를 기다린다. push는 하지 않는다.
+status는 `DOING`이다. candidate `457e72446650a288e5a90e92cc7663f51c3648ce`는 Reviewer minor 2건과 QA 기록 불일치 1건을 SOP
+§8로 수용한 상태에서 QA를 통과했다. 이 기록의 Reviewer 결과·수용·QA 절은 작업 트리에만 있고 commit하지 않았다. checkpoint
+commit, Console Complete(DONE), push는 각각 Owner의 별도 지시를 기다린다.
