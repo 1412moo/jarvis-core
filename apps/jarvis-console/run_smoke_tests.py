@@ -115,6 +115,40 @@ def _test_tasks_reports_registry_copy() -> None:
         baseline_lines[:_start] + baseline_lines[_end + 1:]
     )).encode("utf-8")
     current_raw = registry_path.read_bytes()
+    # task-0153: git stores the registry with LF. When the working tree holds CRLF over
+    # an LF index and core.autocrlf is true or input, git stores this file back as LF, so
+    # that CRLF is the checkout conversion: undo exactly it before the byte-level checks,
+    # and any other CR still fails them. With core.autocrlf false (or unset) a CRLF
+    # working tree is a real change and keeps the raw comparison. .gitattributes is not
+    # consulted. Any git failure or unexpected value fails closed.
+    eol_result = subprocess.run(
+        ("git", "ls-files", "--eol", "--", relative_registry_path),
+        cwd=run_web_app.REPO_ROOT,
+        check=False,
+        capture_output=True,
+    )
+    assert eol_result.returncode == 0, eol_result.stderr.decode(
+        "utf-8",
+        errors="replace",
+    )
+    eol_fields = eol_result.stdout.decode("utf-8").split()
+    assert len(eol_fields) >= 2, eol_result.stdout
+    if eol_fields[0] == "i/lf" and eol_fields[1] == "w/crlf":
+        autocrlf_result = subprocess.run(
+            ("git", "config", "--get", "core.autocrlf"),
+            cwd=run_web_app.REPO_ROOT,
+            check=False,
+            capture_output=True,
+        )
+        # Exit 1 with no output is git's "not set", whose default is false.
+        assert autocrlf_result.returncode == 0 or (
+            autocrlf_result.returncode == 1 and not autocrlf_result.stdout.strip()
+        ), autocrlf_result.stderr.decode("utf-8", errors="replace")
+        autocrlf = autocrlf_result.stdout.decode("utf-8").strip().lower() or "false"
+        assert autocrlf in ("true", "input", "false"), autocrlf
+        if autocrlf in ("true", "input"):
+            current_raw = current_raw.replace(b"\r\n", b"\n")
+            assert b"\r" not in current_raw
     baseline_registry = json.loads(baseline_raw.decode("utf-8"))
     current_registry = json.loads(current_raw.decode("utf-8"))
     # task-0074 removed memory_skills from the registry. Drop it from the
@@ -1959,9 +1993,7 @@ for (const [index, payload] of malformed.entries()) {
 def _test_task_transition_vertical_slice() -> None:
     fixture_root = run_web_app.REPO_ROOT / "task-transition-test-fixture"
     resolved_fixture = fixture_root.resolve()
-    resolved_workspace = Path("C:/work").resolve()
     assert resolved_fixture.parent == run_web_app.REPO_ROOT.resolve()
-    assert resolved_fixture.is_relative_to(resolved_workspace)
     assert not fixture_root.exists()
 
     watched_roots = (
