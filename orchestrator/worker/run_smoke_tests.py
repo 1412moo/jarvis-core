@@ -496,6 +496,67 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
           f"{r.stage}:{r.reason}:{r.detail}")
 
 
+def attempt_numbering(clone: Path, worktrees: Path) -> None:
+    """task-0152: attempts are found whatever the gaps, and a new one goes after the highest."""
+
+    def worktree(name: str) -> Path:
+        path = worktrees / name
+        git(["worktree", "add", "-q", "-b", f"jarvis/{name}", str(path), "HEAD"], clone)
+        return path
+
+    cases = {
+        "none": ((), (), (), []),
+        "base": (("",), (), (), [1]),
+        "contiguous": (("", "-r2", "-r3"), (), (), [1, 2, 3]),
+        "r3only": (("-r3",), (), (), [3]),
+        "baser3": (("", "-r3"), (), (), [1, 3]),
+        "r5r7": (("-r5", "-r7"), (), (), [5, 7]),
+        "branchonly": ((), ("-r2",), (), [2]),
+        "dironly": ((), (), ("-r4",), [4]),
+    }
+    for name, (trees, branches, dirs, expected) in cases.items():
+        task_id = f"task-8000-num{name}"
+        for suffix in trees:
+            worktree(task_id + suffix)
+        for suffix in branches:
+            git(["branch", f"jarvis/{task_id}{suffix}", "HEAD"], clone)
+        for suffix in dirs:
+            (worktrees / f"{task_id}{suffix}").mkdir(parents=True)
+        found = claude_worker._existing_attempts(clone, worktrees, task_id)
+        check(f"attempt numbers: {name} -> {expected}", found == expected, str(found))
+
+    def glossary_edit(path: Path, term: str) -> None:
+        glossary = path / "apps/studyroom/content/glossary.json"
+        data = json.loads(glossary.read_text(encoding="utf-8"))
+        data.append({"id": term, "term": term, "dev_definition": "d", "simple_explanation": "s", "jarvis_example": "e"})
+        glossary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+    # Only -r3 left (task-0143 shape): /go makes -r4 and leaves -r3 alone.
+    r3 = worktree("task-8000-gapgo-r3")
+    r3_tip = git(["rev-parse", "jarvis/task-8000-gapgo-r3"], clone)
+    r = run_case("gapgo", clone, worktrees, worker="ok", task_id="task-8000-gapgo")[0]
+    check("attempt numbers: with only -r3, /go makes -r4", r.ok and r.branch == "jarvis/task-8000-gapgo-r4", f"{r.branch}:{r.stage}:{r.reason}")
+    check("attempt numbers: the existing -r3 branch, tip and worktree are kept", r3.exists()
+          and git(["rev-parse", "jarvis/task-8000-gapgo-r3"], clone) == r3_tip and not git(["branch", "--list", "jarvis/task-8000-gapgo"], clone))
+
+    # Only -r3 left: resume finds it instead of resume_no_previous_attempt.
+    r3 = worktree("task-8000-gapresume-r3")
+    glossary_edit(r3, "gap-resume-r3")
+    r = run_case("gapresume", clone, worktrees, worker="fail", resume=True, task_id="task-8000-gapresume")[0]
+    check("attempt numbers: with only -r3, resume carries -r3 into -r4", r.ok and r.resumed_from == "jarvis/task-8000-gapresume-r3"
+          and r.branch == "jarvis/task-8000-gapresume-r4" and r.reason != "resume_no_previous_attempt", f"{r.stage}:{r.reason}:{r.resumed_from}")
+
+    # Attempt 1 and -r3, no -r2: resume picks the latest, -r3, not attempt 1.
+    old = run_case("gapboth", clone, worktrees, worker="ok", review="findings", task_id="task-8000-gapboth")[0]
+    r3 = worktree("task-8000-gapboth-r3")
+    glossary_edit(r3, "gap-both-r3")
+    r = run_case("gapboth", clone, worktrees, worker="fail", resume=True, task_id="task-8000-gapboth")[0]
+    check("attempt numbers: with attempt 1 and -r3, resume picks -r3", r.ok and r.resumed_from == "jarvis/task-8000-gapboth-r3"
+          and "gap-both-r3" in git(["show", f"{r.candidate}:apps/studyroom/content/glossary.json"], clone),
+          f"{r.stage}:{r.reason}:{r.resumed_from}")
+    check("attempt numbers: attempt 1 and -r3 are kept", git(["rev-parse", old.branch], clone) == old.candidate and r3.exists())
+
+
 def owner_review_replies(results: dict[str, dict]) -> None:
     """task-0150: the Discord reply for qa_unverified_owner_review lists the pending entries."""
 
@@ -800,6 +861,7 @@ def main() -> int:
         bot_flow(clone, worktrees)
         owner_review_replies(owner_review_results)
         accept_flow(clone, worktrees)
+        attempt_numbering(clone, worktrees)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

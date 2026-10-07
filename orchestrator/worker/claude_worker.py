@@ -412,13 +412,9 @@ def _attempt_name(task_id: str, attempt: int) -> str:
 
 
 def _existing_attempts(repo_root: Path, worktree_root: Path, task_id: str) -> list[int]:
-    attempts, attempt = [], 1
-    while (worktree_root / _attempt_name(task_id, attempt)).exists() or _branch_exists(
-        repo_root, f"jarvis/{_attempt_name(task_id, attempt)}"
-    ):
-        attempts.append(attempt)
-        attempt += 1
-    return attempts
+    # task-0152: every attempt number, gaps allowed (an attempt removed by hand leaves a gap).
+    numbers, _ = _attempt_numbers(repo_root, worktree_root, task_id)
+    return sorted(numbers)
 
 
 def _run_worker(worktree: Path, prompt: str) -> None:
@@ -518,9 +514,10 @@ def _copy_attempt_changes(previous: Path, worktree: Path, paths: list[str]) -> N
 def _attempt_numbers(repo_root: Path, worktree_root: Path, task_id: str) -> tuple[set[int], bool]:
     """task-0151: every attempt number with a branch or a worktree directory, gaps allowed.
 
-    Unlike _existing_attempts() this does not stop at the first missing number. The flag is
-    True when a name cannot be read as exactly one attempt of this task: an attempt-like name
-    _attempt_name() never produces, or a task id that is another task's attempt name.
+    It does not stop at the first missing number; _existing_attempts() returns these numbers
+    (task-0152). The flag is True when a name cannot be read as exactly one attempt of this
+    task: an attempt-like name _attempt_name() never produces, or a task id that is another
+    task's attempt name.
     """
 
     refs = _git(["for-each-ref", "--format=%(refname:short)", "refs/heads/jarvis/"], repo_root).splitlines()
@@ -727,7 +724,8 @@ def run_pipeline(
 
         # 2. A new isolated worktree outside the repository; earlier attempts are never removed.
         result.stage = "worktree"
-        attempt = len(_existing_attempts(repo_root, worktree_root, task_id)) + 1
+        # task-0152: after the highest existing attempt, never into a gap.
+        attempt = max(_existing_attempts(repo_root, worktree_root, task_id), default=0) + 1
         name = _attempt_name(task_id, attempt)
         worktree = worktree_root / name
         branch = f"jarvis/{name}"
