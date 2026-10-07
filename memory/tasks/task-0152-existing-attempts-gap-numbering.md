@@ -2,10 +2,10 @@
 
 - id: `task-0152-existing-attempts-gap-numbering`
 - title: `Worker attempt 번호를 빈 번호와 무관하게 찾고 최대 번호 다음으로 새 attempt 만들기`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-07 07:38 UTC`
-- updated_at: `2026-10-07 09:20 UTC`
+- updated_at: `2026-10-07 11:06 UTC`
 - summary: `claude_worker._existing_attempts()가 attempt 1부터 연속일 때만 세서, task-0143처럼 -r3만 남으면 /go 재시도가 attempt 1부터 다시 시작해 세 번째에 기존 -r3와 부딪치고 /go resume은 resume_no_previous_attempt로 실패한다. _attempt_numbers()를 재사용해 빈 번호와 무관하게 찾고 다음 attempt를 최대 번호+1로 정한다. 구현은 candidate b65ab02로 기록됐고 Reviewer minor 1건은 SOP §8로 수용됐으며 QA는 통과했다. 최종 checkpoint commit으로 기록했고 DONE·push는 Owner 지시 대기다.`
 - source_command: `Owner 지시: task-0152 _existing_attempts 결함 수정 승인과 결정 1~3`
 
