@@ -2,10 +2,10 @@
 
 - id: `task-0151-go-accept-owner-reviewed-candidate`
 - title: `qa_unverified_owner_review로 멈춘 Worker candidate를 Owner 확인 뒤 /go <id> accept로 반영`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-06 03:14 UTC`
-- updated_at: `2026-10-07 07:12 UTC`
+- updated_at: `2026-10-07 07:15 UTC`
 - summary: `Worker 파이프라인이 qa_unverified_owner_review로 멈춘 FAILED task에서, Owner가 확인을 마친 뒤 /go <id> accept로 보존된 마지막 attempt candidate를 반영하게 한다. 대상 식별·QA 6개 재실행·main baseline 일치를 모두 fail-closed로 검증하고 기존 허용 전이(FAILED→TODO→DOING→DONE)만 쓰며 새 상태는 만들지 않는다. 구현은 candidate 457e724(repair 1회)로 기록됐고 Reviewer minor 2건과 QA 기록 불일치 1건은 SOP §8로 수용됐으며 QA는 통과했다. DONE·commit·push는 Owner 지시 대기다.`
 - source_command: `Owner 지시: task-0151 Owner 결정 1~4와 추가 안전 조건, task 파일 생성까지만`
 
