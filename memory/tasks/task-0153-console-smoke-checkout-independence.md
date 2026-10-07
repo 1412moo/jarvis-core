@@ -2,10 +2,10 @@
 
 - id: `task-0153-console-smoke-checkout-independence`
 - title: `Console smoke가 CRLF checkout과 C:/work 밖 worktree에서도 같은 강도로 통과하게 하기`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-07 12:55 UTC`
-- updated_at: `2026-10-08 03:20 UTC`
+- updated_at: `2026-10-07 18:12 UTC`
 - summary: `apps/jarvis-console/run_smoke_tests.py의 skills.json 바이트 비교가 core.autocrlf=true의 CRLF checkout에서 실패하고, task transition 검사가 저장소 위치를 C:/work로 가정해 실패한다. 작업 트리 CRLF가 index LF 위에 있고 core.autocrlf가 true·input일 때만 CRLF를 LF로 되돌려 비교하고 C:/work 가정을 지운다. 검사 강도는 유지한다. candidate 9bb2a4b가 Reviewer PASS와 QA PASS를 받았다. Reviewer·QA 기록을 최종 checkpoint commit으로 남기고 Console Complete로 마무리한다. push는 하지 않는다.`
 - source_command: `Owner 지시: 권장 변형으로 task-0153 기록 작성하고 계획 먼저 보고`
 
