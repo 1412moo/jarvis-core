@@ -8,3 +8,4 @@ node_modules/
 # construction and a fail-closed guard refuses any in-repo path; this line is
 # a second net, not the primary defence. See orchestrator/role-signing/README.md
 *.key
+.claude/settings.local.json
