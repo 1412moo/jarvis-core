@@ -239,6 +239,13 @@ can see it. Jarvis Console shows that state; it does not approve, run, or
 complete Task work, and it has no approval queue. The decision is made outside
 the console.
 
+A Task run by the Worker pipeline also shows its recorded result read-only:
+**Execution result** (`success`, `failed` or `not_executed`, derived from
+`executed` and `success` as `docs/task-model.md` section 10 describes) and
+**Execution summary** (`execution_summary`, or `Not recorded`). A Task without
+execution metadata shows neither row. Jarvis Console only reads these values;
+it does not run, retry or change the execution.
+
 The same tab also carries the owner project card. It lets the owner see why the
 current work exists, where it sits in the master plan, what the live repository
 reports, and what user-visible result is next before reading detailed task/report

@@ -1698,6 +1698,24 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
         ):
             return invalid_task_view("invalid_updated_at", field_name)
 
+    # task-0155: show the recorded Worker result. Only values that passed the
+    # checks above are used. execution_status is derived on read by the rule in
+    # docs/task-model.md section 10, never stored; a Task without `executed`
+    # carries no execution section.
+    execution: dict[str, str | None] | None = None
+    if "executed" in metadata:
+        executed = metadata["executed"] == "true"
+        if executed and metadata.get("success") == "true":
+            execution_status = "success"
+        elif executed:
+            execution_status = "failed"
+        else:
+            execution_status = "not_executed"
+        execution = {
+            "status": execution_status,
+            "summary": normalized_optional_text.get("execution_summary"),
+        }
+
     group_id, display_rank, next_action = status_rule
     return {
         "parse_state": "valid",
@@ -1710,6 +1728,7 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
             "completion_evidence"
         ),
         "has_completion_evidence": "completion_evidence" in metadata,
+        "execution": execution,
         "group_id": group_id,
         "display_rank": display_rank,
         "next_action": next_action,

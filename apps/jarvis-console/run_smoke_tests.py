@@ -4581,12 +4581,129 @@ def _test_actionable_task_view_vertical_slice() -> None:
             "summary",
             "completion_evidence",
             "has_completion_evidence",
+            "execution",
             "group_id",
             "display_rank",
             "next_action",
             "read_only",
         }
         assert view["read_only"] is True
+        # task-0155: a Task without execution metadata has no execution section.
+        assert view["execution"] is None
+
+    # task-0155: the recorded Worker result is shown read-only. execution_status
+    # follows docs/task-model.md section 10: executed and success -> success,
+    # executed alone -> failed, otherwise not_executed. It is derived from
+    # values that already passed the parser's checks and is never stored.
+    execution_cases = (
+        (
+            "success",
+            "DONE",
+            (
+                "- executed: `true`",
+                "- success: `true`",
+                "- dry_run: `false`",
+                "- execution_summary: `worker candidate 2fe5262 passed Reviewer and QA after 0 repair(s)`",
+            ),
+            {
+                "status": "success",
+                "summary": "worker candidate 2fe5262 passed Reviewer and QA after 0 repair(s)",
+            },
+        ),
+        (
+            "failed",
+            "FAILED",
+            (
+                "- executed: `true`",
+                "- success: `false`",
+                "- dry_run: `false`",
+                "- execution_summary: `scope:repair_no_changes`",
+            ),
+            {"status": "failed", "summary": "scope:repair_no_changes"},
+        ),
+        (
+            "not-executed",
+            "DOING",
+            (
+                "- executed: `false`",
+                "- success: `false`",
+                "- dry_run: `true`",
+                "- execution_summary: `dry run only`",
+            ),
+            {"status": "not_executed", "summary": "dry run only"},
+        ),
+        (
+            "not-executed-success-flag",
+            "DOING",
+            ("- executed: `false`", "- success: `true`"),
+            {"status": "not_executed", "summary": None},
+        ),
+        (
+            "executed-without-success",
+            "FAILED",
+            ("- executed: `true`",),
+            {"status": "failed", "summary": None},
+        ),
+        (
+            "summary-missing",
+            "DONE",
+            ("- executed: `true`", "- success: `true`"),
+            {"status": "success", "summary": None},
+        ),
+        (
+            "summary-without-executed",
+            "TODO",
+            ("- execution_summary: `orphan summary`",),
+            None,
+        ),
+    )
+    for index, (slug, status, optional_lines, expected) in enumerate(
+        execution_cases,
+        start=201,
+    ):
+        task_id = f"task-{index:04d}-execution-{slug}"
+        view = run_web_app.parse_task_view_text(
+            f"{task_id}.md",
+            task_markdown(task_id, status, optional_lines=optional_lines),
+        )
+        assert view is not None
+        assert view["parse_state"] == "valid", (slug, view)
+        assert view["status"] == status
+        assert view["execution"] == expected, (slug, view["execution"])
+        assert (view["group_id"], view["display_rank"]) == (
+            run_web_app.TASK_VIEW_STATUS_RULES[status][:2]
+        )
+        assert "execution_updated_at" not in view
+        if view["execution"] is not None:
+            assert set(view["execution"]) == {"status", "summary"}
+
+    # An execution boolean that fails the existing check still sends the Task
+    # to metadata review; no execution section is derived from it.
+    for index, (field_name, bad_value) in enumerate(
+        (
+            ("executed", "True"),
+            ("executed", "1"),
+            ("success", "yes"),
+            ("executed", ""),
+        ),
+        start=221,
+    ):
+        task_id = f"task-{index:04d}-execution-invalid-boolean"
+        optional_lines = (
+            ("- executed: `true`", f"- success: `{bad_value}`")
+            if field_name == "success"
+            else (f"- executed: `{bad_value}`", "- success: `true`")
+        )
+        view = run_web_app.parse_task_view_text(
+            f"{task_id}.md",
+            task_markdown(task_id, "DONE", optional_lines=optional_lines),
+        )
+        assert view is not None
+        assert view["parse_state"] == "invalid", (field_name, bad_value, view)
+        assert view["group_id"] == "metadata_review"
+        assert view["reason_code"] == "invalid_text"
+        assert view["reason_field"] == field_name
+        assert "execution" not in view
 
     # task-0098: a record using the documented ON_HOLD status is a valid Task,
     # not a metadata problem, and reaches Needs attention through the ordinary
@@ -4703,8 +4820,17 @@ def _test_actionable_task_view_vertical_slice() -> None:
         "task-0301-optional.md",
         task_markdown("task-0301-optional", "TODO"),
     )
-    assert optional_view == plain_view
-    assert optional_view is not None
+    assert optional_view is not None and plain_view is not None
+    # task-0155: execution metadata now adds only the derived execution
+    # section; every other key stays exactly as for the plain Task.
+    assert optional_view["execution"] == {
+        "status": "failed",
+        "summary": "summary",
+    }
+    assert plain_view["execution"] is None
+    assert {
+        key: value for key, value in optional_view.items() if key != "execution"
+    } == {key: value for key, value in plain_view.items() if key != "execution"}
     optional_false_view = run_web_app.parse_task_view_text(
         "task-0301-optional.md",
         task_markdown(
@@ -5087,8 +5213,12 @@ def _test_actionable_task_view_vertical_slice() -> None:
         'escapeHtml(item.path || "")',
         "escapeHtml(view.id)",
         "escapeHtml(action)",
+        'escapeHtml(view.execution.status || "")',
+        'escapeHtml(view.execution.summary || "Not recorded")',
     ):
         assert escaping_contract in renderer_source
+    # task-0155: execution_updated_at is deliberately not displayed.
+    assert "execution_updated_at" not in renderer_source
     assert (
         'const action = valid && view.status === "TODO"\n'
         '    ? "start"\n'
@@ -5203,6 +5333,47 @@ if (!metadataHtml.includes(readOnlyBadge) ||
     metadataHtml.includes(guardedBadge) ||
     metadataHtml.includes("preview-task-transition")) {
   throw new Error("metadata review did not render read-only exactly");
+}
+// task-0155: the execution rows appear only when the view carries execution,
+// are escaped, and do not change the badge or the action buttons.
+for (const status of [...guardedStatuses, ...readOnlyStatuses]) {
+  const plainHtml = actionableTaskItemMarkup(fixtureItem(status));
+  if (plainHtml.includes("Execution result") ||
+      plainHtml.includes("Execution summary")) {
+    throw new Error(`${status} without execution rendered execution rows`);
+  }
+  const withExecution = fixtureItem(status);
+  withExecution.task_view.execution = {
+    status: "failed",
+    summary: "scope:repair_no_changes <b>&</b>",
+  };
+  const executionHtml = actionableTaskItemMarkup(withExecution);
+  if (!executionHtml.includes("<dt>Execution result</dt><dd>failed</dd>") ||
+      !executionHtml.includes(
+        "<dt>Execution summary</dt><dd>scope:repair_no_changes &lt;b&gt;&amp;&lt;/b&gt;</dd>",
+      ) ||
+      executionHtml.includes("<b>&</b>")) {
+    throw new Error(`${status} did not render escaped execution rows`);
+  }
+  const strip = (html) => html
+    .replace(/<dt>Execution result<\\/dt><dd>[^<]*<\\/dd>/, "")
+    .replace(/<dt>Execution summary<\\/dt><dd>[^<]*<\\/dd>/, "")
+    .replace(/\\s+/g, " ");
+  if (strip(executionHtml) !== strip(plainHtml)) {
+    throw new Error(`${status} execution rows changed other card markup`);
+  }
+}
+const missingSummary = fixtureItem("DONE");
+missingSummary.task_view.execution = { status: "success", summary: null };
+if (!actionableTaskItemMarkup(missingSummary).includes(
+  "<dt>Execution summary</dt><dd>Not recorded</dd>",
+)) {
+  throw new Error("missing execution summary did not render Not recorded");
+}
+const invalidWithExecution = fixtureItem("METADATA_REVIEW", "invalid");
+invalidWithExecution.task_view.execution = { status: "success", summary: "x" };
+if (actionableTaskItemMarkup(invalidWithExecution).includes("Execution result")) {
+  throw new Error("metadata review rendered execution rows");
 }
 """
     )

@@ -875,6 +875,14 @@ function actionableTaskItemMarkup(item) {
         <dt>Task ID</dt><dd>${escapeHtml(taskId)}</dd>
         <dt>Updated</dt><dd>${escapeHtml(updatedAt)}</dd>
         <dt>Summary</dt><dd>${escapeHtml(summary)}</dd>
+        ${
+          valid && view.execution
+            ? `
+              <dt>Execution result</dt><dd>${escapeHtml(view.execution.status || "")}</dd>
+              <dt>Execution summary</dt><dd>${escapeHtml(view.execution.summary || "Not recorded")}</dd>
+            `
+            : ""
+        }
         <dt>Completion evidence</dt><dd>${escapeHtml(view.completion_evidence || "Not recorded")}</dd>
         <dt>Next action</dt><dd>${escapeHtml(view.next_action || "")}</dd>
         <dt>Path</dt><dd><code>${escapeHtml(item.path || "")}</code></dd>
