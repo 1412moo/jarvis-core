@@ -17,7 +17,7 @@
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 계기 | 2026-10-11 Console 실사용 점검에서 task-0143(FAILED)의 실패 이유 `scope:repair_no_changes`와 task-0154(DONE)의 Worker 결과가 Task View에 보이지 않았다 |
 | 보존 대상 | task-0143 r3 worktree/branch(`e05c69c`), task-0149 worktree/branch 2개(`8f0c58e`, r2 `bd1622e`), task-0154 worktree/branch(`80a61a8`) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (시작 값 `repair_count=0`, repair 1 뒤 1) |
+| budget | `retry_budget=1`, `retry_count=1`, `repair_budget=1`, `repair_count=1` (시작 값 둘 다 0. repair 1 뒤 `repair_count=1`, Reviewer retry 뒤 `retry_count=1`) |
 
 ## 조사 결과 (read-only, 코드와 task 기록 기준)
 
@@ -98,6 +98,7 @@ Owner가 Task View의 Worker 실행 결과 표시 개선을 승인한다.
 | X3 | `jarvis.bat`, `.git/info/exclude` 불변 | 접근하지 않는다 |
 | X4 | 10건 제한, 탭 기본 선택, 다른 UI 불편 사항 제외 | 손대지 않는다 |
 | X5 | 승인되지 않은 추가 개선 금지 | 위 4개 파일과 이 기록 외 변경 없음 |
+| P0 | 작업 절차 1: 저장소 지침과 SOP 준수 | AGENTS.md 원칙(작은 단계, 비밀 정보 없음, 요청되지 않은 리팩토링 금지, 확인하지 않은 사항은 완료로 기록하지 않음, 보고 형식), `docs/codex-operating-rules.md`(작업 전 상태 확인, 명시 파일만 stage하고 `git add .`·`-A` 금지, `jarvis.bat` 불가촉, 서버는 필요할 때만 띄우고 소유 PID 정리, push·PR은 승인 필요), `docs/jarvis-multi-agent-sop-v0.1.md`(Manager의 승인 원문 인용과 요약 분리, Implementer → Reviewer → QA, candidate가 바뀌면 이전 Reviewer·QA 무효, budget·retry/repair 규칙, 즉시 escalation gate, §8 완료 조건, 수동 경로 DONE은 Owner의 Console Complete)를 따른다. (Reviewer 지적으로 이 checkpoint에서 추가: candidate `82abaa4`의 기록에는 이 행이 없었다) |
 | P1 | 정식 task 생성, Implementer → Reviewer → QA | 이 기록 생성 → Console Start(`TODO→DOING`) → candidate commit → Reviewer → QA |
 | P2 | diff 검토, 지정 회귀 테스트, Console smoke 전체, SOP validator, `git diff --check` | 검증 계획 V1–V6 |
 | P3 | 검증 실패 시 범위를 넓히지 않고 보고 | 실패하면 멈추고 보고한다. budget 안의 repair도 승인 범위 4개 파일 안에서만 |
@@ -198,3 +199,51 @@ task-0143 `failed`, 0146·0149·0154 `success`로 변화 없음), SOP validator 
 첫 `source_command` 변형은 문자열이 다른 상수에 먼저 맞아 실제로 바뀌지 않았고, 대상 상수에 정확히 넣어 다시 실행한 결과가 위 FAIL이다.
 
 이 repair로 candidate가 바뀌므로 이전 Reviewer 결과는 무효이고 새 candidate에 Reviewer → QA를 다시 실행한다.
+
+## Reviewer 결과 (candidate `82abaa48b6d7ff799087123f51caf0129ab4c8c9`, repair 1 뒤): FINDINGS
+
+baseline `9806a8b2b30849b01774e2a8b9bfb82bdcecfb63`, 누적 5개 파일. `self_deviations: []`, `unverified` 9건. findings 1건(minor):
+Manager 요약에 승인 작업 절차 1("저장소 지침과 SOP를 준수한다")에 해당하는 행이 없다(P1–P5는 절차 2–6만 옮긴다). 코드 결함이
+아니라 Manager 요약 누락이다.
+
+Manager 판정: SOP 5절의 호출 결함(Manager 요약 누락)으로 보고, candidate를 바꾸지 않고 요약에 P0 행을 더해 같은 candidate를 1회
+재검토했다(retry, `retry_count` 0→1, repair 예산 사용 없음). 이 기록의 Manager 요약 표에도 P0을 이 checkpoint에서 더했다.
+
+## Reviewer retry 결과 (같은 candidate `82abaa48b6d7ff799087123f51caf0129ab4c8c9`): PASS
+
+`findings: []`, `self_deviations: []`. `unverified` 8건은 Q1–Q7로 넘겼다(Q1 smoke, Q2 self-test, Q3 실제 기록·overview,
+Q4 validator, Q5 diff check, Q6 강도, Q7 정리). 나머지 1건(저장소 밖 잔여 파일 `C:\Program Files\Git\tmp_rw.py`)은 `qa: none`이며
+아래 QA 정리 항목에 상태를 적었다.
+
+## QA 결과 (candidate `82abaa48b6d7ff799087123f51caf0129ab4c8c9`, baseline `9806a8b2b30849b01774e2a8b9bfb82bdcecfb63`): PASS
+
+candidate를 detached로 checkout한 임시 clean worktree(scratchpad, CRLF checkout)에서만 실행했다(복사한 파일 없음). QA 전·후 main
+HEAD와 candidate가 같았다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | Console smoke 전체 | PASS |
+| Q2 | `run_web_app.py --self-test` | PASS |
+| Q3 | 실제 task 기록(worktree 기준) | 107개 모두 valid. 실행 결과 task-0143 `FAILED`/`failed`/`scope:repair_no_changes`, task-0146·0149·0154 `DONE`/`success`(각 Worker summary). `/api/overview` 200, 표시 10건 중 task-0143 `failed`, task-0154 `success`, 나머지 `null` |
+| Q4 | SOP validator | PASS, negative_checks=129, negative_failures=0 |
+| Q5 | `git diff --check 9806a8b 82abaa4`, 범위 | exit 0. commit 2개(`a49ae89`, `82abaa4`), 5개 파일(M README·run_smoke_tests·run_web_app·app.js, A 이 기록). `jarvis.bat`은 candidate tree에 없음 |
+| Q6 | 강도(변경 1개씩 넣고 smoke 실행 뒤 `git checkout`으로 복구) | 7개 모두 FAIL로 잡힘: `executed`만일 때 `not_executed`, 일반 task non-null, summary escape 제거, metadata review 실행 줄, 실행 줄 옆 markup 추가, 조건을 `executed`만으로, `source_command`를 실행 필드로. 복구 뒤 smoke PASS |
+| Q7 | 정리 | QA worktree와 변형 스크립트 삭제. 8790대 listener 없음. 보존 worktree 4개 그대로. `jarvis.bat` untracked |
+
+QA 실행 메모: Q6 첫 두 시도는 변형이 적용되지 않았다(첫 시도는 CRLF worktree에 LF 패턴, 두 번째는 Windows 인자 전달 문제). 적용되지
+않은 실행은 결과로 쓰지 않았고, 패턴을 스크립트 파일에 넣어 줄 끝을 맞춘 세 번째 실행이 위 결과다.
+
+저장소 밖 잔여 파일: `C:\Program Files\Git\tmp_rw.py`(구현 단계 V6에서 잘못 만든 `run_web_app.py` 사본)는 QA 종료 시점에도 남아 있다.
+삭제는 Claude Code 안전 검사로 막혀 Owner에게 넘긴다. 저장소와 candidate에는 영향이 없다.
+
+## Docs와 완료 조건 대조
+
+- Docs: `not_required`(위 File ownership 절의 이유 그대로. README는 candidate에 포함돼 Reviewer·QA를 받았다).
+- SOP 8절: 같은 candidate에 Reviewer PASS(retry)와 QA PASS. candidate 변경 뒤 이전 Reviewer 결과(`a49ae89` FINDINGS, `82abaa4` 첫
+  검토 FINDINGS)는 판정에 쓰지 않았다. 범위 밖 변경·동시 source writer 없음. `jarvis.bat` untouched/untracked. push·PR·외부 호출 없음.
+  runtime artifact와 listener 없음(저장소 밖 잔여 파일 1개는 위와 같이 Owner에게 보고).
+
+## 다음 단계
+
+status는 `DOING`이다. 이 기록을 record-only checkpoint commit으로 남긴다. DONE은 SOP 8절대로 Owner가 Jarvis Console Complete
+(Preview + Confirm `COMPLETE TASK`)로 결정한다. push는 하지 않는다.
