@@ -2,10 +2,10 @@
 
 - id: `task-0155-console-task-view-worker-execution-result`
 - title: `Console Task View에 Worker 실행 결과(Execution result·Execution summary) 읽기 전용 표시`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-13 08:23 UTC`
-- updated_at: `2026-10-13 08:24 UTC`
+- updated_at: `2026-10-13 09:34 UTC`
 - summary: `Task View가 task 기록의 실행 필드를 이미 읽고 검사하지만 화면 결과에서 빼서, Worker로 실행한 task(예: task-0143 FAILED)의 실제 결과와 실패 이유가 보이지 않는다. parse_task_view_text()에 execution(task-model 10절 규칙의 status와 execution_summary)을 더하고, 카드에 실행 결과가 있을 때만 두 줄을 읽기 전용으로 표시한다. task 기록, 데이터 모델, 상태, API 경로는 바꾸지 않고 push는 하지 않는다.`
 - source_command: `Owner 승인: Task View의 Worker 실행 결과 표시 개선을 조사 결과에 따른 최소 변경 범위로 구현`
 
