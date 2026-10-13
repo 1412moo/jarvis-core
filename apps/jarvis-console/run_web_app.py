@@ -193,6 +193,20 @@ TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS = frozenset(
     {"execution_candidate", "executed", "success", "dry_run"}
 )
 TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS = frozenset({"execution_updated_at"})
+# task-0155: the eight stored execution fields of docs/task-model.md section 10.
+# Any one of them present means the Task carries execution metadata.
+TASK_VIEW_EXECUTION_FIELDS = frozenset(
+    {
+        "execution_candidate",
+        "execution_request",
+        "execution_result",
+        "executed",
+        "success",
+        "dry_run",
+        "execution_updated_at",
+        "execution_summary",
+    }
+)
 TASK_VIEW_ALLOWED_FIELDS = frozenset(TASK_VIEW_REQUIRED_FIELDS).union(
     TASK_VIEW_OPTIONAL_TEXT_FIELDS,
     TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS,
@@ -1700,11 +1714,11 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
 
     # task-0155: show the recorded Worker result. Only values that passed the
     # checks above are used. execution_status is derived on read by the rule in
-    # docs/task-model.md section 10, never stored; a Task without `executed`
-    # carries no execution section.
+    # docs/task-model.md section 10, never stored; a Task with none of the
+    # eight stored execution fields carries no execution section.
     execution: dict[str, str | None] | None = None
-    if "executed" in metadata:
-        executed = metadata["executed"] == "true"
+    if TASK_VIEW_EXECUTION_FIELDS.intersection(metadata):
+        executed = metadata.get("executed") == "true"
         if executed and metadata.get("success") == "true":
             execution_status = "success"
         elif executed:

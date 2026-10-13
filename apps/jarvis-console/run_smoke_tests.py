@@ -4650,13 +4650,50 @@ def _test_actionable_task_view_vertical_slice() -> None:
             ("- executed: `true`", "- success: `true`"),
             {"status": "success", "summary": None},
         ),
+        # Any of the eight stored execution fields means execution metadata
+        # exists; without `executed` the status is not_executed.
         (
             "summary-without-executed",
             "TODO",
             ("- execution_summary: `orphan summary`",),
+            {"status": "not_executed", "summary": "orphan summary"},
+        ),
+        (
+            "candidate-only",
+            "TODO",
+            ("- execution_candidate: `false`",),
+            {"status": "not_executed", "summary": None},
+        ),
+        (
+            "updated-at-only",
+            "TODO",
+            ("- execution_updated_at: `2026-07-23 10:30 UTC`",),
+            {"status": "not_executed", "summary": None},
+        ),
+        (
+            "success-without-executed",
+            "DONE",
+            ("- success: `true`",),
+            {"status": "not_executed", "summary": None},
+        ),
+        # source_command is written by /task for every Task and is not an
+        # execution field.
+        (
+            "source-command-only",
+            "TODO",
+            ("- source_command: `/task`",),
             None,
         ),
     )
+    assert run_web_app.TASK_VIEW_EXECUTION_FIELDS == (
+        (
+            run_web_app.TASK_VIEW_OPTIONAL_TEXT_FIELDS
+            - {"completion_evidence", "source_command"}
+        )
+        | run_web_app.TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS
+        | run_web_app.TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS
+    )
+    assert len(run_web_app.TASK_VIEW_EXECUTION_FIELDS) == 8
     for index, (slug, status, optional_lines, expected) in enumerate(
         execution_cases,
         start=201,
@@ -4839,7 +4876,16 @@ def _test_actionable_task_view_vertical_slice() -> None:
             optional_lines=("- execution_candidate: `false`",),
         ),
     )
-    assert optional_false_view == plain_view
+    assert optional_false_view is not None
+    assert optional_false_view["execution"] == {
+        "status": "not_executed",
+        "summary": None,
+    }
+    assert {
+        key: value
+        for key, value in optional_false_view.items()
+        if key != "execution"
+    } == {key: value for key, value in plain_view.items() if key != "execution"}
     optional_timestamp_view = run_web_app.parse_task_view_text(
         "task-0301-optional.md",
         task_markdown(
@@ -4850,7 +4896,16 @@ def _test_actionable_task_view_vertical_slice() -> None:
             ),
         ),
     )
-    assert optional_timestamp_view == plain_view
+    assert optional_timestamp_view is not None
+    assert optional_timestamp_view["execution"] == {
+        "status": "not_executed",
+        "summary": None,
+    }
+    assert {
+        key: value
+        for key, value in optional_timestamp_view.items()
+        if key != "execution"
+    } == {key: value for key, value in plain_view.items() if key != "execution"}
     assert optional_view["completion_evidence"] is None
     assert optional_view["has_completion_evidence"] is False
     assert all(

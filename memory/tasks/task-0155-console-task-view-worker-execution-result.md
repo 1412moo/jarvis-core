@@ -17,7 +17,7 @@
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 계기 | 2026-10-11 Console 실사용 점검에서 task-0143(FAILED)의 실패 이유 `scope:repair_no_changes`와 task-0154(DONE)의 Worker 결과가 Task View에 보이지 않았다 |
 | 보존 대상 | task-0143 r3 worktree/branch(`e05c69c`), task-0149 worktree/branch 2개(`8f0c58e`, r2 `bd1622e`), task-0154 worktree/branch(`80a61a8`) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (시작 값 `repair_count=0`, repair 1 뒤 1) |
 
 ## 조사 결과 (read-only, 코드와 task 기록 기준)
 
@@ -84,7 +84,7 @@ Owner가 Task View의 Worker 실행 결과 표시 개선을 승인한다.
 | --- | --- | --- |
 | A1 | run_web_app.py: `parse_task_view_text()` 반환값에 `execution` 추가 | valid 반환 dict에 키 `execution` 하나를 더한다. invalid 반환(`invalid_task_view`)은 바꾸지 않는다 |
 | A2 | task-model §10 규칙으로 `status` 계산 | `executed=true`·`success=true` → `success`, `executed=true`만 → `failed`, 그 밖 → `not_executed` |
-| A3 | `execution` 필드가 없는 일반 task는 `null` | `executed` 줄이 없으면 `execution: None`(JSON `null`). 실행 필드가 있는 4건 모두 `executed`를 가지며 writer가 함께 기록한다 |
+| A3 | `execution` 필드가 없는 일반 task는 `null` | task-model 10절의 저장 실행 필드 8개(`execution_candidate`, `execution_request`, `execution_result`, `executed`, `success`, `dry_run`, `execution_updated_at`, `execution_summary`)가 하나도 없으면 `execution: None`(JSON `null`). 하나라도 있으면 실행 구역을 만들고 `executed`가 없으면 `not_executed`다(Discord `/status`·`/review-task`와 같음). `source_command`는 실행 필드가 아니다. (repair 1에서 정정: 첫 candidate는 `executed` 줄 유무로만 판단했다) |
 | A4 | 기존 검증을 통과한 데이터만 사용 | 기존 boolean·text 검사가 모두 끝난 뒤의 값만 쓴다. `execution_summary`는 기존 정규화 결과(`normalized_optional_text`)를 쓰고, 없으면 `summary: None`. `execution_result` JSON은 읽지 않는다. 새 검사나 새 실패 사유는 없다 |
 | B1 | app.js: 실행 결과가 있을 때만 `Execution result`·`Execution summary`를 읽기 전용 표시 | `actionableTaskItemMarkup()`에서 `view.execution`이 있을 때만 `<dt>/<dd>` 두 줄. summary가 없으면 `Not recorded` |
 | B2 | `escapeHtml` 사용 | 두 값 모두 `escapeHtml`로 출력 |
@@ -164,3 +164,37 @@ baseline `9806a8b2b30849b01774e2a8b9bfb82bdcecfb63`. 이 기록과 함께 candid
 
 정리 메모: V6 스크립트의 잘못된 복사 한 줄이 `C:\Program Files\Git\tmp_rw.py`(수정한 `run_web_app.py` 사본)를 저장소 밖에 만들었다.
 삭제 명령은 Claude Code 안전 검사에 막혀 실행하지 않았고 Owner에게 보고한다.
+
+## Reviewer 결과 (candidate `a49ae89c4890513db8b471fb7c336f82f0d15ec1`): FINDINGS
+
+baseline `9806a8b2b30849b01774e2a8b9bfb82bdcecfb63`, 5개 파일. `self_deviations: []`. `unverified` 8건(Console smoke, self-test,
+실제 기록, validator, diff check, 강도, 정리, 저장소 밖 잔여 파일)은 QA로 넘긴다.
+
+findings 1건(minor), Reviewer 보고 그대로 옮긴다:
+
+> Approval says '`execution` 필드가 없는 일반 task는 `null`로 처리한다'. Manager summary A3 narrows this to '`executed` 줄이 없으면
+> `execution: None`'. The candidate does the same: run_web_app.py:1706 `if "executed" in metadata:`. ... The reference derivation at
+> adapters/discord/bot_minimal.py:1233-1255 gives `not_executed` for any record with execution metadata, and docs/task-model.md:166
+> says `not_executed` 'otherwise'.
+>
+> minimum_correction: (a) Derive `execution` whenever any execution field that passed validation is present, giving `not_executed`
+> when `executed` is absent, and update the 'summary-without-executed' and optional-view assertions to match. (b) Have the Owner
+> explicitly accept the `executed`-keyed interpretation in A3, and record that acceptance in the task record.
+
+Manager 판정: 지적이 맞다. Discord `_read_execution_review_metadata()`는 저장 실행 필드 8개 중 하나라도 있으면 파생값을 만들고
+`executed`가 없으면 `not_executed`를 준다. 승인 범위 4개 파일 안의 수정으로 고칠 수 있고 범위 확대가 아니므로 SOP 5절에 따라
+repair budget 1을 써서 (a)로 고친다(Owner 중간 승인 없음).
+
+## repair 1 (Implementer): 실행 필드 8개 기준으로 실행 구역 판단
+
+| 파일 | 변경 |
+| --- | --- |
+| `apps/jarvis-console/run_web_app.py` | 상수 `TASK_VIEW_EXECUTION_FIELDS`(task-model 10절 저장 필드 8개) 추가. 실행 구역 조건을 `"executed" in metadata`에서 `TASK_VIEW_EXECUTION_FIELDS.intersection(metadata)`로 바꾸고 `executed`는 `metadata.get`으로 읽는다. 상태 계산 규칙은 그대로 |
+| `apps/jarvis-console/run_smoke_tests.py` | `summary-without-executed`를 `None`에서 `not_executed`+`orphan summary`로 바꾸고, `execution_candidate`만·`execution_updated_at`만·`success`만 있는 경우(`not_executed`)와 `source_command`만 있는 경우(`None`)를 추가. 상수가 허용 optional 필드에서 `completion_evidence`·`source_command`를 뺀 8개와 같은지 확인. `execution_candidate`만·`execution_updated_at`만 있는 view가 일반 view와 같다는 두 검사는 `execution`을 뺀 나머지가 같고 `execution`이 `not_executed`인지로 바꿨다 |
+
+검증(Implementer 실행, repair 뒤 작업 트리): Console smoke 전체 PASS, `--self-test` PASS, 실제 task 기록 107개 valid(실행 결과
+task-0143 `failed`, 0146·0149·0154 `success`로 변화 없음), SOP validator PASS, `git diff --check` exit 0. 강도(임시 worktree):
+수정본 PASS, 조건을 `executed`만으로 되돌리면 FAIL, `source_command`를 실행 필드에 넣으면 FAIL, 되돌린 사본 PASS. 임시 worktree 삭제.
+첫 `source_command` 변형은 문자열이 다른 상수에 먼저 맞아 실제로 바뀌지 않았고, 대상 상수에 정확히 넣어 다시 실행한 결과가 위 FAIL이다.
+
+이 repair로 candidate가 바뀌므로 이전 Reviewer 결과는 무효이고 새 candidate에 Reviewer → QA를 다시 실행한다.
