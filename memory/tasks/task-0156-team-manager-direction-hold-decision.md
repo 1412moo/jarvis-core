@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-14 08:39 UTC`
-- updated_at: `2026-10-14 09:15 UTC`
+- updated_at: `2026-10-14 09:18 UTC`
 - summary: `Owner가 task-0030, 0031, 0032, 0033, 0034, 0036의 Team Manager 방향을 보류하기로 결정했고(task-0035는 대상이 아님), 외부 API, credential, 비용, 상시 실행 관련 작업은 재개하지 않으며 재개하려면 별도 Owner 결정이 필요하다. task-model 5-1에 ON_HOLD로 가는 전이가 없어 대상 6건의 상태와 본문은 바꾸지 않고 이 기록에만 남긴다.`
 - source_command: `Owner 지시: task-0030~0036 보류 결정을 새 task로 기록`
 
@@ -174,3 +174,33 @@ SOP 5절에 따라 수정하지 않고 Director를 거쳐 Owner에게 escalation
 - 이 기록을 다시 바꾸는 이후의 checkpoint에서도 task-model 7절에 따라 `updated_at`을 그 시각으로 갱신한다.
 
 이 repair로 candidate가 바뀌므로 이전 Reviewer 결과는 무효이고 새 candidate에 Reviewer → QA를 다시 실행한다.
+
+## Reviewer 결과 (candidate `19704fd85b5e871b814725c2b5e352f19e2af3a1`, repair 2 뒤): PASS
+
+baseline `cc2bf00f29cc6e525b1216efa52543e04fde6090`, 누적 1개 파일. `findings: []`, `self_deviations: []`. `unverified` 10건 중 5건은
+Q1–Q5로 넘겼다. `qa: none` 5건(Console Start 적용 사실, E1 push 사실, E3 Discord 미실행·`-r3` 보존, H2 ID 중복 없음, Owner 예산 답의
+출처)은 저장소 밖 사실이며 이 기록의 구현 착수 절, 기준선, 아래 QA Q5와 Owner 결정 원문이 근거다.
+
+## QA 결과 (candidate `19704fd85b5e871b814725c2b5e352f19e2af3a1`): PASS
+
+candidate를 detached로 checkout한 임시 clean worktree(scratchpad)에서만 실행했다. QA 전·후 main HEAD와 candidate가 같았다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | Task View 파싱 | valid, `DOING`, `updated_at` 2026-10-14 09:15 UTC, `execution` `null`, 그룹 `in_progress` |
+| Q2 | 대상 6건과 task-0035 | blob이 baseline과 candidate에서 같고 기록 표와 일치(0030 `5bae2580d369`, 0031 `5d7dbb80335c`, 0032 `ede13b3278fe`, 0033 `999c8e29a6b3`, 0034 `d22b5656479e`, 0036 `d11c6ce0bd55`, 0035 `d494ed175848`). status·updated_at도 표와 같다 |
+| Q3 | Console smoke 전체, SOP validator | smoke PASS, validator PASS(negative_checks=129, negative_failures=0) |
+| Q4 | `git diff --check cc2bf00 19704fd`, 범위 | exit 0. commit 3개(`f990928`, `f6c1f0a`, `19704fd`), 변경은 A 이 기록 1개. `jarvis.bat`은 candidate tree에 없음 |
+| Q5 | 정리 | QA worktree 삭제. 8790대 listener 없음. `jarvis.bat` untracked. 보존 worktree 4개 그대로, task-0143 `-r3` branch 그대로 |
+
+## Docs와 완료 조건 대조
+
+- Docs: `not_required`(위 File ownership 절의 이유 그대로).
+- SOP 8절: 같은 candidate `19704fd`에 Reviewer PASS와 QA PASS. 이전 candidate의 Reviewer 결과(`f990928`, `f6c1f0a` FINDINGS)는 판정에 쓰지
+  않았다. 범위 밖 변경·동시 source writer 없음. `jarvis.bat` untouched/untracked. push·외부 호출 없음. runtime artifact·listener 없음.
+- 이 checkpoint는 결과 기록만 더하고 `updated_at`을 task-model 7절대로 `2026-10-14 09:18 UTC`으로 갱신한다.
+
+## 다음 단계
+
+status는 `DOING`이다. 이 기록을 record-only checkpoint commit으로 남긴 뒤 Owner 지시(승인 2번)에 따라 Jarvis Console Complete(Preview +
+Confirm `COMPLETE TASK`)로 `DOING→DONE`을 적용하고 그 변경을 별도 checkpoint commit으로 남긴다. push는 하지 않는다.
