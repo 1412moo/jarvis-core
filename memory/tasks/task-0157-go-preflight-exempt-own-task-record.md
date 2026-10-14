@@ -2,10 +2,10 @@
 
 - id: `task-0157-go-preflight-exempt-own-task-record`
 - title: `Worker 파이프라인 main 검사에서 실행 대상 task 자신의 기록 파일만 예외 처리`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-14 14:51 UTC`
-- updated_at: `2026-10-14 16:14 UTC`
+- updated_at: `2026-10-14 16:40 UTC`
 - summary: `Discord /go가 Worker 실행 전에 task 기록에 상태 전이를 쓰고 멈춘 실행은 실패 결과를 기록에 쓰므로, 기록이 이미 커밋된 task는 추적 파일 변경 검사(main_tree_dirty, accept_main_dirty)에 항상 걸린다(task-0143 재시도 실패로 확인). 실행 전, accept 승인 전, 반영 직전 세 검사가 실행 대상 task 자신의 기록 파일 하나만 예외로 두고 그 밖의 추적 변경은 그대로 막게 하며, 커밋된 기록의 TODO·FAILED 재시도·resume·accept 회귀 테스트와 SOP 10.2 한 문장을 더한다. push는 하지 않는다.`
 - source_command: `Owner 승인: A안으로 수정 진행`
 
