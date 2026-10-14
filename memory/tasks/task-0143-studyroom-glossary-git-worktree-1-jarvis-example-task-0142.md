@@ -5,17 +5,17 @@
 - status: `FAILED`
 - repo: `jarvis-core`
 - created_at: `2026-09-24 13:35 UTC`
-- updated_at: `2026-09-28 18:19 UTC`
+- updated_at: `2026-10-14 13:32 UTC`
 - summary: `요청 사항(Studyroom glossary에 "Git Worktree" 용어 1개 추가 (jarvis_example은 task-0142 기록에 있는 사실만))을 작업 초안으로 정리한다. 이번 단계는 draft object 생성 규칙 정의까지만 포함한다.`
 - source_command: `/task`
 - execution_candidate: `true`
-- execution_request: `{"action":"claude_worker_pipeline","execution_type":"claude_worker","requested_at":"2026-09-24 16:41 UTC","result_type":"execution_request","source":"/go","target":"studyroom_content","task_id":"task-0143-studyroom-glossary-git-worktree-1-jarvis-example-task-0142"}`
-- execution_result: `{"action":"claude_worker_pipeline","error_reason":"scope:repair_no_changes","executed":true,"execution_type":"claude_worker","result_type":"execution_result","success":false,"task_id":"task-0143-studyroom-glossary-git-worktree-1-jarvis-example-task-0142"}`
+- execution_request: `{"action":"claude_worker_pipeline","execution_type":"claude_worker","requested_at":"2026-10-14 13:30 UTC","result_type":"execution_request","source":"/go","target":"studyroom_content","task_id":"task-0143-studyroom-glossary-git-worktree-1-jarvis-example-task-0142"}`
+- execution_result: `{"action":"claude_worker_pipeline","error_reason":"preflight:main_tree_dirty","executed":true,"execution_type":"claude_worker","result_type":"execution_result","success":false,"task_id":"task-0143-studyroom-glossary-git-worktree-1-jarvis-example-task-0142"}`
 - executed: `true`
 - success: `false`
 - dry_run: `false`
-- execution_updated_at: `2026-09-24 16:41 UTC`
-- execution_summary: `scope:repair_no_changes`
+- execution_updated_at: `2026-10-14 13:30 UTC`
+- execution_summary: `preflight:main_tree_dirty`
 
 ## 시도 기록
 
@@ -38,3 +38,17 @@ Owner가 Discord `/work`로 만들고 `/go`로 실행한 task-0142 Worker 파이
 - task-0143은 `FAILED`로 남아 있다.
 - "Git Worktree" 용어(`id: git-worktree`)는 main의 `apps/studyroom/content/glossary.json`에 반영되지 않았다.
 - 세 시도의 worktree와 branch는 `C:\work\jarvis-core-worktrees\` 아래에 보존 중이다. r2 worktree에는 `apps/studyroom/content/glossary.json`의 미커밋 수정 1줄이 있다.
+
+## 2026-10-14 `/go` 재시도: `preflight:main_tree_dirty`
+
+Owner가 2026-10-14 13:30 UTC에 Discord `/go task-0143-studyroom-glossary-git-worktree-1-jarvis-example-task-0142`로 재시도했다. 봇이
+`FAILED→TODO→DOING` 전이를 이 기록에 쓴 뒤 Worker 사전 검사가 추적 파일 변경(이 기록)을 보고 `main_tree_dirty`로 멈췄고, 결과 기록으로
+`DOING→FAILED`가 됐다. 사전 검사에서 멈춰 새 attempt(`-r4`) worktree·branch는 만들어지지 않았고 `-r3`는 그대로다. main은 `12d0a9d`
+그대로이고 push는 없었다.
+
+위 메타데이터의 실행 필드(`execution_request`, `execution_result`, `execution_updated_at`, `execution_summary`)는 이 재시도의 값이다.
+r3의 실패 사유 `scope:repair_no_changes`는 위 시도 기록 표에 남아 있다.
+
+원인 메모: 이 기록은 r3 뒤인 2026-09-29(`c5cf969`)에 커밋돼 추적 파일이 됐다. `/go`가 Worker 실행 전에 추적 중인 task 기록을 전이로 바꾸므로,
+커밋된 FAILED task의 `/go` 재시도는 사전 검사에 항상 걸린다. 원인 조사와 수정은 별도 작업이다. Owner 지시로 봇이 쓴 변경을 되돌리지 않고 이
+절과 함께 기록 checkpoint로 남긴다(`updated_at`은 이 절을 더한 시각).
