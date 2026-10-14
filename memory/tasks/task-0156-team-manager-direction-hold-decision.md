@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-14 08:39 UTC`
-- updated_at: `2026-10-14 08:40 UTC`
+- updated_at: `2026-10-14 09:15 UTC`
 - summary: `Owner가 task-0030, 0031, 0032, 0033, 0034, 0036의 Team Manager 방향을 보류하기로 결정했고(task-0035는 대상이 아님), 외부 API, credential, 비용, 상시 실행 관련 작업은 재개하지 않으며 재개하려면 별도 Owner 결정이 필요하다. task-model 5-1에 ON_HOLD로 가는 전이가 없어 대상 6건의 상태와 본문은 바꾸지 않고 이 기록에만 남긴다.`
 - source_command: `Owner 지시: task-0030~0036 보류 결정을 새 task로 기록`
 
@@ -15,7 +15,7 @@
 | --- | --- |
 | baseline | `cc2bf00f29cc6e525b1216efa52543e04fde6090` (main HEAD = origin/main, push 직후) |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (repair 1 뒤) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (repair 1 뒤 1, Owner가 예산을 2로 증액한 뒤 repair 2로 2) |
 
 ## Owner 결정 (원문)
 
@@ -147,5 +147,30 @@ Manager 판정: 4건 모두 맞고, 모두 이 기록 안에서 고칠 수 있�
 
 - summary를 두 문장으로 합쳤다(보류, task-0035 제외, 재개 금지와 별도 Owner 결정, 상태·본문 불변 사유 내용은 그대로).
 - Manager 요약에 P0(시작 전 절차 확인), E1(1번 push 조건과 충족), E3(3번 조건, 보고만)을 추가했다.
+
+이 repair로 candidate가 바뀌므로 이전 Reviewer 결과는 무효이고 새 candidate에 Reviewer → QA를 다시 실행한다.
+
+## Reviewer 결과 (candidate `f6c1f0a04a6186d7d90f4bba8f89f57b07127175`, repair 1 뒤): FINDINGS
+
+`self_deviations: []`, `unverified` 10건. findings 1건(minor): repair 1이 summary와 본문을 바꿨는데 `updated_at`이 Console Start
+시각 `2026-10-14 08:40 UTC` 그대로라 task-model 7절("본문 의미가 바뀌어도 `updated_at`를 갱신한다")에 어긋난다.
+
+Manager 판정: 지적이 맞다. 고치려면 이 기록을 다시 바꿔야 하지만 repair 예산(1)이 소진됐고 호출 결함이 아니라 retry도 아니므로,
+SOP 5절에 따라 수정하지 않고 Director를 거쳐 Owner에게 escalation했다. 선택지는 (a) repair 예산을 2로 증액해 수정, (b) SOP 8절에
+따라 minor 수용이었다.
+
+## Owner 결정: repair 예산 증액 (원문)
+
+```text
+(a)로 진행해, repair 예산 2로 늘려줘
+```
+
+이 증액은 task-0156에만 효력이 있다.
+
+## repair 2
+
+- `updated_at`을 이 수정 시각 `2026-10-14 09:15 UTC`으로 갱신했다.
+- 기준선의 budget 행을 `repair_budget=2`, `repair_count=2`로 고치고, 위 Reviewer 결과와 Owner 결정을 기록했다.
+- 이 기록을 다시 바꾸는 이후의 checkpoint에서도 task-model 7절에 따라 `updated_at`을 그 시각으로 갱신한다.
 
 이 repair로 candidate가 바뀌므로 이전 Reviewer 결과는 무효이고 새 candidate에 Reviewer → QA를 다시 실행한다.
