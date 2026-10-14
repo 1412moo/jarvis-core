@@ -2,7 +2,7 @@
 
 - id: `task-0156-team-manager-direction-hold-decision`
 - title: `Owner 결정 기록 — Team Manager 방향(task-0030~0034, 0036) 보류`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-14 08:39 UTC`
 - updated_at: `2026-10-14 09:18 UTC`
