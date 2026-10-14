@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-14 14:51 UTC`
-- updated_at: `2026-10-14 15:50 UTC`
+- updated_at: `2026-10-14 16:14 UTC`
 - summary: `Discord /go가 Worker 실행 전에 task 기록에 상태 전이를 쓰고 멈춘 실행은 실패 결과를 기록에 쓰므로, 기록이 이미 커밋된 task는 추적 파일 변경 검사(main_tree_dirty, accept_main_dirty)에 항상 걸린다(task-0143 재시도 실패로 확인). 실행 전, accept 승인 전, 반영 직전 세 검사가 실행 대상 task 자신의 기록 파일 하나만 예외로 두고 그 밖의 추적 변경은 그대로 막게 하며, 커밋된 기록의 TODO·FAILED 재시도·resume·accept 회귀 테스트와 SOP 10.2 한 문장을 더한다. push는 하지 않는다.`
 - source_command: `Owner 승인: A안으로 수정 진행`
 
@@ -189,3 +189,46 @@ Manager 판정: 지적이 맞다. 고치려면 이 기록을 바꿔야 하지만
 - 코드·테스트·SOP는 바꾸지 않았다(repair 1 candidate `dac06da`와 같다).
 
 이 repair로 candidate가 바뀌므로 이전 Reviewer 결과는 무효이고 새 candidate에 Reviewer → QA를 다시 실행한다.
+
+## Reviewer 결과 (candidate `cb36a384aedc489c218d86038a4ba70365957361`, repair 2 뒤): PASS
+
+baseline `a022887d3654e226796dcca8e4190fea073cfe3e`, 누적 4개 파일. `findings: []`, `self_deviations: []`. `unverified` 9건 중 7건은
+Q1–Q6로 넘겼다. `qa: none` 2건 중 "accept 테스트가 실패 결과를 봇 콜백 대신 직접 쓴다"는 아래 E2E로 확인했고, "a022887 push"는 Manager
+요약 P1의 실행 근거(fetch·ls-remote)가 근거다.
+
+## QA 결과 (candidate `cb36a384aedc489c218d86038a4ba70365957361`): PASS
+
+candidate를 detached로 checkout한 임시 clean worktree(scratchpad)에서만 실행했다. QA 전·후 main HEAD와 candidate가 같았다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | Worker smoke(`PYTHONUTF8=1`) | candidate total=347 failed=0(두 번, 두 번째는 새 worktree에서 실행 뒤 추적 변경 없음). baseline 비교는 아래 메모 |
+| Q2 | Discord self-check(`PYTHONUTF8=1`), discord-intake | self-check total=92 실패 0, intake total=132 failed=0 |
+| Q3 | SOP validator, Console smoke | validator PASS(negative_checks=129, negative_failures=0), Console smoke PASS |
+| Q4 | `git diff --check a022887 cb36a38`, 범위 | exit 0. commit 3개(`7c57141`, `dac06da`, `cb36a38`), 4개 파일(M SOP·claude_worker·run_smoke_tests, A 이 기록). `jarvis.bat`은 candidate tree에 없음 |
+| Q5 | 강도(변형마다 smoke 뒤 `git checkout` 복구) | 예외 제거 FAIL 21, 모든 task 기록으로 확대 FAIL 4, 반영 직전 검사만 이전 방식 FAIL 19, accept 승인 전 검사만 이전 방식 FAIL 4. 복구 뒤 347/0 |
+| E2E | `qa: none` 항목: 실제 봇 콜백으로 커밋된 기록 accept | 임시 clone에서 `/work` → 기록 커밋 → `/go`(가짜 Reviewer `unverifiednone`) → `qa:qa_unverified_owner_review`로 멈추고 실제 기록 콜백이 실패 결과를 커밋된 기록에 씀(main 추적 변경은 그 기록 하나) → `/go <id> accept` → 반영, task `DONE`, checkpoint에 기록 포함, main 깨끗 |
+| Q6 | 정리 | QA worktree 삭제, E2E 임시 디렉터리(`jarvis_qa0157_*`)는 파일 잠금으로 바로 안 지워져 뒤에 지웠다. 8790대 listener 없음, `jarvis.bat` untracked, 보존 worktree 4개와 task-0143 `-r3` branch 그대로 |
+
+QA 메모:
+
+- baseline 비교: 이번 QA의 baseline 실행(`a022887` detached worktree)은 `git rev-parse ''`로 멈췄다. smoke는 원본 checkout을 clone하는데,
+  main이 `cb36a38`로 옮겨 `a022887`을 가리키는 branch가 없어 clone의 HEAD가 branch가 아니고 사전 검사의 `git symbolic-ref`가 실패한
+  것이다. 이 테스트 하네스의 조건 문제이고 코드 차이와 무관하다. 같은 baseline은 main이 `a022887`이던 구현 단계(2026-10-14 14:5x UTC)에
+  `PYTHONUTF8=1`로 total=310 failed=0이었고, 그 수치를 비교 기준으로 쓴다.
+- 하네스 격리 약점(이 task 범위 밖, 수정하지 않음): resume 경우에서 앞 경우가 실패해 `exhausted.worktree`가 빈 문자열이면
+  `Path("")`가 현재 디렉터리(원본 checkout)가 되어 smoke가 원본의 `apps/studyroom/content/glossary.json`을 고친다. 실패하는 실행
+  (위 baseline, Q5 변형)에서만 생기고 통과하는 실행은 원본을 바꾸지 않는다(Q1 두 번째 실행 확인). baseline에도 같은 코드다. 후속 후보다.
+- 임시 디렉터리: Worker smoke가 남기는 `%TEMP%\jarvis_worker_smoke_*`(task-0153 기록의 기존 잔여물 문제)는 이번 실행분도 남아 있다.
+  task-0153 Owner 결정대로 지우지 않았다.
+
+## Docs와 완료 조건 대조
+
+- Docs: `not_required`(File ownership 절의 이유 그대로).
+- SOP 8절: 같은 candidate `cb36a38`에 Reviewer PASS와 QA PASS. 이전 candidate의 Reviewer 결과(`7c57141`, `dac06da` FINDINGS)는 판정에
+  쓰지 않았다. 범위 밖 변경·동시 source writer 없음. `jarvis.bat` untouched/untracked. push·외부 호출 없음. listener 없음.
+
+## 다음 단계
+
+status는 `DOING`이다. 이 기록을 record-only checkpoint commit으로 남긴다. DONE은 SOP 8절대로 Owner가 Jarvis Console Complete로 결정한다.
+push는 하지 않는다. 반영 뒤 task-0143은 Owner의 Discord `/go`로 다시 실행할 수 있다(이 task 밖).
