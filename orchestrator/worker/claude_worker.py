@@ -200,6 +200,20 @@ def _changed_paths(worktree: Path) -> list[str]:
     return sorted(set(paths))
 
 
+def _main_tracked_changes(repo_root: Path, task_id: str) -> str:
+    """task-0157: tracked changes on main, except the task's own record.
+
+    /go writes the approval transition into memory/tasks/<task_id>.md before the run, and the
+    checkpoint commits that file at the end. When the record is already tracked, that write is
+    the only expected change; every other tracked change still stops the run.
+    """
+
+    return _git(
+        ["status", "--porcelain", "--untracked-files=no", "--", ".", f":(exclude,literal)memory/tasks/{task_id}.md"],
+        repo_root,
+    )
+
+
 def _scope_violations(paths: list[str]) -> list[str]:
     return [
         p
@@ -675,7 +689,7 @@ def _integrate_and_checkpoint(
     result.stage = "integrate"
     if _git(["rev-parse", "HEAD"], repo_root) != baseline:
         raise StageFailure("integrate", "baseline_moved")
-    if _git(["status", "--porcelain", "--untracked-files=no"], repo_root):
+    if _main_tracked_changes(repo_root, result.task_id):
         raise StageFailure("integrate", "main_tree_dirty")
     _git(["merge", "--ff-only", "-q", branch], repo_root)
 
@@ -717,7 +731,7 @@ def run_pipeline(
         result.stage = "preflight"
         if _git(["symbolic-ref", "--short", "HEAD"], repo_root) != "main":
             raise StageFailure("preflight", "main_not_checked_out")
-        if _git(["status", "--porcelain", "--untracked-files=no"], repo_root):
+        if _main_tracked_changes(repo_root, task_id):
             raise StageFailure("preflight", "main_tree_dirty")
         baseline = _git(["rev-parse", "HEAD"], repo_root)
         result.baseline = baseline

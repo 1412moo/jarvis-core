@@ -37,6 +37,10 @@ FAKE_CLAUDE = textwrap.dedent(
         if mode == "move":
             subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "moved"], check=True)
             mode = "pass"
+        if mode == "dirtymain":
+            with open("README.md", "a", encoding="utf-8") as readme:
+                readme.write("changed during review\\n")
+            mode = "pass"
         if mode in ("once", "mixedonce"):
             state = Path(os.environ["FAKE_STATE"])
             mode = "pass" if state.exists() else ("findings" if mode == "once" else "mixed")
@@ -259,6 +263,33 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     check("bot: execution results audited", audits.count("execution") == 2)
     check("bot: /go execution audits send source go", execution_sources == ["go", "go"], str(execution_sources))
     check("bot: /go execution audits pass the payload validator", execution_audit_errors == [None, None], str(execution_audit_errors))
+
+    # task-0157: a committed task record. The /go transition then changes a tracked file before the run.
+    def commit_record(tid: str) -> None:
+        git(["add", "--", f"memory/tasks/{tid}.md"], clone)
+        git(["commit", "-q", "-m", f"track {tid}"], clone)
+
+    os.environ["FAKE_WORKER"] = "ok"
+    tracked_todo = bot._run_command("/work Studyroom glossary에 용어 1개 추가")["task_id"]
+    commit_record(tracked_todo)
+    started = bot._run_command(f"/go {tracked_todo}")
+    done = bot._run_worker_job(tracked_todo, started["request"], started["command"])
+    check("bot: /go on a TODO task with a committed record runs to DONE", started.get("result_type") == "work_started"
+          and done.get("ok") is True and status_of(tracked_todo) == "DONE"
+          and not git(["status", "--porcelain", "--untracked-files=no"], clone), f"{done.get('stage')}:{done.get('reason')}")
+
+    os.environ["FAKE_WORKER"] = "scope"
+    tracked_failed = bot._run_command("/work Studyroom glossary에 용어 1개 추가")["task_id"]
+    started = bot._run_command(f"/go {tracked_failed}")
+    bot._run_worker_job(tracked_failed, started["request"], started["command"])
+    commit_record(tracked_failed)
+    os.environ["FAKE_WORKER"] = "ok"
+    retry = bot._run_command(f"/go {tracked_failed}")
+    done = bot._run_worker_job(tracked_failed, retry["request"], retry["command"])
+    check("bot: /go retry of a FAILED task with a committed record runs to DONE (task-0143 shape)",
+          retry.get("retry") is True and done.get("ok") is True and status_of(tracked_failed) == "DONE"
+          and f"memory/tasks/{tracked_failed}.md" in git(["show", "--name-only", "--format=", "HEAD"], clone)
+          and not git(["status", "--porcelain", "--untracked-files=no"], clone), f"{done.get('stage')}:{done.get('reason')}")
     check("bot: /go resume on a non-FAILED task is refused", bot._run_command(f"/go {task_id} resume").get("reason", "").startswith(("resume_requires_failed", "status_not_startable")))
     check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume|accept]")
     check("bot: finished task is not startable again", bot._run_command(f"/go {task_id}").get("reason") == "status_not_startable:DONE")
@@ -495,6 +526,25 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
     check("accept: a gap in attempt numbers does not hide the recorded attempt", r.ok and git(["rev-parse", "HEAD^"], clone) == gap.candidate,
           f"{r.stage}:{r.reason}:{r.detail}")
 
+    # task-0157: the record is committed, and the approval transition writes into it before integrate.
+    # Committed before the attempt, so the attempt's baseline already holds it (run_case rewrites the same content).
+    write_task(clone, "task-8000-acctracked")
+    git(["add", "--", "memory/tasks/task-8000-acctracked.md"], clone)
+    git(["commit", "-q", "-m", "track task-8000-acctracked"], clone)
+    tracked, tracked_record = owner_review_attempt("task-8000-acctracked")
+    record_path = clone / "memory" / "tasks" / "task-8000-acctracked.md"
+    check("accept setup: the committed record is unchanged at the attempt baseline",
+          tracked.baseline == git(["rev-parse", "HEAD"], clone) and not git(["status", "--porcelain", "--untracked-files=no"], clone))
+
+    def approve_writes_record() -> None:
+        record_path.write_text(record_path.read_text(encoding="utf-8") + "- status: `DOING`\n", encoding="utf-8")
+
+    r, a, c = accept("task-8000-acctracked", tracked_record, before_approve=approve_writes_record)
+    check("accept: with a committed record changed by the approval, the candidate integrates", r.ok and r.stage == "done"
+          and git(["rev-parse", "HEAD^"], clone) == tracked.candidate
+          and "- status: `DOING`" in git(["show", "HEAD:memory/tasks/task-8000-acctracked.md"], clone)
+          and not git(["status", "--porcelain", "--untracked-files=no"], clone), f"{r.stage}:{r.reason}:{r.detail}")
+
 
 def attempt_numbering(clone: Path, worktrees: Path) -> None:
     """task-0152: attempts are found whatever the gaps, and a new one goes after the highest."""
@@ -681,6 +731,50 @@ def main() -> int:
 
         expect_fail("dirty", "ok", "preflight", "main_tree_dirty", prepare=dirty)
         git(["checkout", "--", "README.md"], clone)
+
+        # task-0157: /go writes the approval transition into the task's own record before the run. A record
+        # that is already committed then shows as a tracked change; only that one file is exempt.
+        def tracked_record(task_id: str, extra=None):
+            def prepare(c: Path) -> None:
+                git(["add", "--", f"memory/tasks/{task_id}.md"], c)
+                git(["commit", "-q", "-m", f"track {task_id}"], c)
+                record = c / "memory" / "tasks" / f"{task_id}.md"
+                record.write_text(record.read_text(encoding="utf-8") + "- status: `DOING`\n", encoding="utf-8")
+                if extra:
+                    extra(c)
+            return prepare
+
+        r, calls, before, after = run_case("trackedrecord", clone, worktrees, worker="ok",
+                                           prepare=tracked_record("task-8000-trackedrecord"))
+        check("tracked record: a committed, changed own record passes preflight and integrate", r.ok and r.stage == "done",
+              f"{r.stage}:{r.reason}:{r.detail}")
+        check("tracked record: checkpoint commits the changed record, main is candidate + checkpoint",
+              r.checkpoint == after and git(["rev-list", "--count", f"{before}..{after}"], clone) == "2"
+              and "- status: `DOING`" in git(["show", f"{after}:memory/tasks/task-8000-trackedrecord.md"], clone)
+              and not git(["status", "--porcelain", "--untracked-files=no"], clone))
+
+        r = expect_fail("trackedother", "ok", "preflight", "main_tree_dirty",
+                        prepare=tracked_record("task-8000-trackedother", extra=dirty))
+        check("tracked record: the exemption covers only the own record, not README.md",
+              "README.md" in git(["status", "--porcelain", "--untracked-files=no"], clone))
+        git(["checkout", "--", "README.md", "memory/tasks/task-8000-trackedother.md"], clone)
+
+        def other_record(c: Path) -> None:
+            git(["add", "--", "memory/tasks/task-8000-trackedrecord.md"], c)
+            (c / "memory" / "tasks" / "task-8000-trackedrecord.md").write_text("# another task's record\n", encoding="utf-8")
+
+        expect_fail("trackedneighbour", "ok", "preflight", "main_tree_dirty", prepare=other_record)
+        git(["checkout", "--", "memory/tasks/task-8000-trackedrecord.md"], clone)
+
+        expect_fail("trackedintegrate", "ok", "integrate", "main_tree_dirty", review="dirtymain",
+                    prepare=tracked_record("task-8000-trackedintegrate"))
+        git(["checkout", "--", "README.md", "memory/tasks/task-8000-trackedintegrate.md"], clone)
+
+        run_case("trackedresume", clone, worktrees, worker="ok", review="findings", task_id="task-8000-trackedresume")
+        r, *_ = run_case("trackedresume", clone, worktrees, worker="fail", resume=True, task_id="task-8000-trackedresume",
+                         prepare=tracked_record("task-8000-trackedresume"))
+        check("tracked record: resume with a committed, changed own record integrates", r.ok
+              and r.resumed_from == "jarvis/task-8000-trackedresume", f"{r.stage}:{r.reason}:{r.resumed_from}")
         expect_fail("moved", "ok", "integrate", "baseline_moved", review="move")
 
         # task-0143 follow-up: evidence paths reach the Reviewer, retries keep earlier attempts.
