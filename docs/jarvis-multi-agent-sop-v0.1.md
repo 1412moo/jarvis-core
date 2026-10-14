@@ -323,8 +323,9 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
    `qa:qa_unverified_owner_review candidate=<40hex> baseline=<40hex> attempt=<N>`이다(12항).
    `unverified` 필드가 없거나 `[]`도 `- {...}` 항목 목록도 아니면
    분류할 수 없는 항목이 있는 것으로 보고 같이 멈춘다. 그다음 main HEAD가 baseline과 같을 때만 ff-only로 반영한다. main이
-   움직였으면 반영하지 않고 실패한다. 실행 전과 반영 직전에 main의 tracked 변경이 있으면 멈추되, `/go`의
-   상태 전이가 쓰는 실행 대상 task 자신의 기록(`memory/tasks/<task-id>.md`) 한 파일만 예외다(task-0157).
+   움직였으면 반영하지 않고 실패한다. 실행 전, accept 승인 전, 반영 직전에 main의 tracked 변경이 있으면
+   멈추되, `/go`의 상태 전이와 실행 결과 기록이 쓰는 실행 대상 task 자신의 기록(`memory/tasks/<task-id>.md`)
+   한 파일만 예외다(task-0157).
 10. 자동 DONE. 9가 성공한 경우에만 실행 결과 기록과 함께 `DOING→DONE`을 한 번의
     원자적 쓰기로 적용하고 task 파일을 checkpoint commit한다. 이것은 파이프라인
     경로에만 적용되는 예외이며 수동 SOP 작업의 DONE 경로(§8)를 바꾸지 않는다.

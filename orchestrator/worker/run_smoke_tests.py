@@ -526,23 +526,34 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
     check("accept: a gap in attempt numbers does not hide the recorded attempt", r.ok and git(["rev-parse", "HEAD^"], clone) == gap.candidate,
           f"{r.stage}:{r.reason}:{r.detail}")
 
-    # task-0157: the record is committed, and the approval transition writes into it before integrate.
-    # Committed before the attempt, so the attempt's baseline already holds it (run_case rewrites the same content).
+    # task-0157: a committed record, as in the real sequence. The record is committed before the run, so the
+    # attempt's baseline holds it (run_case rewrites the same content). The stopped run then writes its failure
+    # result into that record (the bot's record callback; the fake here does not, so it is written by hand),
+    # which leaves a tracked change on main before /go <id> accept. The approval writes into it again.
     write_task(clone, "task-8000-acctracked")
     git(["add", "--", "memory/tasks/task-8000-acctracked.md"], clone)
     git(["commit", "-q", "-m", "track task-8000-acctracked"], clone)
     tracked, tracked_record = owner_review_attempt("task-8000-acctracked")
     record_path = clone / "memory" / "tasks" / "task-8000-acctracked.md"
+    head = git(["rev-parse", "HEAD"], clone)
     check("accept setup: the committed record is unchanged at the attempt baseline",
-          tracked.baseline == git(["rev-parse", "HEAD"], clone) and not git(["status", "--porcelain", "--untracked-files=no"], clone))
+          tracked.baseline == head and not git(["status", "--porcelain", "--untracked-files=no"], clone))
+    record_path.write_text(record_path.read_text(encoding="utf-8") + f"- execution_summary: `{tracked_record}`\n", encoding="utf-8")
+
+    # Any other tracked change still stops accept before approval, and nothing is changed or recorded.
+    (clone / "README.md").write_text((clone / "README.md").read_text(encoding="utf-8") + "x\n", encoding="utf-8")
+    r, a, c = accept("task-8000-acctracked", tracked_record)
+    refused("another tracked change besides the own record", r, a, c, "accept_main_dirty", head, tracked)
+    git(["checkout", "--", "README.md"], clone)
 
     def approve_writes_record() -> None:
         record_path.write_text(record_path.read_text(encoding="utf-8") + "- status: `DOING`\n", encoding="utf-8")
 
     r, a, c = accept("task-8000-acctracked", tracked_record, before_approve=approve_writes_record)
-    check("accept: with a committed record changed by the approval, the candidate integrates", r.ok and r.stage == "done"
+    committed = git(["show", "HEAD:memory/tasks/task-8000-acctracked.md"], clone)
+    check("accept: with the failure result written into the committed record, the candidate integrates", r.ok and r.stage == "done"
           and git(["rev-parse", "HEAD^"], clone) == tracked.candidate
-          and "- status: `DOING`" in git(["show", "HEAD:memory/tasks/task-8000-acctracked.md"], clone)
+          and f"- execution_summary: `{tracked_record}`" in committed and "- status: `DOING`" in committed
           and not git(["status", "--porcelain", "--untracked-files=no"], clone), f"{r.stage}:{r.reason}:{r.detail}")
 
 

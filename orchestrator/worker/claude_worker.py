@@ -641,13 +641,14 @@ def find_owner_review_attempt(
     return worktree, branch, candidate, baseline, chain, changed
 
 
-def _accept_main_check(repo_root: Path, baseline: str) -> None:
+def _accept_main_check(repo_root: Path, baseline: str, task_id: str) -> None:
     if _git(["symbolic-ref", "--short", "HEAD"], repo_root) != "main":
         raise StageFailure("accept", "accept_main_not_checked_out")
     head = _git(["rev-parse", "HEAD"], repo_root)
     if head != baseline:
         raise StageFailure("accept", "accept_baseline_moved", f"main {head[:7]}, baseline {baseline[:7]}")
-    if _git(["status", "--porcelain", "--untracked-files=no"], repo_root):
+    # task-0157: the stopped run already wrote its failure result into the task's own record.
+    if _main_tracked_changes(repo_root, task_id):
         raise StageFailure("accept", "accept_main_dirty")
 
 
@@ -924,7 +925,7 @@ def accept_candidate(
         )
         result.worktree, result.branch, result.candidate, result.baseline = str(worktree), branch, candidate, baseline
         result.candidates, result.repairs, result.changed_files = chain, len(chain) - 1, changed
-        _accept_main_check(repo_root, baseline)
+        _accept_main_check(repo_root, baseline, task_id)
 
         qa = _qa_checks(repo_root, worktree, baseline, candidate, changed)
         result.qa_checks = qa

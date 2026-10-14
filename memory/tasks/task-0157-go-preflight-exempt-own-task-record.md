@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-14 14:51 UTC`
-- updated_at: `2026-10-14 15:14 UTC`
+- updated_at: `2026-10-14 15:43 UTC`
 - summary: `Discord /go가 Worker 실행 전에 task 기록에 상태 전이를 쓰므로, 기록이 이미 커밋된 task는 사전 검사와 반영 직전 검사의 추적 파일 변경 검사(main_tree_dirty)에 항상 걸린다(task-0143 재시도 실패로 확인). 두 검사가 실행 대상 task 자신의 기록 파일 하나만 예외로 두고 그 밖의 추적 변경은 그대로 막게 하며, 커밋된 기록의 TODO·FAILED 재시도·resume·accept 회귀 테스트와 SOP 10.2 한 줄을 더한다. push는 하지 않는다.`
 - source_command: `Owner 승인: A안으로 수정 진행`
 
@@ -16,7 +16,7 @@
 | baseline | `a022887d3654e226796dcca8e4190fea073cfe3e` (main HEAD = origin/main, push 직후) |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 보존 대상 | task-0143 `-r3` worktree/branch(`e05c69c`), task-0149 worktree/branch 2개, task-0154 worktree/branch |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (repair 1 뒤) |
 
 ## 조사 결과 (read-only, 코드와 재현 기준)
 
@@ -62,8 +62,10 @@ A에 함께 넣을 것:
 | A4 | 회귀 테스트: 커밋된 기록으로 TODO, FAILED 재시도, resume, accept | Worker smoke에 추가: 봇 경로 TODO(커밋된 기록) `/go`, 봇 경로 FAILED 재시도(커밋된 기록, task-0143 형태), `run_pipeline` resume(커밋되고 바뀐 기록), `accept_candidate`(승인이 커밋된 기록을 쓰는 경우) |
 | A5 | 회귀 테스트: 기록 외 추적 파일이 바뀌어 있으면 여전히 막음 | 사전 검사: 커밋되고 바뀐 기록 + 다른 추적 파일 변경 → `preflight:main_tree_dirty`. 반영 직전: Reviewer 단계에서 다른 추적 파일을 바꾸는 가짜 → `integrate:main_tree_dirty` |
 | A6 | SOP 10.2에 예외 규칙 한 줄 | 9항 끝에 한 문장 |
-| A7 | 파일 소유 | `orchestrator/worker/claude_worker.py`, `orchestrator/worker/run_smoke_tests.py`, `docs/jarvis-multi-agent-sop-v0.1.md`, 이 기록 |
-| X1 | 범위 밖 | `_accept_main_check()`(accept 승인 전 검사, `:636`)는 A안에 적히지 않아 바꾸지 않는다. 승인 전에는 기록이 아직 바뀌지 않아 이 결함과 무관하다. `bot_minimal.py`, task 기록 형식, 다른 task 기록, Console은 바꾸지 않는다 |
+| A7 | 파일 소유 | 승인이 이름 붙인 3개: `orchestrator/worker/claude_worker.py`, `orchestrator/worker/run_smoke_tests.py`, `docs/jarvis-multi-agent-sop-v0.1.md`. 이 기록은 승인 원문에 없고, SOP 정식 task 생성 절차에 따라 Manager가 더한 것이다 |
+| A8 | Owner 결정 (1): accept 승인 전 검사(`_accept_main_check()`)도 같은 예외 | repair 1에서 `_accept_main_check()`가 같은 `_main_tracked_changes()`를 쓴다. 실제 순서(커밋된 기록 → 실행이 멈추며 실패 결과를 기록에 씀 → accept → 반영)의 회귀 테스트와 다른 추적 변경은 여전히 `accept_main_dirty`로 막는 테스트를 둔다. SOP 문장을 "실행 전, accept 승인 전, 반영 직전"으로 고친다 |
+| P1 | `a022887 push해줘` | 이 task 생성 전에 끝났다: fetch 뒤 원격이 `12d0a9d`이고 `a022887`의 부모가 `12d0a9d`, 앞섬 1·뒤처짐 0, 변경 task-0143 기록 1개, `git diff --check` 통과를 확인하고 `12d0a9d..a022887`만 push했다. push 뒤 원격 HEAD `a022887`. G1의 "push 없음"은 이 task의 candidate와 checkpoint에만 해당한다 |
+| X1 | 범위 밖 | `bot_minimal.py`, task 기록 형식, 다른 task 기록, Console은 바꾸지 않는다. (첫 candidate의 X1은 `_accept_main_check()`를 범위 밖으로 두고 "승인 전에는 기록이 아직 바뀌지 않아 무관하다"고 적었으나 틀렸다. 멈춘 실행이 실패 결과를 기록에 쓰기 때문이다. Owner 결정 (1)로 A8에서 다룬다) |
 | G1 | 저장소 공통 규칙 | `jarvis.bat` 접근 없음, push 없음, 외부 API·credential 없음, 명시 파일만 stage. task-0143 재실행은 이 task 밖이며 Owner의 Discord `/go`로 한다 |
 
 ## File ownership
@@ -118,3 +120,46 @@ baseline `a022887d3654e226796dcca8e4190fea073cfe3e`.
 경우 8개가 실패하고 중간에 멈추며(가짜 claude가 한국어 prompt를 stdin에서 읽어 `FAKE_LOG`에 쓰다 예외), Discord self-check는
 `_summarize_execution_output`의 `stdout`이 `None`이라 `AttributeError`로 멈춘다. `PYTHONUTF8=1`이면 둘 다 통과한다. 이 task의 변경과
 무관한 기존 상태이며, 테스트 하네스·실행 출력 디코딩의 인코딩 고정은 후속 후보다. 이 task의 검증은 baseline과 같은 `PYTHONUTF8=1` 조건에서 비교했다.
+
+## Reviewer 결과 (candidate `7c57141f8518fa7b64a32962fdce4d2bca069b68`): FINDINGS
+
+`self_deviations: []`, `unverified` 8건. findings 3건:
+
+1. major: 실제 accept 경로는 여전히 막힌다. 커밋된 기록의 실행이 `qa_unverified_owner_review`로 멈추면 봇의 기록 콜백이 실패
+   결과를 그 기록에 쓰고(커밋하지 않음), `/go <id> accept`의 `_accept_main_check()`는 엄격한 검사라 `accept_main_dirty`로 멈춘다.
+   기록을 먼저 커밋하면 `accept_baseline_moved`다. 추가한 accept 테스트는 기록을 바꾸지 않는 가짜 `record_result`를 써서 이 순서를
+   재현하지 않았다. Manager 요약 X1("승인 전에는 기록이 아직 바뀌지 않아 무관")은 틀렸다.
+2. minor: Manager 요약에 승인 조건 "a022887 push해줘"와 그 충족이 없다.
+3. minor: 승인은 소유 파일 3개를 이름 붙였는데 A7이 이 기록을 표시 없이 4번째로 넣었다.
+
+Manager 판정: 1은 `bot_minimal.py:1991-2004`(기록 콜백이 `_apply_execution_result`로 기록에 씀)와 `claude_worker.py:650`(엄격 검사)로
+확인했다. 고치려면 A안에 적히지 않은 `_accept_main_check()`를 바꿔야 해 범위 확대이므로 SOP 6절에 따라 멈추고 Owner에게
+escalation했다. 선택지는 (1) A를 `_accept_main_check()`까지 넓혀 고침, (2) 범위 유지·알려진 제약으로 기록이었다.
+
+## Owner 결정: escalation 답 (원문)
+
+```text
+(1)로 진행해
+```
+
+(1)의 내용(Director 보고 원문):
+
+```text
+- **(1, 추천) A를 `_accept_main_check`까지 넓힘.** accept 승인 전 검사에도 같은 자기 기록 예외를 둡니다. accept 테스트를 실제 순서로 다시 짭니다: 커밋된 기록 → 실패 결과가 기록에 씀 → accept → 반영. 다른 추적 변경이 있으면 여전히 `accept_main_dirty`로 막히는 경우도 넣습니다. SOP §10.2 문장도 "실행 전, accept 승인 전, 반영 직전"으로 고칩니다. 이렇게 해야 커밋된 기록의 accept가 실제로 쓸 수 있습니다.
+```
+
+## repair 1
+
+| 파일 | 변경 |
+| --- | --- |
+| `orchestrator/worker/claude_worker.py` | `_accept_main_check(repo_root, baseline, task_id)`가 `_main_tracked_changes()`를 쓴다(호출 1곳 갱신). 사유 코드 `accept_main_dirty`는 그대로 |
+| `orchestrator/worker/run_smoke_tests.py` | accept 테스트를 실제 순서로 다시 짰다: 기록 커밋 → attempt(`qa_unverified_owner_review`) → 실패 결과를 기록에 씀(봇 콜백 대신 직접) → `README.md`도 바뀌어 있으면 `accept_main_dirty`(아무것도 바뀌거나 기록되지 않음, 재시도 가능) → `README.md` 복구 뒤 accept(승인이 기록에 다시 씀) → 반영, checkpoint에 실패 결과와 승인 전이가 모두 들어감 |
+| `docs/jarvis-multi-agent-sop-v0.1.md` | 9항 문장을 "실행 전, accept 승인 전, 반영 직전"과 "상태 전이와 실행 결과 기록이 쓰는"으로 고쳤다 |
+| 이 기록 | Manager 요약 A7(이 기록은 SOP 절차로 더함), A8(Owner 결정 (1)), P1(push 조건과 충족), X1 정정, budget, 위 Reviewer 결과와 Owner 결정 |
+
+이 repair로 candidate가 바뀌므로 이전 Reviewer 결과는 무효이고 새 candidate에 Reviewer → QA를 다시 실행한다.
+
+repair 1 검증(Implementer 실행, 작업 트리): Worker smoke(`PYTHONUTF8=1`) total=347 failed=0. 강도(임시 worktree): 예외 제거 FAIL 21개,
+모든 task 기록으로 확대 FAIL 4개, 반영 직전 검사만 이전 방식 FAIL 19개, accept 승인 전 검사만 이전 방식 FAIL 4개(실제 순서 accept
+테스트가 `accept_main_dirty`로 멈춤), 복구본 347/0. Discord self-check(`PYTHONUTF8=1`) total=92 실패 0, discord-intake total=132
+failed=0, SOP validator PASS, Console smoke PASS, `git diff --check` exit 0. 임시 worktree·스크립트 삭제.
