@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-14 14:51 UTC`
-- updated_at: `2026-10-14 15:43 UTC`
-- summary: `Discord /go가 Worker 실행 전에 task 기록에 상태 전이를 쓰므로, 기록이 이미 커밋된 task는 사전 검사와 반영 직전 검사의 추적 파일 변경 검사(main_tree_dirty)에 항상 걸린다(task-0143 재시도 실패로 확인). 두 검사가 실행 대상 task 자신의 기록 파일 하나만 예외로 두고 그 밖의 추적 변경은 그대로 막게 하며, 커밋된 기록의 TODO·FAILED 재시도·resume·accept 회귀 테스트와 SOP 10.2 한 줄을 더한다. push는 하지 않는다.`
+- updated_at: `2026-10-14 15:50 UTC`
+- summary: `Discord /go가 Worker 실행 전에 task 기록에 상태 전이를 쓰고 멈춘 실행은 실패 결과를 기록에 쓰므로, 기록이 이미 커밋된 task는 추적 파일 변경 검사(main_tree_dirty, accept_main_dirty)에 항상 걸린다(task-0143 재시도 실패로 확인). 실행 전, accept 승인 전, 반영 직전 세 검사가 실행 대상 task 자신의 기록 파일 하나만 예외로 두고 그 밖의 추적 변경은 그대로 막게 하며, 커밋된 기록의 TODO·FAILED 재시도·resume·accept 회귀 테스트와 SOP 10.2 한 문장을 더한다. push는 하지 않는다.`
 - source_command: `Owner 승인: A안으로 수정 진행`
 
 ## 기준선
@@ -16,7 +16,7 @@
 | baseline | `a022887d3654e226796dcca8e4190fea073cfe3e` (main HEAD = origin/main, push 직후) |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 보존 대상 | task-0143 `-r3` worktree/branch(`e05c69c`), task-0149 worktree/branch 2개, task-0154 worktree/branch |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (repair 1 뒤) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (repair 1 뒤 1, Owner가 예산을 2로 증액한 뒤 repair 2로 2) |
 
 ## 조사 결과 (read-only, 코드와 재현 기준)
 
@@ -163,3 +163,29 @@ repair 1 검증(Implementer 실행, 작업 트리): Worker smoke(`PYTHONUTF8=1`)
 모든 task 기록으로 확대 FAIL 4개, 반영 직전 검사만 이전 방식 FAIL 19개, accept 승인 전 검사만 이전 방식 FAIL 4개(실제 순서 accept
 테스트가 `accept_main_dirty`로 멈춤), 복구본 347/0. Discord self-check(`PYTHONUTF8=1`) total=92 실패 0, discord-intake total=132
 failed=0, SOP validator PASS, Console smoke PASS, `git diff --check` exit 0. 임시 worktree·스크립트 삭제.
+
+## Reviewer 결과 (candidate `dac06daaff94c32dbd13b56670254a122e89e7f4`, repair 1 뒤): FINDINGS
+
+`self_deviations: []`, `unverified` 8건. findings 1건(minor): 메타데이터 `summary`가 예외를 두 검사(사전 검사·반영 직전)에만 적용한다고
+적는데, 코드는 Owner 결정 (1)과 SOP 문장대로 세 곳(실행 전, accept 승인 전, 반영 직전)에 적용한다. task 상태 영역의 기준인 메타데이터가
+코드와 다르다.
+
+Manager 판정: 지적이 맞다. 고치려면 이 기록을 바꿔야 하지만 repair 예산(1)이 소진됐고 호출 결함이 아니라 retry도 아니므로 SOP 5절에
+따라 멈추고 Owner에게 escalation했다. 선택지는 (a) repair 예산을 2로 증액해 summary 수정, (b) SOP 8절에 따라 minor 수용이었다.
+
+## Owner 결정: repair 예산 증액 (원문)
+
+```text
+(a)로 진행해, repair 예산 2로 늘려줘
+```
+
+이 증액은 task-0157에만 효력이 있다.
+
+## repair 2
+
+- 메타데이터 `summary`를 세 검사(실행 전, accept 승인 전, 반영 직전)와 멈춘 실행의 실패 결과 기록(`accept_main_dirty`)까지 적도록 고쳤다
+  (3문장 유지).
+- `updated_at`을 이 수정 시각 `2026-10-14 15:50 UTC`으로, 기준선 budget 행을 `repair_budget=2`, `repair_count=2`로 고치고 위 Reviewer 결과와 Owner 결정을 기록했다.
+- 코드·테스트·SOP는 바꾸지 않았다(repair 1 candidate `dac06da`와 같다).
+
+이 repair로 candidate가 바뀌므로 이전 Reviewer 결과는 무효이고 새 candidate에 Reviewer → QA를 다시 실행한다.
