@@ -1562,11 +1562,15 @@ def _build_execution_result_real(execution_request: dict[str, Any]) -> dict[str,
         }
 
     try:
+        # task-0158: decode like claude_worker._run. Without an explicit encoding the locale
+        # (cp949 on the desktop) decoded the output, and a decode failure left stdout None.
         completed = subprocess.run(
             list(command),
             cwd=str(CODEBASE_ROOT),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=EXECUTION_TIMEOUT_SECONDS,
             check=False,
         )
@@ -1593,7 +1597,7 @@ def _build_execution_result_real(execution_request: dict[str, Any]) -> dict[str,
         **base_payload,
         "executed": True,
         "success": success,
-        "output_summary": _summarize_execution_output(completed.stdout, completed.stderr),
+        "output_summary": _summarize_execution_output(completed.stdout or "", completed.stderr or ""),
         "error_reason": "" if success else f"execution_failed:exit_code:{completed.returncode}",
     }
 
@@ -3688,6 +3692,39 @@ def _run_self_check_suite() -> dict[str, Any]:
             else:
                 os.environ["JARVIS_LOCAL_STATE_DIR"] = original_state_dir
 
+    # task-0158: the whitelisted run decodes like claude_worker._run and survives a run whose
+    # captured output is None (a decode failure left it None before).
+    original_subprocess_run = subprocess.run
+    seen_kwargs: dict[str, Any] = {}
+
+    def _none_output_run(args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+        seen_kwargs.update(kwargs)
+        return subprocess.CompletedProcess(args, 0, None, None)
+
+    subprocess.run = _none_output_run
+    try:
+        none_output = _build_execution_result_real(
+            {
+                "task_id": "task-0001-self-check",
+                "execution_type": "script",
+                "action": "plan_script_execution",
+                "target": "discord_intake_smoke_tests",
+            }
+        )
+        none_output_ok = (
+            seen_kwargs.get("encoding") == "utf-8"
+            and seen_kwargs.get("errors") == "replace"
+            and none_output.get("executed") is True
+            and none_output.get("success") is True
+            and none_output.get("output_summary") == "no_output"
+        )
+        none_output_detail = f"kwargs={seen_kwargs} result={none_output}"
+    except Exception as exc:  # noqa: BLE001 - recorded as a failed check
+        none_output_ok, none_output_detail = False, f"{type(exc).__name__}: {exc}"
+    finally:
+        subprocess.run = original_subprocess_run
+    _record("execution_output_utf8_and_none_safe", none_output_ok, none_output_detail)
+
     failed = [check for check in checks if not check["ok"]]
     if failed:
         return {"result_type": "self_check_suite", "ok": False, "total": len(checks), "failed": failed, "checks": checks}
@@ -3811,6 +3848,10 @@ async def _start_discord_bot() -> None:
 def main() -> None:
     args = _parse_args()
     _load_env_file(Path(args.env_file))
+
+    if args.self_check_suite or args.self_check:
+        # task-0158: the self-check JSON carries emoji and Korean; a cp949 stdout cannot encode them.
+        sys.stdout.reconfigure(encoding="utf-8")
 
     if args.self_check_suite:
         print(json.dumps(_run_self_check_suite(), ensure_ascii=False, indent=2))

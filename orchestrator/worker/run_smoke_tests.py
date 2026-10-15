@@ -28,6 +28,8 @@ FAKE_CLAUDE = textwrap.dedent(
     import json, os, subprocess, sys, time
     from pathlib import Path
     args = sys.argv[1:]
+    # task-0158: claude_worker._run sends the prompt as UTF-8; read it that way whatever the locale is.
+    sys.stdin.reconfigure(encoding="utf-8")
     prompt = sys.stdin.read()
     if os.environ.get("FAKE_LOG"):
         with open(os.environ["FAKE_LOG"], "a", encoding="utf-8") as log:
@@ -127,7 +129,9 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def git(args: list[str], cwd: Path) -> str:
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
+    # task-0158: git prints UTF-8 (Korean glossary text); decode it that way whatever the locale is.
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          check=True).stdout.strip()
 
 
 def make_env(tmp: Path) -> tuple[Path, Path]:
