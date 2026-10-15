@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-15 14:00 UTC`
-- updated_at: `2026-10-15 15:14 UTC`
+- updated_at: `2026-10-15 16:05 UTC`
 - summary: `Worker smoke는 앞선 경우가 worktree 생성 전에 실패하면 빈 worktree 경로가 현재 폴더가 되어 원본 checkout의 glossary.json을 고칠 수 있고, cp949 파이프 출력에서 실패 상세의 이모지 때문에 출력이 멈추며, 읽기 전용 Git 객체 때문에 임시 폴더가 지워지지 않고 쌓인다. 쓰기 전에 attempt 경로가 비어 있지 않고 임시 worktrees 아래인지 확인하고, stdout을 UTF-8로 맞추며, 읽기 전용 파일까지 지우고 실패 시 경고하도록 orchestrator/worker/run_smoke_tests.py만 고친다. push는 하지 않는다.`
 - source_command: `Owner 결정: A. Worker smoke 하네스 신뢰성 개선 진행`
 
@@ -133,3 +133,36 @@ baseline `ee7deb88fc2676f2c9145708f4802ad8bcf5379e`. 변경 파일은 `orchestra
 | T4 | V4: 실행 전후 `%TEMP%\jarvis_worker_smoke_*` | 정상 실행 두 번 모두 전 39·후 39, 새로 남은 폴더 0. 변형 C'(읽기 전용 정리 제거, `ignore_errors=True`)는 폴더 1개가 남고 `cleanup: this run's temporary directory is removed`가 FAIL(`total=354 failed=1`). 그 폴더는 이번 실행분이라 지웠고 기존 39개는 그대로 |
 | T5 | V5 | 위 변형마다 종료 코드와 함께 요약 줄, FAIL 검사 이름, 원본 HEAD·status·해시, 임시 폴더 목록을 직접 확인했다. 변형은 임시 worktree(현재 폴더 = 그 worktree)에서만 적용했고 실행 뒤 지웠다 |
 | T6 | 그 밖 | Discord self-check 설정 없음·`PYTHONUTF8=1` 모두 ok 93/0, intake 134/0(이 기록의 task 기록 검사가 더해져 133→134), SOP validator PASS, Console smoke PASS, `git diff --check` 통과. 변경은 소유 파일과 이 기록 |
+
+## Reviewer 결과 (candidate `27554a54be5c00b9434e098490ab5d3c5195a2ec`): PASS
+
+baseline `ee7deb88fc2676f2c9145708f4802ad8bcf5379e`, 2개 파일. `findings: []`, `self_deviations: []`. `unverified` 6건은 모두 Q1–Q6로 넘겼다.
+
+## QA 결과 (candidate `27554a54be5c00b9434e098490ab5d3c5195a2ec`): PASS
+
+Owner 지시("동일한 candidate `27554a5`에 대해 QA Q1~Q6을 진행")에 따라 candidate를 detached로 checkout한 임시 clean worktree(scratchpad)에서만
+실행했다. candidate가 main 끝이라 smoke의 clone은 `main`을 받는다. 출력은 모두 파이프로 받았고 "설정 없음"은 `PYTHONUTF8`·`PYTHONIOENCODING`을
+지운 환경이다. QA 전·후 원본 저장소 HEAD는 `27554a5`, status는 `?? jarvis.bat`뿐이었다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | Worker smoke 정상 실행(설정 없음, `PYTHONUTF8=1`) | 둘 다 종료 0, `total=354 failed=0`, FAIL·WARNING 줄 0. 새 검사 7개(경로 확인 4, resume·accept 가드 2, 정리 1) 모두 PASS. 실행 뒤 QA worktree 추적 변경 없음, `glossary.json` 해시 불변 |
+| Q2 | 실패 경로 변형 A(`exhausted.worktree`를 `""`로) | 종료 1, `total=349 failed=1`, FAIL은 `resume: the exhausted run left an attempt worktree under the temp root` 하나, 크래시 없음, source checkout(= QA worktree) 불변. 변형 A'(같은 상황 + 경로 확인 제거)는 `total=354 failed=1`, FAIL `resume: candidate carries the uncommitted fix`, source `glossary.json` 해시 `d918ba4e…`→`c059c1d0…`와 ` M apps/studyroom/content/glossary.json`(변형 뒤 복구) |
+| Q3 | cp949 파이프 + 이모지 실패 상세 변형 B | 종료 1, FAIL `mutation: emoji failure detail`, `total=355 failed=1` 출력, 크래시 없음. 변형 B'(UTF-8 stdout 제거)는 요약 없이 `UnicodeEncodeError … '❌'`로 멈춤 |
+| Q4 | 임시 폴더 | 정상 실행 두 번 뒤 `jarvis_worker_smoke_*` 39→39, 새로 남은 것 0, 기존 제거 0. 변형 C'(읽기 전용 정리 제거)는 폴더 1개가 남고 FAIL `cleanup: this run's temporary directory is removed`(`total=354 failed=1`). 그 1개는 이번 실행분이라 지웠다. QA 끝 39개, 새로 남은 것 0, 기존 제거 0 |
+| Q5 | 그 밖 | Discord self-check 설정 없음·`PYTHONUTF8=1` 모두 ok=True 93/0, intake 134/0, SOP validator PASS, Console smoke PASS, `git diff --check ee7deb8 27554a5` exit 0, 변경 2개 파일(A 이 기록, M `run_smoke_tests.py`), `jarvis.bat`은 candidate tree에 없음 |
+| Q6 | 정리 | QA worktree 삭제, 8790대 listener 없음, 보존 worktree 그대로, `jarvis.bat` untracked, 원본 저장소 HEAD·status 불변 |
+
+QA 메모: 변형 실행 뒤 QA worktree에 ` M orchestrator/worker/run_smoke_tests.py`가 보였다. 변형 스크립트가 파일을 `read_text`(CRLF→LF)로 읽고
+복구하며 LF로 다시 써서 생긴 줄 끝 차이다. 새 worktree에서 같은 복구를 재현해 확인했다: 복구 뒤 eol `i/lf w/crlf`→`i/lf w/lf`, `git hash-object`가
+index blob `b90428a6…`과 같고 CR을 무시한 diff 0줄. 내용은 candidate와 같으며 Q5는 그 같은 내용에서 실행됐다.
+
+## Docs와 완료 조건 대조
+
+- Docs: `not_required`(File ownership 절의 이유 그대로).
+- SOP 8절: 같은 candidate `27554a5`에 Reviewer PASS와 QA PASS. 범위 밖 변경·동시 source writer 없음. `jarvis.bat` untouched/untracked.
+  `bot_minimal.py`·master-plan·`--self-check-suite` 종료 코드 정책 변경 없음. 기존 임시 폴더 39개 유지. push·외부 호출 없음. listener 없음.
+
+## 다음 단계
+
+status는 `DOING`이다. 이 기록을 record-only checkpoint commit으로 남긴다. DONE은 Owner가 Jarvis Console Complete로 결정하고, push는 별도 승인이다.
