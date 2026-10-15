@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-15 09:22 UTC`
-- updated_at: `2026-10-15 10:47 UTC`
+- updated_at: `2026-10-15 11:02 UTC`
 - summary: `Python 기본 인코딩이 cp949인 이 데스크톱에서 PYTHONUTF8 없이 실행하면 Worker smoke는 가짜 claude의 stdin과 smoke git 헬퍼가 UTF-8을 cp949로 읽어 실패하고, Discord self-check는 결과의 이모지를 cp949 콘솔에 출력하다 실패하며, 봇의 허용 스크립트 실행은 자식 출력을 기본 인코딩으로 해독해 stdout이 None이면 멈출 수 있다. 가짜 claude stdin, smoke git 헬퍼, self-check 결과 출력, 봇 실행 출력 해독을 UTF-8로 맞추고 None 출력 보호를 더해 Worker의 _run과 같게 한다. push는 하지 않는다.`
 - source_command: `Owner 승인: 인코딩 문제 B안으로 진행`
 
@@ -148,3 +148,36 @@ Manager 판정: 맞다. 이 기록 안의 수정이고 범위 확대가 아니�
 - `updated_at`과 budget을 갱신했다. 코드는 바꾸지 않았다(candidate `3e8a33f`의 코드와 같다).
 
 이 repair로 candidate가 바뀌므로 이전 Reviewer 결과는 무효이고 새 candidate에 Reviewer → QA를 다시 실행한다.
+
+## Reviewer 결과 (candidate `fa08a35ec09df6a20e7917f0aaf7c2136440bbe0`, repair 1 뒤): PASS
+
+baseline `54eef73e282814151ab6c68ef427028cc3e886ca`, 누적 3개 파일. `findings: []`, `self_deviations: []`. `unverified` 8건 중 6건은
+Q1–Q6로 넘겼다. `qa: none` 2건 중 "`claude_worker._run`이 `encoding="utf-8"`, `errors="replace"`로 해독한다"는 아래 QA에서 candidate의
+`_run`을 직접 읽어 확인했고, "Implementer 검증 수치가 사실"은 아래 QA가 같은 candidate에서 다시 실행한 수치다.
+
+## QA 결과 (candidate `fa08a35ec09df6a20e7917f0aaf7c2136440bbe0`): PASS
+
+candidate와 baseline을 각각 detached로 checkout한 임시 clean worktree(scratchpad)에서만 실행했다. QA 전·후 main HEAD와 candidate가 같았다.
+"설정 없음"은 `PYTHONUTF8`·`PYTHONIOENCODING`을 지운 환경이다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | 설정 없음: Worker smoke, Discord self-check, discord-intake | Worker smoke total=347 failed=0, self-check total=93 실패 0, intake total=133 failed=0. 실행 뒤 QA worktree 추적 변경 없음. baseline self-check는 같은 환경에서 `UnicodeEncodeError`(`📄`)로 멈춤 |
+| Q2 | `PYTHONUTF8=1`: 같은 세 가지 | 347/0, 93/0, 133/0 |
+| Q3 | SOP validator, Console smoke | validator PASS, Console smoke PASS |
+| Q4 | `git diff --check 54eef73 fa08a35`, 범위 | exit 0. commit 2개(`3e8a33f`, `fa08a35`), 3개 파일(M `bot_minimal.py`·`run_smoke_tests.py`, A 이 기록). `jarvis.bat`은 candidate tree에 없음 |
+| Q5 | 강도(설정 없음, 변형마다 복구) | 가짜 claude UTF-8 읽기 제거 → Worker smoke 실패, self-check 출력 UTF-8 제거 → self-check `UnicodeEncodeError`, `or ""` 보호 제거 → `execution_output_utf8_and_none_safe` `"ok": false`(suite 종료 코드는 기존 동작대로 0), smoke `git()` UTF-8 제거 → Worker smoke `AttributeError`. 복구 뒤 347/0과 self-check 통과, QA worktree 추적 변경 없음 |
+| `_run` | `qa: none` 항목 | candidate의 `claude_worker._run`에 `text=True`, `encoding="utf-8"`, `errors="replace"`가 있다 |
+| Q6 | 정리 | QA worktree 2개 삭제, 8790대 listener 없음, 보존 worktree 그대로, `jarvis.bat` untracked |
+
+## Docs와 완료 조건 대조
+
+- Docs: `not_required`(File ownership 절의 이유 그대로).
+- SOP 8절: 같은 candidate `fa08a35`에 Reviewer PASS와 QA PASS. 이전 candidate `3e8a33f`의 Reviewer 결과(FINDINGS)는 판정에 쓰지 않았다.
+  범위 밖 변경·동시 source writer 없음. `jarvis.bat` untouched/untracked. push·외부 호출·환경 설정 변경 없음. listener 없음.
+
+## 다음 단계
+
+status는 `DOING`이다. 이 기록을 record-only checkpoint commit으로 남긴다. DONE은 SOP 8절대로 Owner가 Jarvis Console Complete로 결정한다.
+push는 하지 않는다. 후속 후보: 허용 스크립트 자식 출력까지 UTF-8로(M1), smoke `check()`의 실패 detail 이모지 출력, smoke resume 경우의 격리 약점,
+task-0157 기록의 환경 관찰 정정.
