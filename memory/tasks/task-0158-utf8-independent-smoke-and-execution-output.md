@@ -2,10 +2,10 @@
 
 - id: `task-0158-utf8-independent-smoke-and-execution-output`
 - title: `Python 기본 인코딩이 cp949인 환경에서도 Worker smoke·Discord self-check가 통과하고 봇 실행 출력 해독이 멈추지 않게 하기`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-15 09:22 UTC`
-- updated_at: `2026-10-15 11:02 UTC`
+- updated_at: `2026-10-15 12:42 UTC`
 - summary: `Python 기본 인코딩이 cp949인 이 데스크톱에서 PYTHONUTF8 없이 실행하면 Worker smoke는 가짜 claude의 stdin과 smoke git 헬퍼가 UTF-8을 cp949로 읽어 실패하고, Discord self-check는 결과의 이모지를 cp949 콘솔에 출력하다 실패하며, 봇의 허용 스크립트 실행은 자식 출력을 기본 인코딩으로 해독해 stdout이 None이면 멈출 수 있다. 가짜 claude stdin, smoke git 헬퍼, self-check 결과 출력, 봇 실행 출력 해독을 UTF-8로 맞추고 None 출력 보호를 더해 Worker의 _run과 같게 한다. push는 하지 않는다.`
 - source_command: `Owner 승인: 인코딩 문제 B안으로 진행`
 
