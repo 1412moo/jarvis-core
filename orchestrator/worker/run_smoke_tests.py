@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -121,6 +122,47 @@ FAKE_CLAUDE = textwrap.dedent(
 )
 
 RESULTS: list[tuple[str, bool, str]] = []
+
+
+def attempt_path(worktree: str, worktrees: Path) -> Path | None:
+    """task-0159: an attempt worktree the smoke may write into, or None.
+
+    WorkerRunResult.worktree stays "" when a run stops before its worktree exists, and
+    Path("") is the current directory, normally this repository's own checkout. Only a
+    non-empty path that exists under this run's temporary worktrees root is returned.
+    """
+
+    if not worktree:
+        return None
+    path = Path(worktree).resolve()
+    if not path.is_relative_to(worktrees.resolve()) or not path.is_dir():
+        return None
+    return path
+
+
+def remove_tree(path: Path) -> bool:
+    """task-0159: remove this run's temporary directory, read-only Git objects included.
+
+    On Windows git writes its objects read-only, which shutil.rmtree cannot delete; the
+    old ignore_errors=True hid that and left every run's clone behind. Returns whether the
+    directory is gone and prints a warning when it is not.
+    """
+
+    def make_writable_and_retry(func, target, _exc) -> None:
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    try:
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(path, onexc=make_writable_and_retry)
+        else:
+            shutil.rmtree(path, onerror=make_writable_and_retry)
+    except OSError as exc:
+        print(f"WARNING: could not remove the smoke temp directory {path}: {exc}")
+    if path.exists():
+        print(f"WARNING: smoke temp directory left behind: {path}")
+        return False
+    return True
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -391,7 +433,12 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
           record == claude_worker.owner_review_record(attempt.candidate, attempt.baseline, attempt_of("task-8000-accref", attempt.branch))
           and claude_worker.parse_owner_review_record(record) == (attempt.candidate, attempt.baseline, 1), record)
     head = git(["rev-parse", "HEAD"], clone)
-    wt, branch = Path(attempt.worktree), attempt.branch
+    # task-0159: the refusals below write and commit in wt; it must be a real attempt worktree.
+    wt, branch = attempt_path(attempt.worktree, worktrees), attempt.branch
+    check("accept setup: the owner-review attempt worktree is under the temp root", wt is not None,
+          f"worktree={attempt.worktree!r} {attempt.stage}:{attempt.reason}")
+    if wt is None:
+        return
 
     r, a, c = accept("task-8000-accref", "qa:qa_unverified_owner_review")
     refused("bare record", r, a, c, "accept_record_invalid", head, attempt)
@@ -705,6 +752,10 @@ def owner_review_replies(results: dict[str, dict]) -> None:
 
 
 def main() -> int:
+    # task-0159: failure details can carry emoji from bot replies; a cp949 pipe could not
+    # print them and the run stopped before the remaining FAIL lines and the summary.
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
     claude_worker.CLAUDE_BIN = "fakeclaude"
     claude_worker.WORKER_TIMEOUT_SECONDS = 5
     tmp = Path(tempfile.mkdtemp(prefix="jarvis_worker_smoke_"))
@@ -740,6 +791,14 @@ def main() -> int:
         expect_fail("tests", "badjson", "tests", "tests_failed")
         r = expect_fail("findings", "ok", "reviewer", "reviewer_findings", review="findings")
         check("findings: branch kept for inspection", bool(git(["branch", "--list", r.branch], clone)))
+        # task-0159: the guard for writes into attempt worktrees.
+        check("attempt path: a kept attempt worktree is accepted", attempt_path(r.worktree, worktrees) == Path(r.worktree).resolve(),
+              r.worktree)
+        check("attempt path: an empty worktree (run stopped before it) is refused, not the current directory",
+              attempt_path("", worktrees) is None)
+        check("attempt path: this repository's own checkout is refused", attempt_path(str(REPO_ROOT), worktrees) is None
+              and attempt_path(str(clone), worktrees) is None)
+        check("attempt path: a missing path under the temp root is refused", attempt_path(str(worktrees / "missing"), worktrees) is None)
 
         def dirty(c: Path) -> None:
             (c / "README.md").write_text((c / "README.md").read_text(encoding="utf-8") + "x\n", encoding="utf-8")
@@ -830,20 +889,24 @@ def main() -> int:
               and not (worktrees / "task-8000-resumenone").exists())
 
         # Previous attempt = the exhausted run. Add an uncommitted fix there and move main in another file.
-        prev_wt = Path(exhausted.worktree)
-        glossary = prev_wt / "apps/studyroom/content/glossary.json"
-        data = json.loads(glossary.read_text(encoding="utf-8"))
-        data.append({"id": "resumed-term", "term": "Resumed", "dev_definition": "d", "simple_explanation": "s", "jarvis_example": "e"})
-        glossary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-        (clone / "docs" / "moved-main.md").write_text("x\n", encoding="utf-8")
-        git(["add", "docs/moved-main.md"], clone)
-        git(["commit", "-q", "-m", "move main"], clone)
-        r, calls, before, after = run_case("resume", clone, worktrees, worker="fail", resume=True, task_id="task-8000-repairexhausted")
-        check("resume: previous changes re-applied on current main without calling the Worker", r.ok and r.resumed_from == exhausted.branch
-              and r.baseline == before, f"{r.stage}:{r.reason}:{r.detail}")
-        check("resume: candidate carries the uncommitted fix", "resumed-term" in git(["show", f"{r.candidate}:apps/studyroom/content/glossary.json"], clone) if r.candidate else False)
-        check("resume: previous attempt branch, candidate and worktree preserved", prev_wt.exists()
-              and git(["rev-parse", exhausted.branch], clone) == exhausted.candidate and "resumed-term" in glossary.read_text(encoding="utf-8"))
+        # task-0159: only into a real attempt worktree under this run's temp root, never the checkout.
+        prev_wt = attempt_path(exhausted.worktree, worktrees)
+        check("resume: the exhausted run left an attempt worktree under the temp root", prev_wt is not None,
+              f"worktree={exhausted.worktree!r} {exhausted.stage}:{exhausted.reason}")
+        if prev_wt is not None:
+            glossary = prev_wt / "apps/studyroom/content/glossary.json"
+            data = json.loads(glossary.read_text(encoding="utf-8"))
+            data.append({"id": "resumed-term", "term": "Resumed", "dev_definition": "d", "simple_explanation": "s", "jarvis_example": "e"})
+            glossary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+            (clone / "docs" / "moved-main.md").write_text("x\n", encoding="utf-8")
+            git(["add", "docs/moved-main.md"], clone)
+            git(["commit", "-q", "-m", "move main"], clone)
+            r, calls, before, after = run_case("resume", clone, worktrees, worker="fail", resume=True, task_id="task-8000-repairexhausted")
+            check("resume: previous changes re-applied on current main without calling the Worker", r.ok and r.resumed_from == exhausted.branch
+                  and r.baseline == before, f"{r.stage}:{r.reason}:{r.detail}")
+            check("resume: candidate carries the uncommitted fix", "resumed-term" in git(["show", f"{r.candidate}:apps/studyroom/content/glossary.json"], clone) if r.candidate else False)
+            check("resume: previous attempt branch, candidate and worktree preserved", prev_wt.exists()
+                  and git(["rev-parse", exhausted.branch], clone) == exhausted.candidate and "resumed-term" in glossary.read_text(encoding="utf-8"))
 
         old = run_case("conflictprev", clone, worktrees, worker="ok", review="findings")[0]
         g = clone / "apps/studyroom/content/glossary.json"
@@ -972,7 +1035,8 @@ def main() -> int:
         accept_flow(clone, worktrees)
         attempt_numbering(clone, worktrees)
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        removed = remove_tree(tmp)
+    check("cleanup: this run's temporary directory is removed", removed, str(tmp))
 
     failed = [name for name, ok, _ in RESULTS if not ok]
     print(f"total={len(RESULTS)} failed={len(failed)}")
