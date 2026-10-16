@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-16 12:04 UTC`
-- updated_at: `2026-10-16 12:49 UTC`
+- updated_at: `2026-10-16 14:33 UTC`
 - summary: `adapters/discord/bot_minimal.py --self-check-suite는 검사가 실패해 결과 JSON의 ok가 false여도 종료 코드 0을 내서, JSON을 직접 읽지 않으면 실패를 놓친다(task-0158 V4c 오판정). 출력 JSON은 그대로 두고 ok가 false면 종료 코드 1로 끝나게 하며, Discord README에 --self-check-suite 실행법과 종료 코드를 적는다. 단일 명령 --self-check의 종료 코드는 바꾸지 않고 push는 하지 않는다.`
 - source_command: `Owner 결정: --self-check-suite 종료 코드 A안 진행, README도 같이 수정`
 
@@ -38,6 +38,34 @@ A안으로 진행해, README도 같이 고쳐줘
 
 A안(조사 보고 원문 요약): `ok`가 false면 종료 코드 1, 출력 JSON은 그대로. 범위는 `bot_minimal.py`의 `main()`과 Discord README.
 
+정식 시작 승인(원문):
+
+```text
+task-0160 Console Start 진행하고 구현 시작해줘
+```
+
+candidate·Reviewer 진행 지시(원문 발췌, 문구 그대로):
+
+```text
+허용된 파일:
+
+* `adapters/discord/bot_minimal.py`
+* `adapters/discord/README.md`
+* `memory/tasks/task-0160-self-check-suite-exit-code.md`
+
+위 파일 외에 이번 작업에서 새 변경사항을 만들지 마라. 기존에 존재하는 `jarvis.bat`은 보호 대상이다. 열기, 읽기, 수정, 스테이징, 커밋을 모두 금지한다.
+`--self-check-suite` 종료 코드 수정이 원래 요구사항에 맞는지, 단일 `--self-check` 동작을 불필요하게 바꾸지 않았는지 확인하라. 빈 문자열 `--self-check ''` 문제는 이번 작업에서 수정하지 마라.
+기존 사건 경위와 미확인 사항은 보존하라. 사건이 없었던 것으로 결론 내리거나 외부 영향이 없었다고 단정하지 마라.
+```
+
+Reviewer FINDINGS 뒤 repair 결정(원문):
+
+```text
+1. Repair 1회 승인: Manager 요약 표에 빠진 두 조건을 추가하고 X3의 근거를 `AGENTS.md`·SOP로 바로잡습니다. 코드와 README는 수정하지 않습니다.
+2. QA는 Reviewer 재검토 이후: Reviewer가 실제로 PASS를 내면 기존 task 절차에 따라 QA로 진행합니다. FINDINGS가 남으면 다시 멈추고 보고받습니다.
+3. 빈 문자열 결함은 별도 task로 등록: task-0160과 분리하되, 우선순위는 높게 둡니다. 기존 코드가 빈 문자열을 self-check 입력으로 처리하지 않고 실제 봇 기동 경로로 진입할 수 있다는 점을 별도 결함으로 다룹니다.
+```
+
 ## Manager 요약
 
 | # | 승인 조건 | Manager 해석과 충족 방법 |
@@ -48,7 +76,9 @@ A안(조사 보고 원문 요약): `ok`가 false면 종료 코드 1, 출력 JSON
 | S3 | README에 실행법과 종료 코드 | Discord README "최소 로컬 검증"에 `--self-check-suite` 절을 더해 실행법, 성공 0·실패 1, 판정은 JSON `ok`와 `failed`로도 확인할 수 있음을 적는다 |
 | X1 | 단일 명령 `--self-check` 종료 코드 불변 | 해당 분기를 바꾸지 않는다 |
 | X2 | 범위 밖 파일 수정 금지 | 소유 파일은 `bot_minimal.py`, `adapters/discord/README.md`, 이 기록뿐 |
-| X3 | `jarvis.bat` 금지, push 별도 승인 | 접근하지 않고 push하지 않는다. `jarvis.bat` 안의 호출 여부는 Owner 확인 사항으로 남긴다 |
+| X3 | `jarvis.bat` 금지(Owner 지시), push 별도 승인(AGENTS.md·SOP의 escalation gate, 이번 승인 문구 아님) | 접근하지 않고 push하지 않는다. `jarvis.bat` 안의 호출 여부는 Owner 확인 사항으로 남긴다 |
+| X4 | "빈 문자열 `--self-check ''` 문제는 이번 작업에서 수정하지 마라." | `main()`의 단일 `--self-check` 분기와 빈 문자열 판정을 바꾸지 않는다. 그 결함은 후속 후보로만 기록한다 |
+| X5 | "기존 사건 경위와 미확인 사항은 보존하라. 사건이 없었던 것으로 결론 내리거나 외부 영향이 없었다고 단정하지 마라." | "검증 중 발생한 사건" 절의 경위·확인 범위·미확인 항목을 지우거나 줄이지 않고, 추가 확인은 덧붙이기만 한다 |
 
 ## File ownership
 
@@ -115,3 +145,10 @@ HEAD와 status는 실행 전후 같았다. 판정은 종료 코드와 함께 출
   두 위치에 메시지가 없다는 것만으로 외부 영향이 전혀 없었다고 단정하지 않는다.
 - 후속 후보: `main()`이 `args.self_check is not None`으로 판정해 빈 문자열도 `empty_input`(종료 2)으로 거절하게 하는 수정. task-0160
   범위 밖이라 이번 candidate에 넣지 않는다.
+
+## Reviewer와 repair 이력
+
+| 회차 | candidate | 결과 |
+| --- | --- | --- |
+| Reviewer 1 | `d77c01c7200295e58b639e9c21953b45c5aab81f` | FINDINGS. major 2: Manager 요약에 Owner 조건 "빈 문자열 `--self-check ''` 수정 금지"와 "사건 경위·미확인 사항 보존, 외부 영향 없음 단정 금지"가 없음(candidate 자체는 두 조건을 지킴). minor 1: X3의 push 제한은 이번 승인 문구가 아니라 AGENTS.md·SOP 규칙 |
+| repair 1 | (이 기록 수정) | Owner 승인으로 Manager 요약에 X4·X5를 더하고 X3 근거를 AGENTS.md·SOP로 표시했다. 승인 원문 블록을 "Owner 결정"에 옮겼다. 코드와 README는 바꾸지 않았다. `repair_count=1`(budget 1 소진) |
