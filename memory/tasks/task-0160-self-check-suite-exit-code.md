@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-16 12:04 UTC`
-- updated_at: `2026-10-16 14:37 UTC`
+- updated_at: `2026-10-16 14:46 UTC`
 - summary: `adapters/discord/bot_minimal.py --self-check-suite는 검사가 실패해 결과 JSON의 ok가 false여도 종료 코드 0을 내서, JSON을 직접 읽지 않으면 실패를 놓친다(task-0158 V4c 오판정). 출력 JSON은 그대로 두고 ok가 false면 종료 코드 1로 끝나게 하며, Discord README에 --self-check-suite 실행법과 종료 코드를 적는다. 단일 명령 --self-check의 종료 코드는 바꾸지 않고 push는 하지 않는다.`
 - source_command: `Owner 결정: --self-check-suite 종료 코드 A안 진행, README도 같이 수정`
 
@@ -181,3 +181,28 @@ HEAD와 status는 실행 전후 같았다. 판정은 종료 코드와 함께 출
 | repair 1 | (이 기록 수정) | Owner 승인으로 Manager 요약에 X4·X5를 더하고 X3 근거를 AGENTS.md·SOP로 표시했다. 승인 원문 블록을 "Owner 결정"에 옮겼다. 코드와 README는 바꾸지 않았다. `repair_count=1`(budget 1 소진) |
 | Reviewer 2 | `18198d0c2a1a2d24bf15852f32f1ef5d149d01d3` | FINDINGS. major 1: X4와 사건 절이 빈 문자열 결함을 후속 후보로만 적어 Owner 결정(별도 task 등록, 우선순위 높음)과 다름. minor 2: Manager 요약에 "실제 PASS 뒤에만 QA, FINDINGS면 멈추고 보고" 조건과 repair 1의 "코드·README 미수정" 범위 조건이 없음 |
 | repair 2 | (이 기록 수정) | Owner가 repair budget을 2로 늘리고 repair 2를 승인했다. 빈 문자열 결함을 `task-0161-self-check-empty-string-starts-bot`로 `TODO` 등록하고(우선순위 높음) X4와 사건 절에 반영했으며, Manager 요약에 X6(QA 조건)·X7(repair 범위)을 더했다. 코드와 README는 바꾸지 않았다. `repair_budget=2`, `repair_count=2`(2회 중 2회 사용, 소진) |
+| Reviewer 3 | `1993db758282032e5b3bfe6a59a3f04dcb41f30f` | PASS, findings 없음. 미검증으로 밝힌 것: task-0161 기록(candidate 밖), T1~T6 실행 결과, 저장소 밖 사건 사실, Console Start 적용 |
+
+## QA (candidate `1993db758282032e5b3bfe6a59a3f04dcb41f30f`)
+
+2026-10-16에 candidate를 detached 임시 worktree로 꺼내 실행하고 끝난 뒤 지웠다. 그 worktree에는 `adapters/discord/.env`가 없고 실행 환경에
+`DISCORD_BOT_TOKEN`도 없었다. 변형(T2~T4)은 그 worktree의 `HEAD`에서 다시 만든 임시 worktree에서 돌렸다. 판정은 종료 코드와 출력 JSON의
+`ok`·`total`·`failed` 이름으로 했다.
+
+| # | 결과 |
+| --- | --- |
+| T1 | PASS. 설정 없음·`PYTHONUTF8=1` 두 정상 실행 모두 종료 0, `ok=True`, 93/0 |
+| T2 | PASS. `execution_output_utf8_and_none_safe`를 실패시킨 변형: 종료 1, `ok=False`, 93건 중 failed 1(`execution_output_utf8_and_none_safe`), JSON 끝까지 출력 |
+| T3 | PASS. 같은 변형에서 종료 코드 처리 제거: 종료 0, `ok=False`(수정 전 결함 재현) |
+| T4 | PASS. suite 안 예외 변형: 종료 1, stderr 마지막 줄 `RuntimeError: mutation: crash inside the suite` |
+| T5 | PASS(실행한 범위). `--self-check '/status invalid-id'` 종료 0(`result_type: error`), `--self-check ' '` 종료 2(`empty_input`) |
+| T6 | PASS. `py_compile` 통과, discord-intake 135/0, Worker smoke 354/0, SOP validator PASS, Console smoke PASS, `git diff --check`(baseline 대비) 통과, 변경 범위 3파일(`bot_minimal.py`, README, 이 기록), `jarvis.bat`은 tree에 없음, 코드·README는 `d77c01c` 대비 차이 0줄, 실행 뒤 QA worktree 변경 없음 |
+
+실행 뒤 정리: 변형용·QA용 worktree를 지웠고 원본 checkout의 HEAD와 status는 실행 전후 같았다. `%TEMP%\jarvis_worker_smoke_*`는 39개
+그대로이고 이번 실행으로 남은 임시 폴더는 없다. 남은 Python 프로세스와 8790 listener는 없다.
+
+안전상 실행하지 않았거나 확인하지 않은 것(PASS로 보지 않는다):
+
+- `--self-check ''`: 실제 봇 기동 위험 때문에 실행하지 않았다. `task-0161-self-check-empty-string-starts-bot`에서 따로 다룬다.
+- `jarvis.bat`이 `--self-check-suite`를 부르는지: 접근 금지 조건 때문에 확인하지 않았다.
+- 사건의 외부 영향: "검증 중 발생한 사건" 절의 미확인 사항은 그대로다.
