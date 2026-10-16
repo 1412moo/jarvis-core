@@ -3854,7 +3854,11 @@ def main() -> None:
         sys.stdout.reconfigure(encoding="utf-8")
 
     if args.self_check_suite:
-        print(json.dumps(_run_self_check_suite(), ensure_ascii=False, indent=2))
+        suite_result = _run_self_check_suite()
+        print(json.dumps(suite_result, ensure_ascii=False, indent=2))
+        # task-0160: a failed check exits 1 like the other smoke tests; the JSON is unchanged.
+        if suite_result.get("ok") is not True:
+            raise SystemExit(1)
         return
 
     if args.self_check:

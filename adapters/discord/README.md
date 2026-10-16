@@ -257,6 +257,15 @@ python3 adapters/discord/bot_minimal.py --self-check '/retry task-0001-bootstrap
 python3 adapters/discord/bot_minimal.py --self-check '/retro today'
 python3 adapters/discord/bot_minimal.py --self-check '/help'
 ```
+- `--self-check`는 명령 하나의 응답을 그대로 보여준다. 오류 응답도 정상 결과라 종료 코드는 0이고, 공백만 있는 입력은 2다.
+
+### 4) 회귀 자체 검사 묶음 (`--self-check-suite`)
+```bash
+python3 adapters/discord/bot_minimal.py --self-check-suite
+```
+- Discord 접속 없이 임시 저장소에서 승인·상태·실행 결과 등 핵심 동작 검사를 모두 돌리고 결과를 JSON 하나로 출력한다.
+- 종료 코드: 모든 검사가 통과하면 0, 하나라도 실패하면 1이다. 검사 도중 처리되지 않은 예외로 멈춰도 0이 아니다.
+- 결과 JSON의 `ok`가 전체 판정이고 `total`이 검사 수다. 실패하면 `failed`에 실패한 검사(`name`, `detail`)가 담긴다.
 
 ---
 
