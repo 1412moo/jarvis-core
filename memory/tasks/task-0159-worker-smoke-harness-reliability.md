@@ -2,10 +2,10 @@
 
 - id: `task-0159-worker-smoke-harness-reliability`
 - title: `Worker smoke 하네스 신뢰성: 빈 worktree 경로 방어, cp949 파이프 출력, 읽기 전용 Git 객체 포함 임시 폴더 정리`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-15 14:00 UTC`
-- updated_at: `2026-10-15 16:05 UTC`
+- updated_at: `2026-10-16 10:07 UTC`
 - summary: `Worker smoke는 앞선 경우가 worktree 생성 전에 실패하면 빈 worktree 경로가 현재 폴더가 되어 원본 checkout의 glossary.json을 고칠 수 있고, cp949 파이프 출력에서 실패 상세의 이모지 때문에 출력이 멈추며, 읽기 전용 Git 객체 때문에 임시 폴더가 지워지지 않고 쌓인다. 쓰기 전에 attempt 경로가 비어 있지 않고 임시 worktrees 아래인지 확인하고, stdout을 UTF-8로 맞추며, 읽기 전용 파일까지 지우고 실패 시 경고하도록 orchestrator/worker/run_smoke_tests.py만 고친다. push는 하지 않는다.`
 - source_command: `Owner 결정: A. Worker smoke 하네스 신뢰성 개선 진행`
 
