@@ -2,10 +2,10 @@
 
 - id: `task-0162-console-task-view-capacity-and-default-tab`
 - title: `Console Task View 상태별 미표시 task 수 표시(A3)와 첫 화면 Project Control(B)`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-17 10:38 UTC`
-- updated_at: `2026-10-17 12:40 UTC`
+- updated_at: `2026-10-17 13:13 UTC`
 - summary: `Jarvis Console Actionable Task View는 10칸 중 6칸을 보류된 Team Manager task가 차지해 무엇이 빠졌는지 알 수 없고, 첫 화면은 Chat / Command다. Owner 승인 범위(A3+B)대로 /api/overview에 상태별 미표시 task 수를 읽기 전용 필드로 더해 화면에 보여 주고, 첫 활성 탭을 Project Control로 바꿔 처음 열 때 바로 불러온다. 진행 task 표시 보장(A1)과 ON_HOLD 전이(A2)는 제외해 별도 Owner 결정으로 남기고, 기존 Task View 계약 C1~C5는 바꾸지 않으며 push는 하지 않는다.`
 - source_command: `Owner 결정: Console 작업 묶음 A+B, A 범위 A1+A3, A2 보류`
 
