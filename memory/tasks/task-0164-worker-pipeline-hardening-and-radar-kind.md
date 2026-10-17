@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-17 15:52 UTC`
-- updated_at: `2026-10-17 16:25 UTC`
+- updated_at: `2026-10-17 16:26 UTC`
 - summary: `Discord Worker 파이프라인(run_pipeline)을 재사용해, 두 번째 봇·두 번째 실행을 막는 프로세스 간 파일 잠금과 실행 기록 없는 DOING 표시(상태 변경 없음)를 더하고, Studyroom 한 종류로 고정된 ALLOWED_PREFIX·TEST_COMMAND·WORK_KIND를 작업 종류 레지스트리로 묶어 apps/daily-ai-radar를 두 번째 작업 종류로 등록한다. SOP §10.1 표와 validator가 레지스트리의 모든 작업 종류와 일치하도록 함께 고치고 Worker smoke로 두 종류를 실제 실행 경로에서 검증하며, Studyroom 동작·repair 상한 1·자동 루프 정책은 그대로이고 push는 하지 않는다.`
 - source_command: `Owner 승인: task-0164 A안(SOP·validator 포함), S1~S5 한 task`
 
@@ -221,7 +221,7 @@ A안으로 승인합니다.
 | S5 | Discord 진입점: "`WORK_KIND_MARKERS`가 studyroom · radar를 고르게 한다." | 표지어로 종류를 고른다(Studyroom: studyroom·스터디룸, Radar: radar·레이더). `/work`는 표지어가 없으면 hold, 둘 다면 hold. `/go`는 표지어가 없으면 기존처럼 Studyroom, 둘 다면 상태를 바꾸기 전에 거절한다 |
 | A1 | A안: "`docs/jarvis-multi-agent-sop-v0.1.md`와 `scripts/validate_multi_agent_sop.py`를 허용 파일에 추가" / "레지스트리의 모든 작업 종류가 SOP §10.1 표와 validator에서 일치하는지 검증하세요." | SOP §10.1 표에 작업 종류별 값을 적고, validator가 `WORK_KINDS`를 AST로 읽어 종류 이름·허용 경로·테스트 스크립트를 종류별로 표와 대조하게 한다. 새 음성 검사(종류 누락, Radar 경로 변경 등)를 더한다 |
 | X1 | 금지: "`jarvis.bat`" / "Console 기능 변경" / "Scheduler 구현" / "Background worker 구현" / "자동 push" / "자동 Resume" / "task 모델 변경" / "master-plan(완료 후에만)" / "새 dispatcher를 만들지 않는다." | 해당 파일·기능을 만들거나 바꾸지 않는다. `run_pipeline`·`accept_candidate`는 그대로 쓰고 인자만 더한다 |
-| X2 | "기존 Studyroom 경로와 SOP 계약을 유지" / "Studyroom 기존 동작은 회귀 없이 유지한다." / "자동 루프는 기존 정책을 유지한다." / "repair는 최대 1회로 유지하세요." | Studyroom 값·Worker smoke 354건·`REPAIR_BUDGET_MAX = 1`·§10.2 규칙을 바꾸지 않는다 |
+| X2 | "기존 Studyroom 경로와 SOP 계약을 유지" / "Studyroom 기존 동작은 회귀 없이 유지한다." / "자동 루프는 기존 정책을 유지한다." / "repair는 최대 1회로 유지하세요." | Studyroom 값·`REPAIR_BUDGET_MAX = 1`·§10.2 규칙을 바꾸지 않는다. 기존 Worker smoke 354건 중 Studyroom 동작 검사는 그대로 두고, A2 승인에 따라 hold 사유 검사 1건의 기대값만 바꾼다(검사 수는 새 검사 12건을 더해 366) |
 | X3 | "실제 봇 기동이나 Discord 외부 메시지 전송은 하지 마세요." / "예상하지 못한 범위 확대, 검증 실패, 안전성 문제가 생기면 멈추고 보고하세요." | 봇을 띄우지 않고 실제 claude도 부르지 않는다(검증은 Worker smoke의 가짜 claude와 self-check). 이상이 생기면 멈추고 보고한다 |
 | X4 | "Owner 개입은 `/work` · `/go` · push만 남긴다." | 파이프라인 경로의 Owner 개입 지점을 늘리지 않는다 |
 | A2 | Worker smoke 범위 추가 승인: "허용 파일에 `orchestrator/worker/run_smoke_tests.py`를 추가하세요." / "기존 `bot: non-Studyroom request is held` 검사는 삭제하지 말고, 새 동작에 맞게 수정하세요. 지원하지 않는 요청이 hold되고, 사유가 `unsupported_work_kind:`로 시작하며 등록된 작업 종류(`studyroom_content`, `daily_ai_radar`)가 포함되는지 확인하도록 하세요." | 그 검사를 지우지 않고 기대값만 바꿨다: hold, 사유가 `unsupported_work_kind:`로 시작, 두 종류 이름 포함 |
