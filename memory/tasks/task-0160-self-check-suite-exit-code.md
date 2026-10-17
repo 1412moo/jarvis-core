@@ -2,10 +2,10 @@
 
 - id: `task-0160-self-check-suite-exit-code`
 - title: `Discord --self-check-suite가 검사 실패 시 종료 코드 1을 내게 하고 README에 실행법과 종료 코드를 적기`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-16 12:04 UTC`
-- updated_at: `2026-10-16 14:46 UTC`
+- updated_at: `2026-10-16 14:48 UTC`
 - summary: `adapters/discord/bot_minimal.py --self-check-suite는 검사가 실패해 결과 JSON의 ok가 false여도 종료 코드 0을 내서, JSON을 직접 읽지 않으면 실패를 놓친다(task-0158 V4c 오판정). 출력 JSON은 그대로 두고 ok가 false면 종료 코드 1로 끝나게 하며, Discord README에 --self-check-suite 실행법과 종료 코드를 적는다. 단일 명령 --self-check의 종료 코드는 바꾸지 않고 push는 하지 않는다.`
 - source_command: `Owner 결정: --self-check-suite 종료 코드 A안 진행, README도 같이 수정`
 
