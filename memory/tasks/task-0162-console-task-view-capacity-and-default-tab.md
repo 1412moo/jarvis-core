@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-17 10:38 UTC`
-- updated_at: `2026-10-17 11:52 UTC`
+- updated_at: `2026-10-17 11:55 UTC`
 - summary: `Jarvis Console Actionable Task View는 10칸 중 6칸을 보류된 Team Manager task가 차지해 무엇이 빠졌는지 알 수 없고, 첫 화면은 Chat / Command다. Owner 승인 범위(A3+B)대로 /api/overview에 상태별 미표시 task 수를 읽기 전용 필드로 더해 화면에 보여 주고, 첫 활성 탭을 Project Control로 바꿔 처음 열 때 바로 불러온다. 진행 task 표시 보장(A1)과 ON_HOLD 전이(A2)는 제외해 별도 Owner 결정으로 남기고, 기존 Task View 계약 C1~C5는 바꾸지 않으며 push는 하지 않는다.`
 - source_command: `Owner 결정: Console 작업 묶음 A+B, A 범위 A1+A3, A2 보류`
 
@@ -144,11 +144,12 @@ candidate 커밋해서 Reviewer 진행해
 | X2 | "A2(ON_HOLD 전이 추가)도 제외합니다." | `docs/task-model.md`와 상태 전이를 바꾸지 않는다 |
 | S1 | A3: "`/api/overview`에 상태별 미표시 task 수를 제공하는 읽기 전용 필드를 추가합니다." | `overview_payload()`에 새 키 하나를 더한다. 값은 이미 만든 전체 projection에서 선택되지 않은 task를 status별로 센 것이다. 새 파일 read·쓰기 없음. 화면에는 Actionable Task View에 읽기 전용 한 줄로 보인다 |
 | S2 | "기존 응답 키는 유지합니다." | 기존 최상위 키, item 키, `task_view` 키를 바꾸거나 지우지 않는다 |
-| V1 | "표시 수와 미표시 수의 합이 전체 task 수와 일치하는지 검증합니다." | smoke에 표시 수 + 미표시 수 합 = 전체 projection 수, status별 일치 검사를 더한다 |
+| V1 | "표시 수와 미표시 수의 합이 전체 task 수와 일치하는지 검증합니다." | smoke에 표시 수 + 미표시 수 합 = 전체 수, status별 일치 검사를 더한다. 여기서 "전체 task 수"(`total`)는 Task View가 다루는 task, 곧 discovery 후보의 projection 수다. 기존 discovery 규칙이 비밀정보처럼 보이는 파일 이름(`SECRET_LIKE_NAME_PARTS`)을 빼므로 `task-0043-no-secrets-enforcement.md`는 포함되지 않아, 실제 저장소에서 `total` 113은 템플릿을 뺀 task 파일 수 114보다 1 적다. 이 정의를 받아들일지는 Owner 확인 사항이다(discovery 규칙은 C 범위 밖이라 바꾸지 않았다) |
 | S3 | B: "Project Control을 첫 활성 탭으로 설정하고 최초 진입 시 해당 화면을 불러옵니다." | `index.html` 첫 활성 탭·패널을 Project Control로, `app.js` 시작 시 `activateTab("tasks")` 호출 |
 | S4 | "다른 탭 동작은 유지합니다." | `activateTab`과 탭 버튼 처리는 바꾸지 않는다 |
 | X3 | "기존 C1~C5 계약은 이번 작업에서 변경하지 마세요." | 총량 10, 표시 순서, 조작 대상 = 표시 목록, 안내 문구, Recent Tasks 그룹을 그대로 둔다(R1·R2·C4 문구 불변으로 확인) |
 | X4 | "`jarvis.bat`과 다른 task 기록의 데이터는 건드리지 마세요. master-plan도 이번 범위에서 수정하지 마세요." | 소유 파일은 아래 확정 범위뿐이다 |
+| O1 | "기록에 이번 승인 범위를 명확히 반영한 뒤 구현과 R1~R7 검증을 진행하세요." | 이 기록의 "정식 시작 승인과 확정 범위"·Manager 요약·"확정 범위의 File ownership"을 먼저 적은 뒤 Console Start(2026-10-17 11:17 UTC)와 구현을 진행했고, 검증 결과는 "Implementer 검증"에 R1~R7로 적었다 |
 | X5 | "QA 결과와 변경 범위를 보고한 뒤 중단하세요. Console Complete, DONE 처리, checkpoint 커밋, push는 별도 승인 전까지 하지 마세요." | 구현과 R1~R7 검증 결과를 보고하고 멈춘다. push는 AGENTS.md·SOP상으로도 별도 승인 사항이다 |
 
 ## 확정 범위의 File ownership
@@ -191,3 +192,10 @@ C1~C5는 바꾸지 않았다. 안내 문구 "Shows up to 10 Tasks, …"(C4)와 R
 `hidden_by_status` `{"DONE": 103}`. task 파일은 템플릿을 빼면 114개인데, 기존 discovery 규칙이 비밀정보처럼 보이는 이름을 빼서
 `task-0043-no-secrets-enforcement.md`가 Task View 후보에 없다(이번 변경 전부터의 동작, C 범위 밖이라 그대로 둠). 그래서 `total`은
 Task View가 다루는 task 수다.
+
+## Reviewer와 repair 이력
+
+| 회차 | candidate | 결과 |
+| --- | --- | --- |
+| Reviewer 1 | `10f7904ca13532891a920cfdb44e410af521906a` | FINDINGS(minor 2, 모두 이 기록), `self_deviations` 없음: V1이 "전체 task 수"를 discovery 후보 수로 좁힌 것을 밝히지 않음(실제 113 대 114), "기록에 승인 범위를 반영한 뒤 구현" 조건 행이 없음. 코드 지적 없음 |
+| repair 1 | (이 기록 수정) | Manager가 budget 안에서 진행. V1에 `total`의 정의와 task-0043 제외 사유, Owner 확인 사항임을 적고, 기록-후-구현 조건 행(O1)을 더했다. 코드·README·테스트는 바꾸지 않았다. `repair_count=1`(budget 1 소진) |
