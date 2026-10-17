@@ -274,7 +274,7 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 
 | 항목 | 현재 값 | 코드 위치 |
 | --- | --- | --- |
-| 지원 작업 | `studyroom_content`(Studyroom 콘텐츠 수정, 표지어 studyroom·스터디룸), `daily_ai_radar`(Daily AI Radar 수정, 표지어 radar·레이더). `/work`는 표지어가 없거나 두 종류가 함께 있으면 hold. `/go`는 task 제목으로 종류를 정하며 표지어가 없으면 studyroom_content, 두 종류가 함께 있으면 상태를 바꾸지 않고 거절 | `WORK_KINDS` |
+| 지원 작업 | `studyroom_content`(Studyroom 콘텐츠 수정, 표지어 studyroom·스터디룸), `daily_ai_radar`(Daily AI Radar 수정, 표지어는 앱 이름 daily ai radar·daily-ai-radar·daily_ai_radar·데일리 ai 레이더이고 radar·레이더 같은 일반 단어만으로는 고르지 않음). 표지어가 함께 있으면 표의 앞 항목(Studyroom)이 우선한다. `/work`는 표지어가 없으면 hold. `/go`는 task 제목으로 종류를 정하며 표지어가 없으면 기존처럼 studyroom_content | `WORK_KINDS` |
 | Worker 변경 허용 경로 | `apps/studyroom/content/`(studyroom_content), `apps/daily-ai-radar/`(daily_ai_radar) | `allowed_prefix` |
 | 파이프라인 보호 경로 | `jarvis.bat` | `PROTECTED_PATHS` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar) | `test_script` |

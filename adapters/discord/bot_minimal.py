@@ -1891,13 +1891,10 @@ def _worker_running() -> bool:
     return _WORKER_LOCK.locked() or claude_worker.process_lock_held()
 
 
-def _go_work_kind(request: str) -> str | None:
-    """task-0164: the kind /go runs. No marker keeps the Studyroom default; two kinds is None."""
+def _go_work_kind(request: str) -> str:
+    """task-0164: the kind /go runs for a task title. Without any marker it stays Studyroom."""
 
-    kinds = claude_worker.work_kinds_for_text(request)
-    if len(kinds) > 1:
-        return None
-    return (kinds[0] if kinds else claude_worker.DEFAULT_WORK_KIND).name
+    return (claude_worker.select_work_kind(request) or claude_worker.DEFAULT_WORK_KIND).name
 
 
 def _run_work(command_text: str) -> dict[str, Any]:
@@ -1906,12 +1903,9 @@ def _run_work(command_text: str) -> dict[str, Any]:
     request = command_text.strip()[len("/work"):].strip()
     if not request:
         return _error_payload("usage:/work <요청>")
-    kinds = claude_worker.work_kinds_for_text(request)
-    if not kinds:
+    kind = claude_worker.select_work_kind(request)
+    if kind is None:
         return {"result_type": "hold", "reason": f"unsupported_work_kind:{'|'.join(WORK_KIND_MARKERS)}"}
-    if len(kinds) > 1:
-        return {"result_type": "hold", "reason": f"ambiguous_work_kind:{'|'.join(kind.name for kind in kinds)}"}
-    kind = kinds[0]
     created = _run_task_pipeline(f"/task {request}")
     if created.get("result_type") != "success":
         return created
@@ -1952,10 +1946,8 @@ def _run_go(command_text: str) -> dict[str, Any]:
     metadata = _read_task_metadata(task_file) or {}
     status = metadata.get("status", "")
     request = metadata.get("title", "")
-    # task-0164: the kind is settled before anything is locked or written.
+    # task-0164: the kind is settled from the title before anything is locked or written.
     work_kind = _go_work_kind(request)
-    if work_kind is None:
-        return _error_payload("ambiguous_work_kind")
     if len(parts) == 3 and parts[2] == "accept":
         if status != "FAILED":
             return _error_payload(f"accept_requires_failed:{status or 'unknown'}")
@@ -2050,8 +2042,8 @@ def _run_worker_job(
     transition and its audit happen inside it, only after the QA checks passed again.
     """
 
-    # task-0164: the same kind _run_go settled from the task title; ambiguity never gets this far.
-    work_kind = _go_work_kind(request) or claude_worker.DEFAULT_WORK_KIND.name
+    # task-0164: the same kind _run_go settled from the task title.
+    work_kind = _go_work_kind(request)
     candidate_info = {
         "result_type": "execution_candidate",
         "task_id": task_id,
@@ -3895,15 +3887,19 @@ def _run_self_check_suite() -> dict[str, Any]:
         selection["radar"] = _run_work("/work Daily AI Radar 보고서 문구 개선")
         selection["studyroom"] = _run_work("/work Studyroom glossary 용어 추가")
         selection["none"] = _run_work("/work 문서 정리")
-        selection["both"] = _run_work("/work Studyroom glossary에 radar 용어 추가")
+        selection["both"] = _run_work("/work Studyroom glossary에 Daily AI Radar 용어 추가")
+        selection["plain_words"] = _run_work("/work radar 레이더 문구 정리")
         selection["go_none"] = _go_work_kind("문서 정리")
-        selection["go_both"] = _go_work_kind("studyroom radar")
+        selection["go_both"] = _go_work_kind("Studyroom glossary에 Daily AI Radar 용어 추가")
+        selection["go_plain_words"] = _go_work_kind("radar 레이더 문구 정리")
+        selection["go_radar"] = _go_work_kind("Daily  AI  Radar 보고서 문구")
     except Exception as exc:  # noqa: BLE001 - recorded as a failed check
         selection["error"] = f"{type(exc).__name__}: {exc}"
     finally:
         globals()["_run_task_pipeline"] = original_task_pipeline
     radar = selection.get("radar") or {}
     studyroom = selection.get("studyroom") or {}
+    # Studyroom wins when both markers appear, and the plain words radar/레이더 select nothing.
     _record(
         "worker_kind_selected_by_marker",
         "error" not in selection
@@ -3914,9 +3910,12 @@ def _run_self_check_suite() -> dict[str, Any]:
         and studyroom.get("work_kind") == "studyroom_content"
         and studyroom.get("allowed_paths") == claude_worker.ALLOWED_PREFIX
         and (selection.get("none") or {}).get("reason", "").startswith("unsupported_work_kind:")
-        and (selection.get("both") or {}).get("reason", "").startswith("ambiguous_work_kind:")
+        and (selection.get("both") or {}).get("work_kind") == "studyroom_content"
+        and (selection.get("plain_words") or {}).get("reason", "").startswith("unsupported_work_kind:")
         and selection.get("go_none") == "studyroom_content"
-        and selection.get("go_both") is None,
+        and selection.get("go_both") == "studyroom_content"
+        and selection.get("go_plain_words") == "studyroom_content"
+        and selection.get("go_radar") == "daily_ai_radar",
         f"selection={selection}",
     )
 

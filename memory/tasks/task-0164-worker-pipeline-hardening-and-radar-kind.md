@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-17 15:52 UTC`
-- updated_at: `2026-10-17 16:30 UTC`
+- updated_at: `2026-10-17 17:04 UTC`
 - summary: `Discord Worker 파이프라인(run_pipeline)을 재사용해, 두 번째 봇·두 번째 실행을 막는 프로세스 간 파일 잠금과 실행 기록 없는 DOING 표시(상태 변경 없음)를 더하고, Studyroom 한 종류로 고정된 ALLOWED_PREFIX·TEST_COMMAND·WORK_KIND를 작업 종류 레지스트리로 묶어 apps/daily-ai-radar를 두 번째 작업 종류로 등록한다. SOP §10.1 표와 validator가 레지스트리의 모든 작업 종류와 일치하도록 함께 고치고 Worker smoke로 두 종류를 실제 실행 경로에서 검증하며, Studyroom 동작·repair 상한 1·자동 루프 정책은 그대로이고 push는 하지 않는다.`
 - source_command: `Owner 승인: task-0164 A안(SOP·validator 포함), S1~S5 한 task`
 
@@ -16,7 +16,7 @@
 | baseline | `9c322e0740b4d4dc7e10cb2321eb824d0599dd47` (main HEAD = origin/main) |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 환경 | Windows ACP 949, Python 3.12.10 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (Owner: "repair는 최대 1회로 유지") |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (Owner: "repair는 최대 1회로 유지"). 시작 시점 값이며 뒤에 Owner가 `repair_budget`을 2로 늘렸다(R2, 아래 이력) |
 
 ## 조사 결과 (read-only, 등록 전 확인)
 
@@ -206,6 +206,29 @@ A안으로 승인합니다.
 모든 검사가 통과하면 candidate 커밋을 만들고 Reviewer → 필요 시 repair 1회 → 새 Reviewer → QA 순서로 진행하세요. Console Complete, DONE checkpoint, master-plan 수정, push는 여전히 별도 승인 사항이며 실행하지 마세요.
 이번 수정의 핵심은 기존 검사를 느슨하게 만드는 게 아니라, Studyroom과 Radar 두 작업 종류를 모두 실제 실행 경로에서 검증하는 것입니다.
 ```
+Reviewer 2 retry FINDINGS 뒤 repair 2 승인(원문):
+
+```text
+A안으로 진행하세요. `repair_count` 예산을 2회로 늘리는 것도 승인합니다.
+수정 기준
+
+1. Studyroom 표지어가 있으면 `radar` 또는 `레이더`가 함께 있어도 Studyroom으로 선택합니다.
+2. Studyroom 표지어 없이 Radar 표지어만 있는 경우에만 Radar로 선택합니다.
+3. 둘 다 없는 `/work` 요청은 기존처럼 hold합니다.
+4. 둘 다 없는 기존 `/go` 작업은 기존 Studyroom 동작을 유지합니다.
+5. `/task`로 생성된 기존 작업도 제목의 일반 단어만으로 작업 종류가 뜻밖에 바뀌지 않도록 확인하세요. Radar 작업은 명시적인 식별 규칙을 사용하고, 필요하면 작업 종류 선택 방식을 별도로 설계하되 임의로 기존 작업을 재분류하지 마세요.
+
+검증 및 진행
+
+* 선택 함수와 실제 `/work` → `/go` → 파이프라인 경로를 모두 검사합니다.
+* Studyroom과 Radar 각각의 회귀 테스트를 유지하고 추가합니다.
+* SOP와 task 기록도 실제 동작과 일치하도록 수정합니다.
+* Reviewer → 필요한 수정(최대 2회) → 새 Reviewer → QA 순서로 진행합니다.
+* 기존의 잠금·멈춘 DOING 검사와 T7 변형 검사도 회귀하지 않았는지 확인합니다.
+* `jarvis.bat`은 열거나 읽거나 수정·스테이징·커밋하지 마세요. 실제 봇 실행, 외부 Discord 메시지, push도 하지 마세요.
+
+검증이 끝나면 결과와 candidate 커밋을 보고하세요. Console Complete, DONE 체크포인트, master-plan 수정, push는 별도 승인 전까지 진행하지 마세요.
+```
 
 ## Manager 요약
 
@@ -218,12 +241,14 @@ A안으로 승인합니다.
 | S2 | 멈춘 DOING: "`/go` 거절 시 단순 busy와 실행 기록 없는 DOING을 구분해서 표시. 상태 변경은 금지." / Block 2 "프로세스 간 잠금과 멈춘 DOING 감지는 상태를 임의로 변경하지 않는 범위로 제한하세요." | `/go`가 DOING task를 받으면, Worker 잠금이 잡혀 있으면 `worker_busy`, 잠금이 비어 있고 실행 기록이 없으면 `doing_without_execution_record`(멈춘 DOING 안내 문구), 그 밖은 기존 `status_not_startable:DOING`. 어느 경우도 상태·기록을 바꾸지 않고 복구하지 않는다 |
 | S3 | 레지스트리: "`ALLOWED_PREFIX`·`TEST_COMMAND`·`WORK_KIND`을 작업 종류별 표 하나로 묶는다. Studyroom 값은 그대로 첫 항목." | `WORK_KINDS`(작업 종류별 이름·표지어·허용 경로·테스트 스크립트·커밋 범위)를 두고 Studyroom을 첫 항목으로 둔다. 기존 이름(`WORK_KIND`·`ALLOWED_PREFIX`·`TEST_COMMAND`·`QA_CHECKS`)은 첫 항목에서 만든 호환 이름으로 남긴다. 실행 중 종류는 `run_pipeline`·`accept_candidate`에 더한 선택 키워드 인자 `work_kind`(기본값 Studyroom)로 정한다. 두 함수의 기존 위치·키워드 인자는 그대로이고 그 밖의 함수 서명(`_run_tests`, `worker_prompt`, `reviewer_call` 등)은 바꾸지 않는다 |
 | S4 | Radar 등록: "`apps/daily-ai-radar/`", "smoke 테스트 그대로 사용" | 두 번째 항목: 허용 경로 `apps/daily-ai-radar/`, 테스트 `apps/daily-ai-radar/run_smoke_tests.py`(수정 없음) |
-| S5 | Discord 진입점: "`WORK_KIND_MARKERS`가 studyroom · radar를 고르게 한다." | 표지어로 종류를 고른다(Studyroom: studyroom·스터디룸, Radar: radar·레이더). `/work`는 표지어가 없으면 hold, 둘 다면 hold. `/go`는 표지어가 없으면 기존처럼 Studyroom, 둘 다면 상태를 바꾸기 전에 거절한다 |
+| S5 | Discord 진입점: "`WORK_KIND_MARKERS`가 studyroom · radar를 고르게 한다." | 표지어로 종류를 고른다(Studyroom: studyroom·스터디룸, Radar: 앱 이름 daily ai radar·daily-ai-radar·daily_ai_radar·데일리 ai 레이더). 표지어가 함께 있으면 Studyroom이 우선한다(R2). `/work`는 표지어가 없으면 hold, `/go`는 표지어가 없으면 기존처럼 Studyroom |
 | A1 | A안: "`docs/jarvis-multi-agent-sop-v0.1.md`와 `scripts/validate_multi_agent_sop.py`를 허용 파일에 추가" / "레지스트리의 모든 작업 종류가 SOP §10.1 표와 validator에서 일치하는지 검증하세요." | SOP §10.1 표에 작업 종류별 값을 적고, validator가 `WORK_KINDS`를 AST로 읽어 종류 이름·허용 경로·테스트 스크립트를 종류별로 표와 대조하게 한다. 새 음성 검사(종류 누락, Radar 경로 변경 등)를 더한다 |
 | F0 | Block 1 "범위 허용: * `orchestrator/worker/claude_worker.py` * `adapters/discord/bot_minimal.py` * Worker 관련 README(필요 시) * task 기록" | 기본 허용 파일은 이 네 가지이고, A1(SOP·validator)과 A2(Worker smoke)로 추가된 것만 더한다. Worker README는 필요하지 않아 만들지 않았다. 그 밖의 파일은 바꾸지 않는다(아래 File ownership) |
 | V0 | Block 1 "검증 T1 기존 Studyroom 경로 회귀 없음. T2 Radar 작업 선택 확인. T3 프로세스 간 잠금 검증. 두 번째 실행은 `worker_busy`. T4 실행 기록 없는 `DOING` 표시 확인. T5 Worker smoke 전부 통과. T6 validator `git diff --check` T7 변형 검증 * 잠금 제거 * 레지스트리 제거 * Radar 제거 각각 새 검사가 잡는지 확인." / Block 3 "이후 전체 Worker smoke와 관련 self-check, SOP validator, discord-intake smoke, Console smoke, `git diff --check`를 실행하세요." | T1~T7과 Block 3의 실행 목록은 Owner 조건이다. 아래 "검증 계획"의 T1~T7로 모두 실행하고, 결과는 "Implementer 검증"(candidate 전)과 QA 절(candidate 기준)에 적는다 |
-| X1 | 금지: "`jarvis.bat`" / "Console 기능 변경" / "Scheduler 구현" / "Background worker 구현" / "자동 push" / "자동 Resume" / "task 모델 변경" / "master-plan(완료 후에만)" / "새 dispatcher를 만들지 않는다." | 해당 파일·기능을 만들거나 바꾸지 않는다. `run_pipeline`·`accept_candidate`는 그대로 쓰고 인자만 더한다 |
-| X2 | "기존 Studyroom 경로와 SOP 계약을 유지" / "Studyroom 기존 동작은 회귀 없이 유지한다." / "자동 루프는 기존 정책을 유지한다." / "repair는 최대 1회로 유지하세요." | Studyroom 값·`REPAIR_BUDGET_MAX = 1`·§10.2 규칙을 바꾸지 않는다. 기존 Worker smoke 354건 중 Studyroom 동작 검사는 그대로 두고, A2 승인에 따라 hold 사유 검사 1건의 기대값만 바꾼다(검사 수는 새 검사 12건을 더해 366) |
+| R2 | Reviewer 2 retry 뒤 Owner 결정: "A안으로 진행하세요. `repair_count` 예산을 2회로 늘리는 것도 승인합니다." | repair 예산을 2로 늘려 repair 2를 진행한다(`repair_count=2`, 소진) |
+| R3 | 수정 기준: "1. Studyroom 표지어가 있으면 `radar` 또는 `레이더`가 함께 있어도 Studyroom으로 선택합니다." / "2. Studyroom 표지어 없이 Radar 표지어만 있는 경우에만 Radar로 선택합니다." / "3. 둘 다 없는 `/work` 요청은 기존처럼 hold합니다." / "4. 둘 다 없는 기존 `/go` 작업은 기존 Studyroom 동작을 유지합니다." / "5. `/task`로 생성된 기존 작업도 제목의 일반 단어만으로 작업 종류가 뜻밖에 바뀌지 않도록 확인하세요. Radar 작업은 명시적인 식별 규칙을 사용하고, 필요하면 작업 종류 선택 방식을 별도로 설계하되 임의로 기존 작업을 재분류하지 마세요." | 1·2: `select_work_kind()`가 레지스트리 순서(Studyroom 먼저)로 처음 맞는 종류를 고른다. 3: `/work`는 표지어가 없으면 hold. 4: `/go`는 표지어가 없으면 Studyroom. 5: Radar 표지어를 일반 단어 radar·레이더가 아니라 앱 이름(daily ai radar·daily-ai-radar·daily_ai_radar·데일리 ai 레이더)으로 한정했다. 그래서 `/task` 제목이 radar·레이더를 포함해도 Studyroom으로 남는다. 저장소에서 제목에 radar·레이더가 있는 task는 이 task(DOING, 수동 SOP task) 하나뿐이라 재분류되는 startable task는 없다(조회로 확인). 모호함 거절은 없앴다 |
+| R4 | 검증 및 진행: "선택 함수와 실제 `/work` → `/go` → 파이프라인 경로를 모두 검사합니다." / "Studyroom과 Radar 각각의 회귀 테스트를 유지하고 추가합니다." / "SOP와 task 기록도 실제 동작과 일치하도록 수정합니다." / "Reviewer → 필요한 수정(최대 2회) → 새 Reviewer → QA 순서로 진행합니다." / "기존의 잠금·멈춘 DOING 검사와 T7 변형 검사도 회귀하지 않았는지 확인합니다." / "`jarvis.bat`은 열거나 읽거나 수정·스테이징·커밋하지 마세요. 실제 봇 실행, 외부 Discord 메시지, push도 하지 마세요." / "검증이 끝나면 결과와 candidate 커밋을 보고하세요. Console Complete, DONE 체크포인트, master-plan 수정, push는 별도 승인 전까지 진행하지 마세요." | self-check(선택 함수)와 Worker smoke(실경로) 모두에서 Studyroom 우선·일반 단어 무시·Radar 실행을 확인하고 기존 검사를 유지한다. SOP §10.1과 이 기록을 실제 동작에 맞췄다. 잠금·멈춘 DOING 검사와 T7 변형(M1~M3)을 다시 실행하고 새 변형(M4 우선순위 뒤집기, M5 일반 단어 표지어 복귀)을 더한다. 새 candidate에 Reviewer → QA 뒤 결과와 candidate를 보고한다. `jarvis.bat`·실제 봇·Discord·push 없음, Complete·DONE checkpoint·master-plan·push는 하지 않는다 |
+| X2 | "기존 Studyroom 경로와 SOP 계약을 유지" / "Studyroom 기존 동작은 회귀 없이 유지한다." / "자동 루프는 기존 정책을 유지한다." / "repair는 최대 1회로 유지하세요." | Studyroom 값·`REPAIR_BUDGET_MAX = 1`·§10.2 규칙을 바꾸지 않는다. 기존 Worker smoke 354건 중 Studyroom 동작 검사는 그대로 두고, A2 승인에 따라 hold 사유 검사 1건의 기대값만 바꾼다(검사 수는 새 검사를 더해 repair 2 뒤 368) |
 | X3 | "실제 봇 기동이나 Discord 외부 메시지 전송은 하지 마세요." / "예상하지 못한 범위 확대, 검증 실패, 안전성 문제가 생기면 멈추고 보고하세요." | 봇을 띄우지 않고 실제 claude도 부르지 않는다(검증은 Worker smoke의 가짜 claude와 self-check). 이상이 생기면 멈추고 보고한다 |
 | X4 | "Owner 개입은 `/work` · `/go` · push만 남긴다." | 파이프라인 경로의 Owner 개입 지점을 늘리지 않는다 |
 | A2 | Worker smoke 범위 추가 승인: "허용 파일에 `orchestrator/worker/run_smoke_tests.py`를 추가하세요." / "기존 `bot: non-Studyroom request is held` 검사는 삭제하지 말고, 새 동작에 맞게 수정하세요. 지원하지 않는 요청이 hold되고, 사유가 `unsupported_work_kind:`로 시작하며 등록된 작업 종류(`studyroom_content`, `daily_ai_radar`)가 포함되는지 확인하도록 하세요." | 그 검사를 지우지 않고 기대값만 바꿨다: hold, 사유가 `unsupported_work_kind:`로 시작, 두 종류 이름 포함 |
@@ -266,7 +291,7 @@ Owner가 A2~A5(위 원문)로 smoke 파일을 범위에 넣었다.
 | 파일 | 변경 |
 | --- | --- |
 | `orchestrator/worker/claude_worker.py` | `WorkKind`와 `WORK_KINDS`(Studyroom 첫 항목, Radar 두 번째), `work_kind_by_name`·`work_kinds_for_text`. 기존 이름 `WORK_KIND`·`ALLOWED_PREFIX`·`TEST_COMMAND`·`QA_CHECKS`는 첫 항목에서 만든다. 실행 중 종류는 `ContextVar`로 두고 `run_pipeline(work_kind=)`·`accept_candidate(work_kind=)`가 정한다(본문은 `_run_pipeline`·`_accept_candidate`로 이름만 옮김, 기존 함수 서명 유지). 범위 검사·테스트 명령·Worker 프롬프트·Reviewer 호출의 QA 설명과 경로·커밋 제목·accept의 커밋 사슬 확인이 그 종류를 쓴다. 저장소 밖 OS 파일 잠금 `acquire_process_lock`·`release_process_lock`·`process_lock_held`(`WORKTREE_ROOT/.jarvis-worker.lock`). `WorkerRunResult.work_kind` |
-| `adapters/discord/bot_minimal.py` | `WORK_KIND_MARKERS`를 레지스트리에서 만든다. `_acquire_worker_locks`·`_release_worker_locks`로 프로세스 안 잠금과 파일 잠금을 함께 잡고 푼다. `/work` 종류 선택(없으면 `unsupported_work_kind:…`, 둘이면 `ambiguous_work_kind:…` hold). `/go`는 제목으로 종류를 정하고(없으면 Studyroom, 둘이면 상태 변경 전 `ambiguous_work_kind`), DOING이면 잠금이 잡혀 있을 때 `worker_busy`, 비어 있고 실행 기록이 없으면 `doing_without_execution_record`(안내 문구, 상태 불변). `/work` 답장과 도움말에 작업 종류. self-check 4건 추가 |
+| `adapters/discord/bot_minimal.py` | `WORK_KIND_MARKERS`를 레지스트리에서 만든다. `_acquire_worker_locks`·`_release_worker_locks`로 프로세스 안 잠금과 파일 잠금을 함께 잡고 푼다. `/work` 종류 선택(`claude_worker.select_work_kind`, Studyroom 우선; 없으면 `unsupported_work_kind:…` hold, repair 2 전에는 두 종류면 `ambiguous_work_kind`로 hold하던 것을 없앰). `/go`는 제목으로 종류를 정하고(없으면 Studyroom), DOING이면 잠금이 잡혀 있을 때 `worker_busy`, 비어 있고 실행 기록이 없으면 `doing_without_execution_record`(안내 문구, 상태 불변). `/work` 답장과 도움말에 작업 종류. self-check 4건 추가 |
 | `docs/jarvis-multi-agent-sop-v0.1.md` | §10.1 표를 종류별 값(`값`(종류) 형식)과 잠금·멈춘 DOING 설명으로 바꾸고, 범위가 task-0164로 넓어졌음을 적었다 |
 | `scripts/validate_multi_agent_sop.py` | `_work_kinds()`로 `WORK_KINDS`를 AST에서 읽어 종류 이름·허용 경로·테스트 스크립트를 종류별로 §10.1과 대조. 음성 검사 4건 추가(SOP에서 Radar 종류 누락, 코드에서 종류 이름 변경, 코드에서 Radar 경로 변경, SOP에서 Radar 테스트 변경) |
 | `orchestrator/worker/run_smoke_tests.py` | 가짜 Worker `radar` 모드(Radar README에 한 줄 추가). 기존 hold 검사 기대값 변경, 두 종류 hold 검사, Radar 실경로 검사 7건, `process_lock_flow`(별도 프로세스 잠금·해제·멈춘 DOING) 4건 |
@@ -292,3 +317,16 @@ Owner가 A2~A5(위 원문)로 smoke 파일을 범위에 넣었다.
 | --- | --- | --- |
 | Reviewer 1 | `3d69bc8c4b95d464178611841d8eb7d2bf3f18af` | FINDINGS(minor 4, 모두 이 기록), `self_deviations` 없음: Block 1 기본 허용 파일 목록 행 없음, T1~T7과 Block 3 실행 목록 행 없음, P2에 단계별 보고 형식 빠짐, S3가 "기존 함수 서명은 바꾸지 않는다"라고 했으나 `run_pipeline`·`accept_candidate`에 선택 인자가 늘어남. 코드 지적 없음 |
 | repair 1 | (이 기록 수정) | Manager가 budget 안에서 진행. F0(기본 허용 파일)·V0(T1~T7과 실행 목록) 행 추가, P2에 Block 1 단계별 보고 형식과 Block 2 최종 보고를 함께 적음, S3를 "선택 키워드 인자 `work_kind` 추가, 기존 인자 유지"로 고침, S2에 Block 2 문장 인용 추가. 코드 변경 없음. `repair_count=1`(budget 1 소진) |
+| Reviewer 2 | `922712fec5703c326064f4447eef518625a0d541` | PASS였으나 `self_deviations` 1건(출력 초과 공개)이 있고, Manager가 승인 원문을 참조로만 넘긴 호출 결함이 있어 무효. 같은 candidate로 retry(`retry_count=1`, retry budget 소진) |
+| Reviewer 2 retry | `922712fec5703c326064f4447eef518625a0d541` | FINDINGS(minor 1), `self_deviations` 없음: 두 표지어가 함께 있는 요청을 hold·거절하는 규칙이 Studyroom 기존 동작(표지어만 있으면 Studyroom)을 바꾼다. 코드 동작 지적 |
+| repair 2 | (코드·SOP·smoke·이 기록) | Owner가 repair budget을 2로 늘리고 수정 기준을 정했다(R2). `select_work_kind()`(레지스트리 순서 우선, Studyroom 먼저), Radar 표지어를 앱 이름으로 한정, 모호함 거절 제거. self-check 선택 검사와 Worker smoke 실경로 검사(두 표지어 요청이 Studyroom으로 DONE, `/task` 제목의 일반 단어 radar·레이더가 Studyroom으로 DONE, `/work`의 일반 단어 hold)로 바꾸고 SOP §10.1 문구를 맞췄다. `repair_count=2`(2회 중 2회 사용, 소진) |
+
+## repair 2 검증 (작업 트리 기준, 새 candidate 전)
+
+| # | 결과 |
+| --- | --- |
+| T1·T5 | Worker smoke 368/0. 기존 Studyroom 검사 통과, `/work` 일반 단어 hold 검사와 Studyroom 우선 실경로 검사 2건(두 표지어 요청이 Studyroom으로 DONE, `/task` 제목의 일반 단어 radar·레이더가 `/go`에서 Studyroom으로 DONE) 포함 |
+| T2 | Radar 실경로 검사 7건 그대로 통과(표지어 `Daily AI Radar`). self-check `worker_kind_selected_by_marker`가 Studyroom 우선·일반 단어 무시·공백이 여러 개인 `Daily  AI  Radar` 선택까지 확인 |
+| T3·T4 | 별도 프로세스 잠금·해제·멈춘 DOING 검사(Worker smoke 4건, self-check 2건) 통과 |
+| T6 | self-check 98/0(설정 없음·`PYTHONUTF8=1`, `.env` 없는 임시 worktree), SOP validator PASS(음성 검사 133), discord-intake 139/0, Console smoke PASS, `git diff --check` 통과 |
+| T7 | 작업 트리 복사본 임시 worktree에서 변형 5종 모두 검출: M1 파일 잠금 제거 → Worker smoke 2·self-check 2 실패. M2 레지스트리 무시 → Worker smoke Radar 5 실패. M3 Radar 항목 제거 → Worker smoke 중단(종료 1)·self-check 2·validator `pipeline_scope_parity` 4. M4 우선순위 뒤집기 → Worker smoke 1·self-check 1. M5 일반 단어를 Radar 표지어로 복귀 → Worker smoke 2·self-check 1 |

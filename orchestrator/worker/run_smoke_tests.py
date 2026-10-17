@@ -334,9 +334,9 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     check("bot: non-Studyroom request is held", hold.get("result_type") == "hold"
           and hold.get("reason", "").startswith("unsupported_work_kind:")
           and all(name in hold.get("reason", "") for name in ("studyroom_content", "daily_ai_radar")), str(hold))
-    ambiguous = bot._run_command("/work Studyroom glossary에 radar 용어 추가")
-    check("bot: a request naming two kinds is held", ambiguous.get("result_type") == "hold"
-          and ambiguous.get("reason", "").startswith("ambiguous_work_kind:"), str(ambiguous))
+    plain = bot._run_command("/work radar 레이더 문구 정리")
+    check("bot: the plain words radar/레이더 do not select a kind at /work", plain.get("result_type") == "hold"
+          and plain.get("reason", "").startswith("unsupported_work_kind:"), str(plain))
 
     owner = "111111111111111111"
     os.environ[bot.OWNER_IDS_ENV] = owner
@@ -424,6 +424,27 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           started.get("work_kind") == "studyroom_content" and wrong.get("reason") == "scope_violation"
           and "apps/daily-ai-radar/README.md" in wrong.get("detail", "") and status_of(studyroom_wrong) == "FAILED",
           f"{wrong.get('reason')}:{wrong.get('detail')}")
+    # Studyroom keeps every request it accepted before Radar existed: a Studyroom marker wins
+    # over a Radar marker, and a /task title with only the plain words radar/레이더 stays
+    # Studyroom at /go. Both run through the real pipeline with a Studyroom edit.
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
+    both_plan = bot._run_command("/work Studyroom glossary에 Daily AI Radar 용어 추가")
+    both_id = both_plan.get("task_id", "")
+    started = bot._run_command(f"/go {both_id}")
+    both_done = bot._run_worker_job(both_id, started["request"], started["command"])
+    check("studyroom: a request with both markers stays Studyroom from /work through the pipeline",
+          both_plan.get("work_kind") == "studyroom_content" and started.get("work_kind") == "studyroom_content"
+          and both_done.get("ok") is True and both_done.get("work_kind") == "studyroom_content"
+          and both_done.get("changed_files") == ["apps/studyroom/content/glossary.json"] and status_of(both_id) == "DONE",
+          f"{both_done.get('stage')}:{both_done.get('reason')}:{both_done.get('detail')}")
+    plain_task = bot._run_command("/task radar 레이더 문구 정리")
+    plain_id = plain_task.get("task_id", "")
+    started = bot._run_command(f"/go {plain_id}")
+    plain_done = bot._run_worker_job(plain_id, started["request"], started["command"]) if started.get("result_type") == "work_started" else {}
+    check("studyroom: a /task title with only the plain words radar/레이더 stays Studyroom at /go",
+          plain_task.get("result_type") == "success" and started.get("work_kind") == "studyroom_content"
+          and plain_done.get("ok") is True and plain_done.get("work_kind") == "studyroom_content"
+          and status_of(plain_id) == "DONE", f"{plain_task}:{started}:{plain_done.get('reason')}")
     os.environ["FAKE_WORKER"] = "ok"
 
     # task-0157: a committed task record. The /go transition then changes a tracked file before the run.

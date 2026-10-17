@@ -72,7 +72,9 @@ WORK_KINDS = (
     ),
     WorkKind(
         name="daily_ai_radar",
-        markers=("radar", "레이더"),
+        # Only the app's own name selects Radar; the plain words "radar" or "레이더" do not, so a
+        # title that merely mentions them keeps its earlier kind.
+        markers=("daily ai radar", "daily-ai-radar", "daily_ai_radar", "데일리 ai 레이더"),
         allowed_prefix="apps/daily-ai-radar/",
         test_script="apps/daily-ai-radar/run_smoke_tests.py",
         commit_scope="daily-ai-radar",
@@ -99,10 +101,21 @@ def work_kind_by_name(name: str) -> WorkKind | None:
 
 
 def work_kinds_for_text(text: str) -> list[WorkKind]:
-    """task-0164: every kind whose marker appears in the text (case-insensitive)."""
+    """task-0164: every kind whose marker appears in the text (case-insensitive), in registry order."""
 
-    lowered = text.lower()
+    lowered = " ".join(text.lower().split())
     return [kind for kind in WORK_KINDS if any(marker in lowered for marker in kind.markers)]
+
+
+def select_work_kind(text: str) -> WorkKind | None:
+    """task-0164: the kind a request or task title selects, or None when no marker appears.
+
+    Registry order is the precedence: a Studyroom marker selects Studyroom even when a Radar
+    marker appears as well, so every request the Studyroom-only pipeline accepted keeps its kind.
+    """
+
+    kinds = work_kinds_for_text(text)
+    return kinds[0] if kinds else None
 
 
 def _active_kind() -> WorkKind:
