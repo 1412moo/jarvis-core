@@ -2,10 +2,10 @@
 
 - id: `task-0163-run-child-output-utf8`
 - title: `Discord /run 허용 스크립트의 자식 출력을 UTF-8로 맞추기`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-17 13:46 UTC`
-- updated_at: `2026-10-17 14:58 UTC`
+- updated_at: `2026-10-17 15:09 UTC`
 - summary: `Discord 봇의 /run 경로는 허용 스크립트 출력을 UTF-8로 해독하지만, 자식 Python은 출력이 파이프일 때 이 데스크톱의 cp949로 써서 intake smoke 출력의 한국어가 깨진다(U+FFFD 280개 재현). _build_execution_result_real()의 subprocess.run에 PYTHONIOENCODING=utf-8을 더한 환경을 넘기고 self-check 판정을 보강한다. 허용 목록·타임아웃·요약 규칙은 바꾸지 않고, Start/Complete는 Owner가 Console 화면에서 직접 실행하며 push는 하지 않는다.`
 - source_command: `Owner 승인: task-0163 제안 승인, TODO 등록`
 
