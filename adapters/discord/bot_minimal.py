@@ -1571,6 +1571,8 @@ def _build_execution_result_real(execution_request: dict[str, Any]) -> dict[str,
             text=True,
             encoding="utf-8",
             errors="replace",
+            # task-0163: a piped child Python writes in the locale (cp949), so ask it for UTF-8.
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             timeout=EXECUTION_TIMEOUT_SECONDS,
             check=False,
         )
@@ -3711,14 +3713,23 @@ def _run_self_check_suite() -> dict[str, Any]:
                 "target": "discord_intake_smoke_tests",
             }
         )
+        # task-0163: the child is asked for UTF-8 output and keeps the rest of the environment.
+        child_env = seen_kwargs.get("env") or {}
         none_output_ok = (
             seen_kwargs.get("encoding") == "utf-8"
             and seen_kwargs.get("errors") == "replace"
+            and child_env.get("PYTHONIOENCODING") == "utf-8"
+            and child_env.get("PATH") == os.environ.get("PATH")
             and none_output.get("executed") is True
             and none_output.get("success") is True
             and none_output.get("output_summary") == "no_output"
         )
-        none_output_detail = f"kwargs={seen_kwargs} result={none_output}"
+        # Never print the environment itself: it carries the bot token loaded from .env.
+        shown_kwargs = {key: value for key, value in seen_kwargs.items() if key != "env"}
+        none_output_detail = (
+            f"kwargs={shown_kwargs} env_PYTHONIOENCODING={child_env.get('PYTHONIOENCODING')!r} "
+            f"env_PATH_kept={child_env.get('PATH') == os.environ.get('PATH')} result={none_output}"
+        )
     except Exception as exc:  # noqa: BLE001 - recorded as a failed check
         none_output_ok, none_output_detail = False, f"{type(exc).__name__}: {exc}"
     finally:
