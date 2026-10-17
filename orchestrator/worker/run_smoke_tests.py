@@ -112,6 +112,10 @@ FAKE_CLAUDE = textwrap.dedent(
         Path("jarvis.bat").write_text("echo x\\n", encoding="utf-8")
     elif mode == "badjson":
         Path("apps/studyroom/content/glossary.json").write_text("{not json", encoding="utf-8")
+    elif mode == "radar":
+        # task-0164: a Daily AI Radar edit, inside that kind's allowed path.
+        with open("apps/daily-ai-radar/README.md", "a", encoding="utf-8", newline="\\n") as readme:
+            readme.write("\\nFake radar worker note.\\n")
     elif mode == "ok":
         p = Path("apps/studyroom/content/glossary.json")
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -229,6 +233,59 @@ def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: st
     return result, calls, before, after
 
 
+def process_lock_flow(clone: Path, worktrees: Path) -> None:
+    """task-0164: the Worker lock across real processes, and a stalled DOING, through the adapter.
+
+    A second Python process takes the lock the way another bot would. Nothing here starts a
+    Worker run: every /go below is refused before it changes anything.
+    """
+
+    import bot_minimal as bot  # bot_flow already put the adapter on sys.path
+
+    lock_path = claude_worker.process_lock_path(worktrees)
+    holder_code = (
+        "import sys, time\n"
+        f"sys.path.insert(0, {str(REPO_ROOT / 'orchestrator' / 'worker')!r})\n"
+        "from pathlib import Path\n"
+        "import claude_worker\n"
+        "handle = claude_worker.acquire_process_lock(Path(sys.argv[1]))\n"
+        "print('held' if handle is not None else 'busy', flush=True)\n"
+        "time.sleep(120)\n"
+    )
+    tasks = clone / "memory" / "tasks"
+    ready = bot._run_command("/work Studyroom glossary 잠금 확인").get("task_id", "")
+    stalled = bot._run_command("/work Studyroom glossary 멈춤 확인").get("task_id", "")
+    stalled_path = tasks / f"{stalled}.md"
+    # A run that died after /go: DOING, and no execution record was ever written.
+    stalled_path.write_text(stalled_path.read_text(encoding="utf-8").replace("- status: `TODO`", "- status: `DOING`"),
+                            encoding="utf-8")
+    ready_path = tasks / f"{ready}.md"
+    before = {path: path.read_bytes() for path in (ready_path, stalled_path)}
+    holder = subprocess.Popen([sys.executable, "-B", "-c", holder_code, str(lock_path)],
+                              stdout=subprocess.PIPE, text=True, encoding="utf-8")
+    try:
+        first = (holder.stdout.readline() if holder.stdout else "").strip()
+        held_elsewhere = claude_worker.process_lock_held(lock_path)
+        busy_ready = bot._run_command(f"/go {ready}")
+        busy_stalled = bot._run_command(f"/go {stalled}")
+        check("lock: another process holding the Worker lock refuses /go with worker_busy and changes nothing",
+              first == "held" and held_elsewhere and busy_ready.get("reason") == "worker_busy"
+              and ready_path.read_bytes() == before[ready_path] and not bot._WORKER_LOCK.locked(),
+              f"holder={first} held={held_elsewhere} go={busy_ready}")
+        check("doing: while a Worker runs elsewhere, a DOING task reports worker_busy, not a stall",
+              busy_stalled.get("reason") == "worker_busy" and stalled_path.read_bytes() == before[stalled_path], str(busy_stalled))
+    finally:
+        holder.kill()
+        holder.wait(timeout=30)
+        if holder.stdout:
+            holder.stdout.close()
+    check("lock: the lock is released when the holding process ends", not claude_worker.process_lock_held(lock_path))
+    reported = bot._run_command(f"/go {stalled}")
+    check("doing: a DOING task with no Worker and no execution record is reported and left as it is",
+          reported.get("reason") == "doing_without_execution_record" and stalled_path.read_bytes() == before[stalled_path]
+          and "멈춘 DOING" in bot._format_reply(reported) and not bot._WORKER_LOCK.locked(), str(reported))
+
+
 def bot_flow(clone: Path, worktrees: Path) -> None:
     """/work -> /go -> worker job through the Discord adapter, against the clone.
 
@@ -273,7 +330,13 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
         return meta.get("status", "")
 
     hold = bot._run_command("/work README 문장 고쳐줘")
-    check("bot: non-Studyroom request is held", hold.get("result_type") == "hold" and "studyroom_content_only" in hold.get("reason", ""))
+    # task-0164: still held, and the reason now names every registered kind.
+    check("bot: non-Studyroom request is held", hold.get("result_type") == "hold"
+          and hold.get("reason", "").startswith("unsupported_work_kind:")
+          and all(name in hold.get("reason", "") for name in ("studyroom_content", "daily_ai_radar")), str(hold))
+    ambiguous = bot._run_command("/work Studyroom glossary에 radar 용어 추가")
+    check("bot: a request naming two kinds is held", ambiguous.get("result_type") == "hold"
+          and ambiguous.get("reason", "").startswith("ambiguous_work_kind:"), str(ambiguous))
 
     owner = "111111111111111111"
     os.environ[bot.OWNER_IDS_ENV] = owner
@@ -309,6 +372,59 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     check("bot: execution results audited", audits.count("execution") == 2)
     check("bot: /go execution audits send source go", execution_sources == ["go", "go"], str(execution_sources))
     check("bot: /go execution audits pass the payload validator", execution_audit_errors == [None, None], str(execution_audit_errors))
+
+    # task-0164: a Daily AI Radar task through the real /work -> /go -> pipeline path. The kind is
+    # chosen from the request, and its allowed path and test command must reach the Worker, the
+    # Reviewer call, the scope check, the tests and the commit, not only the registry.
+    radar_log = worktrees.parent / "radar-fake-claude.log"
+    os.environ["FAKE_LOG"] = str(radar_log)
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "radar", "pass"
+    radar_plan = bot._run_command("/work Daily AI Radar README에 안내 문장 1개 추가")
+    radar_id = radar_plan.get("task_id", "")
+    check("radar: /work picks the daily_ai_radar kind with its allowed path and test command",
+          radar_plan.get("result_type") == "work_planned" and radar_plan.get("work_kind") == "daily_ai_radar"
+          and radar_plan.get("allowed_paths") == "apps/daily-ai-radar/"
+          and radar_plan.get("test_command") == "-B apps/daily-ai-radar/run_smoke_tests.py"
+          and "apps/daily-ai-radar/" in bot._format_reply(radar_plan) and status_of(radar_id) == "TODO", str(radar_plan))
+    radar_started = bot._run_command(f"/go {radar_id}")
+    radar_head = git(["rev-parse", "HEAD"], clone)
+    radar_done = bot._run_worker_job(radar_id, radar_started["request"], radar_started["command"])
+    radar_text = radar_log.read_text(encoding="utf-8") if radar_log.exists() else ""
+    radar_worker_prompt = radar_text.split("REVIEWER\n", 1)[0]
+    check("radar: /go runs the pipeline with the Radar kind to DONE",
+          radar_started.get("work_kind") == "daily_ai_radar" and radar_done.get("ok") is True
+          and radar_done.get("work_kind") == "daily_ai_radar"
+          and radar_done.get("changed_files") == ["apps/daily-ai-radar/README.md"] and status_of(radar_id) == "DONE",
+          f"{radar_done.get('stage')}:{radar_done.get('reason')}:{radar_done.get('detail')}")
+    check("radar: the Worker prompt and the Reviewer call carry the Radar path and test command",
+          "Change only files under apps/daily-ai-radar/." in radar_worker_prompt
+          and "apps/studyroom/content/" not in radar_worker_prompt
+          and "the test command (-B apps/daily-ai-radar/run_smoke_tests.py)" in radar_text
+          and "expected under apps/daily-ai-radar/ and none is jarvis.bat" in radar_text)
+    check("radar: the Radar smoke test ran on the candidate, before and in QA",
+          "Daily AI Radar smoke tests passed" in (radar_done.get("test_summary") or "")
+          and (radar_done.get("qa_checks") or {}).get("tests_rerun") is True, str(radar_done.get("test_summary")))
+    check("radar: the candidate commit is named for the Radar kind and fast-forwarded with the checkpoint",
+          git(["log", "-1", "--format=%s", "HEAD~1"], clone) == f"feat(daily-ai-radar): {radar_id} Jarvis worker candidate"
+          and git(["rev-list", "--count", f"{radar_head}..HEAD"], clone) == "2")
+    os.environ.pop("FAKE_LOG", None)
+    # The scope follows the kind in both directions.
+    os.environ["FAKE_WORKER"] = "ok"
+    radar_wrong = bot._run_command("/work Daily AI Radar 예시 보강").get("task_id", "")
+    started = bot._run_command(f"/go {radar_wrong}")
+    wrong = bot._run_worker_job(radar_wrong, started["request"], started["command"])
+    check("radar: a Studyroom file changed under the Radar kind is a scope violation",
+          wrong.get("reason") == "scope_violation" and "apps/studyroom/content/glossary.json" in wrong.get("detail", "")
+          and status_of(radar_wrong) == "FAILED", f"{wrong.get('reason')}:{wrong.get('detail')}")
+    os.environ["FAKE_WORKER"] = "radar"
+    studyroom_wrong = bot._run_command("/work Studyroom glossary 보강").get("task_id", "")
+    started = bot._run_command(f"/go {studyroom_wrong}")
+    wrong = bot._run_worker_job(studyroom_wrong, started["request"], started["command"])
+    check("radar: a Radar file changed under the Studyroom kind is a scope violation",
+          started.get("work_kind") == "studyroom_content" and wrong.get("reason") == "scope_violation"
+          and "apps/daily-ai-radar/README.md" in wrong.get("detail", "") and status_of(studyroom_wrong) == "FAILED",
+          f"{wrong.get('reason')}:{wrong.get('detail')}")
+    os.environ["FAKE_WORKER"] = "ok"
 
     # task-0157: a committed task record. The /go transition then changes a tracked file before the run.
     def commit_record(tid: str) -> None:
@@ -1031,6 +1147,7 @@ def main() -> int:
         os.environ.pop("FAKE_LOG", None)
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
         bot_flow(clone, worktrees)
+        process_lock_flow(clone, worktrees)
         owner_review_replies(owner_review_results)
         accept_flow(clone, worktrees)
         attempt_numbering(clone, worktrees)

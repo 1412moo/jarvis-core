@@ -15,13 +15,14 @@ checkpoint steps. The Reviewer is not called again.
 Boundaries, all enforced here rather than trusted to the model:
 - The worker runs in a worktree outside the repository, never in the main tree.
 - The worker has no Bash: it can read and edit files, nothing else.
-- Only files under ALLOWED_PREFIX may change; anything else fails the run.
+- Only files under the run's kind allowed prefix (WORK_KINDS) may change; anything else fails the run.
 - jarvis.bat is never read, staged or committed.
 - Nothing is pushed. No external API or credential is used by this module.
 """
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
@@ -38,11 +39,133 @@ WORKTREE_ROOT = Path(
 )
 CLAUDE_BIN = os.environ.get("JARVIS_CLAUDE_BIN", "claude")
 
-# The one supported kind of work in this slice.
-WORK_KIND = "studyroom_content"
-ALLOWED_PREFIX = "apps/studyroom/content/"
-TEST_COMMAND = (sys.executable, "-B", "apps/studyroom/run_smoke_tests.py")
+@dataclass(frozen=True)
+class WorkKind:
+    """task-0164: one kind of work the pipeline may run, with its scope values."""
+
+    name: str
+    markers: tuple[str, ...]
+    allowed_prefix: str
+    test_script: str
+    commit_scope: str
+    prompt_note: str
+
+    @property
+    def test_command(self) -> tuple[str, ...]:
+        return (sys.executable, "-B", self.test_script)
+
+
+# task-0164: the kinds of work this slice supports. SOP section 10.1 states each entry, and
+# scripts/validate_multi_agent_sop.py checks that table against this registry. Studyroom stays
+# the first entry and the default.
+WORK_KINDS = (
+    WorkKind(
+        name="studyroom_content",
+        markers=("studyroom", "스터디룸"),
+        allowed_prefix="apps/studyroom/content/",
+        test_script="apps/studyroom/run_smoke_tests.py",
+        commit_scope="studyroom",
+        prompt_note=(
+            " Keep each JSON file's existing schema and formatting "
+            "(2-space indent, UTF-8, ensure_ascii off). Keep existing entries unchanged."
+        ),
+    ),
+    WorkKind(
+        name="daily_ai_radar",
+        markers=("radar", "레이더"),
+        allowed_prefix="apps/daily-ai-radar/",
+        test_script="apps/daily-ai-radar/run_smoke_tests.py",
+        commit_scope="daily-ai-radar",
+        prompt_note=(
+            " Keep the app's existing structure and code style, keep its smoke tests passing, and add no "
+            "crawler, scheduler, network call, LLM or API call, or new dependency."
+        ),
+    ),
+)
+DEFAULT_WORK_KIND = WORK_KINDS[0]
+# Names kept from before task-0164; they are the first (Studyroom) entry.
+WORK_KIND = DEFAULT_WORK_KIND.name
+ALLOWED_PREFIX = DEFAULT_WORK_KIND.allowed_prefix
+TEST_COMMAND = DEFAULT_WORK_KIND.test_command
 PROTECTED_PATHS = frozenset({"jarvis.bat"})
+# The kind of the run in progress; run_pipeline and accept_candidate set it, everything else reads it.
+_ACTIVE_WORK_KIND: contextvars.ContextVar[WorkKind] = contextvars.ContextVar(
+    "jarvis_active_work_kind", default=DEFAULT_WORK_KIND
+)
+
+
+def work_kind_by_name(name: str) -> WorkKind | None:
+    return next((kind for kind in WORK_KINDS if kind.name == name), None)
+
+
+def work_kinds_for_text(text: str) -> list[WorkKind]:
+    """task-0164: every kind whose marker appears in the text (case-insensitive)."""
+
+    lowered = text.lower()
+    return [kind for kind in WORK_KINDS if any(marker in lowered for marker in kind.markers)]
+
+
+def _active_kind() -> WorkKind:
+    return _ACTIVE_WORK_KIND.get()
+
+
+# task-0164: one Worker run per machine, across bot processes. The lock is an OS file lock on a
+# file outside the repository, so it is released when the holding process ends.
+PROCESS_LOCK_NAME = ".jarvis-worker.lock"
+
+
+def process_lock_path(worktree_root: Path | None = None) -> Path:
+    return (worktree_root or WORKTREE_ROOT) / PROCESS_LOCK_NAME
+
+
+def acquire_process_lock(path: Path | None = None) -> int | None:
+    """Take the cross-process Worker lock without waiting. Returns a handle, or None if held."""
+
+    path = path or process_lock_path()
+    _ensure_outside_repo(path, REPO_ROOT)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(handle, 0, os.SEEK_SET)
+            msvcrt.locking(handle, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(handle)
+        return None
+    return handle
+
+
+def release_process_lock(handle: int | None) -> None:
+    if handle is None:
+        return
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(handle, 0, os.SEEK_SET)
+            msvcrt.locking(handle, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_UN)
+    finally:
+        os.close(handle)
+
+
+def process_lock_held(path: Path | None = None) -> bool:
+    """True when another handle holds the lock. Probes by taking it and letting it go at once."""
+
+    handle = acquire_process_lock(path)
+    if handle is None:
+        return True
+    release_process_lock(handle)
+    return False
 
 WORKER_TIMEOUT_SECONDS = int(os.environ.get("JARVIS_WORKER_TIMEOUT", "900"))
 REVIEWER_TIMEOUT_SECONDS = int(os.environ.get("JARVIS_REVIEWER_TIMEOUT", "900"))
@@ -72,14 +195,18 @@ VERDICT_PATTERN = re.compile(r"^\s*verdict:\s*(PASS|FINDINGS|BLOCKED)\b", re.MUL
 REPORT_FIELD_END = re.compile(r"\n\s*(?:unverified|self_deviations|note):")
 # task-0148: the pipeline's fixed QA checks, named to the Reviewer so it can pair each
 # `unverified` entry with the one check that verifies it (`qa: <name>`), or `qa: none`.
-QA_CHECKS = {
-    "head_is_candidate": "the attempt worktree HEAD is the reviewed candidate commit",
-    "change_set_matches": "baseline..candidate changes exactly the listed files, all inside the allowed path",
-    "diff_check": "git diff --check baseline..candidate reports no whitespace errors",
-    "jarvis_bat_absent": "jarvis.bat is not in the candidate tree",
-    "json_valid": "every changed .json file parses as JSON",
-    "tests_rerun": f"the test command ({' '.join(TEST_COMMAND[1:])}) passes in the attempt worktree",
-}
+def qa_check_meanings(kind: WorkKind = DEFAULT_WORK_KIND) -> dict[str, str]:
+    return {
+        "head_is_candidate": "the attempt worktree HEAD is the reviewed candidate commit",
+        "change_set_matches": "baseline..candidate changes exactly the listed files, all inside the allowed path",
+        "diff_check": "git diff --check baseline..candidate reports no whitespace errors",
+        "jarvis_bat_absent": "jarvis.bat is not in the candidate tree",
+        "json_valid": "every changed .json file parses as JSON",
+        "tests_rerun": f"the test command ({' '.join(kind.test_command[1:])}) passes in the attempt worktree",
+    }
+
+
+QA_CHECKS = qa_check_meanings()
 QA_LABEL_PATTERN = re.compile(r"\bqa:\s*([A-Za-z_]+)")
 # task-0148 repair 2: the one entry recorded when the `unverified` field cannot be read.
 UNVERIFIED_UNREADABLE = "unverified field missing or malformed"
@@ -117,6 +244,8 @@ class WorkerRunResult:
     accepted: bool = False
     accept_retryable: bool = False
     pushed: bool = False
+    # task-0164: the registry kind the run used.
+    work_kind: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -218,13 +347,13 @@ def _scope_violations(paths: list[str]) -> list[str]:
     return [
         p
         for p in paths
-        if p in PROTECTED_PATHS or not p.startswith(ALLOWED_PREFIX) or ".." in p.split("/")
+        if p in PROTECTED_PATHS or not p.startswith(_active_kind().allowed_prefix) or ".." in p.split("/")
     ]
 
 
 def _run_tests(worktree: Path) -> tuple[bool, str]:
     try:
-        completed = _run(TEST_COMMAND, cwd=worktree, timeout=TEST_TIMEOUT_SECONDS)
+        completed = _run(_active_kind().test_command, cwd=worktree, timeout=TEST_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         return False, "tests_timeout"
     tail = (completed.stdout.strip().splitlines() or [""])[-2:]
@@ -236,8 +365,7 @@ def worker_prompt(task_id: str, request: str) -> str:
         f"You are the Jarvis-Core Implementer for {task_id}.\n"
         f"Owner request (verbatim): {request}\n\n"
         "Rules:\n"
-        f"- Change only files under {ALLOWED_PREFIX}. Keep each JSON file's existing schema and formatting "
-        "(2-space indent, UTF-8, ensure_ascii off). Keep existing entries unchanged.\n"
+        f"- Change only files under {_active_kind().allowed_prefix}.{_active_kind().prompt_note}\n"
         "- If the Owner request names a source (for example a task record), use only facts stated in that source, "
         "in its own wording, and add no detail from other files. Do not invent facts.\n"
         "- Task records under memory/tasks and design documents are history: cite them as what the record says, "
@@ -301,7 +429,7 @@ def reviewer_call(
         f"{evidence_block}"
         "QA checks the pipeline runs on this candidate after a Reviewer-stage PASS "
         "(use these names for `qa` in `unverified` entries):\n"
-        + "".join(f"- {name}: {meaning}\n" for name, meaning in QA_CHECKS.items())
+        + "".join(f"- {name}: {meaning}\n" for name, meaning in qa_check_meanings(_active_kind()).items())
         + "\n"
         "Never access `jarvis.bat`.\n\n"
         "=== COMMAND FORM REQUIREMENT ===\n"
@@ -311,7 +439,7 @@ def reviewer_call(
         f"- Owner condition (verbatim, the only one): {request}\n"
         f"- Candidate change set, baseline..candidate (check with git diff --name-status): {', '.join(changed_files)}\n"
         f"- Pipeline limit, not an Owner condition (check it in the change set above): every changed file is "
-        f"expected under {ALLOWED_PREFIX} and none is jarvis.bat.\n"
+        f"expected under {_active_kind().allowed_prefix} and none is jarvis.bat.\n"
         "- This summary makes no claim about how the Worker ran or about test results.\n\n"
         "=== OWNER APPROVAL (verbatim) ===\n"
         f"/work {request}\n"
@@ -592,7 +720,7 @@ def _candidate_chain(repo_root: Path, task_id: str, baseline: str, candidate: st
         label = "candidate" if number == 0 else f"repair {number} candidate"
         parents = _git(["rev-list", "--parents", "-n", "1", commit], repo_root).split()[1:]
         subject = _git(["log", "-1", "--format=%s", commit], repo_root)
-        if parents != [parent] or subject != f"feat(studyroom): {task_id} Jarvis worker {label}":
+        if parents != [parent] or subject != f"feat({_active_kind().commit_scope}): {task_id} Jarvis worker {label}":
             raise StageFailure("accept", "accept_chain_mismatch", f"{commit[:7]} is not the expected {label} commit")
         parent = commit
     return commits
@@ -710,6 +838,22 @@ def _integrate_and_checkpoint(
     result.stage = "done"
 
 
+def _unknown_kind_result(
+    task_id: str,
+    work_kind: str,
+    record_result: Callable[[bool, str], tuple[bool, str]] | None,
+    *,
+    accepted: bool = False,
+) -> WorkerRunResult:
+    result = WorkerRunResult(task_id=task_id, accepted=accepted, reason="unknown_work_kind", detail=work_kind[:200])
+    if record_result is not None and not accepted:
+        try:
+            record_result(False, f"{result.stage}:{result.reason}")
+        except Exception:  # noqa: BLE001
+            pass
+    return result
+
+
 def run_pipeline(
     *,
     task_id: str,
@@ -720,9 +864,42 @@ def run_pipeline(
     record_result: Callable[[bool, str], tuple[bool, str]] | None = None,
     resume: bool = False,
     repair_budget: int | None = None,
+    work_kind: str | None = None,
 ) -> WorkerRunResult:
-    """Run the whole slice once. Never raises; the result says where it stopped."""
+    """Run the whole slice once for one registry kind (Studyroom by default). Never raises."""
 
+    kind = work_kind_by_name(work_kind) if work_kind else DEFAULT_WORK_KIND
+    if kind is None:
+        return _unknown_kind_result(task_id, str(work_kind), record_result)
+    token = _ACTIVE_WORK_KIND.set(kind)
+    try:
+        result = _run_pipeline(
+            task_id=task_id,
+            request=request,
+            approval_command=approval_command,
+            repo_root=repo_root,
+            worktree_root=worktree_root,
+            record_result=record_result,
+            resume=resume,
+            repair_budget=repair_budget,
+        )
+    finally:
+        _ACTIVE_WORK_KIND.reset(token)
+    result.work_kind = kind.name
+    return result
+
+
+def _run_pipeline(
+    *,
+    task_id: str,
+    request: str,
+    approval_command: str,
+    repo_root: Path,
+    worktree_root: Path | None,
+    record_result: Callable[[bool, str], tuple[bool, str]] | None,
+    resume: bool,
+    repair_budget: int | None,
+) -> WorkerRunResult:
     result = WorkerRunResult(task_id=task_id)
     worktree_root = worktree_root or WORKTREE_ROOT
     budget = max(0, min(REPAIR_BUDGET_MAX, REPAIR_BUDGET if repair_budget is None else repair_budget))
@@ -788,7 +965,7 @@ def run_pipeline(
             result.stage = "candidate"
             _git(["add", "--", *working], worktree)
             label = "candidate" if parent is None else f"repair {result.repairs} candidate"
-            _git(["commit", "-q", "-m", f"feat(studyroom): {task_id} Jarvis worker {label}\n\n{request[:300]}"], worktree)
+            _git(["commit", "-q", "-m", f"feat({_active_kind().commit_scope}): {task_id} Jarvis worker {label}\n\n{request[:300]}"], worktree)
             candidate = _git(["rev-parse", "HEAD"], worktree)
             result.candidate = candidate
             result.candidates.append(candidate)
@@ -904,6 +1081,40 @@ def accept_candidate(
     repo_root: Path = REPO_ROOT,
     worktree_root: Path | None = None,
     record_result: Callable[[bool, str], tuple[bool, str]] | None = None,
+    work_kind: str | None = None,
+) -> WorkerRunResult:
+    """task-0164: accept for one registry kind (Studyroom by default). See _accept_candidate."""
+
+    kind = work_kind_by_name(work_kind) if work_kind else DEFAULT_WORK_KIND
+    if kind is None:
+        # Nothing was approved or changed, so the Owner may accept again.
+        result = _unknown_kind_result(task_id, str(work_kind), None, accepted=True)
+        result.accept_retryable = True
+        return result
+    token = _ACTIVE_WORK_KIND.set(kind)
+    try:
+        result = _accept_candidate(
+            task_id=task_id,
+            record=record,
+            approve=approve,
+            repo_root=repo_root,
+            worktree_root=worktree_root,
+            record_result=record_result,
+        )
+    finally:
+        _ACTIVE_WORK_KIND.reset(token)
+    result.work_kind = kind.name
+    return result
+
+
+def _accept_candidate(
+    *,
+    task_id: str,
+    record: str,
+    approve: Callable[[], tuple[bool, str]],
+    repo_root: Path,
+    worktree_root: Path | None,
+    record_result: Callable[[bool, str], tuple[bool, str]] | None,
 ) -> WorkerRunResult:
     """task-0151: `/go <id> accept` for a task stopped at qa_unverified_owner_review.
 

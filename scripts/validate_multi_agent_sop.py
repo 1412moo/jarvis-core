@@ -973,26 +973,64 @@ def _validate_pipeline_parity(sources: dict[str, str], errors: list[str]) -> Non
         _error(errors, "pipeline_qa_parity", f"code QA keys {sorted(code_qa)!r}, SOP {sorted(doc_qa)!r}")
 
     # Section 10.1 records scope values, not rules; they must still match the code.
-    expected: dict[str, set[str]] = {}
-    for name in ("ALLOWED_PREFIX", "PROTECTED_PATHS", "TEST_COMMAND"):
-        node = _module_constant(tree, name)
-        if isinstance(node, ast.Call) and node.args:  # frozenset({...})
-            node = node.args[0]
-        elements = node.elts if isinstance(node, (ast.Tuple, ast.Set)) else [node]
-        strings = {elt.value for elt in elements if isinstance(elt, ast.Constant) and isinstance(elt.value, str)}
-        # TEST_COMMAND also carries interpreter flags; only its script path is a scope value.
-        expected[name] = {s for s in strings if "/" in s} if name == "TEST_COMMAND" else strings
+    # task-0164: the work-kind values come from the WORK_KINDS registry, entry by entry, and
+    # the table names each value with its kind as `value`(kind).
+    kinds = _work_kinds(tree)
+    if not kinds:
+        _error(errors, "pipeline_scope_parity", f"{WORKER_PATH} has no readable WORK_KINDS entries")
+    names = {kind.get("name") for kind in kinds}
+    expected_pairs = {
+        field: {(kind.get(field), kind.get("name")) for kind in kinds} for field in ("allowed_prefix", "test_script")
+    }
+    protected_node = _module_constant(tree, "PROTECTED_PATHS")
+    if isinstance(protected_node, ast.Call) and protected_node.args:  # frozenset({...})
+        protected_node = protected_node.args[0]
+    protected_elements = protected_node.elts if isinstance(protected_node, (ast.Tuple, ast.Set)) else [protected_node]
+    protected = {
+        elt.value for elt in protected_elements if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+    }
+    unseen = {"WORK_KINDS", "allowed_prefix", "test_script", "PROTECTED_PATHS"}
     for row in _table_rows(scope)[1:]:
         cells = " ".join(row)
-        for name, values in expected.items():
-            if f"`{name}`" in cells:
-                stated_values = set(re.findall(r"`([^`]+)`", row[1] if len(row) > 1 else ""))
-                if not values or stated_values != values:
-                    _error(errors, "pipeline_scope_parity", f"section 10.1 {name} states {sorted(stated_values)!r}, code {sorted(values)!r}")
-                expected[name] = set()
-    for name, values in expected.items():
-        if values:
-            _error(errors, "pipeline_scope_parity", f"section 10.1 has no row for {name}")
+        value = row[1] if len(row) > 1 else ""
+        if "`WORK_KINDS`" in cells:
+            stated_names = set(re.findall(r"`([a-z_]+)`\(", value))
+            if not names or stated_names != names:
+                _error(errors, "pipeline_scope_parity", f"section 10.1 kinds {sorted(stated_names)!r}, code {sorted(names, key=str)!r}")
+            unseen.discard("WORK_KINDS")
+        for field, pairs in expected_pairs.items():
+            if f"`{field}`" in cells:
+                stated_pairs = set(re.findall(r"`([^`]+)`\(([a-z_]+)\)", value))
+                if not pairs or stated_pairs != pairs:
+                    _error(errors, "pipeline_scope_parity", f"section 10.1 {field} states {sorted(stated_pairs)!r}, code {sorted(pairs, key=str)!r}")
+                unseen.discard(field)
+        if "`PROTECTED_PATHS`" in cells:
+            stated_protected = set(re.findall(r"`([^`]+)`", value))
+            if not protected or stated_protected != protected:
+                _error(errors, "pipeline_scope_parity", f"section 10.1 PROTECTED_PATHS states {sorted(stated_protected)!r}, code {sorted(protected)!r}")
+            unseen.discard("PROTECTED_PATHS")
+    for name in sorted(unseen):
+        _error(errors, "pipeline_scope_parity", f"section 10.1 has no row for {name}")
+
+
+def _work_kinds(tree: ast.Module) -> list[dict[str, str | None]]:
+    """task-0164: each WorkKind(...) entry of WORK_KINDS as its literal keyword values."""
+
+    node = _module_constant(tree, "WORK_KINDS")
+    if not isinstance(node, (ast.Tuple, ast.List)):
+        return []
+    kinds = []
+    for entry in node.elts:
+        if not (isinstance(entry, ast.Call) and isinstance(entry.func, ast.Name) and entry.func.id == "WorkKind"):
+            kinds.append({"name": None})
+            continue
+        values = {
+            keyword.arg: keyword.value.value
+            for keyword in entry.keywords
+            if isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str)
+        }
+        kinds.append({field: values.get(field) for field in ("name", "allowed_prefix", "test_script")})
+    return kinds
 
 
 def _validate_transition_contract(sources: dict[str, str], errors: list[str]) -> None:
@@ -1294,8 +1332,37 @@ def _run_negative_mutation_checks(
         (
             "pipeline_scope_prefix_changed",
             SOP_PATH,
-            "| `apps/studyroom/content/` | `ALLOWED_PREFIX` |",
-            "| `apps/other/` | `ALLOWED_PREFIX` |",
+            "| `apps/studyroom/content/`(studyroom_content),",
+            "| `apps/other/`(studyroom_content),",
+            "pipeline_scope_parity",
+        ),
+        # task-0164: every registry kind must be stated, and only those.
+        (
+            "pipeline_kind_dropped_from_sop",
+            SOP_PATH,
+            "`daily_ai_radar`(Daily AI Radar 수정",
+            "daily_ai_radar (Daily AI Radar 수정",
+            "pipeline_scope_parity",
+        ),
+        (
+            "pipeline_kind_renamed_in_code",
+            WORKER_PATH,
+            'name="daily_ai_radar",',
+            'name="daily_ai_radar_v2",',
+            "pipeline_scope_parity",
+        ),
+        (
+            "pipeline_kind_prefix_changed_in_code",
+            WORKER_PATH,
+            'allowed_prefix="apps/daily-ai-radar/",',
+            'allowed_prefix="apps/",',
+            "pipeline_scope_parity",
+        ),
+        (
+            "pipeline_kind_test_changed_in_sop",
+            SOP_PATH,
+            "`apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar)",
+            "`apps/daily-ai-radar/other_tests.py`(daily_ai_radar)",
             "pipeline_scope_parity",
         ),
         (

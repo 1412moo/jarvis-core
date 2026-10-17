@@ -267,18 +267,23 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 
 ### 10.1 현재 실행 범위 (v0.2, 일반 규칙 아님)
 
-아래 값은 task-0142 Owner 승인이 정한 현재 실행 범위다. 범위를 넓히거나 바꾸려면
+아래 값은 task-0142 Owner 승인이 정하고 task-0164 Owner 승인이 Daily AI Radar 작업 종류와 프로세스 간
+잠금으로 넓힌 현재 실행 범위다. 범위를 넓히거나 바꾸려면
 새 Owner 승인과 이 표의 갱신이 필요하며, 다른 작업이나 저장소 전체의 규칙으로
 해석하지 않는다.
 
 | 항목 | 현재 값 | 코드 위치 |
 | --- | --- | --- |
-| 지원 작업 | Studyroom 콘텐츠 수정 1종. 요청에 studyroom이 없으면 hold | `WORK_KIND_MARKERS` |
-| Worker 변경 허용 경로 | `apps/studyroom/content/` | `ALLOWED_PREFIX` |
+| 지원 작업 | `studyroom_content`(Studyroom 콘텐츠 수정, 표지어 studyroom·스터디룸), `daily_ai_radar`(Daily AI Radar 수정, 표지어 radar·레이더). `/work`는 표지어가 없거나 두 종류가 함께 있으면 hold. `/go`는 task 제목으로 종류를 정하며 표지어가 없으면 studyroom_content, 두 종류가 함께 있으면 상태를 바꾸지 않고 거절 | `WORK_KINDS` |
+| Worker 변경 허용 경로 | `apps/studyroom/content/`(studyroom_content), `apps/daily-ai-radar/`(daily_ai_radar) | `allowed_prefix` |
 | 파이프라인 보호 경로 | `jarvis.bat` | `PROTECTED_PATHS` |
-| 테스트 명령 | `apps/studyroom/run_smoke_tests.py` | `TEST_COMMAND` |
+| 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
-| 진입 명령 | Owner 전용 `/work`, `/go`(`resume`, `accept` 포함), 동시 실행 1개 | `bot_minimal.py` |
+| 진입 명령 | Owner 전용 `/work`, `/go`(`resume`, `accept` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. Worker 잠금이 비어 있는데 실행 기록 없는 DOING task에 `/go`가 오면 `doing_without_execution_record`로 알리기만 하고 상태는 바꾸지 않음 | `bot_minimal.py` |
+
+작업 종류의 값(종류 이름, 허용 경로, 테스트 스크립트)은 `orchestrator/worker/claude_worker.py`의
+`WORK_KINDS` 한 곳에 있고, 위 표는 종류마다 그 값을 적는다. 첫 항목 Studyroom이 기본값이며 기존
+이름 `WORK_KIND`·`ALLOWED_PREFIX`·`TEST_COMMAND`는 그 항목을 가리킨다.
 
 `jarvis.bat` 금지 자체는 이미 AGENTS.md와 §6의 일반 gate다. §10.1은 파이프라인
 범위 검사가 이것을 강제한다는 사실만 적고 새 규칙을 만들지 않는다.

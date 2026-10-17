@@ -798,7 +798,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/report - 전체 task 집계",
             "/report today - 오늘 업데이트 task 집계",
             "/retro today - 오늘 회고 요약",
-            "/work <요청> - Studyroom 콘텐츠 작업 준비 (Owner)",
+            "/work <요청> - Studyroom 콘텐츠 또는 Daily AI Radar 작업 준비 (Owner)",
             "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
             "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
             "/go <task-id> accept - Owner 확인 대기로 멈춘 candidate를 QA 재확인 뒤 반영 (Owner)",
@@ -1851,17 +1851,67 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
 # task-0142 Jarvis v0.2: /work + /go -> Claude Worker pipeline
 # ---------------------------------------------------------------------------
 _BACKGROUND_TASKS: set[Any] = set()
-WORK_KIND_MARKERS = ("studyroom", "스터디룸")
+# task-0164: the markers of each Worker kind come from the registry in claude_worker.
+WORK_KIND_MARKERS = {kind.name: kind.markers for kind in claude_worker.WORK_KINDS}
+# task-0164: the Worker lock held across processes, alongside _WORKER_LOCK. Set only while held.
+_WORKER_PROCESS_LOCK: int | None = None
+
+
+def _acquire_worker_locks() -> bool:
+    """Take the in-process and the cross-process Worker lock, or neither (task-0164)."""
+
+    global _WORKER_PROCESS_LOCK
+    if not _WORKER_LOCK.acquire(blocking=False):
+        return False
+    try:
+        handle = claude_worker.acquire_process_lock()
+    except Exception:
+        _WORKER_LOCK.release()
+        raise
+    if handle is None:
+        # Another bot process is running a Worker.
+        _WORKER_LOCK.release()
+        return False
+    _WORKER_PROCESS_LOCK = handle
+    return True
+
+
+def _release_worker_locks() -> None:
+    global _WORKER_PROCESS_LOCK
+    handle, _WORKER_PROCESS_LOCK = _WORKER_PROCESS_LOCK, None
+    try:
+        claude_worker.release_process_lock(handle)
+    finally:
+        _WORKER_LOCK.release()
+
+
+def _worker_running() -> bool:
+    """A Worker runs here or in another process. Never takes the lock for longer than a probe."""
+
+    return _WORKER_LOCK.locked() or claude_worker.process_lock_held()
+
+
+def _go_work_kind(request: str) -> str | None:
+    """task-0164: the kind /go runs. No marker keeps the Studyroom default; two kinds is None."""
+
+    kinds = claude_worker.work_kinds_for_text(request)
+    if len(kinds) > 1:
+        return None
+    return (kinds[0] if kinds else claude_worker.DEFAULT_WORK_KIND).name
 
 
 def _run_work(command_text: str) -> dict[str, Any]:
-    """Prepare one Studyroom content task. Creates a TODO task; nothing runs yet."""
+    """Prepare one task of a registered Worker kind. Creates a TODO task; nothing runs yet."""
 
     request = command_text.strip()[len("/work"):].strip()
     if not request:
         return _error_payload("usage:/work <요청>")
-    if not any(marker in request.lower() for marker in WORK_KIND_MARKERS):
-        return {"result_type": "hold", "reason": "unsupported_work_kind:studyroom_content_only"}
+    kinds = claude_worker.work_kinds_for_text(request)
+    if not kinds:
+        return {"result_type": "hold", "reason": f"unsupported_work_kind:{'|'.join(WORK_KIND_MARKERS)}"}
+    if len(kinds) > 1:
+        return {"result_type": "hold", "reason": f"ambiguous_work_kind:{'|'.join(kind.name for kind in kinds)}"}
+    kind = kinds[0]
     created = _run_task_pipeline(f"/task {request}")
     if created.get("result_type") != "success":
         return created
@@ -1869,8 +1919,9 @@ def _run_work(command_text: str) -> dict[str, Any]:
         "result_type": "work_planned",
         "task_id": created["task_id"],
         "request": request,
-        "allowed_paths": claude_worker.ALLOWED_PREFIX,
-        "test_command": " ".join(claude_worker.TEST_COMMAND[1:]),
+        "work_kind": kind.name,
+        "allowed_paths": kind.allowed_prefix,
+        "test_command": " ".join(kind.test_command[1:]),
     }
 
 
@@ -1901,14 +1952,18 @@ def _run_go(command_text: str) -> dict[str, Any]:
     metadata = _read_task_metadata(task_file) or {}
     status = metadata.get("status", "")
     request = metadata.get("title", "")
+    # task-0164: the kind is settled before anything is locked or written.
+    work_kind = _go_work_kind(request)
+    if work_kind is None:
+        return _error_payload("ambiguous_work_kind")
     if len(parts) == 3 and parts[2] == "accept":
         if status != "FAILED":
             return _error_payload(f"accept_requires_failed:{status or 'unknown'}")
         if _owner_review_record(task_file) is None:
             return _error_payload("accept_record_invalid")
-        if not _WORKER_LOCK.acquire(blocking=False):
+        if not _acquire_worker_locks():
             return _error_payload("worker_busy")
-        # The lock stays held until _run_worker_job finishes.
+        # The locks stay held until _run_worker_job finishes.
         return {
             "result_type": "work_started",
             "task_id": task_id,
@@ -1917,19 +1972,27 @@ def _run_go(command_text: str) -> dict[str, Any]:
             "retry": False,
             "resume": False,
             "accept": True,
+            "work_kind": work_kind,
             "audit_error": None,
         }
+    if status == "DOING":
+        # task-0164: tell a running Worker from a DOING task nothing is running for. Display only:
+        # the status and the record are left as they are, and nothing is recovered here.
+        if _worker_running():
+            return _error_payload("worker_busy")
+        if _read_execution_review_metadata(task_file).get("executed") is None:
+            return _error_payload("doing_without_execution_record")
     if status not in ("TODO", "FAILED"):
         return _error_payload(f"status_not_startable:{status or 'unknown'}")
     if resume and status != "FAILED":
         return _error_payload(f"resume_requires_failed:{status}")
-    if not _WORKER_LOCK.acquire(blocking=False):
+    if not _acquire_worker_locks():
         return _error_payload("worker_busy")
     try:
         if status == "FAILED":
             applied, reason = _apply_task_status_transition(task_id, "FAILED", "TODO")
             if not applied:
-                _WORKER_LOCK.release()
+                _release_worker_locks()
                 return _error_payload(f"transition_failed:{reason}")
         applied, reason = _apply_task_status_transition(task_id, "TODO", "DOING")
         audit_error = _audit_owner_approval(
@@ -1941,12 +2004,12 @@ def _run_go(command_text: str) -> dict[str, Any]:
             reason=reason,
         )
         if not applied:
-            _WORKER_LOCK.release()
+            _release_worker_locks()
             return _error_payload(f"transition_failed:{reason}")
     except Exception:
-        _WORKER_LOCK.release()
+        _release_worker_locks()
         raise
-    # The lock stays held until _run_worker_job finishes.
+    # The locks stay held until _run_worker_job finishes.
     return {
         "result_type": "work_started",
         "task_id": task_id,
@@ -1954,6 +2017,7 @@ def _run_go(command_text: str) -> dict[str, Any]:
         "command": command_text.strip(),
         "retry": status == "FAILED",
         "resume": resume,
+        "work_kind": work_kind,
         "audit_error": audit_error,
     }
 
@@ -1986,12 +2050,14 @@ def _run_worker_job(
     transition and its audit happen inside it, only after the QA checks passed again.
     """
 
+    # task-0164: the same kind _run_go settled from the task title; ambiguity never gets this far.
+    work_kind = _go_work_kind(request) or claude_worker.DEFAULT_WORK_KIND.name
     candidate_info = {
         "result_type": "execution_candidate",
         "task_id": task_id,
         "execution_type": "claude_worker",
         "action": "claude_worker_pipeline",
-        "target": claude_worker.WORK_KIND,
+        "target": work_kind,
     }
 
     def record(success: bool, summary: str) -> tuple[bool, str]:
@@ -2042,6 +2108,7 @@ def _run_worker_job(
                 approve=approve,
                 repo_root=REPO_ROOT,
                 record_result=record,
+                work_kind=work_kind,
             )
         else:
             outcome = claude_worker.run_pipeline(
@@ -2051,9 +2118,10 @@ def _run_worker_job(
                 repo_root=REPO_ROOT,
                 record_result=record,
                 resume=resume,
+                work_kind=work_kind,
             )
     finally:
-        _WORKER_LOCK.release()
+        _release_worker_locks()
     payload = {"result_type": "work_result", **outcome.to_dict()}
     if accept:
         payload["audit_error"] = audit_errors[-1] if audit_errors else None
@@ -2074,6 +2142,7 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         return (
             f"🗂️ 작업 준비됨: {task_id}\n"
             f"- 요청: {result.get('request')}\n"
+            f"- 작업 종류: {result.get('work_kind')}\n"
             "- Worker: Claude Code 1개, 격리된 worktree, 명령 실행 없음\n"
             f"- 수정 허용: {result.get('allowed_paths')}\n"
             f"- 테스트: {result.get('test_command')}\n"
@@ -2467,6 +2536,13 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- FAILED: {counts.get('FAILED', 0)}\n"
             f"- NEEDS_APPROVAL: {counts.get('NEEDS_APPROVAL', 0)}\n\n"
             f"최근 업데이트:\n{recent_text}"
+        )
+    if pipeline_result.get("reason") == "doing_without_execution_record":
+        # task-0164: a DOING task no Worker is running for. Shown only; nothing was changed.
+        return (
+            "⚠️ 멈춘 DOING: 실행 중인 Worker가 없고 이 task에는 실행 기록도 없습니다.\n"
+            "- 상태와 기록은 바꾸지 않았습니다. 복구 방법은 Owner가 정합니다.\n"
+            "- reason: `doing_without_execution_record`"
         )
     return f"❌ error: `{pipeline_result.get('reason')}`"
 
@@ -3789,6 +3865,122 @@ def _run_self_check_suite() -> dict[str, Any]:
         "self_check_empty_string_is_empty_input_not_bot_start",
         exit_code == 2 and '"empty_input"' in empty_output and not start_calls,
         empty_detail or f"exit={exit_code} start_calls={start_calls} output={empty_output.strip()}",
+    )
+
+    # --- task-0164: Worker kinds, the cross-process lock and a stalled DOING ---
+    # A throwaway repository root and worktree root, so the real tasks and the real
+    # lock file are never touched. No Worker, Discord or claude process is started.
+    kinds = claude_worker.WORK_KINDS
+    registry_ok = (
+        len(kinds) == 2
+        and kinds[0] == claude_worker.DEFAULT_WORK_KIND
+        and (kinds[0].name, kinds[0].allowed_prefix, kinds[0].test_script)
+        == ("studyroom_content", "apps/studyroom/content/", "apps/studyroom/run_smoke_tests.py")
+        and (kinds[1].name, kinds[1].allowed_prefix, kinds[1].test_script)
+        == ("daily_ai_radar", "apps/daily-ai-radar/", "apps/daily-ai-radar/run_smoke_tests.py")
+        and claude_worker.ALLOWED_PREFIX == kinds[0].allowed_prefix
+        and claude_worker.TEST_COMMAND == kinds[0].test_command
+        and claude_worker.WORK_KIND == kinds[0].name
+    )
+    _record(
+        "worker_kind_registry_studyroom_first_radar_second",
+        registry_ok,
+        f"kinds={[(k.name, k.allowed_prefix, k.test_script) for k in kinds]}",
+    )
+
+    original_task_pipeline = _run_task_pipeline
+    selection: dict[str, Any] = {}
+    try:
+        globals()["_run_task_pipeline"] = lambda text: {"result_type": "success", "task_id": "task-9164-kind-fixture"}
+        selection["radar"] = _run_work("/work Daily AI Radar 보고서 문구 개선")
+        selection["studyroom"] = _run_work("/work Studyroom glossary 용어 추가")
+        selection["none"] = _run_work("/work 문서 정리")
+        selection["both"] = _run_work("/work Studyroom glossary에 radar 용어 추가")
+        selection["go_none"] = _go_work_kind("문서 정리")
+        selection["go_both"] = _go_work_kind("studyroom radar")
+    except Exception as exc:  # noqa: BLE001 - recorded as a failed check
+        selection["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        globals()["_run_task_pipeline"] = original_task_pipeline
+    radar = selection.get("radar") or {}
+    studyroom = selection.get("studyroom") or {}
+    _record(
+        "worker_kind_selected_by_marker",
+        "error" not in selection
+        and radar.get("result_type") == "work_planned"
+        and radar.get("work_kind") == "daily_ai_radar"
+        and radar.get("allowed_paths") == "apps/daily-ai-radar/"
+        and radar.get("test_command") == "-B apps/daily-ai-radar/run_smoke_tests.py"
+        and studyroom.get("work_kind") == "studyroom_content"
+        and studyroom.get("allowed_paths") == claude_worker.ALLOWED_PREFIX
+        and (selection.get("none") or {}).get("reason", "").startswith("unsupported_work_kind:")
+        and (selection.get("both") or {}).get("reason", "").startswith("ambiguous_work_kind:")
+        and selection.get("go_none") == "studyroom_content"
+        and selection.get("go_both") is None,
+        f"selection={selection}",
+    )
+
+    original_repo_root = REPO_ROOT
+    original_worktree_root = claude_worker.WORKTREE_ROOT
+    lock_handle: int | None = None
+    go_checks: dict[str, Any] = {}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_root = Path(tmp) / "repo"
+            (fixture_root / "memory" / "tasks").mkdir(parents=True)
+            globals()["REPO_ROOT"] = fixture_root
+            claude_worker.WORKTREE_ROOT = Path(tmp) / "worktrees"
+
+            def fixture(task_id: str, status: str) -> Path:
+                path = fixture_root / "memory" / "tasks" / f"{task_id}.md"
+                path.write_text(
+                    f"# {task_id}\n\n- id: `{task_id}`\n- title: `Studyroom fixture`\n- status: `{status}`\n"
+                    "- repo: `jarvis-core`\n- created_at: `2026-10-17 10:00 UTC`\n"
+                    "- updated_at: `2026-10-17 10:00 UTC`\n- summary: `fixture`\n",
+                    encoding="utf-8",
+                )
+                return path
+
+            stalled = fixture("task-9164-stalled-doing", "DOING")
+            ready = fixture("task-9165-ready-todo", "TODO")
+            before = {path: path.read_bytes() for path in (stalled, ready)}
+            go_checks["stalled_free"] = _run_go("/go task-9164-stalled-doing").get("reason")
+            lock_handle = claude_worker.acquire_process_lock()
+            go_checks["held_by_other"] = lock_handle is not None
+            go_checks["stalled_held"] = _run_go("/go task-9164-stalled-doing").get("reason")
+            go_checks["todo_held"] = _run_go("/go task-9165-ready-todo").get("reason")
+            go_checks["thread_lock_left"] = _WORKER_LOCK.locked()
+            claude_worker.release_process_lock(lock_handle)
+            lock_handle = None
+            go_checks["free_after_release"] = not claude_worker.process_lock_held()
+            go_checks["files_unchanged"] = all(path.read_bytes() == data for path, data in before.items())
+            go_checks["lock_outside_fixture_repo"] = not str(claude_worker.process_lock_path()).startswith(str(fixture_root))
+    except Exception as exc:  # noqa: BLE001 - recorded as a failed check
+        go_checks["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        if lock_handle is not None:
+            claude_worker.release_process_lock(lock_handle)
+        globals()["REPO_ROOT"] = original_repo_root
+        claude_worker.WORKTREE_ROOT = original_worktree_root
+    _record(
+        "worker_lock_across_processes_refuses_with_worker_busy",
+        "error" not in go_checks
+        and go_checks.get("held_by_other") is True
+        and go_checks.get("todo_held") == "worker_busy"
+        and go_checks.get("stalled_held") == "worker_busy"
+        and go_checks.get("thread_lock_left") is False
+        and go_checks.get("free_after_release") is True
+        and go_checks.get("lock_outside_fixture_repo") is True
+        and go_checks.get("files_unchanged") is True,
+        f"checks={go_checks}",
+    )
+    _record(
+        "go_reports_doing_without_execution_record_and_changes_nothing",
+        "error" not in go_checks
+        and go_checks.get("stalled_free") == "doing_without_execution_record"
+        and go_checks.get("files_unchanged") is True
+        and "멈춘 DOING" in _format_reply(_error_payload("doing_without_execution_record")),
+        f"checks={go_checks}",
     )
 
     failed = [check for check in checks if not check["ok"]]
