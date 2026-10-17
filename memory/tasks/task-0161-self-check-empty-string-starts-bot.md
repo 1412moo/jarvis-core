@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-16 14:36 UTC`
-- updated_at: `2026-10-17 07:11 UTC`
+- updated_at: `2026-10-17 07:47 UTC`
 - summary: `adapters/discord/bot_minimal.py의 main()은 args.self_check의 참·거짓으로 self-check 여부를 정해서, --self-check ''(빈 문자열)은 self-check 분기를 지나쳐 .env 환경으로 실제 Discord 봇을 기동할 수 있다(task-0160 검증 중 실제 발생). Owner 결정으로 task-0160과 분리한 높은 우선순위 결함이다. Owner가 승인한 A안대로 main()의 두 판정을 args.self_check is not None으로 바꾸고 README 설명과 self-check suite 회귀 검사 1건을 더했으며, 실제 봇 기동 없이 검증하고 push는 하지 않는다.`
 - source_command: `Owner 결정: 빈 문자열 결함은 별도 task로 등록, 우선순위 높음`
 
@@ -184,3 +184,50 @@ checkout에서는 `--self-check ''`을 어떤 형태로도 실행하지 않았�
 | repair 1 | (이 기록 수정) | Manager가 budget 안에서 진행. summary 필드를 승인 범위와 구현 상태에 맞게 고치고, 시작·candidate 승인 원문을 "Owner 결정"에 옮기고, Manager 요약에 P1·P2(push 미승인 포함)·X4를 더하고, 파일 끝 줄바꿈을 되살렸다. 코드와 README는 바꾸지 않았다. `repair_count=1`(budget 1 소진) |
 | Reviewer 2 | `67ebb6f851bb6b596b6a68408daeec113a179c77` | FINDINGS(minor 1): 등록 승인 블록의 조건(TODO·우선순위 높음 등록, 등록 규칙·중복 확인, task-0160 X4에 ID 반영)에 해당하는 Manager 요약 행이 없음. 본문과 task-0160 X4에는 이미 충족돼 있음. `self_deviations` 없음 |
 | repair 2 | (이 기록 수정) | Owner가 repair budget을 2로 늘리고 repair 2를 승인했다("repair 예산 2로 늘려서 repair 2 진행해줘"). Manager 요약에 R0 행을 더했다. 코드와 README는 바꾸지 않았다. `repair_budget=2`, `repair_count=2`(2회 중 2회 사용, 소진) |
+| Reviewer 3 | `eec1aad60fa28f5d0abbd17720b437a6b6ce594b` | FINDINGS(minor 1), `self_deviations` 없음. 아래 원문. repair budget 소진으로 Owner에게 보고했고, Owner가 SOP §8에 따라 이 지적을 수용했다(아래 원문) |
+
+## Reviewer 3 minor 지적과 Owner 수용 (원문)
+
+Reviewer 3 지적(candidate `eec1aad60fa28f5d0abbd17720b437a6b6ce594b`, 보고 원문 그대로):
+
+```text
+{severity: minor, evidence: "Block 5 of the verbatim approval, \"repair 예산 2로 늘려서 repair 2 진행해줘\", has no row in the MANAGER SUMMARY table (rows are P0, R0, P1, P2, X4, S1, S2, S3, V1, X1, X2, X3). The same table at memory/tasks/task-0161-self-check-empty-string-starts-bot.md:114-128 also lacks a row for it. The approval is quoted at line 105 and logged only in the repair history row at line 186.", impact: "A reader who checks the Manager summary against the approval would find no stated interpretation of the Owner's budget raise to repair_budget=2 or of the repair 2 authorization. They could miss that the budget is now exhausted and that any further repair needs a new Owner decision.", minimum_correction: "Add one Manager summary row that quotes Block 5 and states repair_budget=2, repair_count=2 (exhausted), and that the authorization covers this record-only repair 2."}
+```
+
+Owner 수용(원문):
+
+```text
+Owner 결정: 선택지 1 승인. SOP §8에 따라 Reviewer의 minor 지적을 수용하고 현재 candidate `eec1aad60fa28f5d0abbd17720b437a6b6ce594b`로 QA를 진행하세요.
+조건:
+
+* minor 지적과 이번 수용 승인을 task-0161 QA 기록에 원문으로 남기세요.
+* 이번 수용은 현재 candidate에만 적용합니다.
+* QA 전체 검사를 생략하거나 완화하지 말고, 모든 결과를 확인하세요.
+* 코드와 README는 변경하지 마세요.
+* `jarvis.bat`은 열기·읽기·수정·스테이징·커밋하지 마세요.
+* QA 결과를 보고한 뒤 중단하세요. Console Complete Preview/Confirm, DONE 처리, checkpoint 커밋, push는 별도 승인 전까지 하지 마세요.
+
+QA 실패나 예상 밖의 변경이 있으면 추가 수정을 시도하지 말고 결과와 원인을 보고하세요.
+```
+
+수용은 candidate `eec1aad`에만 효력이 있고 QA를 대신하지 않는다(SOP §8).
+
+## QA (candidate `eec1aad60fa28f5d0abbd17720b437a6b6ce594b`)
+
+2026-10-17에 검증 계획 T1~T5를 줄이지 않고 모두 실행했다. T1~T4는 candidate로 만든 detached 임시 worktree에서, T5는 candidate로 만든 또 다른
+detached 임시 worktree에서 실행했고 둘 다 끝난 뒤 지웠다. 두 worktree 모두 `adapters/discord/.env`가 없었고(실행 전 확인), 실행 환경과 자식
+환경에 `DISCORD_BOT_TOKEN`이 없었다. CLI 실행은 없는 `--env-file` 경로와 60초 시간 제한을 걸었다. 메인 checkout에서는 `--self-check ''`을
+실행하지 않았다.
+
+| # | 결과 |
+| --- | --- |
+| T1 | PASS. 설정 없음·`PYTHONUTF8=1` 모두 종료 0, `ok=True`, 94/0, 새 회귀 검사 `self_check_empty_string_is_empty_input_not_bot_start` PASS |
+| T2 | PASS. 두 판정을 원래대로 되돌린 변형: suite 종료 1, `ok=False`, failed는 새 검사 하나, 상세 `start path reached: _validate_required_env`(대역에서 멈춤, 실제 기동 없음) |
+| T3 | PASS. candidate에서 `--self-check ''` 종료 2, reason `empty_input`. 같은 변형에서 종료 2, reason `missing_env:DISCORD_BOT_TOKEN`(토큰이 없어 기동 직전에 멈춤) |
+| T4 | PASS. `--self-check ' '` 종료 2(`empty_input`), `--self-check '/status invalid-id'` 종료 0(`result_type: error`). baseline 대비 diff에서 `main()`의 기동 경로(`_validate_required_env()` 호출, `_report_audit_chain_at_startup()`, `asyncio.run`) 줄은 바뀌지 않았다 |
+| T5 | PASS. `py_compile` 통과, discord-intake 136/0, Worker smoke 354/0, SOP validator PASS, Console smoke PASS, `git diff --check`(baseline 대비) 통과, 변경 범위 3파일(`bot_minimal.py`, README, 이 기록), `jarvis.bat`은 tree에 없음, 코드·README는 `0abdf86` 대비 차이 0줄, 실행 뒤 QA worktree 변경 없음 |
+
+실행 뒤 정리: 임시 worktree를 모두 지웠고 메인 checkout의 HEAD(`eec1aad`)와 status는 실행 전후 같았다. `%TEMP%\jarvis_worker_smoke_*`는
+39개 그대로, 남은 Python 프로세스와 8790 listener는 없다.
+
+확인하지 않은 것(PASS로 보지 않는다): `jarvis.bat`의 `--self-check` 호출 여부(접근 금지). 실제 Discord 연결 동작은 X4에 따라 시험하지 않았다.
