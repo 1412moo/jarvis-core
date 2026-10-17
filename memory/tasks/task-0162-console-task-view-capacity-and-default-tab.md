@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-17 10:38 UTC`
-- updated_at: `2026-10-17 11:55 UTC`
+- updated_at: `2026-10-17 12:40 UTC`
 - summary: `Jarvis Console Actionable Task View는 10칸 중 6칸을 보류된 Team Manager task가 차지해 무엇이 빠졌는지 알 수 없고, 첫 화면은 Chat / Command다. Owner 승인 범위(A3+B)대로 /api/overview에 상태별 미표시 task 수를 읽기 전용 필드로 더해 화면에 보여 주고, 첫 활성 탭을 Project Control로 바꿔 처음 열 때 바로 불러온다. 진행 task 표시 보장(A1)과 ON_HOLD 전이(A2)는 제외해 별도 Owner 결정으로 남기고, 기존 Task View 계약 C1~C5는 바꾸지 않으며 push는 하지 않는다.`
 - source_command: `Owner 결정: Console 작업 묶음 A+B, A 범위 A1+A3, A2 보류`
 
@@ -199,3 +199,48 @@ Task View가 다루는 task 수다.
 | --- | --- | --- |
 | Reviewer 1 | `10f7904ca13532891a920cfdb44e410af521906a` | FINDINGS(minor 2, 모두 이 기록), `self_deviations` 없음: V1이 "전체 task 수"를 discovery 후보 수로 좁힌 것을 밝히지 않음(실제 113 대 114), "기록에 승인 범위를 반영한 뒤 구현" 조건 행이 없음. 코드 지적 없음 |
 | repair 1 | (이 기록 수정) | Manager가 budget 안에서 진행. V1에 `total`의 정의와 task-0043 제외 사유, Owner 확인 사항임을 적고, 기록-후-구현 조건 행(O1)을 더했다. 코드·README·테스트는 바꾸지 않았다. `repair_count=1`(budget 1 소진) |
+| Reviewer 2 | `76db4a4c9504e9a35dc9ecd207a53b1f54d93ec9` | PASS, findings 없음, `self_deviations` 없음. 미검증으로 밝힌 것: smoke·R6·R7 실행 결과, 실제 `/api/overview` 값과 파일 수, 브라우저 첫 화면, Console Start 순서, `total` 정의의 Owner 수용 |
+
+## QA (candidate `76db4a4c9504e9a35dc9ecd207a53b1f54d93ec9`)
+
+2026-10-17에 candidate를 detached 임시 worktree로 꺼내 실행하고 끝난 뒤 지웠다. 브라우저 확인은 같은 candidate worktree에서 Console을
+`--no-browser`로 띄워 앱 내장 브라우저로 조회·탭 전환만 했고, 끝난 뒤 그 서버 프로세스만 종료했다. Start/Complete Confirm 등 쓰기는 하지 않았다.
+
+| # | 결과 |
+| --- | --- |
+| R1·R2·R3·R5 | PASS. Console smoke·browser shell self-test 통과(새 `_test_task_view_hidden_counts_and_first_screen` 포함): 조작 대상 = 표시 목록, `task_view_sort_key` 순서, 표시 + 미표시 = 전체(status별 포함), 응답 키 기존 12개 + 1개, 첫 탭 고정 |
+| R4 | 해당 없음(A1 제외) |
+| R6 | PASS. 변형 5종(A3 계산 제거, 응답 필드 제거, 시작 불러오기 제거, 첫 탭 Chat 복귀, 화면 줄 제거)이 모두 새 검사에서 실패. 변형 없는 기준 실행 통과, fixture 잔여물 없음, 메인 checkout 실행 전후 같음 |
+| R7 | PASS. SOP validator PASS, discord-intake 137/0, `git diff --check`(baseline 대비) 통과, 변경 범위 6파일, `jarvis.bat`은 tree에 없음, 코드는 `10f7904` 대비 차이 0줄, C4 안내 문구 그대로, QA worktree 변경 없음 |
+| 브라우저 | 첫 진입 시 활성 탭은 Project Control 하나, 보이는 패널은 `tab-tasks` 하나, overview 요청 1회, "Not shown: 103 of 113 Tasks (DONE 103). Read-only count; …" 한 줄과 "Displayed total: 10" 표시. Chat·Voice·Skills·History·Settings·Project Control 순 전환에서 각 탭과 패널만 보였고(Project Control 복귀 시 overview 재요청은 기존 동작), 브라우저 콘솔 오류 없음 |
+
+실행 뒤 정리: QA worktree 삭제, 8790 listener·남은 Python 프로세스 없음, `%TEMP%\jarvis_worker_smoke_*` 39개 그대로.
+
+## `total` 정의: Owner 조건부 수용과 확인 (원문)
+
+```text
+Owner 결정:
+
+1. task-0162 QA 결과를 기록하고, task 기록 파일만 별도 checkpoint 커밋하는 것을 승인합니다.
+2. `total`은 Task View 후보 집합 기준이라는 정의를 조건부 수용합니다. task-0043 제외 규칙을 포함해 API 필드와 UI 문구가 동일한 집합을 가리키는지 확인하세요. 기존 API의 `total` 의미를 변경해야 하는 상황이면 수정하지 말고 보고하세요.
+3. 위 두 항목 확인 후 Console Complete Preview까지만 진행하세요.
+
+제한:
+
+* `jarvis.bat`은 열기·읽기·수정·스테이징·커밋하지 마세요.
+* task-0162의 코드 변경은 수정하지 마세요.
+* Complete Confirm, DONE 처리, DONE checkpoint, master-plan 수정, push는 별도 승인 전까지 하지 마세요.
+* 작업 후 Git 상태와 커밋 범위를 보고하고 중단하세요.
+```
+
+확인 결과(코드 정적 확인과 메인 checkout HEAD `76db4a4`에서 Python으로 함수만 불러 읽기 전용 계산, 서버·쓰기 없음):
+
+- 같은 집합: `overview_payload()`가 `discover_recent_items(("memory_tasks",), apply_caps=False)` → `project_task_view_items()`로 만든 하나의
+  projection에서 `tasks`(앞 10개)와 `task_view_counts`(`total` = projection 수, `hidden` = 나머지)를 함께 만든다. UI는 같은 응답의
+  `counts.total`·`counts.hidden`·`hidden_by_status`만 쓴다(`app.js` `taskViewHiddenCountsMarkup`). 실측: projection 113, `total` 113,
+  `displayed` 10 = `tasks` 길이, `tasks` = projection 앞 10개, `hidden_by_status`는 projection 나머지 103건의 status 집계와 같다.
+- task-0043 제외: discovery의 `SECRET_LIKE_NAME_PARTS`("secret" 등) 규칙으로 후보에서 빠진다. 템플릿을 뺀 task 파일 114개 중 projection에
+  없는 것은 `task-0043-no-secrets-enforcement.md` 하나뿐이고 projection에만 있는 것은 없다. API의 `total`과 UI의 "of 113 Tasks", Task View
+  선택이 모두 이 같은 집합을 가리킨다.
+- 기존 의미 변경 없음: baseline의 `/api/overview`에는 `total` 필드가 없었다(`discovery.max_total_items`는 다른 상한 값으로 그대로).
+  `task_view_counts`는 새 필드라 기존 API의 `total` 의미를 바꾸지 않는다. 따라서 수정할 것이 없고 코드는 바꾸지 않았다.
