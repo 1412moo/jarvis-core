@@ -2,10 +2,10 @@
 
 - id: `task-0161-self-check-empty-string-starts-bot`
 - title: `Discord bot_minimal.py --self-check ''(빈 문자열)이 self-check로 처리되지 않고 실제 봇 기동 경로로 들어가는 결함`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-16 14:36 UTC`
-- updated_at: `2026-10-17 07:47 UTC`
+- updated_at: `2026-10-17 09:53 UTC`
 - summary: `adapters/discord/bot_minimal.py의 main()은 args.self_check의 참·거짓으로 self-check 여부를 정해서, --self-check ''(빈 문자열)은 self-check 분기를 지나쳐 .env 환경으로 실제 Discord 봇을 기동할 수 있다(task-0160 검증 중 실제 발생). Owner 결정으로 task-0160과 분리한 높은 우선순위 결함이다. Owner가 승인한 A안대로 main()의 두 판정을 args.self_check is not None으로 바꾸고 README 설명과 self-check suite 회귀 검사 1건을 더했으며, 실제 봇 기동 없이 검증하고 push는 하지 않는다.`
 - source_command: `Owner 결정: 빈 문자열 결함은 별도 task로 등록, 우선순위 높음`
 
