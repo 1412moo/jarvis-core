@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-17 13:46 UTC`
-- updated_at: `2026-10-17 14:36 UTC`
+- updated_at: `2026-10-17 14:58 UTC`
 - summary: `Discord 봇의 /run 경로는 허용 스크립트 출력을 UTF-8로 해독하지만, 자식 Python은 출력이 파이프일 때 이 데스크톱의 cp949로 써서 intake smoke 출력의 한국어가 깨진다(U+FFFD 280개 재현). _build_execution_result_real()의 subprocess.run에 PYTHONIOENCODING=utf-8을 더한 환경을 넘기고 self-check 판정을 보강한다. 허용 목록·타임아웃·요약 규칙은 바꾸지 않고, Start/Complete는 Owner가 Console 화면에서 직접 실행하며 push는 하지 않는다.`
 - source_command: `Owner 승인: task-0163 제안 승인, TODO 등록`
 
@@ -168,3 +168,46 @@ T1~T4는 baseline `fb61910` 임시 worktree에 작업 트리의 `bot_minimal.py`
 | --- | --- | --- |
 | Reviewer 1 | `dcd69d876d528a846189185c0408acdcdf28986c` | FINDINGS(minor 3, 모두 이 기록), `self_deviations` 없음: candidate 승인 마지막 문장(보고 후 멈춤) 행 없음, 등록 승인 마지막 문장(등록 결과·Git 상태만 보고)이 P0에 없음, S2a에 승인 근거 없음. 코드 지적 없음 |
 | repair 1 | (이 기록 수정) | Owner가 S2a를 범위에 포함해 승인하고 repair 1을 승인했다. P0에 등록 승인 마지막 문장 인용, P6(보고 후 멈춤)·P7(repair 1 블록) 추가, S2a에 Owner 승인 인용, 승인 원문 블록 추가. 코드 변경 없음. `repair_count=1`(budget 1 소진) |
+| Reviewer 2 | `d967d9f60df59f7bac7ec0ed71a012fa8658d84e` | PASS, findings 없음, `self_deviations` 없음. 미검증으로 밝힌 것: T1~T5 실행 결과, Console 서버·UI Start·봇 미기동·push 여부 |
+
+## QA (candidate `d967d9f60df59f7bac7ec0ed71a012fa8658d84e`)
+
+2026-10-17에 Implementer 결과를 옮기지 않고 candidate 기준으로 새로 실행했다. T1~T4·S2a는 candidate로 만든 detached 임시 worktree에서,
+T5는 또 다른 candidate worktree에서 실행했고 둘 다 끝난 뒤 지웠다. 두 worktree 모두 `adapters/discord/.env`가 없었고 실행 환경에서
+`DISCORD_BOT_TOKEN`·`PYTHONUTF8`·`PYTHONIOENCODING`을 지웠다. S2a 확인용으로 suite 실행 환경에 표식 값 `JARVIS_QA_SENTINEL`을 넣었다.
+봇 기동과 `--self-check ''`은 하지 않았다.
+
+| # | 결과 |
+| --- | --- |
+| T1 | PASS. 설정 없음·`PYTHONUTF8=1` 모두 종료 0, `ok=True`, 94/0, `execution_output_utf8_and_none_safe` PASS |
+| S2a | PASS. 두 실행 모두 suite 출력 전체에 표식 값이 없고, 상세에는 `PYTHONIOENCODING` 값과 `PATH` 보존 여부만 있다 |
+| T2 | PASS. 허용 명령을 봇과 같은 해독으로 실행: 물려받은 env 그대로면 U+FFFD 280개·한국어 깨짐, `PYTHONIOENCODING=utf-8`을 더하면 U+FFFD 0개·한국어 정상 |
+| T3 | PASS. env 줄을 뺀 변형에서 suite 종료 1, failed는 `execution_output_utf8_and_none_safe` 하나 |
+| T4 | PASS. 실제 `_build_execution_result_real()`: `executed`·`success` true, `error_reason` 없음, 요약 223자(220자 + "..."), 제어 문자 0, U+FFFD 0 |
+| T5 | PASS. `py_compile` 통과, discord-intake 138/0, Worker smoke 354/0, SOP validator PASS, Console smoke PASS, `git diff --check`(baseline 대비) 통과. 코드 변경은 `bot_minimal.py` 하나(+12/−1), `dcd69d8` 대비 코드 차이 0줄. 허용 목록·`EXECUTION_TIMEOUT_SECONDS = 10`·`EXECUTION_OUTPUT_MAX_CHARS = 220` 그대로, `jarvis.bat`은 tree에 없음, QA worktree 변경 없음 |
+
+실행 뒤 정리: 임시 worktree 삭제, 메인 checkout 실행 전후 같음, `%TEMP%\jarvis_worker_smoke_*` 39개 그대로, Console 서버(PID 30036)는
+Owner 지시대로 유지.
+
+## QA 발견 사항: S2a 자동 회귀 검사 공백 (후속 개선 후보)
+
+- S2a를 되돌린 변형(상세에 `kwargs` 전체, 곧 env까지 다시 출력)에서 self-check는 종료 0, 94/0으로 그대로 통과했고 표식 값이 출력에
+  나왔다. 현재 candidate는 env를 출력하지 않으므로 구현 결함이 아니다. 다만 S2a가 되돌려져도 self-check가 잡지 못하는 자동 회귀 검사
+  공백이다. QA의 표식 확인은 일회성이라 저장소에 남지 않는다.
+- Owner 결정(아래 원문)에 따라 이 task에서는 고치지 않고 후속 개선 후보로 둔다. 후보 내용: self-check `execution_output_utf8_and_none_safe`에
+  "상세에 env 값(예: 넘긴 env에만 있는 표식 값)이 없음" 확인을 더하는 것.
+
+Owner 결정(원문):
+
+```text
+task-0163 QA 결과에 대해 다음과 같이 결정합니다.
+
+1. 선택 (a): S2a 회귀 검사 누락은 현재 task에서 추가 수정하지 않습니다. task 기록에 후속 개선 후보로 남깁니다. 현재 구현의 결함으로 분류하지 말고, 자동 회귀 검사 공백으로 기록해 주세요.
+2. QA 결과와 발견 사항을 반영한 task 기록 전용 checkpoint 커밋을 진행해 주세요. 코드 파일은 수정하지 않습니다.
+3. checkpoint 커밋 해시, 변경 파일과 diff 범위, Git 상태를 보고해 주세요.
+4. 그다음 Console Complete Preview까지만 진행해 주세요. 제가 Claude에게 Confirm도 맡기기로 했으므로, Preview 결과를 보고하고 Confirm 단계로 이어갈 준비를 해 주세요.
+5. Confirm 이후에도 실제 task 상태와 변경 diff를 검증해 주세요. DONE checkpoint, master-plan 수정, push는 별도 단계로 보고하고 승인 없이 실행하지 마세요.
+6. `jarvis.bat`은 열기·읽기·수정·스테이징·커밋하지 않습니다. Console 서버는 유지해 주세요.
+
+현재 repair 예산은 늘리지 않으며, 코드 수정이나 추가 Reviewer·QA 사이클도 진행하지 않습니다.
+```
