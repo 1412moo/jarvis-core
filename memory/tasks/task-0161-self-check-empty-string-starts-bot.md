@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-16 14:36 UTC`
-- updated_at: `2026-10-17 06:15 UTC`
-- summary: `adapters/discord/bot_minimal.py의 main()은 args.self_check의 참·거짓으로 self-check 여부를 정해서, --self-check ''(빈 문자열)은 self-check 분기를 지나쳐 .env 환경으로 실제 Discord 봇을 기동할 수 있다(task-0160 검증 중 실제 발생). Owner 결정으로 task-0160과 분리한 높은 우선순위 결함이며, 지금은 TODO 등록만 했고 구현 범위와 방법은 정식 시작 전에 Owner 승인을 받는다.`
+- updated_at: `2026-10-17 06:51 UTC`
+- summary: `adapters/discord/bot_minimal.py의 main()은 args.self_check의 참·거짓으로 self-check 여부를 정해서, --self-check ''(빈 문자열)은 self-check 분기를 지나쳐 .env 환경으로 실제 Discord 봇을 기동할 수 있다(task-0160 검증 중 실제 발생). Owner 결정으로 task-0160과 분리한 높은 우선순위 결함이다. Owner가 승인한 A안대로 main()의 두 판정을 args.self_check is not None으로 바꾸고 README 설명과 self-check suite 회귀 검사 1건을 더했으며, 실제 봇 기동 없이 검증하고 push는 하지 않는다.`
 - source_command: `Owner 결정: 빈 문자열 결함은 별도 task로 등록, 우선순위 높음`
 
 ## 우선순위
@@ -91,11 +91,26 @@ task-0161 조사 결과를 검토했습니다. 아래 범위로 진행 준비해
 아직 Start Confirm, 구현, 커밋, push는 하지 마세요. Preview 결과와 변경 예정 범위를 보고하고 Owner의 다음 승인을 기다리세요.
 ```
 
+정식 시작 승인(원문):
+
+```text
+task-0161 Console Start 진행하고 구현 시작해줘
+```
+
+candidate·Reviewer 진행 승인(원문):
+
+```text
+candidate 커밋해서 Reviewer 진행해
+```
+
 ## Manager 요약
 
 | # | 승인 조건 | Manager 해석과 충족 방법 |
 | --- | --- | --- |
-| P0 | 기록 반영 후 Console Start Preview까지만, Start Confirm·구현·커밋·push는 Owner의 다음 승인 뒤 | 이 기록에 범위와 검증 계획을 적고 Start Preview만 받는다 |
+| P0 | 기록 반영 후 Console Start Preview까지만, Start Confirm·구현·커밋·push는 Owner의 다음 승인 뒤 | 이 기록에 범위와 검증 계획을 적고 Start Preview만 받는다(완료). 이후 승인은 P1·P2 |
+| P1 | "task-0161 Console Start 진행하고 구현 시작해줘" | Start Confirm(`START TASK`)과 S1~S3 구현이 승인됐다 |
+| P2 | "candidate 커밋해서 Reviewer 진행해" | candidate 커밋과 Reviewer 실행이 승인됐다. push는 여전히 승인되지 않았다(AGENTS.md·SOP의 별도 승인 사항) |
+| X4 | "실제 봇 기동이나 Discord 연결 테스트 금지"(등록 승인 블록) | 이후 승인 블록이 풀지 않았으므로 계속 적용한다. 실제 봇 기동이나 Discord 연결을 일으키는 실행을 하지 않는다. suite 회귀 검사는 대역으로 기동 직전에 막고, CLI 검증은 V1 조건(토큰·`.env` 없음)에서만 한다 |
 | S1 | `args.self_check` 판정 두 곳을 `args.self_check is not None`으로 | `main()`의 `if args.self_check_suite or args.self_check:`와 `if args.self_check:` 두 줄만 바꾼다. `''`은 `' '`와 같이 JSON `empty_input`, 종료 코드 2 |
 | S2 | README의 빈 입력 설명 수정 | Discord README의 "공백만 있는 입력은 2다"를 빈 입력과 공백만 있는 입력이 2라는 뜻으로 고친다 |
 | S3 | self-check suite에 회귀 검사 1건 | `sys.argv`를 `--self-check ''`과 없는 `--env-file` 경로로 바꿔 `main()`을 호출한다. `_validate_required_env`·`_start_discord_bot`은 호출되면 기록하고 예외를 내는 대역으로 바꾼다. 출력은 `io.TextIOWrapper(io.BytesIO())`로 받는다(`reconfigure` 필요). `SystemExit(2)`, 출력의 `empty_input`, 두 대역 미호출을 확인하고, 원래 함수·`sys.argv`·`sys.stdout`을 되돌린다. suite는 93건 → 94건 |
@@ -153,3 +168,10 @@ checkout에서는 `--self-check ''`을 어떤 형태로도 실행하지 않았�
 | T5 | `py_compile` 통과, discord-intake 136/0(task 기록 1건 증가 반영), Worker smoke 354/0(`%TEMP%` smoke 폴더 39개 그대로), SOP validator PASS, Console smoke PASS, `git diff --check` 통과, 변경 파일 2개와 이 기록 |
 
 미확인: `jarvis.bat`의 `--self-check` 호출 여부(접근 금지).
+
+## Reviewer와 repair 이력
+
+| 회차 | candidate | 결과 |
+| --- | --- | --- |
+| Reviewer 1 | `0abdf86de43d7ecbbd653e12763a1ddadaffb65c` | FINDINGS(minor 4, 모두 이 기록): Manager 요약 P0가 이후의 시작·candidate 승인을 반영하지 않음, 등록 승인 블록의 "실제 봇 기동이나 Discord 연결 테스트 금지"가 요약에 없음, summary 필드가 TODO 등록 상태를 말함, 파일 끝 줄바꿈이 빠짐. 코드·README 지적 없음. Reviewer 보고에 `self_deviations` 1건(git grep 대안 패턴)이 있어 SOP상 이 검토는 무효이고, 새 candidate에 Reviewer를 다시 실행한다 |
+| repair 1 | (이 기록 수정) | Manager가 budget 안에서 진행. summary 필드를 승인 범위와 구현 상태에 맞게 고치고, 시작·candidate 승인 원문을 "Owner 결정"에 옮기고, Manager 요약에 P1·P2(push 미승인 포함)·X4를 더하고, 파일 끝 줄바꿈을 되살렸다. 코드와 README는 바꾸지 않았다. `repair_count=1`(budget 1 소진) |
