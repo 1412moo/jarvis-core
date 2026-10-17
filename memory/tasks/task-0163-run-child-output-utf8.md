@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-17 13:46 UTC`
-- updated_at: `2026-10-17 14:33 UTC`
+- updated_at: `2026-10-17 14:36 UTC`
 - summary: `Discord 봇의 /run 경로는 허용 스크립트 출력을 UTF-8로 해독하지만, 자식 Python은 출력이 파이프일 때 이 데스크톱의 cp949로 써서 intake smoke 출력의 한국어가 깨진다(U+FFFD 280개 재현). _build_execution_result_real()의 subprocess.run에 PYTHONIOENCODING=utf-8을 더한 환경을 넘기고 self-check 판정을 보강한다. 허용 목록·타임아웃·요약 규칙은 바꾸지 않고, Start/Complete는 Owner가 Console 화면에서 직접 실행하며 push는 하지 않는다.`
 - source_command: `Owner 승인: task-0163 제안 승인, TODO 등록`
 
@@ -67,12 +67,21 @@ task-0163의 다음 단계를 승인합니다.
 
 candidate 커밋의 해시와 변경 범위, Reviewer 결과, 현재 Git 상태를 보고하고 멈춰 주세요.
 ```
+Reviewer 1 FINDINGS 뒤 S2a 승인과 repair 1 승인(원문):
+
+```text
+1. S2a(self-check 상세에서 env 제외)를 이번 task 범위에 포함하는 것을 승인합니다. 환경변수 전체를 상세 출력에 노출하지 않고, `PYTHONIOENCODING` 값과 `PATH` 유지 여부만 출력하는 변경을 유지해 주세요.
+2. Reviewer 1의 minor findings 3건을 처리하기 위해 repair 1을 승인합니다. task 기록에 누락된 두 승인 지시문을 인용하고, S2a에 대한 이번 승인을 명시해 주세요.
+3. 코드 변경은 하지 마세요. task 기록만 수정한 뒤 새 candidate로 Reviewer를 다시 실행해 결과를 보고해 주세요.
+4. QA checkpoint, Console Complete, DONE 처리, master-plan 수정, push는 아직 승인하지 않습니다. `jarvis.bat`은 계속 보호하고, Console 서버도 유지해 주세요.
+5. 새 candidate 해시, 수정된 기록 범위, Reviewer 결과, Git 상태를 보고하고 멈춰 주세요.
+```
 
 ## Manager 요약
 
 | # | 승인 조건 | Manager 해석과 충족 방법 |
 | --- | --- | --- |
-| P0 | "`task-0163-run-child-output-utf8`을 TODO로 등록해 주세요." / "등록 후 파일 수정이나 구현은 시작하지 말고 멈춰 주세요." | 이 기록만 `TODO`로 만들고 멈춘다. 구현은 Owner의 Start 뒤, 구현 진행 지시를 받은 다음에 한다 |
+| P0 | "`task-0163-run-child-output-utf8`을 TODO로 등록해 주세요." / "등록 후 파일 수정이나 구현은 시작하지 말고 멈춰 주세요." / "등록 결과와 Git 상태만 보고하고 기다려 주세요." | 이 기록만 `TODO`로 만들고, 등록 결과와 Git 상태만 보고한 뒤 멈췄다. 구현은 Owner의 Start 뒤, 구현 진행 지시를 받은 다음에 했다 |
 | P1 | "제가 Console Project Control 화면에서 직접 Start Preview → Confirm을 진행하겠습니다." 뒤 Owner 지시 "너가해" | 처음에는 Owner가 직접 실행하기로 했으나, Owner가 서버 기동 뒤 "너가해"로 맡겼다. Manager는 Console API를 스크립트로 부르지 않고 Console Project Control 화면의 Start Task → Confirm Start 버튼으로 실행했다(13:54 UTC). Complete는 Owner가 Console에서 직접 실행할 예정이다 |
 | P2 | "제안된 범위, 완료 조건, T1~T5 검증 계획을 task 기록에 반영합니다." | 아래 범위·완료 조건·검증 계획 절 |
 | S1 | 범위: 자식 실행 환경에 `PYTHONIOENCODING=utf-8` | `_build_execution_result_real()`의 `subprocess.run`에 `env={**os.environ, "PYTHONIOENCODING": "utf-8"}`를 넘기는 1줄. 나머지 인자와 동작은 그대로 |
@@ -80,7 +89,9 @@ candidate 커밋의 해시와 변경 범위, Reviewer 결과, 현재 Git 상태�
 | P3 | "구현 진행해줘" | Start 뒤 S1·S2 구현을 시작했다 |
 | P4 | candidate 승인 블록 1~3: "현재 구현과 task 기록을 검토하고 candidate 커밋을 생성합니다." / "candidate에 대해 Reviewer를 실행하고 findings를 보고합니다." / "수정이 필요하면 task에 정해진 repair budget(retry 1, repair 1) 안에서만 진행합니다." | candidate 커밋과 Reviewer 실행이 승인됐다. repair·retry는 각 1회까지이고 넘으면 Owner에게 보고한다 |
 | P5 | candidate 승인 블록 4~7: "`adapters/discord/bot_minimal.py`와 task-0163 기록 외의 파일은 변경하지 않습니다." / "`jarvis.bat`은 …" / "Console 서버는 유지합니다. 제가 직접 Console에서 Complete를 실행할 예정이므로 서버를 종료하지 마세요." / "QA checkpoint, DONE 처리, master-plan 수정, push는 아직 하지 않습니다." | 변경 파일은 두 개뿐이다. Manager가 띄운 Console 서버(PID 30036)를 종료하지 않는다. Complete는 Owner가 직접 실행한다. QA checkpoint·DONE·master-plan·push는 하지 않는다 |
-| S2a | (S2 구현에 따른 출력 정리) | S2로 self-check가 env를 다루게 되면서 기존 상세 문자열(`kwargs` 전체 출력)에 `.env`에서 읽은 봇 토큰이 찍힐 수 있었다. 같은 검사의 상세에서 `env`를 빼고 `PYTHONIOENCODING` 값과 `PATH` 보존 여부만 찍는다. 판정은 S2 그대로이고 다른 검사·출력은 바꾸지 않는다. AGENTS.md 원칙 5(비밀 정보를 산출물에 노출하지 않음)에 따른 것이다 |
+| S2a | Implementer가 S2 구현 중 추가한 변경. Owner 승인(repair 1 블록 1): "S2a(self-check 상세에서 env 제외)를 이번 task 범위에 포함하는 것을 승인합니다. 환경변수 전체를 상세 출력에 노출하지 않고, `PYTHONIOENCODING` 값과 `PATH` 유지 여부만 출력하는 변경을 유지해 주세요." | S2로 self-check가 env를 다루게 되면서 기존 상세 문자열(`kwargs` 전체 출력)에 `.env`에서 읽은 봇 토큰이 찍힐 수 있었다. 같은 검사의 상세에서 `env`를 빼고 `PYTHONIOENCODING` 값과 `PATH` 보존 여부만 찍는다. 판정은 S2 그대로이고 다른 검사·출력은 바꾸지 않는다. AGENTS.md 원칙 5(비밀 정보를 산출물에 노출하지 않음)에 따른 것이다 |
+| P6 | candidate 승인 블록 마지막 문장: "candidate 커밋의 해시와 변경 범위, Reviewer 결과, 현재 Git 상태를 보고하고 멈춰 주세요." | Reviewer 1 뒤 해시·변경 범위·Reviewer 결과·Git 상태를 보고하고 멈췄다. 보고 없이 QA나 repair로 넘어가지 않았다 |
+| P7 | repair 1 블록 2~5: "Reviewer 1의 minor findings 3건을 처리하기 위해 repair 1을 승인합니다. task 기록에 누락된 두 승인 지시문을 인용하고, S2a에 대한 이번 승인을 명시해 주세요." / "코드 변경은 하지 마세요. task 기록만 수정한 뒤 새 candidate로 Reviewer를 다시 실행해 결과를 보고해 주세요." / "QA checkpoint, Console Complete, DONE 처리, master-plan 수정, push는 아직 승인하지 않습니다. `jarvis.bat`은 계속 보호하고, Console 서버도 유지해 주세요." / "새 candidate 해시, 수정된 기록 범위, Reviewer 결과, Git 상태를 보고하고 멈춰 주세요." | repair 1은 이 기록만 고친다(P0 보강, P6·P7 추가, S2a에 Owner 승인 인용, 이력). 코드 변경 없음. 새 candidate에 Reviewer를 다시 실행하고 해시·기록 범위·Reviewer 결과·Git 상태를 보고한 뒤 멈춘다. QA checkpoint·Complete·DONE·master-plan·push는 하지 않고 Console 서버를 유지한다 |
 | X1 | "이번 작업과 관계없는 인코딩 처리, 봇 동작, 리팩터링은 범위에 넣지 않습니다." | 허용 목록, 실행 명령(`python`), 타임아웃, 요약 규칙(220자·제어 문자), Buzz 발행, Worker, intake smoke 스크립트는 바꾸지 않는다 |
 | X2 | "`jarvis.bat`은 열기·읽기·수정·스테이징·커밋하지 않습니다. push도 별도 승인 없이 하지 않습니다." | 접근하지 않고 push하지 않는다(push는 AGENTS.md·SOP상으로도 별도 승인) |
 
@@ -150,3 +161,10 @@ T1~T4는 baseline `fb61910` 임시 worktree에 작업 트리의 `bot_minimal.py`
 | T3 | env 줄을 뺀 변형: suite 종료 1, failed는 `execution_output_utf8_and_none_safe` 하나 |
 | T4 | 실제 `_build_execution_result_real()` 실행(Discord·task 기록 없음): `executed`·`success` true, `error_reason` 없음, 요약 223자(220자 + "..."), 제어 문자 0, U+FFFD 0 |
 | T5 | discord-intake 138/0(task 기록 증가 반영), Worker smoke 354/0(`%TEMP%` smoke 폴더 39개 그대로), SOP validator PASS, Console smoke PASS, `git diff --check` 통과, 변경 파일 `bot_minimal.py` 하나(+12/−1)와 이 기록 |
+
+## Reviewer와 repair 이력
+
+| 회차 | candidate | 결과 |
+| --- | --- | --- |
+| Reviewer 1 | `dcd69d876d528a846189185c0408acdcdf28986c` | FINDINGS(minor 3, 모두 이 기록), `self_deviations` 없음: candidate 승인 마지막 문장(보고 후 멈춤) 행 없음, 등록 승인 마지막 문장(등록 결과·Git 상태만 보고)이 P0에 없음, S2a에 승인 근거 없음. 코드 지적 없음 |
+| repair 1 | (이 기록 수정) | Owner가 S2a를 범위에 포함해 승인하고 repair 1을 승인했다. P0에 등록 승인 마지막 문장 인용, P6(보고 후 멈춤)·P7(repair 1 블록) 추가, S2a에 Owner 승인 인용, 승인 원문 블록 추가. 코드 변경 없음. `repair_count=1`(budget 1 소진) |
