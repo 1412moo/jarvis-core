@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-16 14:36 UTC`
-- updated_at: `2026-10-17 06:51 UTC`
+- updated_at: `2026-10-17 07:11 UTC`
 - summary: `adapters/discord/bot_minimal.py의 main()은 args.self_check의 참·거짓으로 self-check 여부를 정해서, --self-check ''(빈 문자열)은 self-check 분기를 지나쳐 .env 환경으로 실제 Discord 봇을 기동할 수 있다(task-0160 검증 중 실제 발생). Owner 결정으로 task-0160과 분리한 높은 우선순위 결함이다. Owner가 승인한 A안대로 main()의 두 판정을 args.self_check is not None으로 바꾸고 README 설명과 self-check suite 회귀 검사 1건을 더했으며, 실제 봇 기동 없이 검증하고 push는 하지 않는다.`
 - source_command: `Owner 결정: 빈 문자열 결함은 별도 task로 등록, 우선순위 높음`
 
@@ -61,7 +61,7 @@
 | baseline | `fd195bcafd2a46685563caa231d9ea8f880740bf` (main HEAD = origin/main) |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 환경 | Windows ACP 949, Python 3.12.10, `PYTHONUTF8`·`PYTHONIOENCODING` 미설정. 메인 checkout에 `adapters/discord/.env` 있음(열지 않음) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (시작 시점. 이후 Owner가 `repair_budget`을 2로 늘렸고 현재 `repair_count=2`, 아래 "Reviewer와 repair 이력") |
 
 ## 조사 결과 (read-only, 정적 분석 기준, 2026-10-17)
 
@@ -103,11 +103,18 @@ candidate·Reviewer 진행 승인(원문):
 candidate 커밋해서 Reviewer 진행해
 ```
 
+Reviewer 2 FINDINGS 뒤 repair 2 승인(원문):
+
+```text
+repair 예산 2로 늘려서 repair 2 진행해줘
+```
+
 ## Manager 요약
 
 | # | 승인 조건 | Manager 해석과 충족 방법 |
 | --- | --- | --- |
 | P0 | 기록 반영 후 Console Start Preview까지만, Start Confirm·구현·커밋·push는 Owner의 다음 승인 뒤 | 이 기록에 범위와 검증 계획을 적고 Start Preview만 받는다(완료). 이후 승인은 P1·P2 |
+| R0 | "별도 task를 `TODO` 상태로 등록하고 우선순위를 높게 설정한다." / "기존 task 등록 규칙과 문서 형식을 먼저 확인하고, 중복 task가 없는지 확인한 뒤 등록하라." / "실제로 등록한 task ID를 보고하고 task-0160 기록의 X4에 해당 ID를 반영하라."(등록 승인 블록) | 등록 시점(baseline `fd195bc` 이전)에 충족했다: `TODO`로 등록하고 "우선순위" 절에 높음을 적었으며, 템플릿과 중복 검색은 "등록 시 확인" 표에, ID는 task-0160 기록 X4에 있다. 이번 변경 범위 밖이다 |
 | P1 | "task-0161 Console Start 진행하고 구현 시작해줘" | Start Confirm(`START TASK`)과 S1~S3 구현이 승인됐다 |
 | P2 | "candidate 커밋해서 Reviewer 진행해" | candidate 커밋과 Reviewer 실행이 승인됐다. push는 여전히 승인되지 않았다(AGENTS.md·SOP의 별도 승인 사항) |
 | X4 | "실제 봇 기동이나 Discord 연결 테스트 금지"(등록 승인 블록) | 이후 승인 블록이 풀지 않았으므로 계속 적용한다. 실제 봇 기동이나 Discord 연결을 일으키는 실행을 하지 않는다. suite 회귀 검사는 대역으로 기동 직전에 막고, CLI 검증은 V1 조건(토큰·`.env` 없음)에서만 한다 |
@@ -175,3 +182,5 @@ checkout에서는 `--self-check ''`을 어떤 형태로도 실행하지 않았�
 | --- | --- | --- |
 | Reviewer 1 | `0abdf86de43d7ecbbd653e12763a1ddadaffb65c` | FINDINGS(minor 4, 모두 이 기록): Manager 요약 P0가 이후의 시작·candidate 승인을 반영하지 않음, 등록 승인 블록의 "실제 봇 기동이나 Discord 연결 테스트 금지"가 요약에 없음, summary 필드가 TODO 등록 상태를 말함, 파일 끝 줄바꿈이 빠짐. 코드·README 지적 없음. Reviewer 보고에 `self_deviations` 1건(git grep 대안 패턴)이 있어 SOP상 이 검토는 무효이고, 새 candidate에 Reviewer를 다시 실행한다 |
 | repair 1 | (이 기록 수정) | Manager가 budget 안에서 진행. summary 필드를 승인 범위와 구현 상태에 맞게 고치고, 시작·candidate 승인 원문을 "Owner 결정"에 옮기고, Manager 요약에 P1·P2(push 미승인 포함)·X4를 더하고, 파일 끝 줄바꿈을 되살렸다. 코드와 README는 바꾸지 않았다. `repair_count=1`(budget 1 소진) |
+| Reviewer 2 | `67ebb6f851bb6b596b6a68408daeec113a179c77` | FINDINGS(minor 1): 등록 승인 블록의 조건(TODO·우선순위 높음 등록, 등록 규칙·중복 확인, task-0160 X4에 ID 반영)에 해당하는 Manager 요약 행이 없음. 본문과 task-0160 X4에는 이미 충족돼 있음. `self_deviations` 없음 |
+| repair 2 | (이 기록 수정) | Owner가 repair budget을 2로 늘리고 repair 2를 승인했다("repair 예산 2로 늘려서 repair 2 진행해줘"). Manager 요약에 R0 행을 더했다. 코드와 README는 바꾸지 않았다. `repair_budget=2`, `repair_count=2`(2회 중 2회 사용, 소진) |
