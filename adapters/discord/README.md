@@ -257,7 +257,7 @@ python3 adapters/discord/bot_minimal.py --self-check '/retry task-0001-bootstrap
 python3 adapters/discord/bot_minimal.py --self-check '/retro today'
 python3 adapters/discord/bot_minimal.py --self-check '/help'
 ```
-- `--self-check`는 명령 하나의 응답을 그대로 보여준다. 오류 응답도 정상 결과라 종료 코드는 0이고, 공백만 있는 입력은 2다.
+- `--self-check`는 명령 하나의 응답을 그대로 보여준다. 오류 응답도 정상 결과라 종료 코드는 0이고, 빈 입력(`''`)과 공백만 있는 입력은 `empty_input`으로 거절되어 2다.
 
 ### 4) 회귀 자체 검사 묶음 (`--self-check-suite`)
 ```bash

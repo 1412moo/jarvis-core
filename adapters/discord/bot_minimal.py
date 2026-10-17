@@ -3725,6 +3725,61 @@ def _run_self_check_suite() -> dict[str, Any]:
         subprocess.run = original_subprocess_run
     _record("execution_output_utf8_and_none_safe", none_output_ok, none_output_detail)
 
+    # --- task-0161: an empty --self-check '' never reaches the bot start -
+    # main() runs with --self-check '' and an env file that does not exist.
+    # The env check and the bot start are swapped for stubs that record the
+    # call and raise, so even a regression stops before any real start. The
+    # captured stdout needs reconfigure(), which io.StringIO does not have.
+    import io
+
+    start_calls: list[str] = []
+
+    class _StartReached(Exception):
+        pass
+
+    def _stub_validate_required_env() -> tuple[bool, str | None]:
+        start_calls.append("_validate_required_env")
+        raise _StartReached("_validate_required_env")
+
+    def _stub_start_discord_bot() -> None:
+        start_calls.append("_start_discord_bot")
+        raise _StartReached("_start_discord_bot")
+
+    original_validate_required_env = _validate_required_env
+    original_start_discord_bot = _start_discord_bot
+    original_argv = sys.argv
+    original_stdout = sys.stdout
+    captured = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+    exit_code: Any = None
+    empty_detail = ""
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_env_file = str(Path(tmp) / "missing.env")
+            globals()["_validate_required_env"] = _stub_validate_required_env
+            globals()["_start_discord_bot"] = _stub_start_discord_bot
+            sys.argv = ["bot_minimal.py", "--self-check", "", "--env-file", missing_env_file]
+            sys.stdout = captured
+            try:
+                main()
+            except SystemExit as exc:
+                exit_code = exc.code
+    except _StartReached as exc:
+        empty_detail = f"start path reached: {exc}"
+    except Exception as exc:  # noqa: BLE001 - recorded as a failed check
+        empty_detail = f"{type(exc).__name__}: {exc}"
+    finally:
+        sys.stdout = original_stdout
+        sys.argv = original_argv
+        globals()["_validate_required_env"] = original_validate_required_env
+        globals()["_start_discord_bot"] = original_start_discord_bot
+    captured.flush()
+    empty_output = captured.buffer.getvalue().decode("utf-8", errors="replace")
+    _record(
+        "self_check_empty_string_is_empty_input_not_bot_start",
+        exit_code == 2 and '"empty_input"' in empty_output and not start_calls,
+        empty_detail or f"exit={exit_code} start_calls={start_calls} output={empty_output.strip()}",
+    )
+
     failed = [check for check in checks if not check["ok"]]
     if failed:
         return {"result_type": "self_check_suite", "ok": False, "total": len(checks), "failed": failed, "checks": checks}
@@ -3849,7 +3904,8 @@ def main() -> None:
     args = _parse_args()
     _load_env_file(Path(args.env_file))
 
-    if args.self_check_suite or args.self_check:
+    # task-0161: compare with None, so an empty --self-check '' is a self-check (empty_input), not a bot start.
+    if args.self_check_suite or args.self_check is not None:
         # task-0158: the self-check JSON carries emoji and Korean; a cp949 stdout cannot encode them.
         sys.stdout.reconfigure(encoding="utf-8")
 
@@ -3861,7 +3917,7 @@ def main() -> None:
             raise SystemExit(1)
         return
 
-    if args.self_check:
+    if args.self_check is not None:
         command_text = args.self_check.strip()
         if not command_text:
             print(json.dumps(_error_payload("empty_input"), ensure_ascii=False))
