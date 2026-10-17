@@ -91,7 +91,12 @@ Included:
   commands, docs, safety notes, and non-goals.
 - Copy command buttons that never execute commands.
 - A `Project Control` tab that combines bounded master-plan fields with fixed
-  read-only Git metadata for one trusted Jarvis-Core owner card.
+  read-only Git metadata for one trusted Jarvis-Core owner card. It is the first
+  active tab and loads on first entry (task-0162).
+- A read-only `task_view_counts` field in `GET /api/overview` and one line in
+  the Actionable Task View: how many Tasks the 10-item view leaves out, by
+  status. Those Tasks cannot be started or completed until they are displayed;
+  the selection, its order and the cap are unchanged.
 - A single-repo `project_control.v0.1E` payload inside the existing
   `GET /api/overview` response; no new action route or persistence.
 - Read-only skill registry validation.

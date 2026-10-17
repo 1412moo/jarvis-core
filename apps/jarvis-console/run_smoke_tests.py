@@ -6613,6 +6613,167 @@ def _test_reports_filter_before_cap() -> None:
     assert all("task_view" not in item for item in task_group["items"])
 
 
+def _test_task_view_hidden_counts_and_first_screen() -> None:
+    """Report hidden Task counts read-only and open on Project Control (task-0162).
+
+    The capped Task View can leave TODO and DOING records out, and those then
+    cannot be started or completed here. task_view_counts says how many are
+    left out per status without changing the selection, its order or the cap,
+    and the shown and hidden counts add up to every projected Task. Project
+    Control is the first active tab and loads on first entry.
+    """
+
+    cap = run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
+    fixture_root = run_web_app.REPO_ROOT / "hidden-counts-fixture"
+    assert fixture_root.resolve().parent == run_web_app.REPO_ROOT.resolve()
+    shutil.rmtree(fixture_root, ignore_errors=True)
+    original_directory_lookup = run_web_app.overview_directory_by_key
+    relative = "hidden-counts-fixture/tasks"
+    baseline_keys = {
+        "checkpoints", "discovery", "docs_examples", "mode", "notes", "ok",
+        "project_control", "recent_groups", "repo", "reports", "skills", "tasks",
+    }
+
+    def build(records: tuple[tuple[str, str], ...]) -> dict:
+        shutil.rmtree(fixture_root, ignore_errors=True)
+        (run_web_app.REPO_ROOT / relative).mkdir(parents=True)
+        for index, (task_id, status) in enumerate(records):
+            path = run_web_app.REPO_ROOT / relative / f"{task_id}.md"
+            path.write_text(
+                f"# {task_id}\n\n"
+                f"- id: `{task_id}`\n"
+                f"- title: `fixture {status}`\n"
+                f"- status: `{status}`\n"
+                "- repo: `jarvis-core`\n"
+                "- created_at: `2026-10-17 09:00 UTC`\n"
+                f"- updated_at: `2026-10-17 10:{index:02d} UTC`\n"
+                f"- summary: `fixture record for {status}`\n",
+                encoding="utf-8",
+            )
+        mapping = dict(original_directory_lookup())
+        mapping["memory_tasks"] = {"key": "memory_tasks", "label": "Tasks", "path": relative}
+        return mapping
+
+    def overview(mapping) -> dict:
+        run_web_app.overview_directory_by_key = lambda: mapping
+        code, payload = run_web_app.handle_get_api("/api/overview")
+        assert code == HTTPStatus.OK
+        return payload
+
+    def status_of(item) -> str:
+        view = item["task_view"]
+        return view["status"] if view["parse_state"] == "valid" else "METADATA_REVIEW"
+
+    def check(records: tuple[tuple[str, str], ...], expected_hidden: dict) -> dict:
+        mapping = build(records)
+        payload = overview(mapping)
+        counts = payload["task_view_counts"]
+        view = payload["tasks"]
+        # existing keys stay; exactly one read-only key is added
+        assert set(payload) == baseline_keys | {"task_view_counts"}
+        assert counts["read_only"] is True
+        # selection, order and cap are unchanged (C1, C2)
+        assert len(view) == min(cap, len(records))
+        assert view == sorted(view, key=run_web_app.task_view_sort_key)
+        # actionable scope is still exactly the displayed list (C3)
+        assert run_web_app.selected_task_transition_items() == view
+        # shown + hidden adds up to every projected Task, per status as well
+        assert counts["total"] == len(records)
+        assert counts["displayed"] == len(view)
+        assert counts["displayed"] + counts["hidden"] == counts["total"]
+        assert sum(counts["hidden_by_status"].values()) == counts["hidden"]
+        assert counts["hidden_by_status"] == expected_hidden
+        for status in {status for _, status in records} | set(expected_hidden):
+            fixture_total = sum(1 for _, s in records if s == status)
+            if status not in run_web_app.TASK_VIEW_STATUS_RULES:
+                continue
+            shown = sum(1 for item in view if status_of(item) == status)
+            assert shown + counts["hidden_by_status"].get(status, 0) == fixture_total
+        return payload
+
+    try:
+        # 1 - the shape of the real repository: held attention records fill
+        # the front, so a TODO record is left out and only the count shows it
+        records = (
+            tuple((f"task-96{i:02d}-held", "NEEDS_APPROVAL") for i in range(5))
+            + tuple((f"task-97{i:02d}-doing", "DOING") for i in range(5))
+            + tuple((f"task-98{i:02d}-todo", "TODO") for i in range(2))
+            + tuple((f"task-99{i:02d}-done", "DONE") for i in range(8))
+        )
+        payload = check(records, {"TODO": 2, "DONE": 8})
+        assert not any(
+            item["task_view"].get("status") == "TODO" for item in payload["tasks"]
+        )
+        # 2 - invalid records rank first; overflow counts as METADATA_REVIEW
+        records = tuple(
+            (f"task-95{i:02d}-broken", "WAITING") for i in range(cap + 2)
+        ) + (("task-9499-done", "DONE"),)
+        check(records, {"METADATA_REVIEW": 2, "DONE": 1})
+        # 3 - everything fits: nothing hidden
+        check(tuple((f"task-93{i:02d}-done", "DONE") for i in range(3)), {})
+    finally:
+        run_web_app.overview_directory_by_key = original_directory_lookup
+        shutil.rmtree(fixture_root, ignore_errors=True)
+
+    # the hidden-count line renders read-only, escaped, with no action control
+    app_js = (Path(__file__).resolve().parent / "web" / "app.js").read_text(encoding="utf-8")
+    escape_source = "function escapeHtml" + app_js.split("function escapeHtml", 1)[1].split(
+        "function truncateText", 1
+    )[0]
+    counts_source = "function taskViewHiddenCountsMarkup" + app_js.split(
+        "function taskViewHiddenCountsMarkup", 1
+    )[1].split("\nfunction renderActionableTaskView(", 1)[0]
+    harness = (
+        f"{escape_source}\n{counts_source}\n"
+        """
+const shown = taskViewHiddenCountsMarkup({
+  read_only: true, total: 21, displayed: 10, hidden: 11,
+  hidden_by_status: { TODO: 2, "<b>": 1, DONE: 8 },
+});
+for (const part of ["Not shown:", "11 of 21 Tasks", "TODO 2", "DONE 8", "&lt;b&gt; 1"]) {
+  if (!shown.includes(part)) throw new Error(`missing ${part}: ${shown}`);
+}
+for (const forbidden of ["<button", "<b>", "fetch(", "data-task-action"]) {
+  if (shown.includes(forbidden)) throw new Error(`unexpected ${forbidden}`);
+}
+if (!taskViewHiddenCountsMarkup({ total: 3, displayed: 3, hidden: 0, hidden_by_status: {} }).includes("Not shown: none")) {
+  throw new Error("zero hidden did not render none");
+}
+if (taskViewHiddenCountsMarkup(undefined) !== "") throw new Error("missing counts rendered");
+"""
+    )
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, (
+        f"hidden counts renderer harness failed: {completed.stdout}\n{completed.stderr}"
+    )
+    assert "renderActionableTaskView(data.tasks, data.task_view_counts)" in app_js
+    actionable_source = app_js.split("\nfunction renderActionableTaskView(", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "taskViewHiddenCountsMarkup(counts)" in actionable_source
+
+    # B - Project Control is the first active tab and loads on first entry
+    index_html = (Path(__file__).resolve().parent / "web" / "index.html").read_text(encoding="utf-8")
+    assert index_html.count("tab-button active") == 1
+    assert '<button class="tab-button active" type="button" data-tab="tasks">' in index_html
+    assert '<section class="tab-panel" id="tab-tasks">' in index_html
+    assert '<section class="tab-panel hidden" id="tab-chat">' in index_html
+    assert index_html.count('<section class="tab-panel" id=') == 1
+    tail = app_js[app_js.index("registryLoadPromise = loadRegistryStatus();"):]
+    assert 'activateTab("tasks");' in tail
+    activate_source = app_js.split("\nfunction activateTab(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'if (tabId === "tasks") {\n    return loadOverview();' in activate_source
+
+
 def _test_task_view_attention_priority() -> None:
     """Select Task View items by display priority, not by file recency (task-0114).
 
@@ -7090,6 +7251,7 @@ def main() -> None:
     _test_recent_item_ordering()
     _test_reports_filter_before_cap()
     _test_task_view_attention_priority()
+    _test_task_view_hidden_counts_and_first_screen()
     _test_actionable_task_view_vertical_slice()
     _test_director_renderer_fails_closed_on_malformed_nested_data()
     _test_read_only_git_preserves_porcelain_status()

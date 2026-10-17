@@ -1306,7 +1306,21 @@ async function confirmTaskTransition() {
   }
 }
 
-function renderActionableTaskView(items) {
+function taskViewHiddenCountsMarkup(counts) {
+  // task-0162: read-only count of the Tasks the capped view leaves out.
+  if (!counts || typeof counts.hidden !== "number") {
+    return "";
+  }
+  if (counts.hidden === 0) {
+    return '<p class="muted">Not shown: none. Every Task is displayed.</p>';
+  }
+  const parts = Object.entries(counts.hidden_by_status || {}).map(
+    ([status, count]) => `${escapeHtml(status)} ${escapeHtml(String(count))}`,
+  );
+  return `<p class="muted"><strong>Not shown:</strong> ${escapeHtml(String(counts.hidden))} of ${escapeHtml(String(counts.total))} Tasks (${parts.join(", ")}). Read-only count; these Tasks cannot be started or completed here until they are displayed.</p>`;
+}
+
+function renderActionableTaskView(items, counts) {
   const groups = [
     ["metadata_review", "Needs metadata review"],
     ["needs_attention", "Needs attention"],
@@ -1328,6 +1342,7 @@ function renderActionableTaskView(items) {
       <p class="muted">Discovery and basic details are read-only. Start / Complete changes only status and updated_at. Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Each write requires Preview + Confirm and never executes or automatically completes the Task.</p>
       <p class="muted">Shows up to 10 Tasks, attention first then most recently updated; this is not the full backlog.</p>
       <p class="muted"><strong>Display order:</strong> metadata review, NEEDS_APPROVAL, BLOCKED, ON_HOLD, FAILED, DOING, TODO, DONE; then updated time newest first and path.</p>
+      ${taskViewHiddenCountsMarkup(counts)}
       <div class="overview-skill-grid">
         ${groups
           .map(([groupId, title]) => {
@@ -2058,7 +2073,7 @@ function renderOverview(data) {
       <h3>Skill Status</h3>
       ${renderOverviewSkills(data.skills)}
     </section>
-    ${renderActionableTaskView(data.tasks)}
+    ${renderActionableTaskView(data.tasks, data.task_view_counts)}
     ${renderRecentGroups(data.recent_groups)}
     <section class="overview-card safety-card">
       <h3>Safety Notes</h3>
@@ -2525,3 +2540,5 @@ if (manualCopyFallbackClose) {
 }
 
 registryLoadPromise = loadRegistryStatus();
+// task-0162: Project Control is the first screen, so load it on first entry.
+activateTab("tasks");

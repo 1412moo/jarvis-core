@@ -1858,6 +1858,44 @@ def project_task_view_items(
     return projected
 
 
+TASK_VIEW_COUNT_METADATA_REVIEW = "METADATA_REVIEW"
+
+
+def task_view_counts(
+    projection: list[dict[str, Any]],
+    displayed: int,
+) -> dict[str, Any]:
+    """Count the Tasks the capped Task View leaves out, by status (task-0162).
+
+    Read-only: it reuses the projection overview_payload already built, so no
+    file is read again and the selection, its order and the cap stay as they
+    are. An invalid record counts under METADATA_REVIEW, since it has no
+    trusted status. Statuses follow the display order and only those with a
+    hidden Task are listed.
+    """
+
+    hidden: dict[str, int] = {}
+    for item in projection[displayed:]:
+        task_view = item["task_view"]
+        status = (
+            task_view["status"]
+            if task_view["parse_state"] == "valid"
+            else TASK_VIEW_COUNT_METADATA_REVIEW
+        )
+        hidden[status] = hidden.get(status, 0) + 1
+    order = [TASK_VIEW_COUNT_METADATA_REVIEW, *TASK_VIEW_STATUS_RULES]
+    order += sorted(status for status in hidden if status not in order)
+    return {
+        "read_only": True,
+        "total": len(projection),
+        "displayed": displayed,
+        "hidden": len(projection) - displayed,
+        "hidden_by_status": {
+            status: hidden[status] for status in order if status in hidden
+        },
+    }
+
+
 def overview_skills_payload(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return core skill status cards with recent read-only artifacts."""
 
@@ -1900,9 +1938,8 @@ def overview_payload() -> dict[str, Any]:
     # takes the capped prefix of the same candidate list rather than the
     # priority-ordered projection.
     discovered_tasks = task_candidates[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY]
-    tasks = project_task_view_items(task_candidates)[
-        :OVERVIEW_MAX_ITEMS_PER_DIRECTORY
-    ]
+    task_projection = project_task_view_items(task_candidates)
+    tasks = task_projection[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY]
     reports = discover_recent_items(
         ("reports", "research_examples", "daily_ai_radar_examples"),
         item_types={"report"},
@@ -1929,6 +1966,9 @@ def overview_payload() -> dict[str, Any]:
         "project_control": project_control_payload(repo),
         "skills": overview_skills_payload(registry["skills"]),
         "tasks": tasks,
+        "task_view_counts": task_view_counts(
+            task_projection, len(tasks)
+        ),
         "reports": reports,
         "checkpoints": checkpoints,
         "docs_examples": docs_examples,

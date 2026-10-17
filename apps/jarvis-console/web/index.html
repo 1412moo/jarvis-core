@@ -24,18 +24,18 @@
 
   <main class="console-layout">
     <aside class="sidebar" aria-label="Jarvis Console tabs">
-      <button class="tab-button active" type="button" data-tab="chat">Chat / Command</button>
+      <button class="tab-button" type="button" data-tab="chat">Chat / Command</button>
       <button class="tab-button" type="button" data-tab="voice">Voice Inbox</button>
       <button class="tab-button" type="button" data-tab="skills">Skills</button>
       <button class="tab-button" type="button" data-tab="hermes">Hermes Manager</button>
       <button class="tab-button" type="button" data-tab="radar">Daily AI Radar</button>
-      <button class="tab-button" type="button" data-tab="tasks">Project Control</button>
+      <button class="tab-button active" type="button" data-tab="tasks">Project Control</button>
       <button class="tab-button" type="button" data-tab="history">Checkpoints / History</button>
       <button class="tab-button" type="button" data-tab="settings">Settings</button>
     </aside>
 
     <section class="workspace" aria-live="polite">
-      <section class="tab-panel" id="tab-chat">
+      <section class="tab-panel hidden" id="tab-chat">
         <div class="panel-heading">
           <p class="eyebrow">Chat / Command</p>
           <h2>What do you want Jarvis to help with?</h2>
@@ -116,7 +116,7 @@
         <p class="safety-note">Daily AI Radar does not collect sources automatically and its recommendations do not become implementation tasks automatically.</p>
       </section>
 
-      <section class="tab-panel hidden" id="tab-tasks">
+      <section class="tab-panel" id="tab-tasks">
         <div class="panel-heading">
           <p class="eyebrow">Project Control</p>
           <h2 id="tasksTitle">Owner-facing local project dashboard</h2>
