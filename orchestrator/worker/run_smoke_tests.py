@@ -99,6 +99,15 @@ FAKE_CLAUDE = textwrap.dedent(
         print(json.dumps({"result": f"candidate_hash: x\\nverdict: {verdict}\\n{body}\\nunverified: []\\nself_deviations: []"}))
         sys.exit(3 if mode == "crashfindings" else 0)
     mode = os.environ.get("FAKE_WORKER", "ok")
+    if os.environ.get("FAKE_MARKER_LOG"):
+        # task-0167: whether the run's marker sits beside this attempt worktree while the Worker runs.
+        marker = Path.cwd().parent / (Path.cwd().name + ".worker.json")
+        for _ in range(100):
+            if marker.exists():
+                break
+            time.sleep(0.05)
+        with open(os.environ["FAKE_MARKER_LOG"], "a", encoding="utf-8") as log:
+            log.write(("present" if marker.exists() else "absent") + "\\n")
     if mode == "timeout":
         time.sleep(30)
     if mode == "fail":
@@ -294,6 +303,210 @@ def progress_flow(clone: Path, worktrees: Path) -> None:
           f"{r.reason}:{calls}")
 
 
+def _sleeper() -> subprocess.Popen:
+    return subprocess.Popen([sys.executable, "-B", "-c", "import time; time.sleep(120)"])
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    proc.kill()
+    proc.wait(timeout=30)
+
+
+def marker_flow(clone: Path, worktrees: Path) -> None:
+    """task-0167: the Worker marker a run leaves while it runs, and the states read from it."""
+
+    log = worktrees.parent / "marker.log"
+    log.write_text("", encoding="utf-8")
+    os.environ["FAKE_MARKER_LOG"] = str(log)
+    try:
+        for name, worker, reason in (("markerok", "ok", ""), ("markertimeout", "timeout", "worker_timeout"),
+                                     ("markerfail", "fail", "worker_failed")):
+            log.write_text("", encoding="utf-8")
+            r, *_ = run_case(name, clone, worktrees, worker=worker)
+            marker = worktrees / f"task-8000-{name}{claude_worker.WORKER_MARKER_SUFFIX}"
+            check(f"marker: {name} has its marker while the Worker runs and none after it ends",
+                  log.read_text(encoding="utf-8").splitlines()[:1] == ["present"] and not marker.exists()
+                  and (r.ok if not reason else r.reason == reason), f"{log.read_text(encoding='utf-8')!r}:{r.stage}:{r.reason}")
+    finally:
+        os.environ.pop("FAKE_MARKER_LOG", None)
+
+    task_id = "task-8000-markerstate"
+    write_task(clone, task_id)
+
+    def state() -> str:
+        return claude_worker.worker_marker_state(task_id, repo_root=clone, worktree_root=worktrees)[0]
+
+    check("marker state: no attempt at all is missing", state() == "missing")
+    attempt = worktrees / task_id
+    attempt.mkdir()
+    check("marker state: an attempt without a marker is missing", state() == "missing")
+    sleeper = _sleeper()
+    try:
+        claude_worker._write_worker_marker(attempt, task_id, sleeper.pid)
+        marker = claude_worker.worker_marker_path(attempt)
+        real = json.loads(marker.read_text(encoding="utf-8"))
+        check("marker state: a marker naming the running process is alive", state() == "alive"
+              and real["pid"] == sleeper.pid and real["exe"] and real["started"] > 0, str(real))
+
+        def variant(**changes) -> str:
+            marker.write_text(json.dumps({k: v for k, v in {**real, **changes}.items() if v is not None}), encoding="utf-8")
+            return state()
+
+        check("marker state: the same PID with another start time is not that process (PID reuse)",
+              variant(started=real["started"] + 1) == "gone")
+        check("marker state: the same PID with another executable is not that process", variant(exe=real["exe"] + "x") == "gone")
+        check("marker state: a missing field is invalid", variant(started=None) == "invalid")
+        check("marker state: an empty executable path is invalid", variant(exe="") == "invalid")
+        check("marker state: another task's marker is invalid", variant(task_id="task-8000-other") == "invalid")
+        marker.write_text("{not json", encoding="utf-8")
+        check("marker state: an unreadable marker is invalid", state() == "invalid")
+        marker.write_text(json.dumps(real), encoding="utf-8")
+        check("marker state: the real marker is alive again", state() == "alive")
+        # An earlier attempt's live Worker still blocks, whatever the newer attempt shows.
+        (worktrees / f"{task_id}-r2").mkdir()
+        check("marker state: an earlier attempt's live Worker counts as alive", state() == "alive")
+    finally:
+        _stop(sleeper)
+    check("marker state: once that process ends, a newer attempt without a marker is missing, not gone",
+          state() == "missing")
+    (worktrees / f"{task_id}-r2").rmdir()
+    check("marker state: the latest attempt's marker naming an ended process is gone", state() == "gone")
+
+
+def recover_flow(clone: Path, worktrees: Path) -> None:
+    """task-0167: /go <id> recover, the stalled judgement and /retry, through the adapter."""
+
+    import bot_minimal as bot  # bot_flow already put the adapter on sys.path
+
+    tasks = clone / "memory" / "tasks"
+
+    def set_status(task_id: str, status: str, extra: str = "") -> Path:
+        path = tasks / f"{task_id}.md"
+        text = path.read_text(encoding="utf-8")
+        current = bot._read_task_metadata(path)["status"]
+        path.write_text(text.replace(f"- status: `{current}`", f"- status: `{status}`") + extra, encoding="utf-8")
+        return path
+
+    def status_of(task_id: str) -> str:
+        return (bot._read_task_metadata(tasks / f"{task_id}.md") or {}).get("status", "")
+
+    task_id = bot._run_command("/work Studyroom glossary 복구 확인").get("task_id", "")
+    todo = bot._run_command("/work Studyroom glossary 복구 대기").get("task_id", "")
+    path = set_status(task_id, "DOING")
+    manual = tasks / "task-8100-manual-doing.md"
+    manual.write_text(
+        "# task-8100-manual-doing\n\n- id: `task-8100-manual-doing`\n- title: `수동 작업`\n- status: `DOING`\n"
+        "- repo: `jarvis-core`\n- created_at: `2026-10-18 10:00 UTC`\n- updated_at: `2026-10-18 10:00 UTC`\n"
+        "- summary: `manual`\n- source_command: `Owner 승인: manual`\n", encoding="utf-8")
+    snapshot = {p: p.read_bytes() for p in (path, tasks / f"{todo}.md", manual)}
+
+    def unchanged() -> bool:
+        return all(p.read_bytes() == data for p, data in snapshot.items())
+
+    missing = bot._run_command(f"/go {task_id} recover")
+    check("recover: no attempt marker refuses (fail closed) and changes nothing",
+          missing.get("reason") == "recover_worker_marker_missing" and unchanged() and not bot._WORKER_LOCK.locked()
+          and "실행 표지가 없거나" in bot._format_reply(missing), str(missing))
+    check("recover: a task that is not DOING is refused",
+          bot._run_command(f"/go {todo} recover").get("reason") == "recover_requires_doing:TODO" and unchanged())
+    check("recover: a DOING task not made by /work is refused",
+          bot._run_command("/go task-8100-manual-doing recover").get("reason") == "recover_not_worker_path" and unchanged())
+
+    attempt = worktrees / task_id
+    attempt.mkdir()
+    sleeper = _sleeper()
+    try:
+        claude_worker._write_worker_marker(attempt, task_id, sleeper.pid)
+        marker = claude_worker.worker_marker_path(attempt)
+        real = marker.read_text(encoding="utf-8")
+        go_alive = bot._run_command(f"/go {task_id}")
+        recover_alive = bot._run_command(f"/go {task_id} recover")
+        scan = bot._stalled_doing_scan(tasks)
+        check("recover: a Worker that outlived its bot refuses /go and recover, and is listed apart at start-up",
+              go_alive.get("reason") == "doing_worker_process_alive" and recover_alive.get("reason") == "recover_worker_alive"
+              and task_id in [item["id"] for item in scan.get("orphaned", [])]
+              and task_id not in [item["id"] for item in scan.get("stalled", [])]
+              and "봇 없이 아직 실행 중" in (bot._format_startup_report(scan) or "") and unchanged(),
+              f"{go_alive} {recover_alive} {scan}")
+        marker.write_text('{"pid": 1}', encoding="utf-8")
+        check("recover: an incomplete marker refuses", bot._run_command(f"/go {task_id} recover").get("reason")
+              == "recover_worker_marker_invalid" and unchanged())
+        marker.write_text(real, encoding="utf-8")
+    finally:
+        _stop(sleeper)
+    # Bounded: a lock left held by an earlier step must fail this check, not hang the run.
+    took = bot._WORKER_LOCK.acquire(timeout=5)
+    try:
+        held = bot._run_command(f"/go {task_id} recover") if took else {"reason": "lock_already_held_by_an_earlier_step"}
+    finally:
+        if took:
+            bot._WORKER_LOCK.release()
+    check("recover: a held Worker lock refuses", held.get("reason") == "worker_busy" and unchanged(), str(held))
+
+    stalled = bot._run_command(f"/go {task_id}")
+    check("recover: once the Worker has ended, /go reports the stalled DOING and changes nothing",
+          stalled.get("reason") == "stalled_doing" and f"/go {task_id} recover" in bot._format_reply(stalled) and unchanged(),
+          str(stalled))
+
+    approvals: list[dict] = []
+    executions: list[dict] = []
+    real_approval, real_execution = bot._audit_owner_approval, bot._audit_execution_result
+    bot._audit_owner_approval = lambda **kw: approvals.append(kw) or None
+    bot._audit_execution_result = lambda **kw: executions.append(kw) or real_execution(**kw)
+    try:
+        recovered = bot._run_command(f"/go {task_id} recover")
+    finally:
+        bot._audit_owner_approval, bot._audit_execution_result = real_approval, real_execution
+    record = bot._read_execution_review_metadata(path)
+    check("recover: a gone Worker moves DOING to FAILED with a failure record, audited, nothing re-run",
+          recovered.get("result_type") == "recover_result" and status_of(task_id) == "FAILED"
+          and record.get("execution_summary") == "recover:stalled_doing" and record.get("success") == "false"
+          and len(approvals) == 1 and approvals[0]["transition_from"] == "DOING" and approvals[0]["transition_to"] == "FAILED"
+          and approvals[0]["command"] == f"/go {task_id} recover" and approvals[0]["applied"] is True
+          and len(executions) == 1 and executions[0]["source"] == "go"
+          and not bot._WORKER_LOCK.locked() and not claude_worker.process_lock_held()
+          and not (worktrees / f"{task_id}-r2").exists(), f"{recovered} {record} {approvals} {executions}")
+    reply = bot._format_reply(recovered)
+    check("recover: the reply offers /go and resume and re-runs nothing",
+          reply.startswith(f"♻️ 복구됨: {task_id} → FAILED") and f"`/go {task_id}`" in reply and f"`/go {task_id} resume`" in reply
+          and "<@" not in reply, reply)
+    check("recover: a second recover is refused (now FAILED)",
+          bot._run_command(f"/go {task_id} recover").get("reason") == "recover_requires_doing:FAILED")
+
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
+    again = bot._run_command(f"/go {task_id}")
+    done = bot._run_worker_job(task_id, again["request"], again["command"]) if again.get("result_type") == "work_started" else {}
+    check("recover: after recover, /go retries the task through the pipeline to DONE",
+          again.get("retry") is True and done.get("ok") is True and status_of(task_id) == "DONE", f"{again} {done.get('reason')}")
+
+    # The V3 case: a retried task keeps the earlier attempt's record, and its run died with the bot.
+    retried = bot._run_command("/work Studyroom glossary 재시도 멈춤").get("task_id", "")
+    retried_path = set_status(retried, "DOING", "- executed: `true`\n- success: `false`\n"
+                              "- execution_updated_at: `2026-10-18 15:58 UTC`\n- execution_summary: `worker:worker_timeout`\n")
+    before = retried_path.read_bytes()
+    reported = bot._run_command(f"/go {retried}")
+    scan = bot._stalled_doing_scan(tasks)
+    check("stalled: a retried DOING task with an earlier record is stalled, not status_not_startable (V3)",
+          reported.get("reason") == "stalled_doing" and "worker:worker_timeout" in bot._format_reply(reported)
+          and retried in [item["id"] for item in scan.get("stalled", [])] and retried_path.read_bytes() == before, str(reported))
+    check("stalled: the start-up DM names the earlier record as reference only",
+          "이전 실행 기록(참고, 이번 시도와 무관할 수 있음): worker:worker_timeout" in (bot._format_startup_report(scan) or ""))
+
+    # /retry leaves Worker-path tasks to /go; a manual task keeps its old path (self-check covers it).
+    retry_doing = bot._run_command(f"/retry {retried}")
+    failed_id = bot._run_command("/work Studyroom glossary 재시도 거절").get("task_id", "")
+    failed_path = set_status(failed_id, "FAILED")
+    failed_before = failed_path.read_bytes()
+    retry_failed = bot._run_command(f"/retry {failed_id}")
+    check("retry: a Worker-path task is refused before anything changes, DOING or FAILED",
+          retry_doing.get("reason") == "retry_worker_path_use_go" and retry_failed.get("reason") == "retry_worker_path_use_go"
+          and retried_path.read_bytes() == before and failed_path.read_bytes() == failed_before
+          and f"`/go {failed_id}`" in bot._format_reply(retry_failed), f"{retry_doing} {retry_failed}")
+    check("retry: a manual DOING task still goes the old way (not refused as Worker path)",
+          bot._run_command("/retry task-8100-manual-doing").get("reason") != "retry_worker_path_use_go")
+    manual.unlink()
+
+
 def process_lock_flow(clone: Path, worktrees: Path) -> None:
     """task-0164: the Worker lock across real processes, and a stalled DOING, through the adapter.
 
@@ -346,9 +559,11 @@ def process_lock_flow(clone: Path, worktrees: Path) -> None:
             holder.stdout.close()
     check("lock: the lock is released when the holding process ends", not claude_worker.process_lock_held(lock_path))
     reported = bot._run_command(f"/go {stalled}")
+    # task-0167: a /work task is judged by its Worker, and the reply points at /go <id> recover.
     check("doing: a DOING task with no Worker and no execution record is reported and left as it is",
-          reported.get("reason") == "doing_without_execution_record" and stalled_path.read_bytes() == before[stalled_path]
-          and "멈춘 DOING" in bot._format_reply(reported) and not bot._WORKER_LOCK.locked(), str(reported))
+          reported.get("reason") == "stalled_doing" and stalled_path.read_bytes() == before[stalled_path]
+          and "멈춘 DOING" in bot._format_reply(reported) and f"/go {stalled} recover" in bot._format_reply(reported)
+          and not bot._WORKER_LOCK.locked(), str(reported))
     # task-0165: the start-up check finds the same /work task, lists it, and writes nothing.
     snapshot = {path: path.read_bytes() for path in tasks.glob("*.md")}
     scan = bot._stalled_doing_scan(tasks)
@@ -558,7 +773,8 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           and f"memory/tasks/{tracked_failed}.md" in git(["show", "--name-only", "--format=", "HEAD"], clone)
           and not git(["status", "--porcelain", "--untracked-files=no"], clone), f"{done.get('stage')}:{done.get('reason')}")
     check("bot: /go resume on a non-FAILED task is refused", bot._run_command(f"/go {task_id} resume").get("reason", "").startswith(("resume_requires_failed", "status_not_startable")))
-    check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume|accept]")
+    # task-0167: the usage names recover too.
+    check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume|accept|recover]")
     check("bot: finished task is not startable again", bot._run_command(f"/go {task_id}").get("reason") == "status_not_startable:DONE")
 
     # task-0151: /go <id> accept through the adapter.
@@ -1262,8 +1478,10 @@ def main() -> int:
         os.environ.pop("FAKE_LOG", None)
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
         progress_flow(clone, worktrees)
+        marker_flow(clone, worktrees)
         bot_flow(clone, worktrees)
         process_lock_flow(clone, worktrees)
+        recover_flow(clone, worktrees)
         owner_review_replies(owner_review_results)
         accept_flow(clone, worktrees)
         attempt_numbering(clone, worktrees)

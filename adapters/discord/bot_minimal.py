@@ -793,7 +793,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/review-task <task-id> - task 상세 검토",
             "/approve <task-id> approve|reject - 승인/반려",
             "/run <task-id> - DOING task 실행",
-            "/retry <task-id> - FAILED/DOING task 재실행",
+            "/retry <task-id> - FAILED/DOING task 재실행 (`/work`로 만든 task는 `/go` 사용)",
             "/status <task-id> - 단건 상태 확인",
             "/report - 전체 task 집계",
             "/report today - 오늘 업데이트 task 집계",
@@ -802,6 +802,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
             "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
             "/go <task-id> accept - Owner 확인 대기로 멈춘 candidate를 QA 재확인 뒤 반영 (Owner)",
+            "/go <task-id> recover - 실행 중인 Worker 없이 멈춘 DOING을 FAILED로만 전환, 재실행 없음 (Owner)",
         ],
     }
 
@@ -1404,6 +1405,17 @@ def _run_retry(command_text: str) -> dict[str, Any]:
             "reason": "retry_allowed_only_for:FAILED,DOING",
         }
 
+    # task-0167: a Worker-path task (/work) is run and retried only through /go, which takes the
+    # Worker locks. /retry would move it without them, or overwrite a running task's record.
+    # Refused before anything changes; other tasks keep the behaviour below.
+    if _task_source_command(task_file) == "/task":
+        return {
+            "result_type": "retry_not_allowed",
+            "task_id": task_id,
+            "status": status,
+            "reason": "retry_worker_path_use_go",
+        }
+
     if _build_execution_candidate(task_id) is None:
         return {
             "result_type": "error",
@@ -1935,9 +1947,9 @@ def _run_go(command_text: str) -> dict[str, Any]:
         len(parts) not in (2, 3)
         or parts[0] != "/go"
         or not TASK_ID_PATTERN.fullmatch(parts[1].strip().lower())
-        or (len(parts) == 3 and parts[2] not in ("resume", "accept"))
+        or (len(parts) == 3 and parts[2] not in ("resume", "accept", "recover"))
     ):
-        return _error_payload("usage:/go <task-id> [resume|accept]")
+        return _error_payload("usage:/go <task-id> [resume|accept|recover]")
     resume = len(parts) == 3 and parts[2] == "resume"
     task_id = parts[1].strip().lower()
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
@@ -1967,9 +1979,23 @@ def _run_go(command_text: str) -> dict[str, Any]:
             "work_kind": work_kind,
             "audit_error": None,
         }
+    if len(parts) == 3 and parts[2] == "recover":
+        return _run_recover(task_id, task_file, status, command_text.strip(), work_kind)
     if status == "DOING":
         # task-0164: tell a running Worker from a DOING task nothing is running for. Display only:
         # the status and the record are left as they are, and nothing is recovered here.
+        if _task_source_command(task_file) == "/task":
+            # task-0167: a Worker-path task is judged by whether its Worker runs, not by the
+            # record, which a retry leaves from the earlier attempt.
+            state, _ = _worker_task_state(task_id)
+            if state == "running":
+                return _error_payload("worker_busy" if _worker_running() else "doing_worker_process_alive")
+            return {
+                "result_type": "error",
+                "reason": "stalled_doing",
+                "task_id": task_id,
+                "previous": _previous_record(task_file),
+            }
         if _worker_running():
             return _error_payload("worker_busy")
         if _read_execution_review_metadata(task_file).get("executed") is None:
@@ -2011,6 +2037,74 @@ def _run_go(command_text: str) -> dict[str, Any]:
         "resume": resume,
         "work_kind": work_kind,
         "audit_error": audit_error,
+    }
+
+
+RECOVER_SUMMARY = "recover:stalled_doing"
+
+
+def _run_recover(task_id: str, task_file: Path, status: str, command: str, work_kind: str) -> dict[str, Any]:
+    """task-0167: `/go <id> recover`, the Owner's explicit recovery of a stalled Worker-path task.
+
+    Only DOING -> FAILED, written with a failure record in one atomic write and audited like
+    any /go approval and run result. Nothing is re-run. It refuses unless the Worker locks can
+    be taken and the latest attempt's marker names a Worker process that is gone: a missing,
+    unreadable or incomplete marker, or a Worker still running, refuses it (fail closed).
+    """
+
+    if status != "DOING":
+        return _error_payload(f"recover_requires_doing:{status or 'unknown'}")
+    if _task_source_command(task_file) != "/task":
+        return _error_payload("recover_not_worker_path")
+    if not _acquire_worker_locks():
+        return _error_payload("worker_busy")
+    try:
+        state, marker = claude_worker.worker_marker_state(task_id, repo_root=REPO_ROOT)
+        if state != "gone":
+            return _error_payload({"alive": "recover_worker_alive", "missing": "recover_worker_marker_missing"}.get(
+                state, "recover_worker_marker_invalid"))
+        previous = _previous_record(task_file)
+        candidate_info = {
+            "result_type": "execution_candidate",
+            "task_id": task_id,
+            "execution_type": "claude_worker",
+            "action": "claude_worker_pipeline",
+            "target": work_kind,
+        }
+        execution_request = _build_execution_request(candidate_info)
+        execution_request["source"] = "/go"
+        execution_result = {
+            "result_type": "execution_result",
+            "task_id": task_id,
+            "execution_type": "claude_worker",
+            "action": "claude_worker_pipeline",
+            "executed": True,
+            "success": False,
+            "output_summary": RECOVER_SUMMARY,
+            "error_reason": RECOVER_SUMMARY,
+        }
+        applied, reason = _apply_execution_result(task_id, execution_result, candidate_info, execution_request)
+        audit_error = _audit_owner_approval(
+            command=command,
+            decision="approve",
+            transition_from="DOING",
+            transition_to="FAILED",
+            applied=applied,
+            reason=reason,
+        )
+        execution_audit_error = _audit_execution_result(
+            task_id=task_id, source="go", execution_result=execution_result, applied=applied, reason=reason
+        )
+    finally:
+        _release_worker_locks()
+    if not applied:
+        return _error_payload(f"recover_transition_failed:{reason}")
+    return {
+        "result_type": "recover_result",
+        "task_id": task_id,
+        "previous": previous,
+        "marker": marker,
+        "audit_error": audit_error or execution_audit_error,
     }
 
 
@@ -2204,21 +2298,48 @@ def _task_source_command(task_file: Path) -> str:
     return ""
 
 
+def _worker_task_state(task_id: str) -> tuple[str, str]:
+    """task-0167: whether a Worker-path task's Worker may still be running.
+
+    "running" when this process or another bot holds a Worker lock, or a marker of one of
+    the task's attempts names a live Worker process (one that outlived its bot). Otherwise
+    the marker state of the latest attempt: "gone", "missing" or "invalid".
+    """
+
+    if _worker_running():
+        return "running", "worker_lock"
+    state, detail = claude_worker.worker_marker_state(task_id, repo_root=REPO_ROOT)
+    return ("running", detail) if state == "alive" else (state, detail)
+
+
+def _previous_record(task_file: Path) -> str:
+    """The last execution record of a task, shown for reference only (task-0167)."""
+
+    execution = _read_execution_review_metadata(task_file)
+    summary = str(execution.get("execution_summary") or "")
+    if execution.get("executed") is None or not summary:
+        return ""
+    return f"{summary[:120]} ({execution.get('execution_updated_at', '')})"
+
+
 def _stalled_doing_scan(tasks_dir: Path | None = None) -> dict[str, Any]:
-    """task-0165: the DOING tasks with no execution record, read only. Nothing is written.
+    """task-0165: the stalled Worker-path DOING tasks, read only. Nothing is written.
 
     A Worker-path task is one `/work` created (source_command `/task`), the only tasks a
-    Worker run starts from. The other DOING tasks are only counted, in two groups: those not
-    on the Worker path, and Worker-path tasks that already have an execution record (repair 1).
-    Nothing is reclassified. While a Worker holds the lock, a DOING task may be running, so
-    nothing is called stalled.
+    Worker run starts from. task-0167: such a task is stalled when it is DOING and no Worker
+    of it is running, whatever execution record an earlier attempt left (a retry keeps the
+    old record, so the record cannot tell). A pipeline run always leaves DOING together with
+    its record, so a Worker-path task never rests in DOING with nothing running. A task whose
+    Worker process outlived its bot is listed apart. Other DOING tasks are only counted.
+    Nothing is reclassified. While a Worker holds the lock, nothing is called stalled.
     """
 
     tasks_dir = tasks_dir or REPO_ROOT / "memory" / "tasks"
     if _worker_running():
-        return {"worker_running": True, "stalled": [], "other_doing": 0, "recorded_doing": 0}
+        return {"worker_running": True, "stalled": [], "orphaned": [], "other_doing": 0}
     stalled: list[dict[str, str]] = []
-    other = recorded = 0
+    orphaned: list[dict[str, str]] = []
+    other = 0
     for task_file in sorted(tasks_dir.glob("task-*.md")):
         try:
             metadata = _read_task_metadata(task_file)
@@ -2226,34 +2347,45 @@ def _stalled_doing_scan(tasks_dir: Path | None = None) -> dict[str, Any]:
                 continue
             if _task_source_command(task_file) != "/task":
                 other += 1
-            elif _read_execution_review_metadata(task_file).get("executed") is None:
-                stalled.append({key: metadata[key] for key in ("id", "title", "updated_at")})
-            else:
-                recorded += 1
+                continue
+            item = {key: metadata[key] for key in ("id", "title", "updated_at")}
+            item["previous"] = _previous_record(task_file)
+            state, _ = _worker_task_state(metadata["id"])
+            (orphaned if state == "running" else stalled).append(item)
         except (OSError, UnicodeDecodeError):
             continue
-    return {"worker_running": False, "stalled": stalled, "other_doing": other, "recorded_doing": recorded}
+    return {"worker_running": False, "stalled": stalled, "orphaned": orphaned, "other_doing": other}
 
 
 def _format_startup_report(scan: dict[str, Any]) -> str | None:
-    """The DM text for the Owner, or None when no Worker-path task is stalled."""
+    """The DM text for the Owner, or None when no Worker-path task is stalled or orphaned."""
 
     stalled = scan.get("stalled") or []
-    if scan.get("worker_running") or not stalled:
+    orphaned = scan.get("orphaned") or []
+    if scan.get("worker_running") or not (stalled or orphaned):
         return None
-    lines = [
-        "🩺 Jarvis 봇 시작 점검 (읽기 전용)",
-        f"- Worker 경로에서 실행 기록 없이 DOING인 task {len(stalled)}건:",
-    ]
-    for item in stalled[:STARTUP_CHECK_LISTED_MAX]:
-        lines.append(f"  - {item['id']} ({item['updated_at']}) {item['title'][:80]}")
-    if len(stalled) > STARTUP_CHECK_LISTED_MAX:
-        lines.append(f"  - 외 {len(stalled) - STARTUP_CHECK_LISTED_MAX}건")
-    if scan.get("recorded_doing"):
-        lines.append(f"- Worker 경로이지만 실행 기록이 있는 DOING {scan['recorded_doing']}건은 이 점검에서 제외했습니다.")
+    lines = ["🩺 Jarvis 봇 시작 점검 (읽기 전용)"]
+
+    def listed(items: list[dict[str, str]]) -> None:
+        for item in items[:STARTUP_CHECK_LISTED_MAX]:
+            lines.append(f"  - {item['id']} ({item['updated_at']}) {item['title'][:80]}")
+            if item.get("previous"):
+                lines.append(f"    이전 실행 기록(참고, 이번 시도와 무관할 수 있음): {item['previous']}")
+        if len(items) > STARTUP_CHECK_LISTED_MAX:
+            lines.append(f"  - 외 {len(items) - STARTUP_CHECK_LISTED_MAX}건")
+
+    if stalled:
+        lines.append(f"- Worker 경로에서 실행 중인 Worker 없이 DOING인 task {len(stalled)}건:")
+        listed(stalled)
+    if orphaned:
+        lines.append(f"- Worker 프로세스가 봇 없이 아직 실행 중인 DOING task {len(orphaned)}건(끝날 때까지 복구 불가):")
+        listed(orphaned)
     if scan.get("other_doing"):
         lines.append(f"- 그 밖의 DOING {scan['other_doing']}건은 Worker 경로의 task가 아니어서 이 점검에서 제외했습니다.")
-    lines.append("- 상태와 기록은 바꾸지 않았고 다시 실행하지도 않았습니다. `/status <task-id>`로 확인한 뒤 Owner가 정하세요.")
+    lines.append(
+        "- 상태와 기록은 바꾸지 않았고 다시 실행하지도 않았습니다. `/status <task-id>`로 확인한 뒤, "
+        "복구하려면 `/go <task-id> recover`(FAILED로만 전환)를 보내세요."
+    )
     return "\n".join(lines)
 
 
@@ -2272,7 +2404,7 @@ async def _startup_check_once(send_dm: Callable[[str, str], Any], tasks_dir: Pat
     text = _format_startup_report(scan)
     print(
         f"[startup-check] worker_running={scan['worker_running']} stalled={len(scan['stalled'])} "
-        f"recorded_doing={scan['recorded_doing']} other_doing={scan['other_doing']}"
+        f"orphaned={len(scan['orphaned'])} other_doing={scan['other_doing']}"
     )
     sent, failed = 0, []
     if text:
@@ -2644,7 +2776,23 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             f"- task_id: `{pipeline_result.get('task_id')}`\n"
             f"- status: `{pipeline_result.get('status')}`\n"
             f"- reason: `{pipeline_result.get('reason')}`"
+            # task-0167: a Worker-path task is retried with /go, under the Worker locks.
+            + (f"\n- `/work`로 만든 task는 `/go {pipeline_result.get('task_id')}`로 다시 실행하세요."
+               if pipeline_result.get("reason") == "retry_worker_path_use_go" else "")
         )
+    if result_type == "recover_result":
+        task_id = pipeline_result.get("task_id")
+        lines = [f"♻️ 복구됨: {task_id} → FAILED (멈춘 DOING, Owner recover). 다시 실행하지 않았습니다."]
+        if pipeline_result.get("previous"):
+            lines.append(f"- 이전 실행 기록(참고): {pipeline_result.get('previous')}")
+        lines.append(
+            f"다음 선택지: `/go {task_id}` 처음부터 재시도 · `/go {task_id} resume` 마지막 시도에서 이어가기"
+            "(마지막 attempt worktree의 변경을 가져오며, 봇 없이 남아 돌던 Worker의 편집이 들어 있을 수 있습니다) · "
+            f"`/status {task_id}` 상태 확인"
+        )
+        if pipeline_result.get("audit_error"):
+            lines.append(f"- 감사 기록 실패: `{pipeline_result.get('audit_error')}` (상태 전환은 적용됨)")
+        return "\n".join(lines)
     if result_type == "run_result":
         execution_result = pipeline_result.get("execution_result") or {}
         return (
@@ -2705,6 +2853,26 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             "⚠️ 멈춘 DOING: 실행 중인 Worker가 없고 이 task에는 실행 기록도 없습니다.\n"
             "- 상태와 기록은 바꾸지 않았습니다. 복구 방법은 Owner가 정합니다.\n"
             "- reason: `doing_without_execution_record`"
+        )
+    reason = str(pipeline_result.get("reason") or "")
+    if reason == "stalled_doing":
+        # task-0167: a Worker-path DOING task with no Worker running, whatever an earlier attempt recorded.
+        task_id = pipeline_result.get("task_id")
+        lines = ["⚠️ 멈춘 DOING: 이 task의 Worker가 실행 중이 아닙니다(봇 종료 등으로 실행이 끊김)."]
+        if pipeline_result.get("previous"):
+            lines.append(f"- 이전 실행 기록(참고, 이번 시도와 무관할 수 있음): {pipeline_result.get('previous')}")
+        lines.append(f"- 상태와 기록은 바꾸지 않았습니다. 복구하려면 `/go {task_id} recover`(FAILED로만 전환)를 보내세요.")
+        lines.append("- reason: `stalled_doing`")
+        return "\n".join(lines)
+    if reason == "doing_worker_process_alive" or reason == "recover_worker_alive":
+        return (
+            "⏳ 이 task의 Worker 프로세스가 봇 없이 아직 실행 중입니다. 끝난 뒤 다시 보내세요.\n"
+            f"- 상태와 기록은 바꾸지 않았습니다.\n- reason: `{reason}`"
+        )
+    if reason in ("recover_worker_marker_missing", "recover_worker_marker_invalid"):
+        return (
+            "⛔ 복구 거절: 마지막 시도의 Worker 실행 표지가 없거나 읽을 수 없어, Worker가 끝났는지 확인할 수 없습니다.\n"
+            f"- 상태와 기록은 바꾸지 않았습니다.\n- reason: `{reason}`"
         )
     return f"❌ error: `{pipeline_result.get('reason')}`"
 
@@ -4237,6 +4405,7 @@ def _run_self_check_suite() -> dict[str, Any]:
                         '- execution_result: `{"action":"claude_worker_pipeline","error_reason":"","executed":true,'
                         f'"execution_type":"claude_worker","result_type":"execution_result","success":true,"task_id":"{task_id}"}}`\n'
                         "- executed: `true`\n- success: `true`\n"
+                        "- execution_updated_at: `2026-10-18 09:00 UTC`\n- execution_summary: `worker:worker_timeout`\n"
                     )
                 path.write_text(text, encoding="utf-8")
                 return path
@@ -4283,12 +4452,13 @@ def _run_self_check_suite() -> dict[str, Any]:
     _record(
         "startup_check_reports_worker_doing_once_by_dm_and_changes_nothing",
         "error" not in startup
-        and [item["id"] for item in first_scan.get("stalled", [])] == ["task-9166-worker-stalled"]
-        and first_scan.get("other_doing") == 1 and first_scan.get("recorded_doing") == 1
-        and "task-9166-worker-stalled" in text
+        # task-0167: a Worker-path DOING task with an earlier attempt's record is stalled too.
+        and [item["id"] for item in first_scan.get("stalled", [])] == ["task-9166-worker-stalled", "task-9168-worker-recorded"]
+        and first_scan.get("other_doing") == 1 and first_scan.get("orphaned") == []
+        and "task-9166-worker-stalled" in text and "task-9168-worker-recorded" in text
         and "그 밖의 DOING 1건은 Worker 경로의 task가 아니어서" in text
-        and "Worker 경로이지만 실행 기록이 있는 DOING 1건은" in text
-        and "task-9167" not in text and "task-9168" not in text and "task-9169" not in text
+        and "이전 실행 기록(참고" in text
+        and "task-9167" not in text and "task-9169" not in text
         and first.get("sent") == 1 and len(startup.get("dms", [])) == 1
         and startup.get("again") == {"skipped": True}
         and (startup.get("dm_failed") or {}).get("failed") == ["RuntimeError"]
@@ -4296,6 +4466,67 @@ def _run_self_check_suite() -> dict[str, Any]:
         and _format_startup_report(startup.get("running") or {}) is None
         and startup.get("unchanged") is True,
         f"startup={ {key: value for key, value in startup.items() if key != 'dms'} }",
+    )
+
+    # task-0167: /retry leaves Worker-path tasks to /go; a manual task keeps the old path.
+    original_repo_root = REPO_ROOT
+    # The manual /retry path appends to the audit chain: point it at throwaway state (task-0052).
+    retry_state_dir = os.environ.get("JARVIS_LOCAL_STATE_DIR")
+    retry_checks: dict[str, Any] = {}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["JARVIS_LOCAL_STATE_DIR"] = str(Path(tmp) / "audit-state")
+            fixture_root = Path(tmp) / "repo"
+            (fixture_root / "memory" / "tasks").mkdir(parents=True)
+            globals()["REPO_ROOT"] = fixture_root
+
+            def retry_fixture(task_id: str, source: str) -> Path:
+                path = fixture_root / "memory" / "tasks" / f"{task_id}.md"
+                path.write_text(
+                    f"# {task_id}\n\n- id: `{task_id}`\n- title: `검증 fixture`\n- status: `FAILED`\n"
+                    "- repo: `jarvis-core`\n- created_at: `2026-10-18 10:00 UTC`\n"
+                    f"- updated_at: `2026-10-18 10:00 UTC`\n- summary: `fixture`\n- source_command: `{source}`\n",
+                    encoding="utf-8",
+                )
+                return path
+
+            worker_task = retry_fixture("task-9170-worker-failed", "/task")
+            manual_task = retry_fixture("task-9171-manual-failed", "Owner 승인: manual")
+            before = worker_task.read_bytes()
+            retry_checks["worker"] = _run_retry("/retry task-9170-worker-failed")
+            retry_checks["worker_unchanged"] = worker_task.read_bytes() == before
+            retry_checks["manual"] = _run_retry("/retry task-9171-manual-failed").get("result_type")
+            retry_checks["manual_status"] = (_read_task_metadata(manual_task) or {}).get("status")
+    except Exception as exc:  # noqa: BLE001 - recorded as a failed check
+        retry_checks["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        globals()["REPO_ROOT"] = original_repo_root
+        if retry_state_dir is None:
+            os.environ.pop("JARVIS_LOCAL_STATE_DIR", None)
+        else:
+            os.environ["JARVIS_LOCAL_STATE_DIR"] = retry_state_dir
+    _record(
+        "retry_refuses_worker_path_task_and_keeps_manual_tasks",
+        "error" not in retry_checks
+        and (retry_checks.get("worker") or {}).get("reason") == "retry_worker_path_use_go"
+        and retry_checks.get("worker_unchanged") is True
+        and retry_checks.get("manual") == "retry_result"
+        and retry_checks.get("manual_status") != "FAILED",
+        f"checks={retry_checks}",
+    )
+
+    stalled_reply = _format_reply({"result_type": "error", "reason": "stalled_doing", "task_id": "task-9172-x",
+                                   "previous": "worker:worker_timeout (2026-10-18 15:58 UTC)"})
+    recovered_reply = _format_reply({"result_type": "recover_result", "task_id": "task-9172-x", "previous": "", "marker": "m"})
+    _record(
+        "stalled_and_recover_replies_point_at_recover_and_rerun_nothing",
+        "/go task-9172-x recover" in stalled_reply and "worker:worker_timeout" in stalled_reply
+        and "이번 시도와 무관할 수 있음" in stalled_reply
+        and recovered_reply.startswith("♻️ 복구됨: task-9172-x → FAILED") and "다시 실행하지 않았습니다" in recovered_reply
+        and "`/go task-9172-x resume`" in recovered_reply and "<@" not in recovered_reply
+        and "실행 표지가 없거나" in _format_reply(_error_payload("recover_worker_marker_missing"))
+        and "봇 없이 아직 실행 중" in _format_reply(_error_payload("recover_worker_alive")),
+        f"stalled={stalled_reply!r} recovered={recovered_reply!r}",
     )
 
     failed = [check for check in checks if not check["ok"]]

@@ -180,6 +180,135 @@ def process_lock_held(path: Path | None = None) -> bool:
     release_process_lock(handle)
     return False
 
+# task-0167: a Worker process can outlive the bot that started it (task-0165 V3), and the
+# file lock above dies with the bot. Each Worker run leaves a marker next to its attempt
+# worktree that names the process by PID, executable path and start time, so a process
+# found later is the same one only when all three match (a reused PID does not).
+WORKER_MARKER_SUFFIX = ".worker.json"
+WORKER_MARKER_KEYS = ("task_id", "attempt", "pid", "exe", "started")
+
+
+def worker_marker_path(worktree: Path) -> Path:
+    """The marker of the Worker running in this attempt worktree, beside it, outside the repo."""
+
+    return worktree.parent / f"{worktree.name}{WORKER_MARKER_SUFFIX}"
+
+
+def _process_identity(pid: int) -> tuple[str, int] | None:
+    """(executable path, start time) of a live process, or None when it cannot be read."""
+
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return None
+        try:
+            exit_code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)) or exit_code.value != 259:
+                return None  # 259 is STILL_ACTIVE
+            size = wintypes.DWORD(32768)
+            buffer = ctypes.create_unicode_buffer(size.value)
+            if not kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                return None
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+                return None
+            created = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+            return os.path.normcase(buffer.value), created
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        exe = os.readlink(f"/proc/{pid}/exe")
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        started = int(stat.rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None  # no /proc: the identity is incomplete, so recovery is refused
+    return os.path.normcase(exe), started
+
+
+def _write_worker_marker(worktree: Path, task_id: str, pid: int) -> None:
+    identity = _process_identity(pid)
+    marker = {
+        "task_id": task_id,
+        "attempt": worktree.name,
+        "pid": pid,
+        "exe": identity[0] if identity else "",
+        "started": identity[1] if identity else 0,
+    }
+    path = worker_marker_path(worktree)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(marker), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _read_worker_marker(path: Path) -> dict | None:
+    """The marker's fields, or None when it is unreadable or any field is missing or malformed."""
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or set(data) != set(WORKER_MARKER_KEYS):
+        return None
+    if not (
+        isinstance(data["task_id"], str) and data["task_id"]
+        and isinstance(data["attempt"], str) and data["attempt"] == path.name[: -len(WORKER_MARKER_SUFFIX)]
+        and isinstance(data["pid"], int) and data["pid"] > 0
+        and isinstance(data["exe"], str) and data["exe"]
+        and isinstance(data["started"], int) and data["started"] > 0
+    ):
+        return None
+    return data
+
+
+def _marker_alive(data: dict) -> bool:
+    return _process_identity(data["pid"]) == (os.path.normcase(data["exe"]), data["started"])
+
+
+def worker_marker_state(task_id: str, repo_root: Path | None = None, worktree_root: Path | None = None) -> tuple[str, str]:
+    """task-0167: whether a Worker of this task may still be running, from its attempt markers.
+
+    "alive"   a marker of any attempt names a process that is still running (same PID, path, start)
+    "missing" the latest attempt has no marker (or there is no attempt at all)
+    "invalid" the latest attempt's marker is unreadable or incomplete
+    "gone"    the latest attempt's marker names a process that is no longer running
+    Only "gone" lets an Owner recovery go ahead; every other state refuses it.
+    """
+
+    repo_root = repo_root or REPO_ROOT
+    worktree_root = worktree_root or WORKTREE_ROOT
+    if not worktree_root.is_dir():
+        return "missing", ""
+    pattern = re.compile(rf"{re.escape(task_id)}(?:-r[0-9]+)?{re.escape(WORKER_MARKER_SUFFIX)}")
+    markers = sorted(p for p in worktree_root.glob(f"{task_id}*{WORKER_MARKER_SUFFIX}") if pattern.fullmatch(p.name))
+    # Any attempt's live Worker counts, so a process left by an earlier attempt still blocks.
+    for path in markers:
+        data = _read_worker_marker(path)
+        if data is not None and data["task_id"] == task_id and _marker_alive(data):
+            return "alive", path.name
+    try:
+        attempts = _existing_attempts(repo_root, worktree_root, task_id)
+    except Exception:  # noqa: BLE001 - attempts that cannot be read refuse a recovery
+        return "invalid", "attempts_unreadable"
+    # Otherwise only the latest attempt's own marker decides: an earlier attempt's marker
+    # never stands in for a newer attempt that has none.
+    if not attempts:
+        return "missing", ""
+    latest = worktree_root / f"{_attempt_name(task_id, max(attempts))}{WORKER_MARKER_SUFFIX}"
+    if not latest.exists():
+        return "missing", latest.name
+    data = _read_worker_marker(latest)
+    if data is None or data["task_id"] != task_id:
+        return "invalid", latest.name
+    return "gone", latest.name
+
+
 WORKER_TIMEOUT_SECONDS = int(os.environ.get("JARVIS_WORKER_TIMEOUT", "900"))
 REVIEWER_TIMEOUT_SECONDS = int(os.environ.get("JARVIS_REVIEWER_TIMEOUT", "900"))
 TEST_TIMEOUT_SECONDS = 300
@@ -278,8 +407,13 @@ def _run(
     cwd: Path,
     timeout: int,
     stdin_text: str | None = None,
+    started: Callable[[int], None] | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run one process; on timeout kill its whole tree (claude.cmd spawns node)."""
+    """Run one process; on timeout kill its whole tree (claude.cmd spawns node).
+
+    task-0167: started, when given, is told the process id right after the start. A failure
+    there is ignored; the run, its time limit and its result stay as they were.
+    """
 
     proc = subprocess.Popen(
         list(args),
@@ -291,6 +425,11 @@ def _run(
         encoding="utf-8",
         errors="replace",
     )
+    if started is not None:
+        try:
+            started(proc.pid)
+        except Exception:  # noqa: BLE001 - a missing marker only makes a later recovery refuse
+            pass
     try:
         out, err = proc.communicate(input=stdin_text, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -572,7 +711,15 @@ def _existing_attempts(repo_root: Path, worktree_root: Path, task_id: str) -> li
     return sorted(numbers)
 
 
-def _run_worker(worktree: Path, prompt: str) -> None:
+def _run_worker(worktree: Path, prompt: str, task_id: str | None = None) -> None:
+    """Run the Worker in the attempt worktree.
+
+    task-0167: with task_id, a marker beside the worktree names the Worker process while it
+    runs, and is removed when the run ends (success, failure or time limit). Only a process
+    killed with its bot leaves the marker behind; worker_marker_state() then reads it.
+    """
+
+    marker = worker_marker_path(worktree) if task_id else None
     try:
         completed = _run(
             [
@@ -590,9 +737,13 @@ def _run_worker(worktree: Path, prompt: str) -> None:
             cwd=worktree,
             timeout=WORKER_TIMEOUT_SECONDS,
             stdin_text=prompt,
+            started=(lambda pid: _write_worker_marker(worktree, task_id, pid)) if task_id else None,
         )
     except subprocess.TimeoutExpired:
         raise StageFailure("worker", "worker_timeout", f"{WORKER_TIMEOUT_SECONDS}s")
+    finally:
+        if marker is not None:
+            marker.unlink(missing_ok=True)
     if completed.returncode != 0:
         raise StageFailure("worker", "worker_failed", (completed.stderr or completed.stdout).strip()[:200])
 
@@ -976,7 +1127,7 @@ def _run_pipeline(
         else:
             result.stage = "worker"
             _report_progress(progress, "worker")
-            _run_worker(worktree, worker_prompt(task_id, request))
+            _run_worker(worktree, worker_prompt(task_id, request), task_id)
 
         parent: str | None = None
         while True:
@@ -1066,7 +1217,7 @@ def _run_pipeline(
             parent = candidate
             result.stage = "repair"
             _report_progress(progress, "repair")
-            _run_worker(worktree, repair_prompt(task_id, request, candidate, review_text, changed))
+            _run_worker(worktree, repair_prompt(task_id, request, candidate, review_text, changed), task_id)
 
         # 9. QA: deterministic checks on the exact candidate, cumulative from the baseline.
         result.stage = "qa"

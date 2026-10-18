@@ -81,10 +81,11 @@
 | Jarvis Console Start | `TODO` → `DOING` |
 | Jarvis Console Complete | `DOING` → `DONE` |
 | Discord `/go` (TODO task) | `TODO` → `DOING` |
-| Discord `/go` 재시도·resume, `/retry` (FAILED task) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
+| Discord `/go` 재시도·resume, `/retry` (FAILED task, `/retry`는 `/work`로 만든 task 제외, task-0167) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
 | Discord `/go <id> accept` (`qa_unverified_owner_review` 기록이 있는 FAILED task, QA 재실행 통과 뒤에만) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
 | Discord `/approve` 승인 / 거절 | `NEEDS_APPROVAL` → `DOING` / `NEEDS_APPROVAL` → `FAILED` |
 | 실행 결과 기록 `_apply_execution_result` (`/approve`·`/run`·`/retry`·`/go` 실행 뒤) | 성공 `DOING` → `DONE`, 실패 `DOING` → `FAILED` |
+| Discord `/go <id> recover` (`/work`로 만든 DOING task, 실행 중인 Worker가 없고 마지막 시도의 실행 표지가 끝난 프로세스를 가리킬 때만, task-0167) | `DOING` → `FAILED` (실패 기록과 함께, 재실행 없음) |
 
 ## 6) 새 Task 생성 체크리스트
 새 Task를 만들 때 아래 항목을 순서대로 확인한다.

@@ -279,7 +279,7 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 | 파이프라인 보호 경로 | `jarvis.bat` | `PROTECTED_PATHS` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
-| 진입 명령 | Owner 전용 `/work`, `/go`(`resume`, `accept` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. Worker 잠금이 비어 있는데 실행 기록 없는 DOING task에 `/go`가 오면 `doing_without_execution_record`로 알리기만 하고 상태는 바꾸지 않음. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 같은 채널에 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 실행 기록 없는 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
+| 진입 명령 | Owner 전용 `/work`, `/go`(`resume`, `accept`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 봇 없이 살아남은 Worker를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 같은 채널에 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
 
 작업 종류의 값(종류 이름, 허용 경로, 테스트 스크립트)은 `orchestrator/worker/claude_worker.py`의
 `WORK_KINDS` 한 곳에 있고, 위 표는 종류마다 그 값을 적는다. 첫 항목 Studyroom이 기본값이며 기존
@@ -355,3 +355,14 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
     상태·실패 기록·main·attempt를 바꾸지 않고 감사도 남기지 않으므로 다시 accept할 수 있다. 승인
     전이가 적용되지 않으면 `accept_transition_failed`다. 승인 전이 뒤의 실패는 9~11항과 같이
     처리하며 다시 accept하지 않는다. main이 baseline과 다르면 rebase·merge·resume으로 우회하지 않는다.
+13. Recover. `/go <id> recover`는 `/work`로 만든 DOING task에만, Owner가 명시적으로 요청할 때만
+    한다(task-0167). Worker는 실행하는 동안 attempt worktree 옆(저장소 밖)에 PID·실행 파일 경로·
+    프로세스 시작 시각을 적은 실행 표지를 두고 끝나면 지운다. recover는 Worker 잠금 둘을 잡은 채
+    마지막 attempt의 표지가 가리키는 프로세스가 끝났을 때만(세 값이 모두 같은 프로세스가 없을 때)
+    실패 기록과 `DOING→FAILED`를 한 번의 원자적 쓰기로 적용하고, `/go`와 같은 Owner 승인 감사와 실행
+    결과 감사를 남긴다. 다시 실행하지 않으며 재실행은 `/go`나 `/go <id> resume`이다. 상태가 DOING이
+    아니면 `recover_requires_doing:<상태>`, `/work`로 만든 task가 아니면 `recover_not_worker_path`,
+    잠금이 잡혀 있으면 `worker_busy`, 어느 attempt의 표지든 살아 있는 Worker를 가리키면
+    `recover_worker_alive`, 마지막 attempt에 표지가 없으면 `recover_worker_marker_missing`, 표지를
+    읽을 수 없거나 식별 정보가 불완전하면 `recover_worker_marker_invalid`로 거절하고 아무것도
+    바꾸지 않는다(fail closed). 표지가 생기기 전에 시작된 시도도 표지가 없으므로 같은 거절이다.
