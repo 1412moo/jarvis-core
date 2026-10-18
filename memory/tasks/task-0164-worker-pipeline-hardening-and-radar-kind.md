@@ -2,10 +2,10 @@
 
 - id: `task-0164-worker-pipeline-hardening-and-radar-kind`
 - title: `Worker 파이프라인: 프로세스 간 잠금·멈춘 DOING 표시·작업 종류 레지스트리와 Daily AI Radar 작업 종류 추가`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-17 15:52 UTC`
-- updated_at: `2026-10-17 17:05 UTC`
+- updated_at: `2026-10-18 09:08 UTC`
 - summary: `Discord Worker 파이프라인(run_pipeline)을 재사용해, 두 번째 봇·두 번째 실행을 막는 프로세스 간 파일 잠금과 실행 기록 없는 DOING 표시(상태 변경 없음)를 더하고, Studyroom 한 종류로 고정된 ALLOWED_PREFIX·TEST_COMMAND·WORK_KIND를 작업 종류 레지스트리로 묶어 apps/daily-ai-radar를 두 번째 작업 종류로 등록한다. SOP §10.1 표와 validator가 레지스트리의 모든 작업 종류와 일치하도록 함께 고치고 Worker smoke로 두 종류를 실제 실행 경로에서 검증하며, Studyroom 동작·repair 상한 1·자동 루프 정책은 그대로이고 push는 하지 않는다.`
 - source_command: `Owner 승인: task-0164 A안(SOP·validator 포함), S1~S5 한 task`
 
