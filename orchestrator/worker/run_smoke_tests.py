@@ -202,7 +202,8 @@ def write_task(clone: Path, task_id: str) -> None:
 
 
 def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: str = "pass", prepare=None,
-             request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None, resume: bool = False, repair_budget: int | None = None):
+             request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None, resume: bool = False, repair_budget: int | None = None,
+             progress=None):
     os.environ["FAKE_WORKER"] = worker
     os.environ["FAKE_REVIEW"] = review
     task_id = task_id or f"task-8000-{name}"
@@ -226,11 +227,71 @@ def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: st
         record_result=record,
         resume=resume,
         repair_budget=repair_budget,
+        progress=progress,
     )
     after = git(["rev-parse", "HEAD"], clone)
     check(f"{name}: no push", git(["rev-parse", "origin/main"], clone) == origin_before and not result.pushed)
     check(f"{name}: jarvis.bat never in main index or tree", not git(["ls-files", "--", "jarvis.bat"], clone))
     return result, calls, before, after
+
+
+def progress_flow(clone: Path, worktrees: Path) -> None:
+    """task-0165: the stages run_pipeline reports, for the paths a run really takes."""
+
+    def stages_of(name: str, **kwargs):
+        stages: list[str] = []
+        r, calls, before, after = run_case(name, clone, worktrees, progress=stages.append, **kwargs)
+        return r, calls, before, after, stages
+
+    r, calls, *_, stages = stages_of("progressok", worker="ok")
+    check("progress: a clean run reports worker, reviewer, qa, integrate in order and no repair",
+          r.ok and stages == ["worker", "reviewer", "qa", "integrate"], f"{r.stage}:{r.reason}:{stages}")
+    Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
+    r, calls, *_, stages = stages_of("progressrepair", worker="ok", review="once")
+    check("progress: a repair is reported, then the fresh review",
+          r.ok and r.repairs == 1 and stages == ["worker", "reviewer", "repair", "reviewer", "qa", "integrate"],
+          f"{r.stage}:{r.reason}:{stages}")
+    Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
+    r, calls, *_, stages = stages_of("progressretry", worker="ok", review="deviateonce")
+    check("progress: an invalid-review retry is part of the same review, not a second report",
+          r.ok and r.reviewer_retries == 1 and stages == ["worker", "reviewer", "qa", "integrate"], f"{r.stage}:{r.reason}:{stages}")
+    r, calls, *_, stages = stages_of("progressworkerfail", worker="fail")
+    check("progress: a Worker failure stops the reports after worker",
+          (not r.ok) and r.reason == "worker_failed" and stages == ["worker"], f"{r.reason}:{stages}")
+    r, calls, *_, stages = stages_of("progressreviewerfail", worker="ok", review="blocked")
+    check("progress: a Reviewer failure stops the reports after reviewer",
+          (not r.ok) and r.reason == "reviewer_blocked" and stages == ["worker", "reviewer"], f"{r.reason}:{stages}")
+    r, calls, *_, stages = stages_of("progressqastop", worker="ok", review="unverifiednone")
+    check("progress: a QA stop for the Owner reports qa and never integrate",
+          (not r.ok) and r.reason == "qa_unverified_owner_review" and stages == ["worker", "reviewer", "qa"], f"{r.reason}:{stages}")
+    real_run_tests = claude_worker._run_tests
+    runs: list[int] = []
+
+    def tests_fail_in_qa(worktree: Path) -> tuple[bool, str]:
+        runs.append(1)
+        return (True, "ok") if len(runs) == 1 else (False, "forced failure")
+
+    claude_worker._run_tests = tests_fail_in_qa
+    try:
+        r, calls, before, after, stages = stages_of("progressqafail", worker="ok")
+    finally:
+        claude_worker._run_tests = real_run_tests
+    check("progress: a QA failure reports qa, records FAILED and leaves main",
+          (not r.ok) and r.reason == "qa_failed" and stages == ["worker", "reviewer", "qa"]
+          and calls and calls[-1][0] is False and before == after, f"{r.reason}:{stages}")
+
+    # A progress callback that always raises leaves the run exactly as it would be without one.
+    def broken(_stage: str) -> None:
+        raise RuntimeError("discord down")
+
+    r, calls, before, after = run_case("progressbroken", clone, worktrees, worker="ok", progress=broken)
+    check("progress: a failing report never fails the run (DONE, recorded, main advanced)",
+          r.ok and r.stage == "done" and calls == [(True, calls[0][1])] and git(["rev-list", "--count", f"{before}..{after}"], clone) == "2",
+          f"{r.stage}:{r.reason}:{calls}")
+    r, calls, before, after = run_case("progressbrokenfail", clone, worktrees, worker="scope", progress=broken)
+    check("progress: a failing report never hides a failure (scope_violation, FAILED recorded, main unchanged)",
+          (not r.ok) and r.reason == "scope_violation" and calls == [(False, "scope:scope_violation")] and before == after,
+          f"{r.reason}:{calls}")
 
 
 def process_lock_flow(clone: Path, worktrees: Path) -> None:
@@ -274,6 +335,10 @@ def process_lock_flow(clone: Path, worktrees: Path) -> None:
               f"holder={first} held={held_elsewhere} go={busy_ready}")
         check("doing: while a Worker runs elsewhere, a DOING task reports worker_busy, not a stall",
               busy_stalled.get("reason") == "worker_busy" and stalled_path.read_bytes() == before[stalled_path], str(busy_stalled))
+        # task-0165: the start-up check calls nothing stalled while another process runs a Worker.
+        scan_held = bot._stalled_doing_scan(tasks)
+        check("startup check: while a Worker runs elsewhere nothing is reported as stalled",
+              scan_held.get("worker_running") is True and bot._format_startup_report(scan_held) is None, str(scan_held))
     finally:
         holder.kill()
         holder.wait(timeout=30)
@@ -284,6 +349,13 @@ def process_lock_flow(clone: Path, worktrees: Path) -> None:
     check("doing: a DOING task with no Worker and no execution record is reported and left as it is",
           reported.get("reason") == "doing_without_execution_record" and stalled_path.read_bytes() == before[stalled_path]
           and "멈춘 DOING" in bot._format_reply(reported) and not bot._WORKER_LOCK.locked(), str(reported))
+    # task-0165: the start-up check finds the same /work task, lists it, and writes nothing.
+    snapshot = {path: path.read_bytes() for path in tasks.glob("*.md")}
+    scan = bot._stalled_doing_scan(tasks)
+    text = bot._format_startup_report(scan) or ""
+    check("startup check: the stalled /work task is listed for the Owner and no task file changes",
+          [item["id"] for item in scan.get("stalled", [])] == [stalled] and stalled in text and ready not in text
+          and {path: path.read_bytes() for path in tasks.glob("*.md")} == snapshot, f"{scan} | {text}")
 
 
 def bot_flow(clone: Path, worktrees: Path) -> None:
@@ -353,19 +425,31 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     started = bot._run_command(f"/go {task_id}")
     check("bot: /go moves TODO to DOING and audits the approval", started.get("result_type") == "work_started" and status_of(task_id) == "DOING" and audits[-1] == "approval")
     check("bot: second /go while running is refused", bot._run_command(f"/go {task_id}").get("reason", "").startswith(("worker_busy", "status_not_startable")))
-    failed = bot._run_worker_job(task_id, started["request"], started["command"])
+    failed_lines: list[str] = []
+    failed = bot._run_worker_job(task_id, started["request"], started["command"],
+                                 progress=bot._make_progress(task_id, failed_lines.append))
     reply = bot._format_reply(failed)
     check("bot: failure recorded as FAILED with options", status_of(task_id) == "FAILED" and "재시도" in reply and "scope_violation" in reply)
+    # task-0165: the scope failure stops after the Worker line, and the result reply mentions the Owner.
+    check("bot: a failed run reports only the Worker stage, then a failure reply that mentions the Owner",
+          failed_lines == [f"🔧 {task_id}: Worker 실행 중"] and reply.startswith(f"<@{owner}> ❌ 실패: {task_id}"),
+          f"{failed_lines} | {reply.splitlines()[0]}")
     unfixable = bot._format_reply(dict(failed, stage="reviewer", reason="reviewer_findings_not_repairable"))
     check("bot: not-repairable FINDINGS reply asks for an Owner decision",
-          "변경 파일과 무관해 Worker가 고칠 수 없습니다. Owner 결정이 필요합니다." in unfixable)
+          "변경 파일과 무관해 Worker가 고칠 수 없습니다. Owner 결정이 필요합니다." in unfixable
+          and unfixable.startswith(f"<@{owner}> 🟡 Owner 판단 필요: {task_id}"), unfixable.splitlines()[0])
 
     os.environ["FAKE_WORKER"] = "ok"
     head_before = git(["rev-parse", "HEAD"], clone)
     retry = bot._run_command(f"/go {task_id}")
     check("bot: /go on FAILED retries (FAILED -> TODO -> DOING)", retry.get("result_type") == "work_started" and retry.get("retry") is True and status_of(task_id) == "DOING")
-    done = bot._run_worker_job(task_id, retry["request"], retry["command"])
+    done_lines: list[str] = []
+    done = bot._run_worker_job(task_id, retry["request"], retry["command"],
+                               progress=bot._make_progress(task_id, done_lines.append))
     check("bot: success reply and task DONE", done.get("ok") is True and status_of(task_id) == "DONE" and "✅" in bot._format_reply(done), f"{done.get('stage')}:{done.get('reason')}:{done.get('detail')}")
+    check("bot: a successful run reports Worker, Reviewer, QA and integrate once each, no mention",
+          [line.split(":", 1)[0] for line in done_lines] == [f"🔧 {task_id}", f"🔍 {task_id}", f"🧪 {task_id}", f"📦 {task_id}"]
+          and not any("<@" in line for line in done_lines) and "<@" not in bot._format_reply(done), str(done_lines))
     check("bot: checkpoint commit tracks the task record", git(["log", "-1", "--format=%H"], clone) == done.get("checkpoint")
           and f"memory/tasks/{task_id}.md" in git(["show", "--name-only", "--format=", "HEAD"], clone)
           and git(["rev-list", "--count", f"{head_before}..HEAD"], clone) == "2")
@@ -538,9 +622,13 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
         r, calls, *_ = run_case(task_id[len("task-8000-"):], clone, worktrees, worker="ok", review="unverifiednone", task_id=task_id)
         return r, calls[-1][1]
 
+    # task-0165: the stages each accept call reported, newest last.
+    accept_stages: list[list[str]] = []
+
     def accept(task_id: str, record: str, approve_result: tuple[bool, str] = (True, ""), before_approve=None):
         approvals: list[int] = []
         calls: list[tuple[bool, str]] = []
+        accept_stages.append([])
 
         def approve() -> tuple[bool, str]:
             approvals.append(1)
@@ -554,7 +642,8 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
 
         origin_before = git(["rev-parse", "origin/main"], clone)
         r = claude_worker.accept_candidate(task_id=task_id, record=record, approve=approve, repo_root=clone,
-                                           worktree_root=worktrees, record_result=record_result)
+                                           worktree_root=worktrees, record_result=record_result,
+                                           progress=accept_stages[-1].append)
         check(f"accept {task_id}: no push", git(["rev-parse", "origin/main"], clone) == origin_before and not r.pushed)
         return r, approvals, calls
 
@@ -579,6 +668,7 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
 
     r, a, c = accept("task-8000-accref", "qa:qa_unverified_owner_review")
     refused("bare record", r, a, c, "accept_record_invalid", head, attempt)
+    check("progress: an accept refused before QA reports nothing", accept_stages[-1] == [], str(accept_stages[-1]))
     r, a, c = accept("task-8000-accref", record.replace(attempt.candidate, attempt.baseline))
     refused("tip differs from the recorded candidate", r, a, c, "accept_candidate_mismatch", head, attempt)
     r, a, c = accept("task-8000-accref", record.replace(attempt.baseline, git(["rev-parse", f"{attempt.baseline}^"], clone)))
@@ -642,6 +732,7 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
     r, a, c = accept("task-8000-accref", record)
     claude_worker._run_tests = real_run_tests
     refused("QA re-run fails", r, a, c, "accept_qa_failed", head, attempt)
+    check("progress: an accept whose QA fails reports qa and never integrate", accept_stages[-1] == ["qa"], str(accept_stages[-1]))
     check("accept refusal: the QA failure names the failed check", r.detail == "tests_rerun" and r.qa_checks.get("tests_rerun") is False, r.detail)
 
     def dirtying_tests(worktree: Path) -> tuple[bool, str]:
@@ -680,6 +771,7 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
           and not wt.exists() and not git(["branch", "--list", branch], clone), f"{r.checkpoint}")
     check("accept: all six QA checks re-ran and the Reviewer was not called", len(r.qa_checks) == 6 and all(r.qa_checks.values())
           and r.reviewer_verdict == "")
+    check("progress: an accepted candidate reports qa then integrate", accept_stages[-1] == ["qa", "integrate"], str(accept_stages[-1]))
     check("accept: jarvis.bat never in main index or tree", not git(["ls-files", "--", "jarvis.bat"], clone))
 
     r, a, c = accept("task-8000-accnone", claude_worker.owner_review_record("a" * 40, "b" * 40, 1))
@@ -881,8 +973,10 @@ def owner_review_replies(results: dict[str, dict]) -> None:
     for reason in ("qa_failed", "scope_violation", "reviewer_findings"):
         failed = dict(common, ok=False, stage="qa", reason=reason, detail="tests_rerun", candidate="c" * 40,
                       candidates=["c" * 40], branch="jarvis/task-8000-x", repairs=1, worktree="W")
-        check(f"owner review reply: {reason} failure reply unchanged", bot._format_reply(failed) == (
-            f"❌ 실패: task-8000-x — 단계 `qa`, 사유 `{reason}`\n- 상세: tests_rerun\n"
+        # task-0165: the only change is the Owner mention in front (bot_flow set the Owner ID).
+        owner_ids = os.environ.get(bot.OWNER_IDS_ENV, "")
+        check(f"owner review reply: {reason} failure reply unchanged apart from the Owner mention", bot._format_reply(failed) == (
+            f"<@{owner_ids}> ❌ 실패: task-8000-x — 단계 `qa`, 사유 `{reason}`\n- 상세: tests_rerun\n"
             "- candidate: ccccccc (브랜치 jarvis/task-8000-x 보존, 자동 repair 1회)\n- main은 변경되지 않았고 push도 없습니다.\n"
             "다음 선택지: `/go task-8000-x` 처음부터 재시도 · `/go task-8000-x resume` 이 시도에서 이어가기 · "
             "`/status task-8000-x` 상태 확인 · 직접 개입(worktree W)"))
@@ -1167,6 +1261,7 @@ def main() -> int:
               and "Describe current behavior only from source code" in prompt and "(memory/tasks, docs, git-tracked" not in prompt)
         os.environ.pop("FAKE_LOG", None)
         check("worktree root is outside the clone", not str(worktrees.resolve()).startswith(str(clone.resolve())))
+        progress_flow(clone, worktrees)
         bot_flow(clone, worktrees)
         process_lock_flow(clone, worktrees)
         owner_review_replies(owner_review_results)

@@ -851,6 +851,22 @@ def _integrate_and_checkpoint(
     result.stage = "done"
 
 
+# task-0165: the stages a run reports to its caller as it enters them, in this order.
+# "repair" and a second "reviewer" appear only when a repair really happens.
+PROGRESS_STAGES = ("worker", "resume", "reviewer", "repair", "qa", "integrate")
+
+
+def _report_progress(progress: Callable[[str], None] | None, stage: str) -> None:
+    """task-0165: tell the caller a stage has started. A failing report never changes the run."""
+
+    if progress is None:
+        return
+    try:
+        progress(stage)
+    except Exception:  # noqa: BLE001 - reporting is best effort, the run and its record stay as they are
+        pass
+
+
 def _unknown_kind_result(
     task_id: str,
     work_kind: str,
@@ -878,8 +894,12 @@ def run_pipeline(
     resume: bool = False,
     repair_budget: int | None = None,
     work_kind: str | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> WorkerRunResult:
-    """Run the whole slice once for one registry kind (Studyroom by default). Never raises."""
+    """Run the whole slice once for one registry kind (Studyroom by default). Never raises.
+
+    task-0165: progress, when given, is called with a PROGRESS_STAGES name as each stage starts.
+    """
 
     kind = work_kind_by_name(work_kind) if work_kind else DEFAULT_WORK_KIND
     if kind is None:
@@ -895,6 +915,7 @@ def run_pipeline(
             record_result=record_result,
             resume=resume,
             repair_budget=repair_budget,
+            progress=progress,
         )
     finally:
         _ACTIVE_WORK_KIND.reset(token)
@@ -912,6 +933,7 @@ def _run_pipeline(
     record_result: Callable[[bool, str], tuple[bool, str]] | None,
     resume: bool,
     repair_budget: int | None,
+    progress: Callable[[str], None] | None = None,
 ) -> WorkerRunResult:
     result = WorkerRunResult(task_id=task_id)
     worktree_root = worktree_root or WORKTREE_ROOT
@@ -948,10 +970,12 @@ def _run_pipeline(
         # 3. Worker, or the previous attempt's changes on resume.
         if plan is not None:
             result.stage = "resume"
+            _report_progress(progress, "resume")
             previous, result.resumed_from, paths = plan
             _copy_attempt_changes(previous, worktree, paths)
         else:
             result.stage = "worker"
+            _report_progress(progress, "worker")
             _run_worker(worktree, worker_prompt(task_id, request))
 
         parent: str | None = None
@@ -985,6 +1009,8 @@ def _run_pipeline(
 
             # 7. Reviewer, pinned to the candidate, with the Owner text verbatim.
             result.stage = "reviewer"
+            # Once per candidate; the invalid-review retry below is part of the same review.
+            _report_progress(progress, "reviewer")
             call = reviewer_call(
                 task_id=task_id,
                 candidate=candidate,
@@ -1039,10 +1065,12 @@ def _run_pipeline(
             result.repairs += 1
             parent = candidate
             result.stage = "repair"
+            _report_progress(progress, "repair")
             _run_worker(worktree, repair_prompt(task_id, request, candidate, review_text, changed))
 
         # 9. QA: deterministic checks on the exact candidate, cumulative from the baseline.
         result.stage = "qa"
+        _report_progress(progress, "qa")
         qa = _qa_checks(repo_root, worktree, baseline, candidate, changed)
         result.qa_checks = qa
         if not all(qa.values()):
@@ -1058,6 +1086,7 @@ def _run_pipeline(
 
         # 10. Integrate: ff-only, and only if main has not moved.
         # 11. Task result (DOING -> DONE) and checkpoint commit.
+        _report_progress(progress, "integrate")
         _integrate_and_checkpoint(
             repo_root,
             result,
@@ -1095,8 +1124,12 @@ def accept_candidate(
     worktree_root: Path | None = None,
     record_result: Callable[[bool, str], tuple[bool, str]] | None = None,
     work_kind: str | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> WorkerRunResult:
-    """task-0164: accept for one registry kind (Studyroom by default). See _accept_candidate."""
+    """task-0164: accept for one registry kind (Studyroom by default). See _accept_candidate.
+
+    task-0165: progress is called with "qa" and "integrate" as accept reaches them.
+    """
 
     kind = work_kind_by_name(work_kind) if work_kind else DEFAULT_WORK_KIND
     if kind is None:
@@ -1113,6 +1146,7 @@ def accept_candidate(
             repo_root=repo_root,
             worktree_root=worktree_root,
             record_result=record_result,
+            progress=progress,
         )
     finally:
         _ACTIVE_WORK_KIND.reset(token)
@@ -1128,6 +1162,7 @@ def _accept_candidate(
     repo_root: Path,
     worktree_root: Path | None,
     record_result: Callable[[bool, str], tuple[bool, str]] | None,
+    progress: Callable[[str], None] | None = None,
 ) -> WorkerRunResult:
     """task-0151: `/go <id> accept` for a task stopped at qa_unverified_owner_review.
 
@@ -1151,6 +1186,7 @@ def _accept_candidate(
         result.candidates, result.repairs, result.changed_files = chain, len(chain) - 1, changed
         _accept_main_check(repo_root, baseline, task_id)
 
+        _report_progress(progress, "qa")
         qa = _qa_checks(repo_root, worktree, baseline, candidate, changed)
         result.qa_checks = qa
         if not all(qa.values()):
@@ -1164,6 +1200,7 @@ def _accept_candidate(
             raise StageFailure("approval", "accept_transition_failed", why)
         approved = True
 
+        _report_progress(progress, "integrate")
         _integrate_and_checkpoint(
             repo_root,
             result,

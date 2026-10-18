@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 try:
     import discord
@@ -2034,12 +2034,19 @@ def _owner_review_record(task_file: Path) -> str | None:
 
 
 def _run_worker_job(
-    task_id: str, request: str, command: str, resume: bool = False, accept: bool = False
+    task_id: str,
+    request: str,
+    command: str,
+    resume: bool = False,
+    accept: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Run the pipeline once and record the outcome on the task. Releases the lock.
 
     task-0151: with accept, run claude_worker.accept_candidate instead. The Owner approval
     transition and its audit happen inside it, only after the QA checks passed again.
+
+    task-0165: progress goes to the pipeline unchanged; it is called as each stage starts.
     """
 
     # task-0164: the same kind _run_go settled from the task title.
@@ -2101,6 +2108,7 @@ def _run_worker_job(
                 repo_root=REPO_ROOT,
                 record_result=record,
                 work_kind=work_kind,
+                progress=progress,
             )
         else:
             outcome = claude_worker.run_pipeline(
@@ -2111,6 +2119,7 @@ def _run_worker_job(
                 record_result=record,
                 resume=resume,
                 work_kind=work_kind,
+                progress=progress,
             )
     finally:
         _release_worker_locks()
@@ -2118,6 +2127,160 @@ def _run_worker_job(
     if accept:
         payload["audit_error"] = audit_errors[-1] if audit_errors else None
     return payload
+
+
+# ---------------------------------------------------------------------------
+# task-0165: progress reports, Owner escalation and the start-up check
+# ---------------------------------------------------------------------------
+PROGRESS_SEND_TIMEOUT_SECONDS = 15.0
+# Stops that wait for an Owner decision rather than a plain retry. A repair budget that ran
+# out and an accept refusal that kept the record are recognised in _needs_owner_decision.
+OWNER_DECISION_REASONS = frozenset({"qa_unverified_owner_review", "reviewer_findings_not_repairable"})
+STARTUP_CHECK_LISTED_MAX = 10
+_STARTUP_CHECK_DONE = False
+
+
+def _progress_line(task_id: str, stage: str, repairs: int) -> str | None:
+    """One short line for a stage the run has entered. No mention: progress is not an escalation."""
+
+    if stage == "worker":
+        return f"🔧 {task_id}: Worker 실행 중"
+    if stage == "resume":
+        return f"🔧 {task_id}: 이전 시도의 변경을 새 시도로 옮기는 중 (resume)"
+    if stage == "reviewer":
+        return f"🔍 {task_id}: Reviewer 검토 중" + (f" (repair {repairs}회 뒤 재검토)" if repairs else "")
+    if stage == "repair":
+        return f"🛠️ {task_id}: Reviewer 지적에 따라 repair {repairs}회차 진행 중"
+    if stage == "qa":
+        return f"🧪 {task_id}: QA 검사 중 ({len(claude_worker.QA_CHECKS)}개)"
+    if stage == "integrate":
+        return f"📦 {task_id}: main 반영과 완료 기록 중"
+    return None
+
+
+def _make_progress(task_id: str, send: Callable[[str], None]) -> Callable[[str], None]:
+    """The progress callback for one run: a line per stage entered, handed to `send`.
+
+    A send that fails is logged with its exception type only, and the run goes on; the
+    final result reply still says how the run ended.
+    """
+
+    repairs = 0
+
+    def progress(stage: str) -> None:
+        nonlocal repairs
+        if stage == "repair":
+            repairs += 1
+        line = _progress_line(task_id, stage, repairs)
+        if line is None:
+            return
+        try:
+            send(line)
+        except Exception as exc:  # noqa: BLE001 - a lost progress line never stops the run
+            print(f"[progress] {task_id} {stage}: report failed ({type(exc).__name__})")
+
+    return progress
+
+
+def _owner_mention() -> str:
+    """Mentions for the configured Owner IDs (the same allowlist as the command gate)."""
+
+    return " ".join(f"<@{owner_id}>" for owner_id in sorted(_load_owner_ids()))
+
+
+def _needs_owner_decision(result: dict[str, Any]) -> bool:
+    return (
+        result.get("reason") in OWNER_DECISION_REASONS
+        or (result.get("reason") == "reviewer_findings" and "exhausted" in str(result.get("detail") or ""))
+        or bool(result.get("accept_retryable"))
+    )
+
+
+def _task_source_command(task_file: Path) -> str:
+    for raw_line in task_file.read_text(encoding="utf-8").splitlines():
+        matched = TASK_META_LINE_PATTERN.match(raw_line.strip())
+        if matched and matched.group(1) == "source_command":
+            return matched.group(2).strip()
+    return ""
+
+
+def _stalled_doing_scan(tasks_dir: Path | None = None) -> dict[str, Any]:
+    """task-0165: the DOING tasks with no execution record, read only. Nothing is written.
+
+    A Worker-path task is one `/work` created (source_command `/task`), the only tasks a
+    Worker run starts from. Other DOING tasks are counted, not listed and not reclassified.
+    While a Worker holds the lock, a DOING task may be running, so nothing is called stalled.
+    """
+
+    tasks_dir = tasks_dir or REPO_ROOT / "memory" / "tasks"
+    if _worker_running():
+        return {"worker_running": True, "stalled": [], "other_doing": 0}
+    stalled: list[dict[str, str]] = []
+    other = 0
+    for task_file in sorted(tasks_dir.glob("task-*.md")):
+        try:
+            metadata = _read_task_metadata(task_file)
+            if not metadata or metadata.get("status") != "DOING":
+                continue
+            if (
+                _task_source_command(task_file) == "/task"
+                and _read_execution_review_metadata(task_file).get("executed") is None
+            ):
+                stalled.append({key: metadata[key] for key in ("id", "title", "updated_at")})
+            else:
+                other += 1
+        except (OSError, UnicodeDecodeError):
+            continue
+    return {"worker_running": False, "stalled": stalled, "other_doing": other}
+
+
+def _format_startup_report(scan: dict[str, Any]) -> str | None:
+    """The DM text for the Owner, or None when no Worker-path task is stalled."""
+
+    stalled = scan.get("stalled") or []
+    if scan.get("worker_running") or not stalled:
+        return None
+    lines = [
+        "🩺 Jarvis 봇 시작 점검 (읽기 전용)",
+        f"- Worker 경로에서 실행 기록 없이 DOING인 task {len(stalled)}건:",
+    ]
+    for item in stalled[:STARTUP_CHECK_LISTED_MAX]:
+        lines.append(f"  - {item['id']} ({item['updated_at']}) {item['title'][:80]}")
+    if len(stalled) > STARTUP_CHECK_LISTED_MAX:
+        lines.append(f"  - 외 {len(stalled) - STARTUP_CHECK_LISTED_MAX}건")
+    if scan.get("other_doing"):
+        lines.append(f"- 그 밖의 DOING {scan['other_doing']}건은 Worker 경로의 task가 아니어서 이 점검에서 제외했습니다.")
+    lines.append("- 상태와 기록은 바꾸지 않았고 다시 실행하지도 않았습니다. `/status <task-id>`로 확인한 뒤 Owner가 정하세요.")
+    return "\n".join(lines)
+
+
+async def _startup_check_once(send_dm: Callable[[str, str], Any], tasks_dir: Path | None = None) -> dict[str, Any]:
+    """task-0165: run the start-up check once per process and DM each configured Owner.
+
+    on_ready can fire again after a reconnect; the module flag keeps it to one report per
+    process. A failed DM is logged with its exception type only. Owner IDs are never printed.
+    """
+
+    global _STARTUP_CHECK_DONE
+    if _STARTUP_CHECK_DONE:
+        return {"skipped": True}
+    _STARTUP_CHECK_DONE = True
+    scan = await asyncio.to_thread(_stalled_doing_scan, tasks_dir)
+    text = _format_startup_report(scan)
+    print(
+        f"[startup-check] worker_running={scan['worker_running']} stalled={len(scan['stalled'])} "
+        f"other_doing={scan['other_doing']}"
+    )
+    sent, failed = 0, []
+    if text:
+        for owner_id in sorted(_load_owner_ids()):
+            try:
+                await send_dm(owner_id, text)
+                sent += 1
+            except Exception as exc:  # noqa: BLE001 - a failed DM leaves only its reason on the console
+                failed.append(type(exc).__name__)
+                print(f"[startup-check] DM to an Owner failed ({type(exc).__name__})")
+    return {"skipped": False, "scan": scan, "text": text, "sent": sent, "failed": failed}
 
 
 # task-0150: bounds for the pending unverified entries in a qa_unverified_owner_review reply.
@@ -2165,7 +2328,11 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             "- push: 하지 않음"
         )
     pending_at = -1
-    lines = [f"❌ 실패: {task_id} — 단계 `{result.get('stage')}`, 사유 `{result.get('reason')}`"]
+    # task-0165: every failure reply mentions the Owner, and a stop that waits for an Owner
+    # decision is told apart from a plain failure on its first line.
+    mention = _owner_mention()
+    heading = "🟡 Owner 판단 필요" if _needs_owner_decision(result) else "❌ 실패"
+    lines = [f"{mention + ' ' if mention else ''}{heading}: {task_id} — 단계 `{result.get('stage')}`, 사유 `{result.get('reason')}`"]
     detail = str(result.get("detail") or "")[:300]
     if detail:
         lines.append(f"- 상세: {detail}")
@@ -3982,6 +4149,150 @@ def _run_self_check_suite() -> dict[str, Any]:
         f"checks={go_checks}",
     )
 
+    # task-0165: progress lines, Owner escalation and the read-only start-up check.
+    sent_lines: list[str] = []
+    progress = _make_progress("task-9165-x", sent_lines.append)
+    for stage in ("worker", "reviewer", "repair", "reviewer", "qa", "integrate", "not_a_stage"):
+        progress(stage)
+
+    def failing_send(_line: str) -> None:
+        raise RuntimeError("send failed")
+
+    swallowed: dict[str, Any] = {}
+    try:
+        _make_progress("task-9165-x", failing_send)("worker")
+        claude_worker._report_progress(failing_send, "worker")
+        swallowed["ok"] = True
+    except Exception as exc:  # noqa: BLE001 - recorded as a failed check
+        swallowed["error"] = f"{type(exc).__name__}: {exc}"
+    _record(
+        "progress_reports_each_stage_once_without_mention",
+        len(sent_lines) == 6
+        and sent_lines[0].startswith("🔧 task-9165-x: Worker")
+        and sent_lines[1] == "🔍 task-9165-x: Reviewer 검토 중"
+        and "repair 1회차" in sent_lines[2]
+        and "(repair 1회 뒤 재검토)" in sent_lines[3]
+        and sent_lines[4].startswith("🧪") and sent_lines[5].startswith("📦")
+        and not any("<@" in line for line in sent_lines),
+        f"lines={sent_lines}",
+    )
+    _record(
+        "progress_report_failure_never_raises",
+        swallowed.get("ok") is True,
+        f"swallowed={swallowed}",
+    )
+
+    original_owner_ids = os.environ.get(OWNER_IDS_ENV)
+    replies: dict[str, str] = {}
+    try:
+        os.environ[OWNER_IDS_ENV] = "123456789012345678"
+        failure = {"result_type": "work_result", "task_id": "task-9165-x", "ok": False, "stage": "scope",
+                   "reason": "scope_violation", "detail": "README.md", "worktree": "W"}
+        replies["failed"] = _format_reply(failure)
+        replies["owner_review"] = _format_reply(dict(failure, stage="qa", reason="qa_unverified_owner_review"))
+        replies["exhausted"] = _format_reply(dict(failure, stage="reviewer", reason="reviewer_findings",
+                                                  detail="repair budget 1 exhausted, Owner decision needed. x"))
+        replies["findings"] = _format_reply(dict(failure, stage="reviewer", reason="reviewer_findings", detail="x"))
+        replies["success"] = _format_reply({"result_type": "work_result", "task_id": "task-9165-x", "ok": True,
+                                            "changed_files": [], "qa_checks": {}, "candidate": "c", "checkpoint": "d"})
+        replies["started"] = _format_reply({"result_type": "work_started", "task_id": "task-9165-x"})
+        os.environ[OWNER_IDS_ENV] = ""
+        replies["unset"] = _format_reply(failure)
+    finally:
+        if original_owner_ids is None:
+            os.environ.pop(OWNER_IDS_ENV, None)
+        else:
+            os.environ[OWNER_IDS_ENV] = original_owner_ids
+    mention = "<@123456789012345678> "
+    _record(
+        "failure_reply_mentions_owner_and_tells_owner_decision_apart",
+        replies["failed"].startswith(mention + "❌ 실패: task-9165-x")
+        and replies["owner_review"].startswith(mention + "🟡 Owner 판단 필요: task-9165-x")
+        and replies["exhausted"].startswith(mention + "🟡 Owner 판단 필요")
+        and replies["findings"].startswith(mention + "❌ 실패")
+        and "<@" not in replies["success"] and "<@" not in replies["started"]
+        and replies["unset"].startswith("❌ 실패: task-9165-x"),
+        f"heads={ {key: value.splitlines()[0] for key, value in replies.items()} }",
+    )
+
+    original_done = _STARTUP_CHECK_DONE
+    startup: dict[str, Any] = {}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_dir = Path(tmp)
+
+            def startup_fixture(task_id: str, status: str, source: str, executed: bool = False) -> Path:
+                path = tasks_dir / f"{task_id}.md"
+                text = (
+                    f"# {task_id}\n\n- id: `{task_id}`\n- title: `fixture {task_id}`\n- status: `{status}`\n"
+                    "- repo: `jarvis-core`\n- created_at: `2026-10-18 10:00 UTC`\n"
+                    "- updated_at: `2026-10-18 10:00 UTC`\n- summary: `fixture`\n"
+                    f"- source_command: `{source}`\n"
+                )
+                if executed:
+                    text += (
+                        '- execution_result: `{"action":"claude_worker_pipeline","error_reason":"","executed":true,'
+                        f'"execution_type":"claude_worker","result_type":"execution_result","success":true,"task_id":"{task_id}"}}`\n'
+                        "- executed: `true`\n- success: `true`\n"
+                    )
+                path.write_text(text, encoding="utf-8")
+                return path
+
+            files = [
+                startup_fixture("task-9166-worker-stalled", "DOING", "/task"),
+                startup_fixture("task-9167-manual-doing", "DOING", "Owner 승인: manual"),
+                startup_fixture("task-9168-worker-recorded", "DOING", "/task", executed=True),
+                startup_fixture("task-9169-worker-todo", "TODO", "/task"),
+            ]
+            before = {path: path.read_bytes() for path in files}
+            dms: list[tuple[str, str]] = []
+
+            async def fake_dm(owner_id: str, text: str) -> None:
+                dms.append((owner_id, text))
+
+            async def failing_dm(_owner_id: str, _text: str) -> None:
+                raise RuntimeError("dm closed")
+
+            os.environ[OWNER_IDS_ENV] = "123456789012345678"
+            globals()["_STARTUP_CHECK_DONE"] = False
+            startup["first"] = asyncio.run(_startup_check_once(fake_dm, tasks_dir))
+            startup["again"] = asyncio.run(_startup_check_once(fake_dm, tasks_dir))
+            globals()["_STARTUP_CHECK_DONE"] = False
+            startup["dm_failed"] = asyncio.run(_startup_check_once(failing_dm, tasks_dir))
+            _WORKER_LOCK.acquire()
+            try:
+                startup["running"] = _stalled_doing_scan(tasks_dir)
+            finally:
+                _WORKER_LOCK.release()
+            startup["dms"] = dms
+            startup["unchanged"] = all(path.read_bytes() == data for path, data in before.items())
+    except Exception as exc:  # noqa: BLE001 - recorded as a failed check
+        startup["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        globals()["_STARTUP_CHECK_DONE"] = original_done
+        if original_owner_ids is None:
+            os.environ.pop(OWNER_IDS_ENV, None)
+        else:
+            os.environ[OWNER_IDS_ENV] = original_owner_ids
+    first = startup.get("first") or {}
+    first_scan = first.get("scan") or {}
+    text = first.get("text") or ""
+    _record(
+        "startup_check_reports_worker_doing_once_by_dm_and_changes_nothing",
+        "error" not in startup
+        and [item["id"] for item in first_scan.get("stalled", [])] == ["task-9166-worker-stalled"]
+        and first_scan.get("other_doing") == 2
+        and "task-9166-worker-stalled" in text and "그 밖의 DOING 2건" in text
+        and "task-9167" not in text and "task-9168" not in text and "task-9169" not in text
+        and first.get("sent") == 1 and len(startup.get("dms", [])) == 1
+        and startup.get("again") == {"skipped": True}
+        and (startup.get("dm_failed") or {}).get("failed") == ["RuntimeError"]
+        and (startup.get("running") or {}).get("worker_running") is True
+        and _format_startup_report(startup.get("running") or {}) is None
+        and startup.get("unchanged") is True,
+        f"startup={ {key: value for key, value in startup.items() if key != 'dms'} }",
+    )
+
     failed = [check for check in checks if not check["ok"]]
     if failed:
         return {"result_type": "self_check_suite", "ok": False, "total": len(checks), "failed": failed, "checks": checks}
@@ -4014,6 +4325,13 @@ async def _start_discord_bot() -> None:
     @client.event
     async def on_ready() -> None:
         print(f"[discord] connected as {client.user}")
+
+        # task-0165: read-only start-up check, reported to each Owner by DM (once per process).
+        async def send_dm(owner_id: str, text: str) -> None:
+            user = await client.fetch_user(int(owner_id))
+            await user.send(text)
+
+        await _startup_check_once(send_dm)
 
     @client.event
     async def on_message(message: discord.Message) -> None:
@@ -4070,6 +4388,18 @@ async def _start_discord_bot() -> None:
         # task-0142: the Worker pipeline takes minutes, so it runs off the event
         # loop and reports to the same channel when it finishes or fails.
         if result.get("result_type") == "work_started":
+            loop = asyncio.get_running_loop()
+            channel = message.channel
+
+            # task-0165: progress lines from the Worker thread, sent in order to the same channel.
+            def send_line(line: str) -> None:
+                future = asyncio.run_coroutine_threadsafe(channel.send(line), loop)
+                try:
+                    future.result(timeout=PROGRESS_SEND_TIMEOUT_SECONDS)
+                except BaseException:
+                    future.cancel()
+                    raise
+
             async def _report_worker() -> None:
                 job = await asyncio.to_thread(
                     _run_worker_job,
@@ -4078,6 +4408,7 @@ async def _start_discord_bot() -> None:
                     str(result["command"]),
                     bool(result.get("resume")),
                     bool(result.get("accept")),
+                    _make_progress(str(result["task_id"]), send_line),
                 )
                 await message.channel.send(_format_reply(job))
 
