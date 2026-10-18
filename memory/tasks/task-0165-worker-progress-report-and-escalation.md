@@ -2,10 +2,10 @@
 
 - id: `task-0165-worker-progress-report-and-escalation`
 - title: `Worker 파이프라인 R1: Discord 단계별 진행 보고·Owner 에스컬레이션·봇 시작 시 멈춘 DOING 점검`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-18 10:24 UTC`
-- updated_at: `2026-10-18 10:35 UTC`
+- updated_at: `2026-10-18 14:07 UTC`
 - summary: `기존 run_pipeline·accept_candidate와 Discord /go 경로를 그대로 쓰면서, 실제로 일어난 단계(Worker·Reviewer·repair·QA·통합)마다 같은 채널에 한 줄씩 보고하고, 실패와 Owner 판단 필요를 구분해 설정된 Owner를 멘션하며, 봇 시작 시 실행 기록 없는 DOING을 읽기 전용으로 한 번 보고한다. 보고가 실패해도 파이프라인 결과와 상태는 바뀌지 않는다. 연속 실행·자동 재시도·DOING→FAILED·Radar 자동화·Scheduler·Console 제어·push는 하지 않는다.`
 - source_command: `Owner 요청: task-0165 R1 진행 보고·에스컬레이션 구현`
 
