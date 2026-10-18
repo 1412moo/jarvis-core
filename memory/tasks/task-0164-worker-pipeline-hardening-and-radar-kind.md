@@ -321,6 +321,7 @@ Owner가 A2~A5(위 원문)로 smoke 파일을 범위에 넣었다.
 | Reviewer 2 | `922712fec5703c326064f4447eef518625a0d541` | PASS였으나 `self_deviations` 1건(출력 초과 공개)이 있고, Manager가 승인 원문을 참조로만 넘긴 호출 결함이 있어 무효. 같은 candidate로 retry(`retry_count=1`, retry budget 소진) |
 | Reviewer 2 retry | `922712fec5703c326064f4447eef518625a0d541` | FINDINGS(minor 1), `self_deviations` 없음: 두 표지어가 함께 있는 요청을 hold·거절하는 규칙이 Studyroom 기존 동작(표지어만 있으면 Studyroom)을 바꾼다. 코드 동작 지적 |
 | repair 2 | (코드·SOP·smoke·이 기록) | Owner가 repair budget을 2로 늘리고 수정 기준을 정했다(R2). `select_work_kind()`(레지스트리 순서 우선, Studyroom 먼저), Radar 표지어를 앱 이름으로 한정, 모호함 거절 제거. self-check 선택 검사와 Worker smoke 실경로 검사(두 표지어 요청이 Studyroom으로 DONE, `/task` 제목의 일반 단어 radar·레이더가 Studyroom으로 DONE, `/work`의 일반 단어 hold)로 바꾸고 SOP §10.1 문구를 맞췄다. `repair_count=2`(2회 중 2회 사용, 소진) |
+| Reviewer 3 | `7003cb50924ecdeceba6b3b7cc8affcc105b5911` | FINDINGS(minor 3, 모두 이 기록), `self_deviations` 없음: Manager 요약 표에 Owner 문장 "Radar는 두 번째 작업 종류만 추가한다.", "새 오케스트레이터를 만들지 않는다. 기존 `run_pipeline`을 그대로 재사용하고, 범위를 최소로 넓힌다.", "S1~S5를 하나의 task로 진행하세요."가 인용되지 않음. 코드·SOP·테스트 동작 지적 없음. repair·retry 예산이 모두 소진되어 Owner에게 보고했고, Owner가 SOP §8로 수용했다(아래 원문) |
 
 ## repair 2 검증 (작업 트리 기준, 새 candidate 전)
 
@@ -331,3 +332,49 @@ Owner가 A2~A5(위 원문)로 smoke 파일을 범위에 넣었다.
 | T3·T4 | 별도 프로세스 잠금·해제·멈춘 DOING 검사(Worker smoke 4건, self-check 2건) 통과 |
 | T6 | self-check 98/0(설정 없음·`PYTHONUTF8=1`, `.env` 없는 임시 worktree), SOP validator PASS(음성 검사 133), discord-intake 139/0, Console smoke PASS, `git diff --check` 통과 |
 | T7 | 작업 트리 복사본 임시 worktree에서 변형 5종 모두 검출: M1 파일 잠금 제거 → Worker smoke 2·self-check 2 실패. M2 레지스트리 무시 → Worker smoke Radar 5 실패. M3 Radar 항목 제거 → Worker smoke 중단(종료 1)·self-check 2·validator `pipeline_scope_parity` 4. M4 우선순위 뒤집기 → Worker smoke 1·self-check 1. M5 일반 단어를 Radar 표지어로 복귀 → Worker smoke 2·self-check 1 |
+
+## Reviewer 3 minor 수용 (SOP §8)
+
+Owner 결정(원문):
+
+```text
+1번으로 승인합니다. Reviewer 3의 minor 3건은 SOP §8에 따라 수용하고, candidate `7003cb50924ecdeceba6b3b7cc8affcc105b5911`로 QA를 진행하세요.
+수용 기록에는 다음을 명시하세요.
+
+* Radar는 두 번째 작업 종류만 추가한다.
+* 새 오케스트레이터를 만들지 않고 기존 `run_pipeline`을 재사용하며 변경 범위를 최소화한다.
+* S1~S5를 task-0164 하나로 진행한다.
+* Reviewer 3의 minor 3건은 작업 기록의 Manager 요약 표에 승인 원문 일부가 인용되지 않은 문제이며, 코드·SOP·테스트 동작에 대한 지적은 아니라는 판단으로 수용한다.
+
+QA는 candidate 커밋을 기준으로 독립적으로 실행하고, Studyroom/Radar 경로, 잠금, 멈춘 DOING 감지, 관련 smoke와 validator를 확인하세요. QA 결과가 나오면 보고하고 멈추세요.
+`jarvis.bat`은 건드리지 말고, Console Complete, DONE 체크포인트, master-plan 수정, push는 별도 승인 전까지 진행하지 마세요. SOP 운영 규칙 개선도 이번 task에 끼워 넣지 말고 task-0164 종료 후 별도 결정 사항으로 남기세요.
+```
+
+| 수용 항목 | 기록 |
+| --- | --- |
+| Radar 범위 | Radar는 두 번째 작업 종류만 추가한다. 레지스트리는 Studyroom(첫 항목)과 Radar 두 항목뿐이다 |
+| 오케스트레이터 | 새 오케스트레이터를 만들지 않고 기존 `run_pipeline`을 재사용하며 변경 범위를 최소화한다. `run_pipeline`·`accept_candidate`는 선택 인자 `work_kind`만 더했다 |
+| task 단위 | S1~S5를 task-0164 하나로 진행한다 |
+| 수용 근거 | Reviewer 3의 minor 3건은 이 기록의 Manager 요약 표에 승인 원문 일부가 인용되지 않은 문제이며, 코드·SOP·테스트 동작에 대한 지적은 아니라는 판단으로 수용한다 |
+| 효력 | candidate `7003cb50924ecdeceba6b3b7cc8affcc105b5911`에만 유효하다. candidate가 바뀌면 다시 Reviewer를 받는다 |
+
+SOP 운영 규칙(Manager 요약 표 인용 규칙) 개선은 이 task에 넣지 않고 task-0164 종료 뒤 별도 결정 사항으로 남긴다.
+
+## QA (candidate `7003cb50924ecdeceba6b3b7cc8affcc105b5911`)
+
+2026-10-18, `.env` 없는 detached 임시 worktree에서 candidate 커밋 그대로 실행했다. 비교 기준은 `origin/main` `9c322e0`.
+
+| 검사 | 결과 |
+| --- | --- |
+| Worker smoke | 368/0. Studyroom 기존 경로(`/go` TODO→DOING, 성공 답장·DONE), 두 표지어 요청과 `/task` 제목의 일반 단어 radar·레이더가 Studyroom으로 DONE, `/work` 일반 단어 hold, Radar 실경로 7건, 프로세스 간 잠금(`worker_busy`·파일 불변)·종료 뒤 해제, 다른 Worker 실행 중 DOING은 `worker_busy`, 실행 기록 없는 DOING은 보고만 하고 불변 |
+| Discord self-check | 98/0, 설정 없음과 `PYTHONUTF8=1` 두 환경. 새 4건(`worker_kind_registry_studyroom_first_radar_second`, `worker_kind_selected_by_marker`, `worker_lock_across_processes_refuses_with_worker_busy`, `go_reports_doing_without_execution_record_and_changes_nothing`) 통과 |
+| SOP validator | PASS, 음성 검사 133/0 |
+| discord-intake smoke | 139/0 |
+| Console smoke | PASS |
+| Radar smoke(수정 없음) | PASS |
+| `git diff --check` | 통과 |
+| 변경 범위 | `bot_minimal.py`, SOP 문서, 이 기록, `claude_worker.py`, Worker smoke, validator 6개. `apps/daily-ai-radar/` 변경 없음, `jarvis.bat` 트리에 없음 |
+| 변형 M1~M5 | candidate 복사본 임시 worktree에서 모두 검출: M1 파일 잠금 제거 → Worker smoke 2·self-check 2. M2 레지스트리 무시 → Worker smoke 5. M3 Radar 항목 제거 → Worker smoke 중단(종료 1)·self-check 2·validator `pipeline_scope_parity`. M4 우선순위 뒤집기 → Worker smoke 1·self-check 1. M5 일반 단어 표지어 복귀 → Worker smoke 2·self-check 1 |
+| 실행 뒤 | QA 트리 변경 없음, 임시 worktree 삭제, 메인 checkout 실행 전후 같음 |
+
+판정: PASS. 실제 봇·Discord·claude는 실행하지 않았다(Worker smoke는 가짜 claude). Console Complete·DONE checkpoint·master-plan·push는 별도 승인 대기.
