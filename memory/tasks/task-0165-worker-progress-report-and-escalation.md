@@ -143,6 +143,7 @@
 | --- | --- | --- |
 | Reviewer 1 | `5f791524677c514412a28a759f33ed0c5cf180d2` | FINDINGS(minor 1), `self_deviations` 없음: 시작 점검이 실행 기록이 있는 Worker 경로(`/task`) DOING까지 `other_doing`에 넣고, DM이 이를 "Worker 경로의 task가 아니어서 제외"라고 적어 분류를 잘못 말한다(D1 "기존 task의 상태나 분류는 변경하지 마세요") |
 | repair 1 | (코드·이 기록) | Manager가 budget 안에서 진행. `_stalled_doing_scan`이 Worker 경로가 아닌 DOING(`other_doing`)과 실행 기록이 있는 Worker 경로 DOING(`recorded_doing`)을 따로 세고, DM은 각각 "그 밖의 DOING N건은 Worker 경로의 task가 아니어서 …", "Worker 경로이지만 실행 기록이 있는 DOING N건은 …"으로 적는다. self-check가 두 건수와 두 문구를 따로 확인한다. `repair_count=1`(budget 1 소진) |
+| Reviewer 2 | `9546e3ae5dce8038491df38a5d848ef81f2d34d4` | PASS, findings 없음, `self_deviations` 없음. `unverified`는 테스트·변형 실행 결과, `git diff --check`, 실제 Discord 동작, 기준선·Start 시각, Owner 원문 대조(저장소 밖 자료)로 모두 Reviewer가 실행하지 않은 확인 항목이다. 테스트·`git diff --check`는 아래 QA가 같은 candidate에서 실행했다 |
 
 ## repair 1 검증 (작업 트리 기준, 새 candidate 전)
 
@@ -152,6 +153,24 @@
 | --- | --- |
 | 정상 | Worker smoke 402/0, self-check 102/0(설정 없음·`PYTHONUTF8=1`), SOP validator PASS(음성 검사 133), discord-intake 140/0, Console smoke PASS. self-check `startup_check_reports_worker_doing_once_by_dm_and_changes_nothing`이 Worker 경로 아님 1건("그 밖의 DOING 1건은 Worker 경로의 task가 아니어서")과 실행 기록 있는 Worker 경로 1건("Worker 경로이지만 실행 기록이 있는 DOING 1건은")을 따로 확인 |
 | 변형 | M1 Reviewer 단계 보고 제거 → Worker smoke 7. M2 보고 예외를 삼키지 않음 → Worker smoke 2·self-check 1. M3 멘션 제거 → Worker smoke 5·self-check 1. M4 Owner 판단 구분 제거 → Worker smoke 1·self-check 1. M5 실행 기록 없는 DOING을 출처와 관계없이 목록에 올림 → Worker smoke 1(task-0031이 목록에 오름)·self-check 1. M6 프로세스당 1회 제거 → self-check 1. M7 실행 중 Worker 무시 → Worker smoke 1·self-check 1. M8 기록 있는 Worker 경로 DOING을 Worker 경로 아님으로 셈(repair 1 대상) → self-check 1. 실행 뒤 임시 worktree 삭제, smoke 임시 폴더 수 그대로, 메인 checkout 전후 같음 |
+
+## QA (candidate `9546e3ae5dce8038491df38a5d848ef81f2d34d4`)
+
+2026-10-18, `.env` 없는 detached 임시 worktree에서 candidate 커밋 그대로 실행했다(Owner ID는 가짜 값만). 비교 기준은 `8349dd2`.
+
+| 검사 | 결과 |
+| --- | --- |
+| Worker smoke | 402/0. 단계 보고 순서(정상·repair·무효 검토 재시도·Worker·Reviewer·QA 실패·QA Owner 확인), 예외를 던지는 콜백의 성공·실패 run 불변, bot 경로의 진행 줄과 실패 답장 멘션·🟡 구분, accept 경로 단계, 시작 점검(멈춘 `/work` task 목록·파일 불변·다른 프로세스 실행 중 보고 없음), task-0164 잠금·멈춘 DOING 검사 포함 |
+| Discord self-check | 102/0, 설정 없음과 `PYTHONUTF8=1` 두 환경. 새 4건 통과 |
+| SOP validator | PASS, 음성 검사 133/0 |
+| discord-intake smoke | 140/0 |
+| Console smoke | PASS |
+| `git diff --check` | 통과 |
+| 변경 범위 | `bot_minimal.py`, SOP 문서, 이 기록, `claude_worker.py`, Worker smoke 5개. `jarvis.bat` 트리에 없음 |
+| 변형 M1~M8 | candidate 복사본에서 모두 검출: M1 Worker smoke 7. M2 Worker smoke 2·self-check 1. M3 Worker smoke 5·self-check 1. M4 Worker smoke 1·self-check 1. M5 Worker smoke 1·self-check 1. M6 self-check 1. M7 Worker smoke 1·self-check 1. M8 self-check 1 |
+| 실행 뒤 | QA 트리 변경 없음, 임시 worktree 삭제, smoke 임시 폴더 수 그대로(41), 메인 checkout 실행 전후 같음 |
+
+판정: PASS. 실제 봇·Discord·claude는 실행하지 않았다. 실제 Discord에서의 진행 줄 전송(스레드에서 이벤트 루프로 보내기, 15초 시간 제한), 멘션 표시, 시작 DM 전달은 검증하지 않았다(가짜 전송 함수로만 확인). Console Complete·DONE checkpoint·master-plan·push는 별도 승인 대기.
 
 ## Owner 진행 승인 (repair 1 뒤, 원문)
 
