@@ -2208,30 +2208,31 @@ def _stalled_doing_scan(tasks_dir: Path | None = None) -> dict[str, Any]:
     """task-0165: the DOING tasks with no execution record, read only. Nothing is written.
 
     A Worker-path task is one `/work` created (source_command `/task`), the only tasks a
-    Worker run starts from. Other DOING tasks are counted, not listed and not reclassified.
-    While a Worker holds the lock, a DOING task may be running, so nothing is called stalled.
+    Worker run starts from. The other DOING tasks are only counted, in two groups: those not
+    on the Worker path, and Worker-path tasks that already have an execution record (repair 1).
+    Nothing is reclassified. While a Worker holds the lock, a DOING task may be running, so
+    nothing is called stalled.
     """
 
     tasks_dir = tasks_dir or REPO_ROOT / "memory" / "tasks"
     if _worker_running():
-        return {"worker_running": True, "stalled": [], "other_doing": 0}
+        return {"worker_running": True, "stalled": [], "other_doing": 0, "recorded_doing": 0}
     stalled: list[dict[str, str]] = []
-    other = 0
+    other = recorded = 0
     for task_file in sorted(tasks_dir.glob("task-*.md")):
         try:
             metadata = _read_task_metadata(task_file)
             if not metadata or metadata.get("status") != "DOING":
                 continue
-            if (
-                _task_source_command(task_file) == "/task"
-                and _read_execution_review_metadata(task_file).get("executed") is None
-            ):
+            if _task_source_command(task_file) != "/task":
+                other += 1
+            elif _read_execution_review_metadata(task_file).get("executed") is None:
                 stalled.append({key: metadata[key] for key in ("id", "title", "updated_at")})
             else:
-                other += 1
+                recorded += 1
         except (OSError, UnicodeDecodeError):
             continue
-    return {"worker_running": False, "stalled": stalled, "other_doing": other}
+    return {"worker_running": False, "stalled": stalled, "other_doing": other, "recorded_doing": recorded}
 
 
 def _format_startup_report(scan: dict[str, Any]) -> str | None:
@@ -2248,6 +2249,8 @@ def _format_startup_report(scan: dict[str, Any]) -> str | None:
         lines.append(f"  - {item['id']} ({item['updated_at']}) {item['title'][:80]}")
     if len(stalled) > STARTUP_CHECK_LISTED_MAX:
         lines.append(f"  - 외 {len(stalled) - STARTUP_CHECK_LISTED_MAX}건")
+    if scan.get("recorded_doing"):
+        lines.append(f"- Worker 경로이지만 실행 기록이 있는 DOING {scan['recorded_doing']}건은 이 점검에서 제외했습니다.")
     if scan.get("other_doing"):
         lines.append(f"- 그 밖의 DOING {scan['other_doing']}건은 Worker 경로의 task가 아니어서 이 점검에서 제외했습니다.")
     lines.append("- 상태와 기록은 바꾸지 않았고 다시 실행하지도 않았습니다. `/status <task-id>`로 확인한 뒤 Owner가 정하세요.")
@@ -2269,7 +2272,7 @@ async def _startup_check_once(send_dm: Callable[[str, str], Any], tasks_dir: Pat
     text = _format_startup_report(scan)
     print(
         f"[startup-check] worker_running={scan['worker_running']} stalled={len(scan['stalled'])} "
-        f"other_doing={scan['other_doing']}"
+        f"recorded_doing={scan['recorded_doing']} other_doing={scan['other_doing']}"
     )
     sent, failed = 0, []
     if text:
@@ -4281,8 +4284,10 @@ def _run_self_check_suite() -> dict[str, Any]:
         "startup_check_reports_worker_doing_once_by_dm_and_changes_nothing",
         "error" not in startup
         and [item["id"] for item in first_scan.get("stalled", [])] == ["task-9166-worker-stalled"]
-        and first_scan.get("other_doing") == 2
-        and "task-9166-worker-stalled" in text and "그 밖의 DOING 2건" in text
+        and first_scan.get("other_doing") == 1 and first_scan.get("recorded_doing") == 1
+        and "task-9166-worker-stalled" in text
+        and "그 밖의 DOING 1건은 Worker 경로의 task가 아니어서" in text
+        and "Worker 경로이지만 실행 기록이 있는 DOING 1건은" in text
         and "task-9167" not in text and "task-9168" not in text and "task-9169" not in text
         and first.get("sent") == 1 and len(startup.get("dms", [])) == 1
         and startup.get("again") == {"skipped": True}

@@ -69,7 +69,7 @@
 
 ## Manager 요약
 
-아래 행은 Owner 요청(원문 블록 "Owner 요청")과 D1·D2 결정(원문 블록 "Owner 결정 D1·D2와 Start 승인")의 조건 문장을 빠짐없이 인용한다.
+아래 행은 Owner 요청(원문 블록 "Owner 요청"), D1·D2 결정(원문 블록 "Owner 결정 D1·D2와 Start 승인"), repair 1 뒤 진행 승인(원문 블록 "Owner 진행 승인 (repair 1 뒤)")의 조건 문장을 빠짐없이 인용한다.
 
 | # | 승인 조건 (원문 인용) | Manager 해석과 충족 방법 |
 | --- | --- | --- |
@@ -86,7 +86,7 @@
 | B3 | "* Owner ID는 기존 설정 및 권한 체계를 확인해 재사용한다." / "* ID를 추측하거나 토큰·비밀정보를 로그나 메시지에 노출하지 않는다." | 명령 권한 검사와 같은 `_load_owner_ids()`(`JARVIS_OWNER_DISCORD_USER_IDS`)를 쓴다. ID는 멘션 안에만 들어가고 콘솔 로그에는 ID·토큰을 쓰지 않는다. 검증은 가짜 ID로만 했다 |
 | C4 | "task-0164에서 구현한 stale DOING 감지 기능을 재사용한다." / "봇 시작 시 실행 기록이 없는 DOING 작업을 확인하고, 발견하면 Owner에게 보고한다." / "이 점검은 읽기 전용이어야 한다." | `on_ready`에서 `_startup_check_once`가 `_stalled_doing_scan`(읽기만)을 돌리고, Worker 경로의 멈춘 DOING이 있으면 Owner에게 DM한다. 파일 쓰기 없음(바이트 비교로 확인) |
 | C5 | "* task 상태를 변경하지 않는다." / "* 자동으로 재실행하거나 복구하지 않는다." / "* 기존 task를 임의로 재분류하지 않는다." / "* 중복 보고가 발생할 가능성과 처리 방식을 검토하고 결과를 설명한다." | 상태·파일·잠금을 바꾸지 않고 재실행·복구하지 않는다. 출처 필드(`source_command`)로 목록과 건수를 나누기만 하고 어떤 필드도 쓰지 않는다. 중복: `on_ready` 재호출은 모듈 플래그로 프로세스당 한 번, 봇 재시작 때는 다시 보고(의도). 다른 프로세스가 Worker를 실행 중이면 아무것도 멈춤으로 보지 않는다 |
-| D1 | "D1 (c): Worker 경로의 실행 기록 없는 DOING 작업을 보고하고, 그 밖의 DOING 작업은 별도 건수로 표시하세요. 기존 task의 상태나 분류는 변경하지 마세요." | Worker 경로 = `source_command`가 `/task`(`/work`가 만든 task). 그 목록(최대 10건, 넘치면 "외 N건")과 "그 밖의 DOING N건은 … 제외" 한 줄. 상태·분류 불변 |
+| D1 | "D1 (c): Worker 경로의 실행 기록 없는 DOING 작업을 보고하고, 그 밖의 DOING 작업은 별도 건수로 표시하세요. 기존 task의 상태나 분류는 변경하지 마세요." | Worker 경로 = `source_command`가 `/task`(`/work`가 만든 task). 그 목록(최대 10건, 넘치면 "외 N건")을 보내고, 목록에 없는 DOING은 건수로만 두 줄에 나눠 적는다: "Worker 경로이지만 실행 기록이 있는 DOING N건", "그 밖의 DOING N건은 Worker 경로의 task가 아니어서 …"(repair 1). 상태·분류 불변 |
 | D2 | "D2 (a): 봇 시작 시 Owner에게 Discord DM으로 보고하세요. DM 전송에 실패하면 콘솔에 사유만 남기세요." | 설정된 Owner마다 `client.fetch_user(id).send(text)`. 실패하면 콘솔에 예외 종류만(`[startup-check] DM to an Owner failed (…)`). Worker 경로의 멈춘 DOING이 없으면 DM을 보내지 않고 콘솔에 건수만 남긴다 |
 | X1 | "이번 작업은 R1만 구현한다." / "* 여러 task의 연속 실행 및 큐 * 자동 재시도 또는 자동 복구 * `DOING → FAILED` 신규 상태 전이 * Radar 자동 실행 또는 Radar 결과의 task 자동 생성 * Scheduler 및 백그라운드 자동 실행 * 자동 push * Console 제어 기능 추가" / "자동 복구, 연속 실행, Scheduler 등 R1 범위를 넘어서는 기능은 추가하지 마세요." | 이 중 어느 것도 만들지 않았다. 새 상태 전이·큐·타이머·Console 변경 없음. 봇 시작 점검은 `on_ready` 1회 읽기이며 주기 실행이 아니다 |
 | V1 | "기존 테스트를 수정할 때는 실제 동작을 검증하도록 한다. 단순히 테스트 기대값을 변경해 통과시키지 않는다." | 기존 검사 중 기대값이 바뀐 것은 `owner review reply: … failure reply unchanged` 3건뿐이고, 정확한 문자열 비교를 그대로 두고 앞에 붙는 멘션만 기대값에 더했다(실제 동작 변경). 나머지는 새 검사 |
@@ -95,6 +95,7 @@
 | S1 | "* `jarvis.bat`은 절대로 열거나 읽거나 수정하거나 스테이징·커밋하지 않는다." / "`jarvis.bat`은 절대 열거나 읽거나 수정하지 마세요." | 손대지 않았다. Worker smoke의 `jarvis.bat` 검사도 그대로 통과 |
 | S2 | "* task 상태를 임의로 DONE으로 변경하지 않는다." / "* SOP나 master-plan의 잠긴 정책을 임의로 해제하지 않는다." / "* 테스트 실패를 숨기거나 범위를 무단으로 넓히지 않는다." / "* 기존 작업물과 사용자 변경사항을 덮어쓰지 않는다." | DONE은 Console Complete 승인 뒤에만. master-plan §6·SOP §9 잠금은 그대로이고 SOP §10.1 진입 행에 이번 동작 한 문장만 더했다. 변경 파일은 아래 File ownership 안 |
 | S3 | "* push하지 않는다. push는 별도 Owner 승인을 기다린다." / "* 변경 사항은 기존 SOP의 task 시작, 검토, QA, Console Complete, DONE checkpoint 승인 절차를 따른다." / "* task 등록·상태 변경·커밋은 현재 SOP가 요구하는 승인 및 체크포인트 절차에 따른다." / "구현 후 Reviewer와 QA까지 기존 SOP에 따라 진행하고 결과를 보고한 뒤 멈추세요. Console Complete, DONE checkpoint, master-plan 수정, push는 각각 별도 승인을 기다리세요." | candidate → Reviewer → (repair 1회까지) → QA → QA 기록 checkpoint 뒤 보고하고 멈춘다. Complete·DONE checkpoint·master-plan·push 하지 않음 |
+| P3 | repair 1 뒤 진행 승인: "1. repair 1 수정 내용과 검증 결과를 task 기록에 정확히 반영하세요." / "2. 수정된 candidate를 커밋하세요." / "3. 반드시 수정된 최신 candidate 커밋을 대상으로 Reviewer 2 검토를 진행하세요." / "4. Reviewer 2가 PASS하면 해당 candidate에 대해 기존 SOP에 따른 QA를 진행하고, QA 결과를 기록한 checkpoint를 남기세요." / "5. Reviewer 2에서 추가 FINDINGS가 나오면 repair 예산이 소진됐으므로 추가 수정하지 말고 멈춰서 보고하세요." / "6. QA 실패나 검증 누락이 있어도 임의로 통과 처리하지 마세요." / "기존 승인 범위대로 QA까지 진행한 뒤 보고하고 멈추세요. Console Complete, DONE checkpoint, master-plan 수정 및 push는 별도 승인을 기다리세요." / "`jarvis.bat`은 열거나 읽거나 수정·스테이징·커밋하지 마세요." | 아래 "Reviewer와 repair 이력"과 "repair 1 검증"에 수정과 결과를 적고, 이 기록과 코드 수정을 repair 1 candidate로 커밋한다. Reviewer 2는 그 커밋 해시로 호출한다. PASS면 같은 candidate로 QA 후 QA 기록 checkpoint, FINDINGS면 수정 없이 멈춰 보고한다. QA 실패·누락은 그대로 보고한다. Complete·DONE checkpoint·master-plan·push·`jarvis.bat` 없음 |
 | R1 | "6. 완료 보고 다음 항목을 보고하고 멈춘다. 1. 변경 파일 및 핵심 변경 사항 2. Discord 진행 보고 예시 3. Owner 멘션 및 에스컬레이션 동작 4. stale DOING 시작 점검 결과 5. 실행한 테스트와 각각의 실제 결과 6. Reviewer 및 QA 결과와 미해결 문제 7. 현재 task 상태와 승인 대기 항목 8. 커밋 및 push 여부 9. 다음 단계 R2를 진행하기 전에 필요한 결정" / "R1 구현과 검증 결과를 보고한 뒤 멈추고, 다음 작업이나 push는 별도 승인을 기다린다." / "위 조건으로 task-0165의 Start Confirm을 진행하고 구현을 시작하세요." / "기존에 제시한 구현 범위와 검증 계획을 유지하고" | 구현 계획 I1~I8과 변경 예정 파일을 그대로 지켰다. 최종 보고는 이 아홉 항목 순서로 하고 멈춘다 |
 
 ## File ownership
@@ -128,13 +129,45 @@
 | V2-3 | Worker 실패는 `worker`까지, Reviewer 실패(`reviewer_blocked`)는 `reviewer`까지, QA 실패(`qa_failed`)는 `qa`까지 보고하고 `integrate`는 없음. bot 경로의 실패 답장 첫 줄이 `<@가짜ID> ❌ 실패: …` |
 | V2-4 | `qa_unverified_owner_review`·`reviewer_findings_not_repairable`·repair 예산 소진은 `🟡 Owner 판단 필요`, 일반 실패는 `❌ 실패`(self-check와 Worker smoke). 성공·시작 답장에는 멘션 없음. Owner ID가 없으면 멘션도 없음 |
 | V2-5 | 항상 예외를 던지는 콜백: 성공 run은 DONE·성공 기록·main 2커밋 전진, 실패 run은 `scope:scope_violation` 기록·main 불변으로 콜백 없을 때와 같음. self-check: 보내기 실패가 예외를 내지 않음 |
-| V2-6 | self-check: Worker 경로 DOING(기록 없음) 1건만 목록, 수동 DOING과 기록 있는 DOING은 "그 밖의 DOING 2건", TODO 제외, DM 1회, 두 번째 호출은 건너뜀, DM 실패는 `RuntimeError`만 남김, Worker 실행 중이면 보고 없음, 파일 바이트 불변. Worker smoke: `/work`로 만든 멈춘 task만 목록에 오르고 파일 불변, 다른 프로세스가 잠금을 잡은 동안은 보고 없음 |
+| V2-6 | self-check: Worker 경로 DOING(기록 없음) 1건만 목록, 수동 DOING과 기록 있는 DOING은 "그 밖의 DOING 2건"(repair 1에서 두 건수로 나눔, 아래 repair 1 검증), TODO 제외, DM 1회, 두 번째 호출은 건너뜀, DM 실패는 `RuntimeError`만 남김, Worker 실행 중이면 보고 없음, 파일 바이트 불변. Worker smoke: `/work`로 만든 멈춘 task만 목록에 오르고 파일 불변, 다른 프로세스가 잠금을 잡은 동안은 보고 없음 |
 | V2-7 | task-0164 잠금·멈춘 DOING 검사(Worker smoke 4건, self-check 2건) 그대로 통과 |
 | V2-8 | Worker smoke 402/0(368 + 새 34), self-check 102/0(설정 없음·`PYTHONUTF8=1`), SOP validator PASS(음성 검사 133), discord-intake 140/0(실제 task 기록마다 검사하므로 이 기록 1건이 늘었음), Console smoke PASS |
 | V2-9 | `git diff --check`와 변경 범위는 candidate 커밋 뒤 QA에서 확인 |
 | 변형 | M1 Reviewer 단계 보고 제거 → Worker smoke 7 실패. M2 보고 예외를 삼키지 않음 → Worker smoke 2·self-check 1. M3 멘션 제거 → Worker smoke 5·self-check 1. M4 Owner 판단 구분 제거 → Worker smoke 1·self-check 1. M5 시작 점검이 모든 DOING을 목록에 올림 → Worker smoke 1·self-check 1. M6 프로세스당 1회 제거 → self-check 1. M7 실행 중 Worker 무시 → Worker smoke 1·self-check 1. 실행 뒤 임시 worktree 삭제, 메인 checkout 전후 같음 |
 
 검증에서 실제 봇·Discord·claude를 실행하지 않았다.
+
+## Reviewer와 repair 이력
+
+| 회차 | candidate | 결과 |
+| --- | --- | --- |
+| Reviewer 1 | `5f791524677c514412a28a759f33ed0c5cf180d2` | FINDINGS(minor 1), `self_deviations` 없음: 시작 점검이 실행 기록이 있는 Worker 경로(`/task`) DOING까지 `other_doing`에 넣고, DM이 이를 "Worker 경로의 task가 아니어서 제외"라고 적어 분류를 잘못 말한다(D1 "기존 task의 상태나 분류는 변경하지 마세요") |
+| repair 1 | (코드·이 기록) | Manager가 budget 안에서 진행. `_stalled_doing_scan`이 Worker 경로가 아닌 DOING(`other_doing`)과 실행 기록이 있는 Worker 경로 DOING(`recorded_doing`)을 따로 세고, DM은 각각 "그 밖의 DOING N건은 Worker 경로의 task가 아니어서 …", "Worker 경로이지만 실행 기록이 있는 DOING N건은 …"으로 적는다. self-check가 두 건수와 두 문구를 따로 확인한다. `repair_count=1`(budget 1 소진) |
+
+## repair 1 검증 (작업 트리 기준, 새 candidate 전)
+
+`.env` 없는 임시 worktree(`5f79152` + 변경 파일 복사)에서 실행했다.
+
+| # | 결과 |
+| --- | --- |
+| 정상 | Worker smoke 402/0, self-check 102/0(설정 없음·`PYTHONUTF8=1`), SOP validator PASS(음성 검사 133), discord-intake 140/0, Console smoke PASS. self-check `startup_check_reports_worker_doing_once_by_dm_and_changes_nothing`이 Worker 경로 아님 1건("그 밖의 DOING 1건은 Worker 경로의 task가 아니어서")과 실행 기록 있는 Worker 경로 1건("Worker 경로이지만 실행 기록이 있는 DOING 1건은")을 따로 확인 |
+| 변형 | M1 Reviewer 단계 보고 제거 → Worker smoke 7. M2 보고 예외를 삼키지 않음 → Worker smoke 2·self-check 1. M3 멘션 제거 → Worker smoke 5·self-check 1. M4 Owner 판단 구분 제거 → Worker smoke 1·self-check 1. M5 실행 기록 없는 DOING을 출처와 관계없이 목록에 올림 → Worker smoke 1(task-0031이 목록에 오름)·self-check 1. M6 프로세스당 1회 제거 → self-check 1. M7 실행 중 Worker 무시 → Worker smoke 1·self-check 1. M8 기록 있는 Worker 경로 DOING을 Worker 경로 아님으로 셈(repair 1 대상) → self-check 1. 실행 뒤 임시 worktree 삭제, smoke 임시 폴더 수 그대로, 메인 checkout 전후 같음 |
+
+## Owner 진행 승인 (repair 1 뒤, 원문)
+
+```text
+진행하세요.
+
+1. repair 1 수정 내용과 검증 결과를 task 기록에 정확히 반영하세요.
+2. 수정된 candidate를 커밋하세요.
+3. 반드시 수정된 최신 candidate 커밋을 대상으로 Reviewer 2 검토를 진행하세요.
+4. Reviewer 2가 PASS하면 해당 candidate에 대해 기존 SOP에 따른 QA를 진행하고, QA 결과를 기록한 checkpoint를 남기세요.
+5. Reviewer 2에서 추가 FINDINGS가 나오면 repair 예산이 소진됐으므로 추가 수정하지 말고 멈춰서 보고하세요.
+6. QA 실패나 검증 누락이 있어도 임의로 통과 처리하지 마세요.
+
+기존 승인 범위대로 QA까지 진행한 뒤 보고하고 멈추세요. Console Complete, DONE checkpoint, master-plan 수정 및 push는 별도 승인을 기다리세요.
+`jarvis.bat`은 열거나 읽거나 수정·스테이징·커밋하지 마세요.
+```
 
 ## Owner 결정 D1·D2와 Start 승인 (원문)
 
