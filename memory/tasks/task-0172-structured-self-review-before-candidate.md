@@ -2,7 +2,7 @@
 
 - id: `task-0172-structured-self-review-before-candidate`
 - title: `candidate 전 구조화된 self-review: staged diff와 task 기록을 Reviewer 관점으로 1회 읽기 전용 검토`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 15:57 UTC`
 - updated_at: `2026-10-19 17:03 UTC`
