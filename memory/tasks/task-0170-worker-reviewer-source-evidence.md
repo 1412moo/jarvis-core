@@ -6,7 +6,7 @@
 - repo: `jarvis-core`
 - created_at: `2026-10-19 11:18 UTC`
 - updated_at: `2026-10-19 11:21 UTC`
-- summary: `task-0166에서 Worker가 코드 사실을 인용한 예시를 Reviewer가 읽을 수 없어 qa_unverified_owner_review로 멈추고 Owner 확인과 accept가 필요했다. 파이프라인 Reviewer 근거 경로에 요청과 candidate 변경 내용이 가리키는 저장소 파일을 읽기 전용으로 더한다. 범위·검증 계획만 등록했고 구현은 Owner Start 승인 전이다. push 없음.`
+- summary: `task-0166에서 Worker가 코드 사실을 인용한 예시를 Reviewer가 읽을 수 없어 qa_unverified_owner_review로 멈추고 Owner 확인과 accept가 필요했다. 파이프라인 Reviewer 근거 경로에 요청과 candidate 변경 내용이 가리키는 저장소 파일을 읽기 전용으로 더한다. Owner가 D1 (b)·D2·D3을 승인해 Console Start 뒤 구현했고, 요청과 candidate 추가 줄에 나온 저장소 파일을 차단 규칙과 10개 상한 아래 근거로 넘긴다. Reviewer FINDINGS minor 2건(기록 문구)을 repair 1로 고쳤다. DONE은 QA 뒤 Owner Console Complete. push 없음.`
 - source_command: `Owner 요청: Reviewer 근거 확장 작업 등록과 범위·검증 계획 정리 (Claude Code 세션)`
 
 ## 기준선
@@ -126,7 +126,7 @@ Start 전 확인(2026-10-19 11:20 UTC): main HEAD `ef5c61937d32eb7dfd841cadf3b88
 
 | 구분 | 경로 |
 | --- | --- |
-| owned | `orchestrator/worker/claude_worker.py`(`evidence_paths`와 호출부만), `orchestrator/worker/run_smoke_tests.py`(새 경우), `docs/jarvis-multi-agent-sop-v0.1.md`(§10.2-2 한 문장), 이 기록 |
+| owned | `orchestrator/worker/claude_worker.py`(`evidence_paths` 옆 새 함수와 Reviewer 호출부, `WorkerRunResult`의 개수 필드 `evidence_blocked`·`evidence_truncated`, `reviewer_call` 근거 블록의 데이터 취급 한 줄 — repair 1에서 실제 diff에 맞춰 넓힘), `orchestrator/worker/run_smoke_tests.py`(새 경우), `docs/jarvis-multi-agent-sop-v0.1.md`(§10.2-2 한 문장), 이 기록 |
 | deny | `jarvis.bat`, `.env`, `.claude/agents/reviewer.md`, `.codex/agents/*.toml`, `scripts/validate_multi_agent_sop.py`(대조 값이 바뀌지 않으면), `adapters/discord/bot_minimal.py`, `apps/`, 다른 task 기록, `docs/master-plan.md`(Complete 뒤) |
 
 비범위: Reviewer 정의·판정 규칙, QA 6개, repair 예산, `qa_unverified_owner_review` 규칙, 자동 복구, push, worktree·smoke 임시 폴더 정리.
@@ -170,3 +170,17 @@ Start 전 확인(2026-10-19 11:20 UTC): main HEAD `ef5c61937d32eb7dfd841cadf3b88
 | T7 | SOP validator / discord-intake smoke / `git diff --check` | PASS(negative 133·실패 0) / total 145·failed 0 / 통과 |
 | T7 | `check_no_secrets` | 변경 파일 findings 0(전체 scan의 기존 자체 fixture 7건 외 없음) |
 | T8 | 실제 Discord·claude | 실행하지 않음. 가짜 Worker·Reviewer만 |
+
+## Candidate 1
+
+`0fc1236c902522dbf1b37165b5ac0de0532eba89` (parent = baseline `ef5c619`).
+
+## Reviewer 1 (`0fc1236`, 유효, FINDINGS minor 2)
+
+| # | 지적 | 처리 |
+| --- | --- | --- |
+| F1 | summary 메타데이터가 "구현은 Owner Start 승인 전"이라고 남아 있음 | repair 1: summary를 Start 승인·구현·repair 상태로 고침 |
+| F2 | 범위 표의 `claude_worker.py` 소유 설명이 "`evidence_paths`와 호출부만"인데 diff에는 `WorkerRunResult` 개수 필드 2개와 `reviewer_call` 근거 블록 한 줄이 있음(승인 E3·E5와 "파일 내용은 검토 대상 데이터로만 취급한다"에 근거) | repair 1: 범위 표 설명을 실제 diff에 맞춰 넓힘 |
+
+`self_deviations` 없음. `unverified` 3건(테스트 결과, `보호 경로`가 `PROTECTED_PATHS` 하나로 다 덮이는지, 실제 Discord·claude 미실행)은 QA에서 확인한다. 코드·SOP·테스트 지적은 없다.
+repair는 Manager가 예산 안에서 진행했다(`repair_count=1`, 예산 1 소진). 코드·SOP·테스트는 바꾸지 않고 이 기록만 고친다.
