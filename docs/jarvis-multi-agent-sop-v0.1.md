@@ -89,6 +89,10 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
   않고 충돌한 조건을 인용한 bounded question을 Director에게 escalation해 Owner
   결정을 받는다. 그 질문과 답도 원문 그대로 task 기록에 남긴다.
 - Reviewer assignment에는 Manager 요약과 함께 Owner 승인 원문을 전달한다.
+- Reviewer를 부르기 전에 `python -B scripts/check_summary_quotes.py memory/tasks/<task-id>.md`로
+  Manager 요약에 그대로 인용되지 않은 승인 원문 문장을 확인하고, 빠진 조건이 있으면
+  요약을 먼저 고친다. 이 목록은 Manager의 참고 자료이며 Reviewer의 조건 대조나
+  판정을 대신하지 않는다(task-0169).
 
 ### Implementer
 
