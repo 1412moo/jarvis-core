@@ -2,10 +2,10 @@
 
 - id: `task-0170-worker-reviewer-source-evidence`
 - title: `Worker 파이프라인 Reviewer가 요청·변경 내용에 나온 저장소 파일을 읽기 전용 근거로 확인하도록 근거 경로 확장`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 11:18 UTC`
-- updated_at: `2026-10-19 11:41 UTC`
+- updated_at: `2026-10-19 11:59 UTC`
 - summary: `task-0166에서 Worker가 코드 사실을 인용한 예시를 Reviewer가 읽을 수 없어 qa_unverified_owner_review로 멈추고 Owner 확인과 accept가 필요했다. 파이프라인 Reviewer 근거 경로에 요청과 candidate 변경 내용이 가리키는 저장소 파일을 읽기 전용으로 더한다. Owner가 D1 (b)·D2·D3을 승인해 Console Start 뒤 구현했고, 요청과 candidate 추가 줄에 나온 저장소 파일을 차단 규칙과 10개 상한 아래 근거로 넘긴다. Reviewer FINDINGS minor 2건(기록 문구)을 repair 1로 고친 candidate 5cc55cc가 Reviewer PASS와 QA PASS를 받았다. DONE은 Owner Console Complete 대기. push 없음.`
 - source_command: `Owner 요청: Reviewer 근거 확장 작업 등록과 범위·검증 계획 정리 (Claude Code 세션)`
 
