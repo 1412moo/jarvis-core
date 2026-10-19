@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-18 16:42 UTC`
-- updated_at: `2026-10-19 05:47 UTC`
+- updated_at: `2026-10-19 07:44 UTC`
 - summary: `Worker 경로 task가 DOING인데 실행 중인 Worker가 없으면 이전 실행 기록과 관계없이 멈춤 후보로 판정하고(V3 결함), 고아 Worker까지 식별되는 실행 표지를 두며, Owner 전용 /go <id> recover가 감사 기록과 함께 DOING을 FAILED로만 바꾼다. 실행 표지가 없거나 불완전하면 복구를 거절하고, Worker 경로 task에 대한 /retry는 거절한다. 자동 재실행·큐·Scheduler는 만들지 않고 push는 하지 않는다.`
 - source_command: `Owner 승인: R2 설계 결정(task-0165 실제 Discord 검증 V3 뒤)`
 
@@ -452,3 +452,18 @@ task-0167의 candidate `429d5c8`에 대해 Reviewer의 유효한 minor finding 1
 | 실행 뒤 | QA clone 작업 트리 변경 0, HEAD 그대로. smoke 임시 폴더 47개 그대로. 남은 python 프로세스·listener 없음. 메인 checkout은 이 기록 외 변경 없음 |
 
 판정: PASS. Reviewer minor 1건은 위 Owner 결정으로 이 candidate에 한해 수용됐다(문서·주석 정정은 후속 작업). 검증하지 않은 것: Windows 접근 거부로 `unknown`이 되는 실제 경로와 `/proc` 경로(바꿔 끼운 probe로만 확인), 실제 Discord에서의 시작 DM·recover(K9, 별도 승인), 실제 고아 Worker·Reviewer 프로세스. push·master-plan·Console Complete·DONE은 별도 승인 대기.
+
+## 실제 Discord 검증 K9 (main `c77897e`, Owner 승인 뒤)
+
+Owner가 "DONE 처리 (0167·0168), master-plan 갱신, 실제 Discord 검증"을 고른 뒤(push는 고르지 않음) 실행했다. 봇은 저장소 루트에서 `python -B adapters/discord/bot_minimal.py`로 직접 띄웠고 `jarvis.bat`은 쓰지 않았다. 실행 직전 봇·Worker python 프로세스 없음, 실제 worktree 폴더에 `*.worker.json` 표지 없음(task-0166의 `-r2` 시도는 R2 이전이라 표지가 없는 것이 맞다).
+
+| 단계 | 결과 |
+| --- | --- |
+| 기동 | `[audit] chain ok: length=12`, Discord 연결, `[startup-check] worker_running=False stalled=1 orphaned=0 other_doing=3`(그 밖의 DOING: task-0031·0167·0168). DM 전송 실패 로그 없음 |
+| 시작 DM (Owner 확인, 16:30 KST) | "Worker 경로에서 실행 중인 Worker 없이 DOING인 task 1건"으로 task-0166(`2026-10-18 16:27 UTC`)이 실렸고, 이전 실행 기록 참고 줄(`worker:worker_timeout (2026-10-18 15:58 UTC)`), 그 밖의 DOING 3건 제외 안내, `/go <task-id> recover` 안내가 나왔다. V3 결함(재시도 기록이 남은 DOING이 빠짐)이 실제 환경에서 고쳐졌음을 확인 |
+| recover (Owner 전송, 16:38 KST) | `/go task-0166-studyroom-glossary-r1-1 recover` → "복구 거절: 마지막 시도의 실행 표지가 없거나 … reason: `recover_worker_marker_missing`"(D2 (a)대로) |
+| 상태 불변 | task-0166 기록 SHA-256이 전송 전과 같음(`status: DOING`, `updated_at` 16:27 그대로), 감사 기록 12건·수정 시각 그대로, 저장소 tracked 변경 없음 |
+| 참고 | Owner가 보낸 `/status task-0166-studyroom-glossary-r1-1 recover`는 `usage:/status <task-id>`, `/status task-0166`은 `invalid_task_id_format`. `/status`가 전체 task id 하나만 받는 기존 동작이며 이 task의 변경과 무관 |
+| 종료 | 검증 뒤 봇 프로세스를 끝냈다(남은 python 프로세스 없음) |
+
+recover 성공의 실제 Discord 검증은 D2대로 하지 않았다(결정론적 fixture로만 검증). task-0166 기록과 `-r1`·`-r2` worktree는 그대로 두었다(테스트 흔적 정리는 별도 결정).
