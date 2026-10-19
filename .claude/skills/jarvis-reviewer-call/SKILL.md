@@ -3,7 +3,7 @@ name: jarvis-reviewer-call
 description: Assemble one Jarvis-Core Reviewer call for an exact candidate commit. Collects the candidate facts, checks the Manager summary against the Owner approval verbatim, and prints the call blocks for the Manager to send. Explicit invocation only; it never reviews, approves, judges, commits, or changes scope.
 argument-hint: <40-char-candidate-hash> <task-id>
 disable-model-invocation: true
-allowed-tools: Read, Grep, Bash(python -B scripts/check_summary_quotes.py:*), Bash(git status:*), Bash(git rev-parse:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-tree:*)
+allowed-tools: Read, Grep, Bash(python -B scripts/check_task_record.py:*), Bash(git status:*), Bash(git rev-parse:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-tree:*)
 ---
 
 # Jarvis Reviewer Call (prototype)
@@ -108,11 +108,12 @@ Quote the approval exactly. Never paraphrase, reflow, or summarize it.
 
 ## Step 3 — check the summary against the approval
 
-First run `python -B scripts/check_summary_quotes.py memory/tasks/<task-id>.md`
-and copy its `unquoted` list into the report as is (task-0169). It lists every
-Owner verbatim sentence that the Manager summary does not quote word for word.
-It is a mechanical aid: it neither replaces the comparison below nor decides
-that a listed sentence is a condition.
+First run `python -B scripts/check_task_record.py memory/tasks/<task-id>.md --baseline <baseline>`
+(task-0171). A `status=BLOCKED` result is a BLOCKED preflight: name its violations
+and do not assemble the call. Copy its quote list into the report as is
+(task-0169): it lists every Owner verbatim sentence that the Manager summary does
+not quote word for word. That list is a mechanical aid: it neither replaces the
+comparison below nor decides that a listed sentence is a condition.
 
 Then go through the verbatim approval condition by condition. For each condition, say
 whether a Manager summary row states it. Report:

@@ -1,6 +1,7 @@
 # task-####-slug
 
 <!-- Omit completion_evidence until Record Completion Evidence appends it after summary. Do not add an empty field row. -->
+<!-- 수동 SOP task 본문의 범위 표에는 "| owned | `파일 경로`, `디렉터리/` |" 행을 둔다. candidate 전 scripts/check_task_record.py가 staged 파일과 대조한다(task-0171). -->
 
 - id: `task-####-slug`
   - 규칙: `task-####-slug` 형식(4자리 숫자 + 소문자 하이픈 slug)만 사용한다.
