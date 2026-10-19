@@ -2,10 +2,10 @@
 
 - id: `task-0167-stalled-doing-detection-and-owner-recover`
 - title: `Worker 파이프라인 R2: 멈춘 DOING 판정을 Worker 실행 상태 기준으로 고치고 Owner 명시 복구 /go <id> recover 추가`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-18 16:42 UTC`
-- updated_at: `2026-10-19 07:44 UTC`
+- updated_at: `2026-10-19 07:46 UTC`
 - summary: `Worker 경로 task가 DOING인데 실행 중인 Worker가 없으면 이전 실행 기록과 관계없이 멈춤 후보로 판정하고(V3 결함), 고아 Worker까지 식별되는 실행 표지를 두며, Owner 전용 /go <id> recover가 감사 기록과 함께 DOING을 FAILED로만 바꾼다. 실행 표지가 없거나 불완전하면 복구를 거절하고, Worker 경로 task에 대한 /retry는 거절한다. 자동 재실행·큐·Scheduler는 만들지 않고 push는 하지 않는다.`
 - source_command: `Owner 승인: R2 설계 결정(task-0165 실제 Discord 검증 V3 뒤)`
 
