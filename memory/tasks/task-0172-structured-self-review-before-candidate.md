@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 15:57 UTC`
-- updated_at: `2026-10-19 16:29 UTC`
-- summary: `task-0170·0171에서 candidate 뒤 Reviewer 지적이 repair 예산을 소진했다. 첫 candidate 전 1회, 읽기 전용 self-reviewer(Read·Grep·Glob만)가 staged diff와 기록을 Reviewer 관점으로 보는 jarvis-self-review Skill과 SOP 3 항목을 더했다. 과거 상태 4개 재현에서 실제 지적 9건 중 7건을 미리 찾았다. Reviewer 1 지적은 Owner 해석 승인 뒤 repair 1로 반영했다. push 없음.`
+- updated_at: `2026-10-19 16:38 UTC`
+- summary: `task-0170·0171에서 candidate 뒤 Reviewer 지적이 repair 예산을 소진했다. 첫 candidate 전 1회, 읽기 전용 self-reviewer(Read·Grep·Glob만)가 staged diff와 기록을 Reviewer 관점으로 보는 jarvis-self-review Skill과 SOP 3 항목을 더했다. 과거 상태 4개 재현에서 실제 지적 9건 중 7건을 미리 찾았다. Reviewer 지적은 Owner 해석 승인과 예산 증액(1→2) 뒤 repair 2회로 반영했다. push 없음.`
 - source_command: `Owner 요청: candidate 전 구조화된 self-review 등록 (Claude Code 세션)`
 
 ## 기준선
@@ -102,6 +102,9 @@ SOP §5의 정의에 따라 공식 Reviewer finding이나 QA 실패에 대응하
 | P6 | "7. task-0172를 직접 DONE으로 편집하지 말고 기존 SOP의 Reviewer → QA → checkpoint → Console Complete 절차를 따릅니다." / "8. `jarvis.bat`은 열람·수정·스테이징하지 마세요." / "다른 worktree와 임시 폴더도 건드리지 말고, `git push`는 별도 Owner 승인 없이 하지 마세요." / "승인된 범위를 벗어나는 문제가 생기면 임의로 확장하지 말고 중단해 보고하세요." | 공식 완료 절차, push 없음, 범위 밖이면 멈춤. 8항의 "다른 worktree와 임시 폴더"는 기존에 있던 다른 worktree와 smoke 임시 폴더를 바꾸거나 지우지 말라는 뜻이다(R1, Owner 해석 승인). 이 task가 검증용으로 저장소 밖에 만든 임시 clone과 요청 파일은 분리해 쓰고 검증 뒤 정리한다 |
 | R1 | "Owner 결정 — task-0172 Start 승인 8항의 해석 확인" / "해석을 승인합니다." / "Start 승인 8항의 "다른 worktree와 임시 폴더도 건드리지 말고"는 기존에 존재하던 다른 worktree와 smoke 임시 폴더를 변경하거나 삭제하지 말라는 의미로 적용합니다." / "이번 task에서 검증 목적으로 별도 생성한 임시 clone과 요청 파일은 기존 작업 환경과 분리하고, 검증 종료 후 정리하는 것을 허용합니다." / "기존 worktree와 smoke 임시 폴더를 수정·삭제하거나 그 내용을 변경해서는 안 됩니다." / "이 해석과 이번 task의 실제 처리 결과를 task-0172 기록에 남기세요." / "이 승인은 이번 task의 임시 환경 사용에 대한 확인이며, 다른 task의 보호 조건을 포괄적으로 변경하는 승인은 아닙니다." | P6 해석에 반영, 아래 "임시 환경 처리" 절. 이 task에만 적용 |
 | R2 | "남은 Reviewer 지적도 처리하세요." / "1. Skill의 `allowed-tools`에서 `Write`를 제거해 self-review agent의 쓰기 권한을 부여하지 마세요." / "2. 저장소 밖 경로 제한이 지시문에만 의존하는 부분은 사실대로 기록하고, 기술적으로 보장되는 권한 제한과 구분하세요." / "3. repair 예산 1회 범위에서 수정한 뒤 task-0171 사전 점검, 새 Reviewer, QA를 진행하세요." / "4. 추가 FINDINGS가 나오면 임의로 repair 예산을 늘리지 말고 중단해 보고하세요." / "`jarvis.bat`은 열람·수정·스테이징하지 마세요." / "기존 worktree와 smoke 임시 폴더를 건드리지 말고, `git push`는 별도 승인 없이 하지 마세요." / "Console Complete를 포함한 기존 SOP를 준수하세요." | repair 1: Skill allowed-tools에서 `Write` 제거, Skill에 보장되는 제한(도구 목록)과 지시문 의존(저장소 밖 경로 등) 구분. 사전 점검 → Reviewer 2 → QA. FINDINGS가 남으면 멈춤 |
+| R3 | "Owner 결정: task-0172 repair 예산을 총 2회로 증액합니다." / "현재 repair 1/2이며, 이번 수정이 마지막 repair입니다." / "1. `jarvis-self-review` Skill의 `allowed-tools`에서 `Bash(git diff:*)`를 제거하세요." / "`git diff --output=<파일>`처럼 파일을 쓸 수 있는 경로가 일반 권한 확인 없이 허용되지 않도록 합니다." / "2. Skill과 task 기록에서 기술적으로 보장되는 제한과 지시문에만 의존하는 제한을 구분해 기록하세요." / "`git diff` 출력 옵션처럼 파일 쓰기가 가능한 사례도 명시합니다." / "3. 코드와 SOP는 수정하지 마세요." / "이번 repair는 Skill과 필요한 task 기록만 대상으로 합니다." | repair 2: Skill allowed-tools에서 `Bash(git diff:*)` 제거, Skill과 아래 "제한 구분" 절에 보장·지시문 의존·남은 쓰기 경로를 적음. SOP·agent 무변경 |
+| R4 | "task-0171 사전 점검을 통과시킵니다." / "같은 candidate의 Reviewer 재검토가 아니라, 수정 내용을 반영한 새 candidate를 만들고 새 Reviewer 검토를 진행합니다." / "Reviewer PASS 후 QA를 수행하고 기존 SOP에 따라 checkpoint 및 Console Complete를 진행합니다." / "추가 FINDINGS가 나오면 예산을 더 늘리거나 SOP §8로 임의 수용하지 말고 중단해 보고하세요." / "`self_deviations`가 있는 검토는 SOP §5에 따라 유효성을 판단하세요." / "무효 검토의 허용된 재검토 절차와 repair 예산을 혼동하지 마세요." | 새 candidate → Reviewer 3 → PASS면 QA → checkpoint → Console Complete. FINDINGS면 멈춤. Reviewer 2 유효성 판단은 아래 Reviewer 2 절 |
+| R5 | "`jarvis.bat`은 열람·수정·스테이징하지 마세요." / "기존 worktree 4개와 smoke 임시 폴더 47개를 변경하거나 삭제하지 마세요." / "이번 task에서 만든 scratchpad 파일은 QA 증거로 보존하고, QA 완료 후 이번 task가 생성한 파일만 정리하세요." / "`git push`는 하지 마세요." / "task 상태를 직접 DONE으로 편집하지 말고 Console의 공식 Complete 절차를 따르세요." | 보호 대상 무접촉, scratchpad 파일은 QA 뒤 이 task가 만든 것만 삭제, push 없음 |
 
 ## Start 승인 (원문)
 
@@ -288,3 +291,62 @@ repair 1 사전 점검 첫 실행은 `violations=2`(C1 `task_file_field_too_long
 | repair 1 candidate 커밋 전 사전 점검(summary 정정 뒤) | 이 표를 쓰기 전과 쓴 뒤 각각 실행해 같은 판정을 확인하고 커밋했다. 값은 이 표 아래 줄 |
 
 값: `staged_files=4`, `violations=0`, `status=PASS`, 종료 0, 작업 트리 = index.
+
+## Candidate 2 (repair 1)
+
+`5720ea5d470ac15c971b35907e00838e87daa5aa` (parent `6f86321`). Candidate 1의 Reviewer 결과는 무효.
+
+## Reviewer 2 (`5720ea5`, FINDINGS minor 1, `self_deviations` 1건)
+
+| # | 지적 | 처리 |
+| --- | --- | --- |
+| G1 | Skill allowed-tools의 `Bash(git diff:*)`는 접두어 허용이라 `git diff --output=<파일>`도 권한 확인 없이 통과할 수 있는데, Skill은 쓰기를 미리 허용하지 않는다고 적었고 보장·지시문 의존 목록에도 이 경로가 없음 | Manager가 저장소 밖 임시 저장소에서 `git diff --output=<파일>`이 실제로 파일을 쓰는 것을 확인했다(Claude Code 접두어 매칭이 이 형태를 자동 허용하는지는 실행하지 않음). repair 예산 1회 소진으로 Owner에게 보고, Owner가 예산을 2로 늘려 repair 2 승인(아래 원문) |
+
+유효성(SOP §5): 보고의 `self_deviations`에 1건(허용된 `git show` 출력이 커서 저장 파일로 넘어갔고, 그 파일은 열지 않고 다시 `git grep`으로 읽었다는 고지)이 있으므로 §5에 따라 이 검토는 무효다. 무효 검토의 같은 candidate 재검토(retry, repair 예산 미사용)는 하지 않았다. 지적 G1이 사실로 확인돼 같은 candidate를 다시 검토해도 같은 결과가 나올 것이고, Owner가 수정한 새 candidate의 새 Reviewer 검토를 지시했기 때문이다. `retry_count=0`.
+
+## Owner 결정: repair 예산 증액 1→2 (원문)
+
+```text
+Owner 결정: task-0172 repair 예산을 총 2회로 증액합니다. 현재 repair 1/2이며, 이번 수정이 마지막 repair입니다.
+수정 범위
+
+1. `jarvis-self-review` Skill의 `allowed-tools`에서 `Bash(git diff:*)`를 제거하세요. `git diff --output=<파일>`처럼 파일을 쓸 수 있는 경로가 일반 권한 확인 없이 허용되지 않도록 합니다.
+2. Skill과 task 기록에서 기술적으로 보장되는 제한과 지시문에만 의존하는 제한을 구분해 기록하세요. `git diff` 출력 옵션처럼 파일 쓰기가 가능한 사례도 명시합니다.
+3. 코드와 SOP는 수정하지 마세요. 이번 repair는 Skill과 필요한 task 기록만 대상으로 합니다.
+
+검증 및 완료
+
+* task-0171 사전 점검을 통과시킵니다.
+* 같은 candidate의 Reviewer 재검토가 아니라, 수정 내용을 반영한 새 candidate를 만들고 새 Reviewer 검토를 진행합니다.
+* Reviewer PASS 후 QA를 수행하고 기존 SOP에 따라 checkpoint 및 Console Complete를 진행합니다.
+* 추가 FINDINGS가 나오면 예산을 더 늘리거나 SOP §8로 임의 수용하지 말고 중단해 보고하세요.
+* `self_deviations`가 있는 검토는 SOP §5에 따라 유효성을 판단하세요. 무효 검토의 허용된 재검토 절차와 repair 예산을 혼동하지 마세요.
+
+보호 조건
+
+* `jarvis.bat`은 열람·수정·스테이징하지 마세요.
+* 기존 worktree 4개와 smoke 임시 폴더 47개를 변경하거나 삭제하지 마세요.
+* 이번 task에서 만든 scratchpad 파일은 QA 증거로 보존하고, QA 완료 후 이번 task가 생성한 파일만 정리하세요.
+* `git push`는 하지 마세요. task 상태를 직접 DONE으로 편집하지 말고 Console의 공식 Complete 절차를 따르세요.
+```
+
+## Repair 2
+
+| 파일 | 변경 |
+| --- | --- |
+| `.claude/skills/jarvis-self-review/SKILL.md` | allowed-tools에서 `Bash(git diff:*)` 제거. 3단계 목록에 "세션이 아직 할 수 있는 쓰기" 항목 추가 |
+| 이 기록 | summary·`updated_at`, R3~R5 요약 행, Candidate 2, Reviewer 2와 유효성 판단, Owner 결정 원문, 이 절, 아래 제한 구분 |
+
+### 제한 구분 (repair 2 뒤)
+
+| 구분 | 내용 |
+| --- | --- |
+| 도구 목록으로 보장 | self-reviewer 프로세스는 Read·Grep·Glob만 갖는다. agent 정의의 `tools:`와 `--tools` 두 층 모두 쓰기·셸 도구를 빼며, CLI가 Write·Bash를 허용해도 agent 정의가 막는 것을 V4에서 확인했다 |
+| Skill이 미리 허용하는 것 | `Read`, `Bash(git status:*)`, `Bash(python -B scripts/check_task_record.py:*)`, `Bash(claude -p --agent self-reviewer:*)` |
+| 미리 허용하지 않아 일반 권한 확인을 거치는 것 | 요청 파일 쓰기, 1·2단계의 `git diff` 두 명령. `git diff`는 `--output=<파일>`로 파일을 쓸 수 있어서 뺐다 |
+| 지시문에만 의존 | 요청 파일을 저장소 밖에 쓰기, 저장소 루트에서 실행, self-review로 다른 것을 실행하지 않기 |
+| 남은 쓰기 경로 | 미리 허용된 `git status`가 `.git/index`(추적 파일이 아닌 저장소 메타데이터)를 갱신할 수 있다. Skill의 설정으로는 막지 않는다 |
+
+budget: `repair_budget=2`(Owner 증액), `repair_count=2`(예산 소진).
+
+repair 2 candidate 커밋 전 사전 점검: 이 줄을 쓰기 전 `staged_files=4`, `violations=0`, `status=PASS`, 종료 0. 이 줄을 쓴 뒤 다시 stage하고 실행해 같은 판정을 확인하고 커밋했다. 작업 트리 = index.

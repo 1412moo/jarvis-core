@@ -3,7 +3,7 @@ name: jarvis-self-review
 description: Run the one read-only Jarvis-Core self-review of STAGED changes before the first candidate commit (SOP 3, task-0172). Checks the preconditions, assembles the self-reviewer request and runs it in a separate read-only claude process. Explicit invocation only; it never reviews a candidate, gives no verdict, writes no repository file and does not replace the Reviewer or jarvis-reviewer-call.
 argument-hint: <task-id> <40-char-baseline-hash>
 disable-model-invocation: true
-allowed-tools: Read, Bash(git status:*), Bash(git diff:*), Bash(python -B scripts/check_task_record.py:*), Bash(claude -p --agent self-reviewer:*)
+allowed-tools: Read, Bash(git status:*), Bash(python -B scripts/check_task_record.py:*), Bash(claude -p --agent self-reviewer:*)
 ---
 
 # Jarvis Self-review (task-0172)
@@ -69,6 +69,11 @@ What is enforced and what is not:
 - Not enforced, instruction only: that the request file is written outside the repository, that
   the process is started from the repository root, and that nothing else runs for the
   self-review. No tool setting limits those; this text does.
+- Writes the session could still make, and how they are handled: `git diff` can write a file
+  with `--output=<file>`, so this skill does not pre-approve `git diff` (task-0172 repair 2); the
+  two `git diff` commands in steps 1 and 2 go through the session's normal permission check.
+  `git status`, which stays pre-approved, can refresh `.git/index` (repository metadata, not a
+  tracked file); nothing here stops that.
 
 Run nothing else for the self-review.
 
