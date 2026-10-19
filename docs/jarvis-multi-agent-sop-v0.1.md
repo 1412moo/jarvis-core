@@ -101,6 +101,13 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
 - 한 assignment에서 유일한 source writer다. 병렬 source writer는 허용하지 않는다.
 - 승인된 file ownership 안에서만 구현하고 테스트한다.
 - self-review와 결정론적 validation 뒤 명시된 파일만 stage한다.
+- 수동 SOP task의 self-review는 첫 candidate 전에 한 번, `jarvis-self-review` Skill로 한다. task-0171
+  사전 점검이 종료 0인 staged 상태를 읽기 전용 `self-reviewer`(`claude -p --agent self-reviewer
+  --tools Read,Grep,Glob`)가 Reviewer 관점으로 보고, Implementer(수동 SOP task에서는 Manager
+  역할을 겸하는 세션)는 지적을 고치거나 이유와 함께 두고 각 지적의 처리와 수정 뒤 사전 점검 결과를
+  task 기록 `Self-review` 절에 남기며, 사전 점검이 다시 종료 0일 때만 candidate를 만든다. 여기서 고친 것은 §5의 repair가 아니고, candidate 뒤 공식 Reviewer 지적에는
+  §5 예산과 승인 규칙이 그대로다. self-review는 Reviewer 판정을 대신하지 않고, Codex 표면에는
+  이 agent의 짝이 없다(task-0172).
 - `git add .`과 `git add -A`를 사용하지 않는다.
 - 안전한 candidate local commit과 Worker Report를 만든다.
 - push/PR, 외부 호출, credential과 protected `jarvis.bat`를 다루지 않는다.
