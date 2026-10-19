@@ -2,10 +2,10 @@
 
 - id: `task-0168-recover-marker-manual-delete-wording`
 - title: `task-0167 후속: 보존된 invalid 실행 표지를 수동 삭제한 뒤 recover 결과 서술 정정(문서·주석만)`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 06:22 UTC`
-- updated_at: `2026-10-19 08:10 UTC`
+- updated_at: `2026-10-19 08:11 UTC`
 - summary: `task-0167 Reviewer minor(429d5c8, Owner가 SOP §8로 수용하며 후속 정정을 조건으로 둠)를 고친다. 보존된 invalid 표지를 Owner가 직접 지우면 recover를 다시 쓸 수 있다는 세 서술(claude_worker.py 주석, SOP §10.2 13항, task-0167 기록 "운영상 결과")을 실제 동작에 맞춘다. 동작 변경 없음, push 없음. candidate beb2b92에 Reviewer minor 1건(Owner §8 수용), QA PASS. DONE은 Owner Console Complete 대기.`
 - source_command: `task-0167 Reviewer minor 수용 조건(SOP §8)에 따른 후속 정정, Director 세션 요청`
 
