@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 13:47 UTC`
-- updated_at: `2026-10-19 14:11 UTC`
+- updated_at: `2026-10-19 14:15 UTC`
 - summary: `최근 수동 task 10건 중 7건에서 첫 Reviewer가 task 기록 정합성 문제만으로 FINDINGS를 내 repair 예산을 소진했다. candidate 커밋 전에 기록을 canonical parser와 Console parser로 읽고, staged 변경 파일과 owned 행을 대조하고, updated_at 갱신과 파일 끝 줄바꿈을 확인해 결정론적 위반이면 candidate를 만들지 않게 한다. Owner가 D1 (a)·D2 차단·D3 참고로 Start를 승인해 scripts/check_task_record.py와 SOP 3·task-template·Reviewer 호출 Skill 변경을 구현했다. push 없음.`
 - source_command: `Owner 요청: candidate 커밋 전 task 기록 사전 점검 강화 (Claude Code 세션)`
 
@@ -122,7 +122,7 @@ candidate 커밋 전에 다음 항목을 결정론적으로 검사하도록 해.
 | # | Owner 원문 | Manager 해석 |
 | --- | --- | --- |
 | M1 | "다음 개발 작업으로 candidate 커밋 전 task 기록 사전 점검 강화를 진행해." / "목표는 Reviewer가 반복적으로 task 기록 정합성 문제를 발견해 repair 예산을 소모하는 일을 줄이는 것이다." / "기존 조사 결과를 재사용하고 같은 조사를 반복하지 마." | 조사 1·2를 근거로 쓰고 다시 조사하지 않는다 |
-| M2 | "기존 SOP와 task 등록 절차를 따라 task를 등록해." / "task-0169의 기존 검사기와 관련 파서·검증기를 우선 재사용해." / "task 범위와 검증 계획을 기록한 다음 기존 승인 절차에 따라 진행해." / "Owner 승인이 필요한 단계에서는 승인 없이 구현을 시작하지 마." | 이번에는 이 기록(TODO)만. 구현은 Start 승인 뒤. 재사용 대상은 조사 3 |
+| M2 | "기존 SOP와 task 등록 절차를 따라 task를 등록해." / "task-0169의 기존 검사기와 관련 파서·검증기를 우선 재사용해." / "task 범위와 검증 계획을 기록한 다음 기존 승인 절차에 따라 진행해." / "Owner 승인이 필요한 단계에서는 승인 없이 구현을 시작하지 마." | 등록 단계에서는 이 기록(TODO)만 만들었다(Start 승인 뒤 S4가 대체). 재사용 대상은 조사 3 |
 | M3 | "candidate 커밋 전에 다음 항목을 결정론적으로 검사하도록 해." / "1. Canonical parser / Console 호환성: task 기록이 실제 파서와 Console에서 정상적으로 읽히는지 확인한다." / "task-0168의 summary 백틱 문제처럼 Complete 단계에서 뒤늦게 실패하는 사례를 사전에 잡는다." | C1·C2 |
 | M4 | "2. 범위 표와 실제 변경 파일의 정합성: baseline 대비 변경 파일과 task 기록의 owned/scope 표를 대조한다." / "정당한 신규 파일이나 문서 변경을 잘못 차단하지 않도록 기존 계약을 먼저 확인한다." | C3. 신규 파일·문서도 owned에 있으면 통과, 기록 자신은 항상 허용, 바뀌지 않은 owned 경로는 경고만(조사 4) |
 | M5 | "3. `updated_at`: task 기록 본문이 변경됐는데 해당 필드가 갱신되지 않은 경우를 검출한다." / "기존 task-model §7 규칙을 따른다." | C4(조사 6) |
@@ -130,9 +130,9 @@ candidate 커밋 전에 다음 항목을 결정론적으로 검사하도록 해.
 | M7 | "5. task-0169 원문 인용 검사: 기존 기능을 유지하고 중복 구현하지 않는다." | C6. 기존 함수를 부르고 다시 구현하지 않는다 |
 | M8 | "결정론적 위반은 수정될 때까지 candidate 커밋을 차단한다." / "검사 실패 시 위반 항목과 수정 방법을 구체적으로 출력한다." / "검사기가 정상적인 신규 파일이나 허용된 변경을 차단하지 않도록 기존 계약과 실제 사용 사례를 확인한다." | 종료 코드 1이면 candidate 금지(D1). 위반마다 수정 방법 출력. 기존 기록 9건 형식으로 회귀 확인 |
 | M9 | "summary의 의미상 최신성 등 기계적으로 판정할 수 없는 사항은 Reviewer의 판단으로 남긴다." / "Reviewer와 QA의 역할, repair 예산, SOP §8, Owner 승인 절차는 변경하거나 완화하지 않는다." | summary 의미는 검사하지 않는다. Reviewer·QA·budget·§8·승인 무변경 |
-| M10 | "최소 diff를 우선하고 SOP·task-template 변경은 꼭 필요한 부분만 한다." / "정상 사례뿐 아니라 파서 오류, 범위 불일치, `updated_at` 누락, 줄바꿈 오류, 정상 신규 파일 및 문서 변경 사례를 테스트한다." / "기존 테스트와 관련 smoke, validator, Reviewer, QA를 프로젝트 절차에 따라 실행한다." / "테스트를 통과했다고 추정하지 말고 실제 결과를 기록한다." | 아래 검증 계획 T1~T9. SOP §3 한 항목, task-template 한 줄 |
+| M10 | "최소 diff를 우선하고 SOP·task-template 변경은 꼭 필요한 부분만 한다." / "정상 사례뿐 아니라 파서 오류, 범위 불일치, `updated_at` 누락, 줄바꿈 오류, 정상 신규 파일 및 문서 변경 사례를 테스트한다." / "기존 테스트와 관련 smoke, validator, Reviewer, QA를 프로젝트 절차에 따라 실행한다." / "테스트를 통과했다고 추정하지 말고 실제 결과를 기록한다." | 아래 검증 계획 T1~T10(기존 회귀는 T10). SOP §3 한 항목, task-template 한 줄 |
 | M11 | "저장소의 기존 checkpoint·commit·Console Complete 절차를 따른다." / "`jarvis.bat`은 보호 대상이므로 열람·수정·삭제·스테이징하지 않는다." / "다른 worktree와 smoke 임시 폴더는 건드리지 않는다." / "push는 별도 Owner 승인 없이 하지 않는다." / "task 기록을 직접 수정해 임의로 DONE 처리하지 않는다." / "정식 완료 절차를 사용한다." | Console Start·Complete, candidate → Reviewer → QA → 기록 checkpoint. push·임의 DONE 없음 |
-| M12 | "이미 확인된 사실을 불필요하게 재조사하지 말고, 정책상 필요한 승인 지점에서만 멈춰." / "목표는 검사기를 하나 더 만드는 것이 아니라 Reviewer의 repair 예산을 기록 오류가 아닌 실제 개발 문제에 사용할 수 있도록 하는 것이다." | Start 승인 지점에서 멈춘다. 효과는 기록 지적 감소로 판단(QA에서 과거 사례 재현) |
+| M12 | "이미 확인된 사실을 불필요하게 재조사하지 말고, 정책상 필요한 승인 지점에서만 멈춰." / "목표는 검사기를 하나 더 만드는 것이 아니라 Reviewer의 repair 예산을 기록 오류가 아닌 실제 개발 문제에 사용할 수 있도록 하는 것이다." | 등록 단계에서는 Start 승인 지점에서 멈췄다(S4가 대체). 효과는 기록 지적 감소로 판단(QA에서 과거 사례 재현) |
 | M13 | "변경된 파일과 핵심 변경 사항" / "추가된 검사와 테스트 결과" / "Reviewer·QA 결과" / "candidate 및 checkpoint 커밋" / "Console Complete 상태" / "main과 origin/main 상태" / "다음에 줄어들 것으로 예상되는 Owner 개입과 남아 있는 한계" | 최종 보고의 7개 항목 |
 | S1 | "task-0171의 Owner 결정을 다음과 같이 확정한다." / "D1: (a) 스크립트와 SOP 규칙으로 차단한다." / "로컬 Git pre-commit hook은 설치하지 않는다." / "검사 종료 코드가 0이 아니면 Manager는 candidate를 만들지 않는다." | SOP §3 규칙과 종료 코드로 차단. hook 없음 |
 | S2 | "D2: 차단." / "검사 대상 기록에 `owned` 행이 없으면 위반으로 처리한다." / "Worker 경로 기록은 기존 계획대로 제외한다." / "정상적인 신규 파일과 허용된 문서 변경이 잘못 차단되지 않도록 범위 대조 로직을 검증한다." | owned 행 없음 = C3 위반. `source_command: /task` 기록은 대상 외(종료 2로 안내). T5·T9로 오차단 확인 |
@@ -184,7 +184,7 @@ Start 전 확인(2026-10-19 14:06 UTC): main HEAD `e79a2cb214e6b6c11eddd753f2bf1
 
 | 파일 | 변경 |
 | --- | --- |
-| `scripts/check_task_record.py` | 신규. `git show :<기록>`(staged)과 `git diff --cached --name-only <baseline>`을 대상으로 C1 `_transition_metadata`, C2 `parse_task_view_text`, C3 `owned` 행 대조(경로, `/`로 끝나는 디렉터리, `*` 패턴; 이 기록 자신은 허용; 백틱 안이라도 `/`·`*`·확장자가 없는 이름은 경로로 보지 않음; 바뀌지 않은 owned 경로는 경고), C4 HEAD 대비 `updated_at`, C5 파일 끝 줄바꿈, C6 `check_summary_quotes.check_text` 참고 출력. 위반마다 `fix:` 줄. 종료 코드 0/1/2. `source_command: /task` 기록은 종료 2. `--json`, `--self-test`(임시 git 저장소, 13건) |
+| `scripts/check_task_record.py` | 신규. `git show :<기록>`(staged)과 `git diff --cached --name-only <baseline>`을 대상으로 C1 `_transition_metadata`, C2 `parse_task_view_text`, C3 `owned` 행 대조(경로와 `/`로 끝나는 디렉터리; `*` 패턴은 어떤 파일도 덮지 않음(repair 1); 이 기록 자신은 허용; 백틱 안이라도 `/`·`*`·확장자가 없는 이름은 경로로 보지 않음; 바뀌지 않은 owned 경로는 경고), C4 HEAD 대비 `updated_at`, C5 파일 끝 줄바꿈, C6 `check_summary_quotes.check_text` 참고 출력. 위반마다 `fix:` 줄. 종료 코드 0/1/2. `source_command: /task` 기록은 종료 2. `--json`, `--self-test`(임시 git 저장소, 14건, repair 1 뒤) |
 | `docs/jarvis-multi-agent-sop-v0.1.md` | §3 Manager의 task-0169 항목을 "candidate(repair 포함) 커밋 전 staged 상태로 실행, 종료 코드 0이 아니면 candidate를 만들지 않음, 인용 목록은 참고"로 교체 |
 | `memory/tasks/task-template.md` | 맨 위 주석 한 줄: 수동 SOP task 범위 표의 `owned` 행 형식 |
 | `.claude/skills/jarvis-reviewer-call/SKILL.md` | 3단계 실행 명령을 새 스크립트로(BLOCKED면 호출문을 만들지 않음, 인용 목록은 그대로 전달), allowed-tools 1개 교체 |
@@ -195,7 +195,7 @@ Start 전 확인(2026-10-19 14:06 UTC): main HEAD `e79a2cb214e6b6c11eddd753f2bf1
 
 | # | 검사 | 결과 |
 | --- | --- | --- |
-| T1·T5 | 새 기록 + 신규 파일 + `docs/guide/` 디렉터리 + `docs/*.txt` 패턴, 함수 이름 백틱 | PASS(종료 0), `run_tool`은 owned 경로로 읽지 않음 |
+| T1·T5 | 새 기록 + 신규 파일 + `docs/guide/` 디렉터리, 함수 이름 백틱 | PASS(종료 0), `run_tool`은 owned 경로로 읽지 않음. repair 1 뒤: `docs/*.txt` 패턴은 `docs/notes.txt`를 덮지 않아 C3 |
 | T2 | 메타데이터 줄 형식 오류 | C1 |
 | T3 | summary 안 백틱(task-0168 형태) | C2 |
 | T4 | owned 밖 파일 stage | C3, 파일 이름 출력 |
@@ -220,3 +220,19 @@ template을 canonical parser에 넣으면 `task_file_invalid_id`인데, 수정 �
 | owned 행 없는 기록 | task-0168 전 커밋 | C3(D2 결정대로 차단 대상) |
 | candidate가 아닌 시점 | task-0169 DONE checkpoint `8e93fea`(별도 커밋한 master-plan이 baseline 이후에 있음), task-0167 기록을 바꾼 task-0168 커밋 3건 | C3. 이 검사는 candidate 전용이라 SOP에 "candidate(repair 포함) 커밋 전"으로 적었다 |
 | 잡지 못한 것 | task-0170 F1(summary 의미), F2(owned 설명 문구 — 파일 단위로는 일치), task-0162 정의 문제, Manager 요약의 조건 누락(C6 참고 목록에만 나옴) | Reviewer 몫(M9) |
+
+## Candidate 1
+
+`1c74364c60baf5a0de7c3129a4c09a9e83459868` (parent = baseline `e79a2cb`). 커밋 전 이 task의 사전 점검(staged 5개) 위반 0, 종료 0.
+
+## Reviewer 1 (`1c74364`, 유효, FINDINGS minor 4)
+
+| # | 지적 | repair 1 처리 |
+| --- | --- | --- |
+| F1 | Skill 3단계가 스크립트 결과를 그 candidate의 결과처럼 쓰지만 스크립트는 index와 HEAD만 읽는다 | Skill: HEAD가 candidate이고 staged 변경이 없을 때만 유효, 아니면 BLOCKED |
+| F2 | Skill이 `status=ERROR`(종료 2)를 다루지 않는다 | Skill: 0이 아닌 종료(BLOCKED·ERROR)는 모두 호출 중단 |
+| F3 | C3의 `*` 패턴 매칭(fnmatch, `/`도 넘음)이 등록 설계("경로, `/`로 끝나는 디렉터리")보다 넓다 | 스크립트에서 패턴 매칭 제거. `*` 토큰은 어떤 파일도 덮지 않음. self-test에 그 경우 추가(14건) |
+| F4 | 기록의 M2·M12가 Start 뒤에도 그대로이고 M10이 T1~T9 | M2·M12에 S4 대체 표시, M10을 T1~T10으로 |
+
+`self_deviations` 없음. `unverified` 6건(T10 결과, T9 재현, `shutil.rmtree(onexc=…)`의 Python 3.12 의존, SOP validator, `run_web_app` import 부작용, hook·push 없음)은 QA에서 확인한다.
+repair는 Manager가 예산 안에서 진행했다(`repair_count=1`, 예산 1 소진).

@@ -8,8 +8,8 @@ record as it is staged, so the Manager fixes them before the candidate exists:
 - C1 the canonical parser (task_file_writer._transition_metadata) reads the record
 - C2 the Jarvis Console parser (parse_task_view_text) reads it as valid, so Start and
   Complete will not refuse it later (task-0168: backticks inside the summary)
-- C3 every file staged since the baseline is listed in an `| owned |` row (a path, a
-  directory ending in "/", or a pattern with "*"); the record itself is always allowed
+- C3 every file staged since the baseline is listed in an `| owned |` row (a path or a
+  directory ending in "/"); the record itself is always allowed
 - C4 when the record differs from HEAD, its updated_at differs too (task-model §7)
 - C5 the record ends with a newline, as the canonical writer writes it
 - C6 the task-0169 verbatim quote check, printed for the Manager; it never changes the
@@ -24,7 +24,6 @@ describes the task is not checkable here and stays with the Reviewer.
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import os
 import re
@@ -83,7 +82,11 @@ def _metadata(text: str) -> dict[str, str]:
 
 
 def owned_entries(text: str) -> list[str]:
-    """Path-like backticked tokens of every `| owned |` row; names like `run_pipeline` are skipped."""
+    """Path-like backticked tokens of every `| owned |` row; names like `run_pipeline` are skipped.
+
+    A token with "*" is kept but never matches a file: patterns are not part of the approved
+    C3 design (task-0171 Reviewer 1), so every file a pattern would cover must be listed itself.
+    """
 
     entries: list[str] = []
     for line in text.splitlines():
@@ -99,8 +102,6 @@ def owned_entries(text: str) -> list[str]:
 def _owned(path: str, entries: list[str]) -> bool:
     for entry in entries:
         if entry.endswith("/") and path.startswith(entry):
-            return True
-        if "*" in entry and fnmatch.fnmatchcase(path, entry):
             return True
         if path == entry:
             return True
@@ -300,11 +301,16 @@ def _run_self_test() -> tuple[int, list[str]]:
         write(record, _GOOD)
         write("tools/new_tool.py", "print('x')\n")
         write("docs/guide/a.md", "a\n")
-        write("docs/notes.txt", "n\n")
-        stage(record, "tools/new_tool.py", "docs/guide/a.md", "docs/notes.txt")
+        stage(record, "tools/new_tool.py", "docs/guide/a.md")
         result = check(record, baseline, repo)
-        expect("T1/T5 new files, a directory and a pattern in owned pass", exit_code(result) == EXIT_PASS, result.violations)
+        expect("T1/T5 a new file and a directory in owned pass", exit_code(result) == EXIT_PASS, result.violations)
         expect("a backticked name that is not a path is not an owned path", "run_tool" not in owned_entries(_GOOD))
+        write("docs/notes.txt", "n\n")
+        stage("docs/notes.txt")
+        result = check(record, baseline, repo)
+        expect("a \"*\" pattern in owned covers no file (Reviewer 1)",
+               codes(result) == ["C3"] and "docs/notes.txt" in result.violations[0]["problem"], result.violations)
+        _git(["rm", "-q", "--cached", "--", "docs/notes.txt"], repo)
 
         write("README.md", "changed\n")
         stage("README.md")
