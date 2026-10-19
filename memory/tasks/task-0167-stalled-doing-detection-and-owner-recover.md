@@ -60,7 +60,7 @@
 
 ## Manager 요약
 
-아래 행은 Owner 결정 블록 셋("Owner 결정", "D1 결정", "D2 결정"), Start 승인, 진행 승인 원문의 조건 문장을 빠짐없이 인용한다.
+아래 행은 Owner 결정 블록 셋("Owner 결정", "D1 결정", "D2 결정"), Start 승인, 진행 승인, repair 결정 원문의 조건 문장을 빠짐없이 인용한다.
 
 | # | 승인 조건 (원문 인용) | Manager 해석과 충족 방법 |
 | --- | --- | --- |
@@ -71,16 +71,21 @@
 | O4 | 고아 Worker 대책: "① PID 파일 방식을 우선 검토. PID만으로 프로세스를 식별하면 PID 재사용이나 다른 프로세스 오인 위험이 있으므로 프로세스 경로·시작 시각 등 추가 식별 기준 필요" | D1 (a) 확정. 아래 D1 행 |
 | O5 | `/retry`: "Worker 경로 task에서 잠금 없이 실행되거나 `DOING` 상태를 덮어쓰는 경로는 거절하도록 수정" | `_run_retry`가 `source_command: /task` task를 상태 확인 직후, 아무것도 바꾸기 전에 `retry_worker_path_use_go`로 거절한다 |
 | O6 | task-0166 및 worktree: "현재 상태와 변경 사항 그대로 보존. R2 검증 대상으로 재사용" / 테스트 흔적 정리: "R2 검증이 끝난 후 별도 결정" | task-0166 기록과 `-r1`·`-r2` worktree·브랜치를 건드리지 않았다. 검증은 임시 clone과 smoke 임시 저장소에서만 했다 |
-| O7 | "1\. `recover`는 잠금이 비어 있다는 것만으로 안전하다고 판단하면 안 됩니다. 고아 Worker가 계속 실행 중일 수 있기 때문입니다. PID 파일이 없거나 식별 정보가 불완전하면 복구를 거절하는 보수적인 동작이 필요합니다." | recover는 잠금을 잡은 뒤 표지 상태가 `gone`일 때만 진행한다. `missing`·`invalid`(읽을 수 없음, 필드 누락·형식 오류, attempt 조회 실패)·`alive`는 각각 거절 |
+| O7 | "1\. `recover`는 잠금이 비어 있다는 것만으로 안전하다고 판단하면 안 됩니다. 고아 Worker가 계속 실행 중일 수 있기 때문입니다. PID 파일이 없거나 식별 정보가 불완전하면 복구를 거절하는 보수적인 동작이 필요합니다." | recover는 잠금을 잡은 뒤 표지 상태가 `gone`일 때만 진행한다. `missing`·`invalid`(읽을 수 없음, 필드 누락·형식 오류, attempt 조회 실패, repair 1부터 표지가 가리키는 프로세스를 식별할 수 없음)·`alive`는 각각 거절 |
 | O8 | "2\. 시작 DM과 복구 명령은 별개로 검증해야 합니다. 먼저 봇 재기동 시 `task-0166`이 멈춘 작업으로 DM에 포함되는지 확인하고, 그다음 명시적 `recover`로 `FAILED` 전환과 감사 기록을 검증하는 순서가 적절합니다." | K9 순서. 실제 Discord 검증은 이 task의 QA 뒤 별도 승인으로 한다 |
 | O9 | "3\. `/retry` 범위는 기존 동작을 확인한 뒤 최소한으로 바꿔야 합니다. Worker 경로 task에 대한 안전한 거절은 필요하지만, 무관한 수동 task의 동작까지 변경하지 않도록 회귀 테스트를 포함해야 합니다." | 거절은 `source_command: /task`에만. self-check(수동 FAILED task가 기존 경로대로 `retry_result`)와 Worker smoke(수동 DOING task가 Worker 경로 거절을 받지 않음), 기존 `/retry` self-check 유지 |
 | O10 | "이제 설계 조사 자체는 충분합니다. 별도 조사나 새 테스트 task를 추가하기보다는, 이 결정을 반영해 `task-0167`에 R2를 등록하고 기존 SOP에 따라 진행하면 됩니다." / "다만 이것은 구현 방향에 대한 승인안이지, 제가 저장소에서 실제 등록이나 구현을 완료했다는 뜻은 아닙니다. 실제 구현은 위 안전 조건을 task 범위에 명시한 뒤 진행하는 것이 좋겠습니다." | 이 기록에 K1~K10으로 범위를 적어 등록했고, Start 승인 뒤에 구현했다. 새 테스트 task는 만들지 않았다 |
-| D1 | "저는 D1은 (a) PID 파일 방식으로 진행하는 것을 권합니다." / "(b) 실행 잠금 래퍼도 가능하지만, 기존 Worker 실행·시간 제한 처리를 래퍼로 옮기면 변경 범위가 커집니다. 지금 R2의 목적은 멈춘 작업을 안전하게 감지하고 복구하는 것이므로, 기존 실행 구조를 최대한 유지하는 편이 좋겠습니다." / "* PID뿐 아니라 실행 파일 경로와 프로세스 시작 시각까지 대조합니다." / "* 표지가 없거나 손상됐거나 식별 정보가 불완전하면 복구를 거절합니다." / "* 이전 시도의 표지가 새 시도에 잘못 적용되지 않도록 attempt별로 구분합니다." / "* Worker가 정상 종료되거나 실패할 때 표지를 정리합니다. 강제 종료 후 남은 표지는 프로세스 식별 결과로 판단합니다." / "* 기존 실행 제한과 잠금 구조는 불필요하게 변경하지 않습니다." | 표지 `WORKTREE_ROOT/<attempt>.worker.json`에 `task_id`·`attempt`·`pid`·`exe`·`started`. `_process_identity`(Windows `QueryFullProcessImageNameW`·`GetProcessTimes`, 그 밖 `/proc`)로 PID·경로·시작 시각이 모두 같을 때만 살아 있음. 식별 정보를 읽지 못하면 빈 값을 써 `invalid`가 된다. 마지막 attempt의 표지만 `missing`/`invalid`/`gone`을 정하고, 어느 attempt든 살아 있으면 `alive`. `_run_worker`가 `finally`에서 지운다(정상·실패·시간 초과). `_run`에는 시작 직후 PID를 알리는 선택 인자만 더했고 시간 제한·`taskkill`·Worker 잠금은 그대로 |
+| D1 | "저는 D1은 (a) PID 파일 방식으로 진행하는 것을 권합니다." / "(b) 실행 잠금 래퍼도 가능하지만, 기존 Worker 실행·시간 제한 처리를 래퍼로 옮기면 변경 범위가 커집니다. 지금 R2의 목적은 멈춘 작업을 안전하게 감지하고 복구하는 것이므로, 기존 실행 구조를 최대한 유지하는 편이 좋겠습니다." / "* PID뿐 아니라 실행 파일 경로와 프로세스 시작 시각까지 대조합니다." / "* 표지가 없거나 손상됐거나 식별 정보가 불완전하면 복구를 거절합니다." / "* 이전 시도의 표지가 새 시도에 잘못 적용되지 않도록 attempt별로 구분합니다." / "* Worker가 정상 종료되거나 실패할 때 표지를 정리합니다. 강제 종료 후 남은 표지는 프로세스 식별 결과로 판단합니다." / "* 기존 실행 제한과 잠금 구조는 불필요하게 변경하지 않습니다." | 표지 `WORKTREE_ROOT/<attempt>.worker.json`에 `task_id`·`attempt`·`pid`·`exe`·`started`. `_process_identity`(Windows `QueryFullProcessImageNameW`·`GetProcessTimes`, 그 밖 `/proc`)로 PID·경로·시작 시각이 모두 같을 때만 살아 있음. 식별 정보를 읽지 못하면 빈 값을 써 `invalid`가 된다. 마지막 attempt의 표지만 `missing`/`invalid`/`gone`을 정하고, 어느 attempt든 살아 있으면 `alive`. `_run_worker`가 `finally`에서 지운다(정상·실패·시간 초과; candidate 1 기준이며 repair 1부터 표지 범위·정리 시점은 R2 행, 식별 불가 처리는 R1 행). `_run`에는 시작 직후 PID를 알리는 선택 인자만 더했고 시간 제한·`taskkill`·Worker 잠금은 그대로 |
 | D1a | "그리고 승인은 두 단계로 나누겠습니다. D1 선택은 확정하되, `START TASK`와 구현 착수는 아직 승인하지 않습니다. Start Preview까지만 열린 현재 상태를 유지하면 됩니다." / "이렇게 하면 우선 실행 표지 설계를 고정하고, 실제 구현 시작은 별도로 결정할 수 있습니다." | D1 결정 뒤 Start Preview 상태를 유지했고 구현하지 않았다 |
 | D2 | "저는 D2는 (a) 거절 유지를 권합니다." / "이유는 명확합니다. D1에서 실행 표지가 없거나 불완전하면 복구를 거절하기로 확정했는데, task-0166만 예외로 허용하면 그 안전 규칙에 별도 경로가 생깁니다. 특히 이번에는 봇이 죽은 뒤 Worker 프로세스가 독립적으로 실행될 수 있다는 사실도 확인했기 때문에, 표지가 없는 과거 작업을 프로세스 목록만으로 복구하는 것은 피하는 편이 낫습니다." / "* D2: (a) 거절 유지" / "* task-0166 시작 DM 검증: 진행 가능" / "* task-0166 recover 검증: `recover_worker_marker_missing` 거절이 예상되므로 실제 복구 성공 검증에는 사용하지 않음" / "* recover 성공 검증: R2 적용 이후 표지가 생성되는 새 시도나 별도의 테스트 fixture를 사용하되, 불필요한 테스트 task 증가는 최소화" | 표지 없는 시도에 예외 경로가 없다(`missing`이면 거절). recover 성공은 Worker smoke의 fixture(임시 clone 안의 `/work` task와 살아 있는·끝난 프로세스 표지)로 검증했고 새 실제 task는 만들지 않았다 |
 | D2a | "현재 task-0167은 `TODO`, Console은 Start Preview 상태 그대로 두면 됩니다." / "그리고 지금은 D2만 확정한 것이며, `START TASK`와 구현 착수는 아직 승인하지 않은 상태입니다. 설계 기록을 갱신한 뒤 별도로 시작 승인을 받는 순서가 맞습니다." | D2 기록 뒤 TODO·Start Preview 상태를 유지하고 Start 승인을 따로 받았다 |
 | P1 | 변형 검증 보고 뒤 진행 승인: "진행해. 승인된 범위대로 task-0167의 구현 및 검증 결과를 기록하고 candidate 커밋 → Reviewer → 필요 시 repair 1회 → QA → QA checkpoint까지 진행해." / "단, M9는 잠금 예외로 smoke가 중단됐으므로 개별 검사 결과가 남지 않았다는 사실을 그대로 기록해. 변형 검증 결과를 과장하지 말고, 필요한 경우 M9 검증의 한계를 QA 보고에 명시해." / "남은 smoke 임시 폴더 3개는 삭제하지 말고 보존해. task-0166 기록과 두 worktree, `jarvis.bat`은 건드리지 마. push, master-plan 갱신, 최종 DONE 처리는 하지 말고 QA checkpoint 후 보고하고 멈춰." | 아래 "구현"과 "Implementer 검증"에 결과를 적고 candidate → Reviewer → (repair 1회까지) → QA → QA 기록 checkpoint 순서로 진행한다. M9 행은 "smoke 중단, 개별 결과 없음"으로 적는다. smoke 임시 폴더 3개·task-0166·worktree·`jarvis.bat`은 그대로 두고, push·master-plan·DONE은 하지 않는다 |
 | S0 | Start 승인: "task-0167 Start Confirm 승인합니다, 구현 시작해줘" | 2026-10-18 16:58 UTC Console Start Confirm으로 `TODO→DOING`, 그 뒤 구현. Complete·DONE checkpoint·master-plan·push·실제 Discord 검증은 하지 않았다 |
+| R0 | Repair 진행 지시: "jarvis-core의 task-0167 작업을 이어서 진행한다." / 현재 상태: "task-0167은 DOING" / "candidate 5cff917은 로컬 커밋 상태이며 push하지 않음" / "Reviewer retry 예산 1/1 소진, repair 예산 0/1 사용" / "먼저 실제 저장소 상태와 기존 작업 기록을 확인해 현재 위치를 파악한 뒤, 위 승인 범위 안에서만 이어서 진행한다. 이미 완료된 검사를 불필요하게 반복하지 않는다." | 상태 서술이 실제와 같음을 확인했다: task-0167 `DOING`, 작업 전 `main`=`5cff917`(origin/main보다 1커밋 앞섬, push 안 됨), `retry_count=1`·`repair_count=0`, tracked 변경 없음, untracked `jarvis.bat`·task-0166 기록만 있음을 확인했다. 앞 세션의 Reviewer 두 보고를 이 기록의 "Reviewer 1·retry" 절에 옮겼다. 이미 끝난 검사는 다시 돌리지 않고, repair가 바꾼 동작의 검사와 바뀐 파일에 걸린 검사만 다시 실행했다 |
+| R1 | Repair 결정: "F1: 프로세스 종료와 식별 정보 읽기 실패를 구분하도록 fail-closed 수정 필요" | `_probe_process`가 `alive`·`gone`·`unknown`을 나눈다. Windows는 `OpenProcess` 오류 87(그런 PID 없음)과 `STILL_ACTIVE`가 아닌 종료 코드만 `gone`, 그 밖의 실패(접근 거부 등)는 `unknown`. `/proc`은 `/proc` 자체가 없거나 읽기 실패면 `unknown`, `/proc/<pid>`가 없거나 Z·X 상태면 `gone`. 어느 attempt의 표지든 `unknown`이 있으면 `invalid`로 recover 거절 |
+| R2 | "F2: PID 표지를 Worker 단계뿐 아니라 attempt의 run 전체로 확장하기로 결정" / "accept 경로도 동일한 원칙 적용" | 표지는 attempt 생성 직전(worktree 경로를 정한 뒤)부터 결과 기록(`record_result`) 뒤까지 있고, 봇(run) 프로세스의 PID·경로·시작 시각과 Worker가 도는 동안 Worker의 세 값(`worker`)을 담는다. Reviewer·QA·통합·resume 단계에서 봇이 죽어도 표지가 남아 recover가 된다. accept는 승인 전이 직전부터 결과 기록 뒤까지 같은 표지를 둔다. D1 조건(세 값 대조, attempt별 파일, fail closed, 끝나면 정리, 실행 제한·잠금 구조 유지)은 그대로 |
+| R3 | "F1과 F2를 남은 repair 1회 안에서 구현·테스트·문서화한 뒤 새 candidate 생성" / "Reviewer가 다시 무효 판정을 받으면 SOP에 따라 중단하고 보고" | repair 1회(`repair_count=1`)로 코드·테스트·SOP·task-model·이 기록을 고친 새 candidate를 만들고 새 Reviewer → QA. retry 예산은 소진(1/1)이므로 새 Reviewer가 무효면 멈추고 보고한다 |
+| R4 | "push, master-plan 갱신, 최종 DONE 처리는 별도 승인 전까지 금지" / "임시 폴더 3개, task-0166 기록 및 두 worktree, jarvis.bat은 보존" | push·master-plan·DONE 없음. smoke 임시 폴더(기존 보존분 포함)·task-0166 기록·`-r1`·`-r2` worktree·`jarvis.bat`을 건드리지 않는다 |
 
 ## 범위와 안전 조건
 
@@ -206,3 +211,63 @@ task-0167 Start Confirm 승인합니다, 구현 시작해줘
 
 남은 smoke 임시 폴더 3개는 삭제하지 말고 보존해. task-0166 기록과 두 worktree, `jarvis.bat`은 건드리지 마. push, master-plan 갱신, 최종 DONE 처리는 하지 말고 QA checkpoint 후 보고하고 멈춰.
 ```
+
+## Candidate 1
+
+`5cff917a32a13668c52989d2936833be8a46f5b4` (baseline `4416b04`의 자식, 로컬 커밋, push 안 함).
+
+## Reviewer 1·retry (`5cff917`, 둘 다 무효)
+
+| 검토 | verdict | findings | self_deviations | 판정 |
+| --- | --- | --- | --- | --- |
+| Reviewer 1 (2026-10-18 19:02 UTC 반환) | FINDINGS | minor 1건: 표지가 Worker·repair 프로세스가 도는 동안만 있어(`_run_worker`의 `finally`에서 삭제, resume은 `_run_worker`를 부르지 않음) Worker 시작 전·Reviewer·QA·통합·repair 없는 resume 중에 봇이 죽으면 마지막 attempt에 표지가 없고 recover가 항상 `recover_worker_marker_missing`. 시작 DM과 `stalled_doing` 답장은 recover를 안내하고 SOP 13항은 이 한계를 "표지 전 시도"로만 적음 | `git grep`에 정규식 OR(`\|`) 1건 | 무효(자기 명령 규칙 위반). `retry_count=1`로 같은 candidate 재검토 |
+| Reviewer retry (2026-10-18 19:07 UTC 반환) | FINDINGS | minor 2건. F1: `_process_identity`가 `OpenProcess` 실패(접근 거부 포함)·`GetExitCodeProcess`·`QueryFullProcessImageNameW`·`GetProcessTimes` 실패·`/proc` 읽기 실패를 모두 `None`으로 돌려, 식별 정보를 못 읽은 살아 있는 Worker가 `gone`이 되고 recover가 진행됨(O7·D1 fail closed와 반대). F2: Reviewer 1과 같은 지적(Worker 단계 뒤 봇이 죽으면 recover 불가, `/retry`도 거절이라 Discord로 복구할 수단 없음) | `git grep -F` 1건, `git grep -i` 1건 | 무효. retry 예산 소진(1/1)으로 SOP대로 멈추고 Owner에게 보고 |
+
+Manager가 코드를 직접 대조해 두 지적 모두 사실임을 확인했다. F1은 안전 결함, F2는 범위 결정(D1 확장 여부)이 필요해 Owner에게 (a) 표지를 run 전체로 확장, (b) 한계만 문서화를 물었다.
+
+## Owner repair 결정 (원문)
+
+```text
+jarvis-core의 task-0167 작업을 이어서 진행한다.
+현재 상태:
+
+* task-0167은 DOING
+* candidate 5cff917은 로컬 커밋 상태이며 push하지 않음
+* Reviewer retry 예산 1/1 소진, repair 예산 0/1 사용
+* F1: 프로세스 종료와 식별 정보 읽기 실패를 구분하도록 fail-closed 수정 필요
+* F2: PID 표지를 Worker 단계뿐 아니라 attempt의 run 전체로 확장하기로 결정
+* accept 경로도 동일한 원칙 적용
+* F1과 F2를 남은 repair 1회 안에서 구현·테스트·문서화한 뒤 새 candidate 생성
+* Reviewer가 다시 무효 판정을 받으면 SOP에 따라 중단하고 보고
+* push, master-plan 갱신, 최종 DONE 처리는 별도 승인 전까지 금지
+* 임시 폴더 3개, task-0166 기록 및 두 worktree, jarvis.bat은 보존
+
+먼저 실제 저장소 상태와 기존 작업 기록을 확인해 현재 위치를 파악한 뒤, 위 승인 범위 안에서만 이어서 진행한다. 이미 완료된 검사를 불필요하게 반복하지 않는다.
+```
+
+F2는 (a) run 전체 확장으로 확정되었고 D1의 표지 범위가 "Worker 프로세스"에서 "attempt의 run 전체"로 넓어진다(D1의 나머지 조건은 유지). 위 D1 행의 "`_run_worker`가 `finally`에서 지운다"는 candidate 1 기준 기록이며, repair 1부터는 아래 표가 현재 동작이다. budget: `retry_count=1`(소진), `repair_count=1`(이 repair).
+
+## Repair 1 (F1·F2)
+
+| 파일 | 변경 |
+| --- | --- |
+| `orchestrator/worker/claude_worker.py` | F1: `_probe_process(pid)` → `alive`(경로·시작 시각)·`gone`·`unknown`. Windows `OpenProcess` 실패는 오류 87만 `gone`, 그 밖은 `unknown`. `GetExitCodeProcess` 실패 `unknown`, `STILL_ACTIVE`(259)가 아니면 `gone`, 경로·시각 조회 실패 `unknown`. 그 밖 OS는 `/proc` 없음 `unknown`, `/proc/<pid>` 없음·Z·X 상태 `gone`, 읽기 실패 `unknown`. `_process_identity`는 `alive`일 때만 값을 준다(표지 쓰기용). `_marker_process_state`: 표지의 프로세스 중 하나라도 세 값이 같은 채 살아 있으면 `alive`, 아니면 하나라도 `unknown`이면 `unknown`, 모두 끝났으면(또는 PID가 다른 프로세스로 재사용됐으면) `gone`. `worker_marker_state`: 어느 attempt의 표지든 `alive`면 `alive`, 읽을 수 없거나 불완전하거나 `unknown`인 표지가 하나라도 있으면 `invalid`(이전 attempt 표지 포함, 살아 있는 Worker를 가리킬 수 있으므로), 그 밖은 마지막 attempt(worktree·브랜치·표지 번호 중 가장 큰 번호; worktree 추가 전에 쓴 표지도 그 attempt로 셈)의 표지가 없으면 `missing`, 있으면 `gone`. F2: 표지 키 `task_id`·`attempt`·`pid`·`exe`·`started`(run 프로세스)·`worker`(`null` 또는 Worker의 `pid`·`exe`·`started`). `_start_run_marker`(현재 프로세스로 쓰기, 쓰기 실패는 무시해 나중의 recover만 거절되게 함)·`_end_run_marker`(삭제, 실패 무시). `_run_pipeline`은 worktree 경로를 정하고 저장소 밖임을 확인한 직후(resume 계획·`git worktree add` 전) 표지를 쓰고, 성공 경로는 `_integrate_and_checkpoint`(DONE 기록) 뒤, 실패 경로는 `record_result` 뒤에 지운다. `_run_worker`는 Worker 시작 직후 표지에 Worker를 더하고 끝나면(정상·실패·시간 초과) run만 남긴 표지로 되돌린다(삭제하지 않음). `_accept_candidate`는 `approve()` 직전에 표지를 쓰고, 승인 전이가 적용되지 않은 경우·성공·승인 뒤 실패 모두 결과 처리 뒤에 지운다. 시간 제한·`taskkill`·Worker 잠금은 그대로 |
+| `adapters/discord/bot_minimal.py` | `_run_recover`·`_worker_task_state` docstring을 run 표지 기준으로 고침. `recover_worker_marker_missing`·`_invalid` 답장 문구를 "실행 표지가 없거나, 표지나 표지가 가리키는 프로세스를 확인할 수 없어 실행이 끝났는지 알 수 없습니다"로 고침(사유 문자열은 그대로) |
+| `orchestrator/worker/run_smoke_tests.py` | 가짜 Worker가 표지 내용을 기록. `run_case`에 선택 인자 `on_record`. `marker_flow`: 정상·시간 초과·실패 run 모두 Worker 실행 중 표지가 run(이 프로세스)과 Worker를 가리키고 결과 기록 때 표지가 있으며 run 뒤 없음, 정상 run은 Reviewer·QA·통합 단계에도 run만 가리키는 표지가 있음, 거절된 resume은 표지를 남기지 않음, run이 끝나도 Worker가 살아 있으면 `alive`, run이 살아 있으면 `alive`, 둘 다 끝나면 `gone`, Worker 식별 정보 불완전·빈 경로 `invalid`, 식별 불가(`unknown`) `invalid`(F1), 끝난 PID가 실제 OS에서 `gone`, worktree 전에 쓴 표지가 마지막 attempt로 셈, 이전 attempt의 읽을 수 없는 표지 `invalid`. `recover_flow`: 식별 불가 프로세스면 recover가 `recover_worker_marker_invalid`(F1). `accept_flow`: 성공 accept는 승인 때와 기록 때 이 프로세스를 가리키는 표지가 있고 끝나면 없음, 승인 전이 거절도 표지를 남기지 않음, 승인 전 거절 모두 표지 없음 |
+| `docs/jarvis-multi-agent-sop-v0.1.md` | §10.2 13항을 run 전체 표지·accept·식별 불가 거절·preflight 구간 한계로 고침. §10.1 진입 명령 행의 표지 설명 한 구절 |
+| `docs/task-model.md` | 5-2 recover 행의 조건 문구("표지가 가리키는 프로세스가 모두 끝났을 때만") |
+
+남는 한계(기록): Windows의 "접근 거부"로 `unknown`이 되는 실제 경로는 결정론적으로 재현하지 못해 `_probe_process`를 바꿔 끼운 테스트로만 확인했다(오류 87 → `gone`은 실제 OS에서 확인). `/proc` 경로는 이 PC(Windows)에서 실행되지 않았다. `_run_go`가 DOING으로 바꾼 뒤 pipeline이 표지를 쓰기 전(preflight의 git 명령 몇 개 구간)에 봇이 죽으면 표지가 없어 recover는 `recover_worker_marker_missing`으로 거절된다(fail closed, SOP 13항에 적음). 식별 불가 표지가 있는 task는 시작 점검과 `/go`에서 지금처럼 `stalled`로 보이지만 recover는 거절된다.
+
+## Repair 1 Implementer 검증 (작업 트리 기준, candidate 2 전)
+
+`.env` 없는 임시 clone(scratchpad, `5cff917`의 `main`을 체크아웃하고 변경 파일 복사)에서 실행했다. 이제 `main`(`5cff917`)이 task-0166 브랜치들(`4416b04`)과 달라 candidate 1 때의 브랜치 선택 문제는 없지만, `.env`를 읽지 않도록 같은 방식을 썼다. 실제 봇·Discord·claude는 실행하지 않았다.
+
+| # | 결과 |
+| --- | --- |
+| 정상 | Worker smoke 457/0(candidate 1의 439에서 +18: F1·F2·accept 검사), self-check 104/0(설정 없음·`PYTHONUTF8=1`, 이번 repair는 self-check 문자열을 바꾸지 않아 수 그대로), SOP validator PASS(음성 검사 133), discord-intake 141/0 |
+| 변형 | 각각 전체 Worker smoke로 실행. M10 F1 되돌림(식별 불가를 `gone`으로) → 11건 실패(F1 표지 검사, F1 recover 거절, 그 뒤 recover 흐름 연쇄). M11 F2 되돌림(Worker가 끝나면 표지 삭제) → 4건(세 run의 Worker 중·기록 시 표지 검사, Reviewer·QA·통합 단계 표지 검사). M12 accept 표지 없음 → 2건(accept 승인·기록 시 표지, 승인 전이 거절 때 표지). M13 읽을 수 없는 표지 무시 → 19건(불완전·손상·다른 task 표지, 이전 attempt 손상 표지, recover 불완전 표지 거절과 연쇄). 네 변형 모두 검사가 잡았다 |
+| 다시 돌리지 않은 것 | Console smoke: 이번 repair는 Console이 읽는 코드나 이 기록의 메타데이터(status·updated_at)를 바꾸지 않아 candidate 1의 PASS를 다시 확인하지 않았다. candidate 1의 M1~M9 변형도 다시 돌리지 않았다(M9 한계는 위 기록 그대로) |
+| 남은 흔적 | smoke 임시 폴더 44→46. M10·M13 run이 Worker 잠금 파일을 연 채 끝나 지우지 못한 2개(`jarvis_worker_smoke_iluhmr2v`·`_5nbceqi6`). 정상 코드 run은 폴더를 남기지 않았다. Owner가 정하기 전까지 삭제하지 않고 보존 |
+
+task-0166 기록, `-r1`·`-r2` worktree, `jarvis.bat`은 건드리지 않았다.

@@ -100,14 +100,15 @@ FAKE_CLAUDE = textwrap.dedent(
         sys.exit(3 if mode == "crashfindings" else 0)
     mode = os.environ.get("FAKE_WORKER", "ok")
     if os.environ.get("FAKE_MARKER_LOG"):
-        # task-0167: whether the run's marker sits beside this attempt worktree while the Worker runs.
+        # task-0167: the run's marker beside this attempt worktree while the Worker runs, once it
+        # names this Worker (repair 1: the run writes it first, the Worker is added on start).
         marker = Path.cwd().parent / (Path.cwd().name + ".worker.json")
         for _ in range(100):
-            if marker.exists():
+            if marker.exists() and '"worker": {' in marker.read_text(encoding="utf-8"):
                 break
             time.sleep(0.05)
         with open(os.environ["FAKE_MARKER_LOG"], "a", encoding="utf-8") as log:
-            log.write(("present" if marker.exists() else "absent") + "\\n")
+            log.write(("present " + marker.read_text(encoding="utf-8") if marker.exists() else "absent") + "\\n")
     if mode == "timeout":
         time.sleep(30)
     if mode == "fail":
@@ -212,7 +213,7 @@ def write_task(clone: Path, task_id: str) -> None:
 
 def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: str = "pass", prepare=None,
              request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None, resume: bool = False, repair_budget: int | None = None,
-             progress=None):
+             progress=None, on_record=None):
     os.environ["FAKE_WORKER"] = worker
     os.environ["FAKE_REVIEW"] = review
     task_id = task_id or f"task-8000-{name}"
@@ -222,6 +223,8 @@ def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: st
     calls: list[tuple[bool, str]] = []
 
     def record(success: bool, summary: str) -> tuple[bool, str]:
+        if on_record:
+            on_record()
         calls.append((success, summary))
         return True, ""
 
@@ -313,22 +316,44 @@ def _stop(proc: subprocess.Popen) -> None:
 
 
 def marker_flow(clone: Path, worktrees: Path) -> None:
-    """task-0167: the Worker marker a run leaves while it runs, and the states read from it."""
+    """task-0167: the marker a run leaves from the start of its attempt until its result is
+    written (repair 1: the whole run), and the states read from it."""
 
     log = worktrees.parent / "marker.log"
     log.write_text("", encoding="utf-8")
     os.environ["FAKE_MARKER_LOG"] = str(log)
+    me = os.getpid()
     try:
         for name, worker, reason in (("markerok", "ok", ""), ("markertimeout", "timeout", "worker_timeout"),
                                      ("markerfail", "fail", "worker_failed")):
             log.write_text("", encoding="utf-8")
-            r, *_ = run_case(name, clone, worktrees, worker=worker)
             marker = worktrees / f"task-8000-{name}{claude_worker.WORKER_MARKER_SUFFIX}"
-            check(f"marker: {name} has its marker while the Worker runs and none after it ends",
-                  log.read_text(encoding="utf-8").splitlines()[:1] == ["present"] and not marker.exists()
-                  and (r.ok if not reason else r.reason == reason), f"{log.read_text(encoding='utf-8')!r}:{r.stage}:{r.reason}")
+            seen: dict[str, object] = {}
+
+            def at_stage(stage: str, marker: Path = marker, seen: dict = seen) -> None:
+                seen[stage] = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else None
+
+            def at_record(marker: Path = marker, seen: dict = seen) -> None:
+                seen["record"] = marker.exists()
+
+            r, *_ = run_case(name, clone, worktrees, worker=worker, progress=at_stage, on_record=at_record)
+            lines = log.read_text(encoding="utf-8").splitlines()
+            during = json.loads(lines[0][len("present "):]) if lines and lines[0].startswith("present ") else {}
+            check(f"marker: {name} names this run and its Worker while the Worker runs, and is gone after the run",
+                  during.get("pid") == me and isinstance(during.get("worker"), dict) and during["worker"]["pid"] != me
+                  and seen.get("record") is True and not marker.exists()
+                  and (r.ok if not reason else r.reason == reason), f"{lines!r}:{seen}:{r.stage}:{r.reason}")
+            if not reason:
+                stages = [seen.get(stage) for stage in ("reviewer", "qa", "integrate")]
+                check("marker: after the Worker ends the marker stays through Reviewer, QA and integrate, naming the run only",
+                      all(isinstance(m, dict) and m["pid"] == me and m["worker"] is None for m in stages), str(seen))
     finally:
         os.environ.pop("FAKE_MARKER_LOG", None)
+
+    # A refused resume leaves no marker either.
+    r, *_ = run_case("markerresume", clone, worktrees, worker="ok", resume=True)
+    check("marker: a refused resume leaves no marker", r.reason == "resume_no_previous_attempt"
+          and not list(worktrees.glob(f"task-8000-markerresume*{claude_worker.WORKER_MARKER_SUFFIX}")), r.reason)
 
     task_id = "task-8000-markerstate"
     write_task(clone, task_id)
@@ -341,15 +366,17 @@ def marker_flow(clone: Path, worktrees: Path) -> None:
     attempt.mkdir()
     check("marker state: an attempt without a marker is missing", state() == "missing")
     sleeper = _sleeper()
+    worker = _sleeper()
     try:
         claude_worker._write_worker_marker(attempt, task_id, sleeper.pid)
         marker = claude_worker.worker_marker_path(attempt)
         real = json.loads(marker.read_text(encoding="utf-8"))
         check("marker state: a marker naming the running process is alive", state() == "alive"
-              and real["pid"] == sleeper.pid and real["exe"] and real["started"] > 0, str(real))
+              and real["pid"] == sleeper.pid and real["exe"] and real["started"] > 0 and real["worker"] is None, str(real))
 
         def variant(**changes) -> str:
-            marker.write_text(json.dumps({k: v for k, v in {**real, **changes}.items() if v is not None}), encoding="utf-8")
+            marker.write_text(json.dumps({k: v for k, v in {**real, **changes}.items() if v is not None or k == "worker"}),
+                              encoding="utf-8")
             return state()
 
         check("marker state: the same PID with another start time is not that process (PID reuse)",
@@ -358,19 +385,55 @@ def marker_flow(clone: Path, worktrees: Path) -> None:
         check("marker state: a missing field is invalid", variant(started=None) == "invalid")
         check("marker state: an empty executable path is invalid", variant(exe="") == "invalid")
         check("marker state: another task's marker is invalid", variant(task_id="task-8000-other") == "invalid")
+        ended = {"pid": real["pid"], "exe": real["exe"], "started": real["started"] + 1}
+        live_worker = claude_worker._identity_record(worker.pid)
+        check("marker state: an ended run with its Worker still running is alive (the orphan Worker)",
+              variant(started=real["started"] + 1, worker=live_worker) == "alive")
+        check("marker state: a running run whose Worker has ended is alive", variant(worker=ended) == "alive")
+        check("marker state: a run and a Worker that have both ended are gone",
+              variant(started=real["started"] + 1, worker=ended) == "gone")
+        check("marker state: an incomplete Worker identity is invalid", variant(worker={"pid": worker.pid}) == "invalid")
+        check("marker state: an empty Worker executable path is invalid", variant(worker={**live_worker, "exe": ""}) == "invalid")
+        # F1 (repair 1): a process that may run but cannot be identified is never read as ended.
+        real_probe = claude_worker._probe_process
+        claude_worker._probe_process = lambda pid: ("unknown", None)
+        try:
+            unknown = variant()
+        finally:
+            claude_worker._probe_process = real_probe
+        check("marker state: a process whose identity cannot be read is invalid, not gone (F1)", unknown == "invalid", unknown)
         marker.write_text("{not json", encoding="utf-8")
         check("marker state: an unreadable marker is invalid", state() == "invalid")
         marker.write_text(json.dumps(real), encoding="utf-8")
         check("marker state: the real marker is alive again", state() == "alive")
-        # An earlier attempt's live Worker still blocks, whatever the newer attempt shows.
+        # An earlier attempt's live process still blocks, whatever the newer attempt shows.
         (worktrees / f"{task_id}-r2").mkdir()
-        check("marker state: an earlier attempt's live Worker counts as alive", state() == "alive")
+        check("marker state: an earlier attempt's live process counts as alive", state() == "alive")
     finally:
         _stop(sleeper)
+        _stop(worker)
+    probe = claude_worker._probe_process(sleeper.pid)
+    check("marker state: a PID no process has any more is read as gone by the system (F1)", probe == ("gone", None), str(probe))
     check("marker state: once that process ends, a newer attempt without a marker is missing, not gone",
           state() == "missing")
     (worktrees / f"{task_id}-r2").rmdir()
     check("marker state: the latest attempt's marker naming an ended process is gone", state() == "gone")
+    early = worktrees / f"{task_id}-r2"
+    claude_worker._write_worker_marker(early, task_id, sleeper.pid)
+    early_marker = claude_worker.worker_marker_path(early)
+    check("marker state: a marker written before its worktree was added counts as the latest attempt",
+          claude_worker.worker_marker_state(task_id, repo_root=clone, worktree_root=worktrees)[1] == early_marker.name
+          and state() == "invalid")  # the ended sleeper's identity cannot be written, so it reads incomplete
+    early_marker.write_text(json.dumps({**real, "attempt": early.name}), encoding="utf-8")
+    check("marker state: with that marker naming an ended run, the task is gone", state() == "gone")
+    early_marker.unlink()
+    claude_worker.worker_marker_path(attempt).write_text("{not json", encoding="utf-8")
+    (worktrees / f"{task_id}-r2").mkdir()
+    claude_worker.worker_marker_path(worktrees / f"{task_id}-r2").write_text(
+        json.dumps({**real, "attempt": f"{task_id}-r2"}), encoding="utf-8")
+    check("marker state: an earlier attempt's unreadable marker is invalid (it may name a live Worker)", state() == "invalid")
+    claude_worker.worker_marker_path(attempt).unlink()
+    check("marker state: without it the latest attempt decides (gone)", state() == "gone")
 
 
 def recover_flow(clone: Path, worktrees: Path) -> None:
@@ -432,6 +495,16 @@ def recover_flow(clone: Path, worktrees: Path) -> None:
         check("recover: an incomplete marker refuses", bot._run_command(f"/go {task_id} recover").get("reason")
               == "recover_worker_marker_invalid" and unchanged())
         marker.write_text(real, encoding="utf-8")
+        # F1 (repair 1): a live process whose identity cannot be read must not let recover through.
+        real_probe = claude_worker._probe_process
+        claude_worker._probe_process = lambda pid: ("unknown", None)
+        try:
+            unreadable = bot._run_command(f"/go {task_id} recover")
+        finally:
+            claude_worker._probe_process = real_probe
+        check("recover: a process whose identity cannot be read refuses (F1), nothing changes",
+              unreadable.get("reason") == "recover_worker_marker_invalid" and unchanged() and not bot._WORKER_LOCK.locked(),
+              str(unreadable))
     finally:
         _stop(sleeper)
     # Bounded: a lock left held by an earlier step must fail this check, not hang the run.
@@ -840,19 +913,28 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
 
     # task-0165: the stages each accept call reported, newest last.
     accept_stages: list[list[str]] = []
+    # task-0167 repair 1: the run markers of the task seen at approval and at the record write.
+    accept_markers: list[dict[str, list[dict]]] = []
+
+    def markers_of(task_id: str) -> list[dict]:
+        return [json.loads(p.read_text(encoding="utf-8"))
+                for p in sorted(worktrees.glob(f"{task_id}*{claude_worker.WORKER_MARKER_SUFFIX}"))]
 
     def accept(task_id: str, record: str, approve_result: tuple[bool, str] = (True, ""), before_approve=None):
         approvals: list[int] = []
         calls: list[tuple[bool, str]] = []
         accept_stages.append([])
+        accept_markers.append({})
 
         def approve() -> tuple[bool, str]:
             approvals.append(1)
+            accept_markers[-1]["approve"] = markers_of(task_id)
             if before_approve:
                 before_approve()
             return approve_result
 
         def record_result(success: bool, summary: str) -> tuple[bool, str]:
+            accept_markers[-1]["record"] = markers_of(task_id)
             calls.append((success, summary))
             return True, ""
 
@@ -867,7 +949,8 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
         check(f"accept refusal: {name} -> {reason}, nothing changed or recorded",
               (not r.ok) and r.reason == reason and r.accept_retryable and not approvals and not calls
               and git(["rev-parse", "HEAD"], clone) == head and git(["rev-parse", attempt.branch], clone) == attempt.candidate
-              and Path(attempt.worktree).exists(), f"{r.stage}:{r.reason}:{r.detail}")
+              and Path(attempt.worktree).exists() and not markers_of(Path(attempt.worktree).name),
+              f"{r.stage}:{r.reason}:{r.detail}")
 
     # The failure record names the exact candidate; other failure records stay "stage:reason".
     attempt, record = owner_review_attempt("task-8000-accref")
@@ -965,6 +1048,8 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
     check("accept: a refused approval transition records nothing and is not offered again", (not r.ok)
           and r.reason == "accept_transition_failed" and a == [1] and not c and not r.accept_retryable
           and git(["rev-parse", "HEAD"], clone) == head, f"{r.reason}")
+    check("marker: a refused approval transition was marked during approval and leaves no marker",
+          len(accept_markers[-1].get("approve") or []) == 1 and not markers_of("task-8000-accref"), str(accept_markers[-1]))
 
     def move_main() -> None:
         (clone / "docs" / "accept-race.md").write_text("x\n", encoding="utf-8")
@@ -988,6 +1073,11 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
     check("accept: all six QA checks re-ran and the Reviewer was not called", len(r.qa_checks) == 6 and all(r.qa_checks.values())
           and r.reviewer_verdict == "")
     check("progress: an accepted candidate reports qa then integrate", accept_stages[-1] == ["qa", "integrate"], str(accept_stages[-1]))
+    seen = accept_markers[-1]
+    check("marker: accept marks the attempt from the approval transition until the record is written, then removes it",
+          all(len(seen.get(k) or []) == 1 and seen[k][0]["pid"] == os.getpid() and seen[k][0]["attempt"] == wt.name
+              and seen[k][0]["worker"] is None for k in ("approve", "record"))
+          and markers_of("task-8000-accref") == [], str(seen))
     check("accept: jarvis.bat never in main index or tree", not git(["ls-files", "--", "jarvis.bat"], clone))
 
     r, a, c = accept("task-8000-accnone", claude_worker.owner_review_record("a" * 40, "b" * 40, 1))

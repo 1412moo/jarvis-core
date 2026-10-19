@@ -2048,8 +2048,9 @@ def _run_recover(task_id: str, task_file: Path, status: str, command: str, work_
 
     Only DOING -> FAILED, written with a failure record in one atomic write and audited like
     any /go approval and run result. Nothing is re-run. It refuses unless the Worker locks can
-    be taken and the latest attempt's marker names a Worker process that is gone: a missing,
-    unreadable or incomplete marker, or a Worker still running, refuses it (fail closed).
+    be taken and the latest attempt's marker names only processes that have ended (the run's
+    bot and its Worker; repair 1): a missing, unreadable or incomplete marker, a process that
+    cannot be identified, or one still running, refuses it (fail closed).
     """
 
     if status != "DOING":
@@ -2302,8 +2303,8 @@ def _worker_task_state(task_id: str) -> tuple[str, str]:
     """task-0167: whether a Worker-path task's Worker may still be running.
 
     "running" when this process or another bot holds a Worker lock, or a marker of one of
-    the task's attempts names a live Worker process (one that outlived its bot). Otherwise
-    the marker state of the latest attempt: "gone", "missing" or "invalid".
+    the task's attempts names a live process (a Worker that outlived its bot). Otherwise the
+    marker state: "gone", "missing" or "invalid" (see claude_worker.worker_marker_state).
     """
 
     if _worker_running():
@@ -2871,7 +2872,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         )
     if reason in ("recover_worker_marker_missing", "recover_worker_marker_invalid"):
         return (
-            "⛔ 복구 거절: 마지막 시도의 Worker 실행 표지가 없거나 읽을 수 없어, Worker가 끝났는지 확인할 수 없습니다.\n"
+            "⛔ 복구 거절: 마지막 시도의 실행 표지가 없거나, 표지나 표지가 가리키는 프로세스를 확인할 수 없어 실행이 끝났는지 알 수 없습니다.\n"
             f"- 상태와 기록은 바꾸지 않았습니다.\n- reason: `{reason}`"
         )
     return f"❌ error: `{pipeline_result.get('reason')}`"
