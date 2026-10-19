@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-18 16:42 UTC`
-- updated_at: `2026-10-19 05:02 UTC`
+- updated_at: `2026-10-19 05:47 UTC`
 - summary: `Worker 경로 task가 DOING인데 실행 중인 Worker가 없으면 이전 실행 기록과 관계없이 멈춤 후보로 판정하고(V3 결함), 고아 Worker까지 식별되는 실행 표지를 두며, Owner 전용 /go <id> recover가 감사 기록과 함께 DOING을 FAILED로만 바꾼다. 실행 표지가 없거나 불완전하면 복구를 거절하고, Worker 경로 task에 대한 /retry는 거절한다. 자동 재실행·큐·Scheduler는 만들지 않고 push는 하지 않는다.`
 - source_command: `Owner 승인: R2 설계 결정(task-0165 실제 Discord 검증 V3 뒤)`
 
@@ -399,3 +399,54 @@ ad79cee 위에서 repair 3으로 다음을 수정한다.
 | 남은 흔적 | smoke 임시 폴더 47개 그대로(이번 정상·변형 run은 폴더를 남기지 않았다) |
 
 `ad79cee`·`bf87a66`, task-0166 기록, `-r1`·`-r2` worktree, `jarvis.bat`은 건드리지 않았다. `updated_at`은 이 기록 시각(`2026-10-19 05:02 UTC`)이다.
+
+## Candidate 4
+
+`429d5c8646d4fff66815e6690ee4110e6553a375` (repair 3, 부모 `ad79cee`, 로컬 커밋, push 안 함).
+
+## Reviewer (`429d5c8`, 유효, FINDINGS minor)
+
+`self_deviations: []`로 유효한 검토였다. verdict FINDINGS, minor 1건.
+
+| 지적 (요지) | Manager 대조 |
+| --- | --- |
+| 이 기록의 "운영상 결과"(Owner가 표지를 직접 지우면 recover를 다시 쓸 수 있다), `claude_worker.py`의 `EARLIER_UNREADABLE_KEY` 주석("until the Owner has checked and removed it by hand"), SOP 13항("직접 지울 때까지 `recover_worker_marker_invalid`로 거절")은 수동 삭제 뒤 recover가 된다고 읽힌다. 그러나 보존된 표지가 마지막 attempt 자신의 표지(이번 repair가 다루는 같은 attempt accept 경우)이면, 지운 뒤 `worker_marker_state`가 `missing`을 돌려주고 `_run_recover`가 `recover_worker_marker_missing`으로 거절해 거절 사유만 바뀐다. fail closed는 유지되어 안전성 영향은 없고, 승인 3항("정확하게 반영")에 미치지 못한다 | 맞다(`worker_marker_state`의 `latest not in markers` → `missing`, `_run_recover`의 `missing` → `recover_worker_marker_missing`). 서술은 그 표지가 더 이전 attempt의 것이고 새 attempt가 멈춘 경우에만 맞다. 문서·주석의 부정확성이며 동작 결함이 아니다 |
+
+repair 예산(3/3)이 소진되어 고치지 않고 Owner에게 보고했다(§8 minor 수용 또는 예산 증액).
+
+## Owner 결정: minor finding 수용 (SOP §8, 원문)
+
+```text
+task-0167의 candidate `429d5c8`에 대해 Reviewer의 유효한 minor finding 1건을 SOP §8에 따라 수용한다.
+수용 사유: 지적된 내용은 invalid marker를 수동 삭제했을 때의 복구 결과를 설명하는 문서와 코드 주석의 부정확성이다. 현재 확인된 동작에서는 fail-closed 원칙이 유지되므로, 이 후보의 동작 안전성을 막는 결함으로 보지는 않는다. 다만 문서 설명은 정확하지 않으므로 별도 후속 작업에서 정정해야 한다.
+위 수용 사유를 task-0167 기록에 이 문구 그대로 남기고, 이 수용은 candidate `429d5c8`에만 적용한다. 관련 문서와 코드 주석은 이번 후보에서 수정하지 않는다.
+이후 다음을 진행한다.
+
+1. Reviewer 결과와 Owner의 수용 결정을 task-0167 기록에 반영한다.
+2. 후보 `429d5c8`에 대해 QA 전체 검증을 수행한다.
+3. QA 실패 또는 추가 결함이 발견되면 멈추고 결과를 보고한다. 추가 repair는 승인 없이 진행하지 않는다.
+4. QA 통과 시에도 push, master-plan 갱신, 최종 DONE 처리는 별도 승인 전까지 하지 않는다.
+5. `ad79cee`, `bf87a66`, 47개 smoke 임시 폴더, task-0166 기록과 `-r1`/`-r2` worktree, `jarvis.bat`은 기존 보존 지침대로 유지한다.
+```
+
+수용 사유(원문 그대로): 지적된 내용은 invalid marker를 수동 삭제했을 때의 복구 결과를 설명하는 문서와 코드 주석의 부정확성이다. 현재 확인된 동작에서는 fail-closed 원칙이 유지되므로, 이 후보의 동작 안전성을 막는 결함으로 보지는 않는다. 다만 문서 설명은 정확하지 않으므로 별도 후속 작업에서 정정해야 한다.
+
+이 수용은 candidate `429d5c8`에만 효력이 있다. 위 "Repair 3" 절의 "운영상 결과" 서술, `claude_worker.py`의 `EARLIER_UNREADABLE_KEY` 주석, SOP §10.2 13항의 해당 문장은 이 candidate에서 고치지 않았으며, 같은 attempt의 표지가 보존된 경우 수동 삭제 뒤에는 `recover_worker_marker_missing`으로 거절된다는 정정은 후속 작업으로 남는다. 이 기록 갱신은 candidate를 바꾸지 않는 checkpoint commit으로 남긴다(task-0164 `42c126c`와 같은 방식).
+
+## QA (candidate `429d5c8646d4fff66815e6690ee4110e6553a375`)
+
+2026-10-19, `.env`·`jarvis.bat`이 없는 새 local clone(scratchpad)에서 `main`을 체크아웃해 HEAD가 candidate 그대로(`429d5c8`, 작업 트리 변경 0)임을 확인한 뒤 실행했다. 비교 기준은 `4416b04`. 실제 봇·Discord·claude는 실행하지 않았다.
+
+| 검사 | 결과 |
+| --- | --- |
+| Worker smoke | 470/0. V3 재현, 표지(run 전체·자식 프로세스·이어 적기·읽을 수 없는 이전 표지 보존), F1 식별 불가 거절, recover 거절 각각과 성공, recover 뒤 `/go`, `/retry` Worker 경로 거절과 수동 task 회귀, accept 표지, 기존 task-0164·0165 검사 포함 |
+| Discord self-check | 104/0, 설정 없음(`PYTHONUTF8` 없음)과 `PYTHONUTF8=1` 두 환경 |
+| SOP validator | PASS, 음성 검사 133/0 |
+| discord-intake smoke | 141/0 |
+| Console smoke | PASS(browser shell self-test 포함) |
+| `git diff --check` | `4416b04..429d5c8` 통과 |
+| 변경 범위 | `bot_minimal.py`, SOP 문서, `task-model.md`, 이 기록, `claude_worker.py`, Worker smoke. owned 목록과 같고 조건부 파일(`validate_multi_agent_sop.py`)은 바뀌지 않음. `jarvis.bat` 트리에 없음 |
+| 변형 | QA clone 복사본에서 다시 실행: `_run`이 자식을 적지 않음 6건, 이전 run 프로세스를 이어 적지 않음 1건, 읽을 수 없는 이전 표지를 보관하지 않음 6건, 종료 때 그 표지를 지움 6건 검출. F1 되돌림(M10)과 판정이 자식을 보지 않음(M16)은 Implementer 단계에서 검출을 확인했고, 그 두 변형이 smoke 임시 폴더를 남겼던 이력 때문에 QA에서는 다시 돌리지 않았다 |
+| 실행 뒤 | QA clone 작업 트리 변경 0, HEAD 그대로. smoke 임시 폴더 47개 그대로. 남은 python 프로세스·listener 없음. 메인 checkout은 이 기록 외 변경 없음 |
+
+판정: PASS. Reviewer minor 1건은 위 Owner 결정으로 이 candidate에 한해 수용됐다(문서·주석 정정은 후속 작업). 검증하지 않은 것: Windows 접근 거부로 `unknown`이 되는 실제 경로와 `/proc` 경로(바꿔 끼운 probe로만 확인), 실제 Discord에서의 시작 DM·recover(K9, 별도 승인), 실제 고아 Worker·Reviewer 프로세스. push·master-plan·Console Complete·DONE은 별도 승인 대기.
