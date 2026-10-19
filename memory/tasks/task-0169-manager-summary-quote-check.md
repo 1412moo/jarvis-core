@@ -2,10 +2,10 @@
 
 - id: `task-0169-manager-summary-quote-check`
 - title: `Reviewer 호출 전 Manager 요약의 승인 원문 인용 누락을 결정론적으로 확인하는 검사 추가`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 09:32 UTC`
-- updated_at: `2026-10-19 09:37 UTC`
+- updated_at: `2026-10-19 09:58 UTC`
 - summary: `Reviewer가 Manager 요약에 빠진 Owner 조건을 지적해 repair, repair 예산 증액, SOP 8 수용으로 이어진 일이 task-0133~0168 기록 17건에 남아 있다. 같은 비교를 Reviewer 호출 전에 결정론적으로 하는 읽기 전용 스크립트 scripts/check_summary_quotes.py와 self-test를 더하고, SOP 3 Manager 항목과 jarvis-reviewer-call Skill 3단계가 이를 먼저 실행하게 한다. 참고 자료이며 gate나 판정이 아니다. candidate c7ff349 Reviewer PASS, QA PASS. DONE은 Owner Console Complete 대기. push 없음.`
 - source_command: `Owner 요청: Jarvis-Core 다음 개발 과제 발굴 및 실행 (Claude Code 세션)`
 
