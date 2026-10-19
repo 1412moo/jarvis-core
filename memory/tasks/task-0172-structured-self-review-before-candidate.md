@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 15:57 UTC`
-- updated_at: `2026-10-19 16:57 UTC`
-- summary: `task-0170·0171에서 candidate 뒤 Reviewer 지적이 repair 예산을 소진했다. 첫 candidate 전 1회, 읽기 전용 self-reviewer(Read·Grep·Glob만)가 staged diff와 기록을 Reviewer 관점으로 보는 jarvis-self-review Skill과 SOP 3 항목을 더했다. 과거 상태 4개 재현에서 실제 지적 9건 중 7건을 미리 찾았다. Reviewer 지적은 Owner 해석 승인과 예산 증액(총 3회) 뒤 repair 3회로 반영했다. push 없음.`
+- updated_at: `2026-10-19 17:03 UTC`
+- summary: `task-0170·0171에서 candidate 뒤 Reviewer 지적이 repair 예산을 소진했다. 첫 candidate 전 1회, 읽기 전용 self-reviewer(Read·Grep·Glob만)가 staged diff와 기록을 Reviewer 관점으로 보는 jarvis-self-review Skill과 SOP 3 항목을 더했다. 과거 상태 4개 재현에서 실제 지적 9건 중 7건을 미리 찾았다. Reviewer 지적은 Owner 해석 승인과 예산 증액(총 3회) 뒤 repair 3회로 반영했고 candidate d06ffd8이 Reviewer PASS와 QA PASS를 받았다. push 없음.`
 - source_command: `Owner 요청: candidate 전 구조화된 self-review 등록 (Claude Code 세션)`
 
 ## 기준선
@@ -410,3 +410,40 @@ budget: `repair_budget=3`(Owner 증액), `repair_count=3`(예산 소진).
 | discord-intake smoke | total 147, failed 0 | 같은 결과 확인 뒤 커밋 |
 | SOP validator | PASS | 같은 결과 확인 뒤 커밋 |
 | `git diff --cached --check` | 통과 | 같은 결과 확인 뒤 커밋 |
+
+## Candidate 4 (repair 3)
+
+`d06ffd8d12c482c108344ce196461982b37b5514` (parent `df980f6`). Candidate 3의 Reviewer 결과는 무효.
+
+## Reviewer 4와 retry (`d06ffd8`)
+
+| 실행 | verdict | `self_deviations` | SOP §5 유효성 |
+| --- | --- | --- | --- |
+| Reviewer 4 | PASS, findings `[]` | 1건: 허용된 `git grep -n -A 110`의 출력이 커서 저장 파일로 넘어갔고 그 파일은 열지 않았다는 고지 | 비어 있지 않으므로 무효. 같은 candidate의 재검토(retry) 1회를 했다(retry 예산 1, repair 예산 미사용) |
+| Reviewer 4 retry | PASS, findings `[]` | `[]` | 유효 |
+
+retry 요청은 같은 candidate·범위·승인 원문에, 기록을 한 번에 40줄 이하의 `git grep` 절 단위로 읽으라는 명령 형식 안내만 더했다. `retry_count=1`(예산 소진), `repair_count=3`.
+unverified로 남은 항목(사전 점검·회귀 결과, V4 실행 결과, Skill의 `Read`만 허용이 실제 권한 확인으로 이어지는지, 보호 대상 보존, 근거 파일 대조)은 아래 QA에서 확인했거나 한계로 적는다.
+
+## QA (candidate `d06ffd8d12c482c108344ce196461982b37b5514`)
+
+main HEAD = candidate, staged 없음, tracked 변경 없음(untracked `jarvis.bat`만)에서 실행했다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | task-0171 사전 점검(baseline `8bb7026`) | `staged_files=4`, `violations=0`, `status=PASS`, 종료 0 |
+| Q2 | SOP validator | PASS |
+| Q3 | discord-intake smoke | total 147, failed 0 |
+| Q4 | Console smoke | 통과 |
+| Q5 | `check_task_record --self-test` | checks=16, failures=0 |
+| Q6 | `git diff --check 8bb7026 d06ffd8` | 통과 |
+| Q7 | `jarvis.bat` | candidate tree에 없음, 작업 트리 untracked 그대로 |
+| Q8 | 정의 대조 | `self-reviewer.md`의 `tools: Read, Grep, Glob`, Skill `allowed-tools: Read`. `reviewer.md`, `jarvis-reviewer-call`, `.codex`, `scripts/`는 baseline 대비 변경 0 |
+| Q9 | `check_no_secrets`(변경 파일) | findings 0 |
+| Q10 | 보호 대상 | `git worktree list` 5줄(main + 기존 4개) 그대로, smoke 임시 폴더 47개 그대로, git hook 0개 |
+| Q11 | 읽기 전용 실행 | V4(임시 clone 두 실행)와 V5~V7 재현 4회, 이 task의 self-review 1회 모두 실행 전후 저장소·clone 상태 불변. QA에서 다시 돌리지 않았다(agent 정의 변경 없음) |
+| Q12 | 이 task의 임시 파일 정리(R1, R8) | QA 뒤 scratchpad에서 이 task가 만든 파일만 삭제: 요청·출력·상태 파일 6개(`0172_*`), 재현 결과 폴더, 재현 스크립트. 삭제 뒤 남은 것 0, OS 임시 폴더의 재현 clone 0, 기존 smoke 폴더 47개 그대로 |
+
+한계: Skill의 `allowed-tools: Read`가 Claude Code에서 실제로 모든 Bash 명령을 권한 확인으로 보내는지는 Skill을 호출해 시험하지 않았다(설정 파일 대조만 함).
+
+판정: QA PASS. DONE은 Console Complete로만 한다. push 없음.
