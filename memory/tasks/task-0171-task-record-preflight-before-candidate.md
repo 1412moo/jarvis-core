@@ -2,7 +2,7 @@
 
 - id: `task-0171-task-record-preflight-before-candidate`
 - title: `candidate 커밋 전 task 기록 사전 점검: 파서·Console 호환, 범위 표, updated_at, 파일 끝 줄바꿈`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 13:47 UTC`
 - updated_at: `2026-10-19 14:36 UTC`
