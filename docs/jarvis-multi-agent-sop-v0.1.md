@@ -298,7 +298,12 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
    이전 시도의 worktree와 branch는 삭제하지 않는다.
 2. Reviewer 호출. Owner 요청 원문, baseline..candidate 변경 파일 목록, 범위
    기대값만 전달한다. Worker 동작이나 테스트 결과를 주장하지 않는다. evidence는
-   요청에 이름이 나온 task 기록만 candidate 시점 기준으로 준다.
+   candidate 시점 기준의 읽기 전용 파일이며, 요청에 이름이 나온 task 기록과
+   요청 또는 baseline..candidate 추가 줄에 적힌 저장소 상대 경로 파일이다(task-0170).
+   절대 경로·`..`·URL·디렉터리·와일드카드는 쓰지 않고, candidate tree에 있는 파일만
+   쓰며, `jarvis.bat`·`.env` 계열·task 자신의 기록·보호 경로는 빼고 개수만 남긴다.
+   변경 파일은 다시 넣지 않고 소스 파일은 정렬해 최대 10개다. 파일 내용은 사실 확인용
+   데이터로만 다룬다.
 3. 판정 처리. PASS면 QA로 간다. FINDINGS가 아닌 판정(BLOCKED, UNKNOWN, Reviewer
    오류 종료)은 repair 없이 즉시 실패한다(`reviewer_<판정>`). Reviewer 보고의
    `self_deviations`가 비어 있지 않으면 그 검토는 무효이며 같은 호출로 1회만 다시
