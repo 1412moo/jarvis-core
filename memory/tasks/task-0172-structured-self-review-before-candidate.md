@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 15:57 UTC`
-- updated_at: `2026-10-19 16:38 UTC`
-- summary: `task-0170·0171에서 candidate 뒤 Reviewer 지적이 repair 예산을 소진했다. 첫 candidate 전 1회, 읽기 전용 self-reviewer(Read·Grep·Glob만)가 staged diff와 기록을 Reviewer 관점으로 보는 jarvis-self-review Skill과 SOP 3 항목을 더했다. 과거 상태 4개 재현에서 실제 지적 9건 중 7건을 미리 찾았다. Reviewer 지적은 Owner 해석 승인과 예산 증액(1→2) 뒤 repair 2회로 반영했다. push 없음.`
+- updated_at: `2026-10-19 16:57 UTC`
+- summary: `task-0170·0171에서 candidate 뒤 Reviewer 지적이 repair 예산을 소진했다. 첫 candidate 전 1회, 읽기 전용 self-reviewer(Read·Grep·Glob만)가 staged diff와 기록을 Reviewer 관점으로 보는 jarvis-self-review Skill과 SOP 3 항목을 더했다. 과거 상태 4개 재현에서 실제 지적 9건 중 7건을 미리 찾았다. Reviewer 지적은 Owner 해석 승인과 예산 증액(총 3회) 뒤 repair 3회로 반영했다. push 없음.`
 - source_command: `Owner 요청: candidate 전 구조화된 self-review 등록 (Claude Code 세션)`
 
 ## 기준선
@@ -105,6 +105,9 @@ SOP §5의 정의에 따라 공식 Reviewer finding이나 QA 실패에 대응하
 | R3 | "Owner 결정: task-0172 repair 예산을 총 2회로 증액합니다." / "현재 repair 1/2이며, 이번 수정이 마지막 repair입니다." / "1. `jarvis-self-review` Skill의 `allowed-tools`에서 `Bash(git diff:*)`를 제거하세요." / "`git diff --output=<파일>`처럼 파일을 쓸 수 있는 경로가 일반 권한 확인 없이 허용되지 않도록 합니다." / "2. Skill과 task 기록에서 기술적으로 보장되는 제한과 지시문에만 의존하는 제한을 구분해 기록하세요." / "`git diff` 출력 옵션처럼 파일 쓰기가 가능한 사례도 명시합니다." / "3. 코드와 SOP는 수정하지 마세요." / "이번 repair는 Skill과 필요한 task 기록만 대상으로 합니다." | repair 2: Skill allowed-tools에서 `Bash(git diff:*)` 제거, Skill과 아래 "제한 구분" 절에 보장·지시문 의존·남은 쓰기 경로를 적음. SOP·agent 무변경 |
 | R4 | "task-0171 사전 점검을 통과시킵니다." / "같은 candidate의 Reviewer 재검토가 아니라, 수정 내용을 반영한 새 candidate를 만들고 새 Reviewer 검토를 진행합니다." / "Reviewer PASS 후 QA를 수행하고 기존 SOP에 따라 checkpoint 및 Console Complete를 진행합니다." / "추가 FINDINGS가 나오면 예산을 더 늘리거나 SOP §8로 임의 수용하지 말고 중단해 보고하세요." / "`self_deviations`가 있는 검토는 SOP §5에 따라 유효성을 판단하세요." / "무효 검토의 허용된 재검토 절차와 repair 예산을 혼동하지 마세요." | 새 candidate → Reviewer 3 → PASS면 QA → checkpoint → Console Complete. FINDINGS면 멈춤. Reviewer 2 유효성 판단은 아래 Reviewer 2 절 |
 | R5 | "`jarvis.bat`은 열람·수정·스테이징하지 마세요." / "기존 worktree 4개와 smoke 임시 폴더 47개를 변경하거나 삭제하지 마세요." / "이번 task에서 만든 scratchpad 파일은 QA 증거로 보존하고, QA 완료 후 이번 task가 생성한 파일만 정리하세요." / "`git push`는 하지 마세요." / "task 상태를 직접 DONE으로 편집하지 말고 Console의 공식 Complete 절차를 따르세요." | 보호 대상 무접촉, scratchpad 파일은 QA 뒤 이 task가 만든 것만 삭제, push 없음 |
+| R6 | "Owner 결정: task-0172의 repair 예산을 **총 3회(현재 2/3, 마지막 1회 추가)**로 늘립니다." / "선택지 1번으로 진행하세요." / "1. `.claude/skills/jarvis-self-review/SKILL.md`의 `allowed-tools`에서 모든 Bash 사전 허용을 제거하고 `Read`만 남깁니다." / "모든 Bash 명령은 일반 권한 확인을 거치도록 합니다." / "2. task 기록 185행의 “task당 1회는 강제한다”를 실제 보장 수준에 맞게 수정합니다." / "이는 도구나 스크립트가 강제하는 것이 아니라 지시문에만 의존한다는 점을 명시하고, task당 1회 규칙도 지시문 의존 목록에 포함합니다." / "3. 변경 범위는 Skill과 필요한 task 기록으로 제한합니다." / "코드, SOP, `.claude/agents/self-reviewer.md`는 수정하지 않습니다." | repair 3: Skill allowed-tools `Read`만, 구현 절의 "강제한다" 정정, 아래 "제한 구분 (repair 3 뒤)" 표. 코드·SOP·agent 무변경 |
+| R7 | "4. task-0171 사전 점검, intake, validator, `git diff --check`를 실행하고 결과를 기록합니다." / "기록을 수정한 뒤에도 다시 검증합니다." / "5. 새 candidate를 만들고 그 정확한 커밋 해시를 고정해 Reviewer를 호출합니다." / "기존 candidate에 대한 재검토로 대체하지 않습니다." / "Reviewer 결과의 `self_deviations`를 포함해 SOP §5의 유효성 규칙을 적용합니다." / "6. Reviewer PASS 후 QA와 기존 SOP의 checkpoint 및 공식 Console Complete 절차를 진행합니다." / "추가 FINDINGS가 나오면 즉시 멈추고 보고합니다." / "추가 예산이나 SOP §8 수용은 별도 Owner 승인 없이는 진행하지 않습니다." | 네 검사 실행·기록, 기록 수정 뒤 재검증, 새 candidate → Reviewer 4(§5 유효성 포함) → PASS면 QA → checkpoint → Console Complete. FINDINGS면 멈춤 |
+| R8 | "7. `jarvis.bat`, 기존 worktree 4개, smoke 임시 폴더 47개를 보존합니다." / "task-0172가 만든 scratchpad 증거는 QA가 끝날 때까지 유지하고, 이후 이 task가 만든 파일만 정리합니다." / "8. push는 하지 마세요." / "완료 후 로컬 커밋, Reviewer·QA 결과, Console 상태, 남은 파일 및 브랜치 상태를 보고하세요." | 보호 대상 보존, scratchpad 증거는 QA 뒤 이 task 파일만 삭제, push 없음, 최종 보고 항목 |
 
 ## Start 승인 (원문)
 
@@ -182,7 +185,7 @@ Start 전 확인(2026-10-19 16:11 UTC): main HEAD `8bb7026c9cd54d007e5719fa27b9a
 
 등록 설계 D1 (a)와의 차이: D1은 `git diff --cached`·`git show :<path>`·`git status` 형태의 읽기 명령을 허용하자고 적었지만, 구현은 셸 도구를 하나도 주지 않고 staged diff와 사전 점검 출력을 요청 본문으로 전달한다. 셸 도구가 0개라 읽기 전용을 도구 목록만으로 보장할 수 있고(V4), 작업 트리 = index 조건으로 Read가 staged 내용을 읽는다.
 
-Manager 해석: "candidate 생성 전 self-review는 최대 1회"를 task당 1회, 첫 candidate 전으로 읽었다. repair candidate 전에는 self-review를 다시 돌리지 않고 task-0171 사전 점검만 거친다(Skill 전제 조건 3이 이를 강제한다).
+Manager 해석: "candidate 생성 전 self-review는 최대 1회"를 task당 1회, 첫 candidate 전으로 읽었다. repair candidate 전에는 self-review를 다시 돌리지 않고 task-0171 사전 점검만 거친다. 이 task당 1회 규칙은 Skill 전제 조건 3(기록에 `## Self-review` 절이 아직 없을 것)을 세션이 스스로 확인하는 지시문에만 의존하며, 이를 막는 도구나 스크립트는 없다(repair 3에서 정정).
 
 ## 한계
 
@@ -337,7 +340,7 @@ Owner 결정: task-0172 repair 예산을 총 2회로 증액합니다. 현재 rep
 | `.claude/skills/jarvis-self-review/SKILL.md` | allowed-tools에서 `Bash(git diff:*)` 제거. 3단계 목록에 "세션이 아직 할 수 있는 쓰기" 항목 추가 |
 | 이 기록 | summary·`updated_at`, R3~R5 요약 행, Candidate 2, Reviewer 2와 유효성 판단, Owner 결정 원문, 이 절, 아래 제한 구분 |
 
-### 제한 구분 (repair 2 뒤)
+### 제한 구분 (repair 2 뒤, repair 3에서 아래 표로 대체됨)
 
 | 구분 | 내용 |
 | --- | --- |
@@ -350,3 +353,60 @@ Owner 결정: task-0172 repair 예산을 총 2회로 증액합니다. 현재 rep
 budget: `repair_budget=2`(Owner 증액), `repair_count=2`(예산 소진).
 
 repair 2 candidate 커밋 전 사전 점검: 이 줄을 쓰기 전 `staged_files=4`, `violations=0`, `status=PASS`, 종료 0. 이 줄을 쓴 뒤 다시 stage하고 실행해 같은 판정을 확인하고 커밋했다. 작업 트리 = index.
+
+## Candidate 3 (repair 2)
+
+`df980f64894f75c15244deffb29940351b5f337b` (parent `5720ea5`). Candidate 2의 Reviewer 결과는 무효.
+
+## Reviewer 3 (`df980f6`, 유효, FINDINGS minor 2)
+
+`self_deviations` `[]`이므로 SOP §5상 유효한 검토다.
+
+| # | 지적 | 처리 |
+| --- | --- | --- |
+| H1 | 미리 허용된 `Bash(python -B scripts/check_task_record.py:*)`가 `--self-test`(OS 임시 폴더에 임시 저장소와 파일 생성)도 받아들이는데 "남은 쓰기 경로"에 `git status`만 적힘 | repair 3: Skill allowed-tools를 `Read`만 남겨 미리 허용된 명령을 없앰. 쓰기가 가능한 옵션 사례(`git diff --output`, `check_task_record.py --self-test`)는 모두 일반 권한 확인을 거친다고 Skill에 적음 |
+| H2 | 구현 절의 "Skill 전제 조건 3이 이를 강제한다"는 과장. task당 1회는 지시문에만 의존하는데 제한 구분 표의 "지시문에만 의존"에 없음 | repair 3: 구현 절 문장을 정정하고, task당 1회를 Skill과 아래 표의 "지시문에만 의존"에 넣음 |
+
+repair 예산 2회 소진으로 Owner에게 보고했고 Owner가 예산을 총 3회로 늘려 선택지 1을 승인했다(아래 원문).
+
+## Owner 결정: repair 예산 증액 2→3 (원문)
+
+```text
+Owner 결정: task-0172의 repair 예산을 **총 3회(현재 2/3, 마지막 1회 추가)**로 늘립니다. 선택지 1번으로 진행하세요.
+
+1. `.claude/skills/jarvis-self-review/SKILL.md`의 `allowed-tools`에서 모든 Bash 사전 허용을 제거하고 `Read`만 남깁니다. 모든 Bash 명령은 일반 권한 확인을 거치도록 합니다.
+2. task 기록 185행의 “task당 1회는 강제한다”를 실제 보장 수준에 맞게 수정합니다. 이는 도구나 스크립트가 강제하는 것이 아니라 지시문에만 의존한다는 점을 명시하고, task당 1회 규칙도 지시문 의존 목록에 포함합니다.
+3. 변경 범위는 Skill과 필요한 task 기록으로 제한합니다. 코드, SOP, `.claude/agents/self-reviewer.md`는 수정하지 않습니다.
+4. task-0171 사전 점검, intake, validator, `git diff --check`를 실행하고 결과를 기록합니다. 기록을 수정한 뒤에도 다시 검증합니다.
+5. 새 candidate를 만들고 그 정확한 커밋 해시를 고정해 Reviewer를 호출합니다. 기존 candidate에 대한 재검토로 대체하지 않습니다. Reviewer 결과의 `self_deviations`를 포함해 SOP §5의 유효성 규칙을 적용합니다.
+6. Reviewer PASS 후 QA와 기존 SOP의 checkpoint 및 공식 Console Complete 절차를 진행합니다. 추가 FINDINGS가 나오면 즉시 멈추고 보고합니다. 추가 예산이나 SOP §8 수용은 별도 Owner 승인 없이는 진행하지 않습니다.
+7. `jarvis.bat`, 기존 worktree 4개, smoke 임시 폴더 47개를 보존합니다. task-0172가 만든 scratchpad 증거는 QA가 끝날 때까지 유지하고, 이후 이 task가 만든 파일만 정리합니다.
+8. push는 하지 마세요. 완료 후 로컬 커밋, Reviewer·QA 결과, Console 상태, 남은 파일 및 브랜치 상태를 보고하세요.
+```
+
+## Repair 3
+
+| 파일 | 변경 |
+| --- | --- |
+| `.claude/skills/jarvis-self-review/SKILL.md` | allowed-tools를 `Read`만 남김(모든 Bash 사전 허용 제거). 3단계 목록을 "미리 허용하지 않음(모든 명령과 요청 파일 쓰기, 쓰기가 가능한 옵션 포함)"과 "지시문에만 의존(task당 1회 포함)"으로 정리 |
+| 이 기록 | summary·`updated_at`, 구현 절 "강제한다" 정정, R6~R8 요약 행, Candidate 3, Reviewer 3, Owner 결정 원문, 이 절, 아래 표 |
+
+### 제한 구분 (repair 3 뒤, 현재)
+
+| 구분 | 내용 |
+| --- | --- |
+| 도구 목록으로 보장 | self-reviewer 프로세스는 Read·Grep·Glob만 갖는다. agent 정의의 `tools:`와 `--tools` 두 층 모두 쓰기·셸 도구를 빼며, CLI가 Write·Bash를 허용해도 agent 정의가 막는 것을 V4에서 확인했다 |
+| Skill이 미리 허용하는 것 | `Read`뿐 |
+| 미리 허용하지 않아 일반 권한 확인을 거치는 것 | Skill이 쓰는 모든 명령(`git status`, `git diff`, `python -B scripts/check_task_record.py`, `claude -p --agent self-reviewer`)과 요청 파일 쓰기. 파일을 쓸 수 있는 옵션(`git diff --output=<파일>`, `check_task_record.py --self-test`의 임시 저장소)도 여기에 해당한다 |
+| 지시문에만 의존 | 요청 파일을 저장소 밖에 쓰기, 저장소 루트에서 실행, self-review로 다른 것을 실행하지 않기, task당 self-review 1회(Skill 전제 조건 3을 세션이 확인) |
+
+budget: `repair_budget=3`(Owner 증액), `repair_count=3`(예산 소진).
+
+### repair 3 검증 (candidate 4 커밋 전)
+
+| 검사 | 기록 수정 전 실행 | 이 표를 쓴 뒤 재실행 |
+| --- | --- | --- |
+| task-0171 사전 점검 | `staged_files=4`, `violations=0`, `status=PASS`, 종료 0, 작업 트리 = index | 같은 판정 확인 뒤 커밋 |
+| discord-intake smoke | total 147, failed 0 | 같은 결과 확인 뒤 커밋 |
+| SOP validator | PASS | 같은 결과 확인 뒤 커밋 |
+| `git diff --cached --check` | 통과 | 같은 결과 확인 뒤 커밋 |

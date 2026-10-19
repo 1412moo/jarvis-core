@@ -3,7 +3,7 @@ name: jarvis-self-review
 description: Run the one read-only Jarvis-Core self-review of STAGED changes before the first candidate commit (SOP 3, task-0172). Checks the preconditions, assembles the self-reviewer request and runs it in a separate read-only claude process. Explicit invocation only; it never reviews a candidate, gives no verdict, writes no repository file and does not replace the Reviewer or jarvis-reviewer-call.
 argument-hint: <task-id> <40-char-baseline-hash>
 disable-model-invocation: true
-allowed-tools: Read, Bash(git status:*), Bash(python -B scripts/check_task_record.py:*), Bash(claude -p --agent self-reviewer:*)
+allowed-tools: Read
 ---
 
 # Jarvis Self-review (task-0172)
@@ -19,8 +19,8 @@ Implementer can fix, before the candidate exists, what the Reviewer would otherw
 - Change the repair budget, SOP §8 or any approval. A fix made here, before a candidate exists,
   is not a repair (SOP §5). Findings from the official Reviewer after the candidate follow §5.
 - Write, stage or commit any repository file. The request text goes to a temporary file outside
-  the repository; this skill does not pre-approve that write (no `Write` in allowed-tools), so it
-  goes through the session's normal permission check. The Implementer (in a manual SOP task, the
+  the repository. This skill pre-approves no write and no command (allowed-tools is `Read` only),
+  so that write and every command below go through the session's normal permission check. The Implementer (in a manual SOP task, the
   session that also acts as Manager) fixes the findings and records the result.
 - Run a second self-review for the same task.
 
@@ -66,14 +66,15 @@ What is enforced and what is not:
   `--tools` list and the agent's own `tools:` line both leave out every write and shell tool, and
   task-0172 checked in a temporary clone that it could neither write a file nor run a command,
   even when the CLI allowed Write and Bash.
+- Not pre-approved: every command and write this skill names (`git status`, `git diff`,
+  `python -B scripts/check_task_record.py`, `claude -p --agent self-reviewer`, the request file).
+  allowed-tools is `Read` only (task-0172 repair 3), so each goes through the session's normal
+  permission check, including options that would write a file (for example `git diff --output`,
+  `check_task_record.py --self-test`).
 - Not enforced, instruction only: that the request file is written outside the repository, that
-  the process is started from the repository root, and that nothing else runs for the
-  self-review. No tool setting limits those; this text does.
-- Writes the session could still make, and how they are handled: `git diff` can write a file
-  with `--output=<file>`, so this skill does not pre-approve `git diff` (task-0172 repair 2); the
-  two `git diff` commands in steps 1 and 2 go through the session's normal permission check.
-  `git status`, which stays pre-approved, can refresh `.git/index` (repository metadata, not a
-  tracked file); nothing here stops that.
+  the process is started from the repository root, that nothing else runs for the self-review,
+  and that a task gets one self-review only (step 1.3 is checked by the session itself; no tool or
+  script stops a second run). No tool setting limits those; this text does.
 
 Run nothing else for the self-review.
 
