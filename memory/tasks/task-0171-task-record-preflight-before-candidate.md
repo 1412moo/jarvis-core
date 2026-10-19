@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 13:47 UTC`
-- updated_at: `2026-10-19 14:28 UTC`
-- summary: `최근 수동 task 10건 중 7건에서 첫 Reviewer가 task 기록 정합성 문제만으로 FINDINGS를 내 repair 예산을 소진했다. candidate 커밋 전에 기록을 canonical parser와 Console parser로 읽고, staged 변경 파일과 owned 행을 대조하고, updated_at 갱신과 파일 끝 줄바꿈을 확인해 결정론적 위반이면 candidate를 만들지 않게 한다. Owner가 D1 (a)·D2 차단·D3 참고로 Start를 승인해 scripts/check_task_record.py와 SOP 3·task-template·Reviewer 호출 Skill 변경을 구현했다. Reviewer minor를 repair 2회(Owner가 예산을 2로 증액)로 고쳤다. push 없음.`
+- updated_at: `2026-10-19 14:32 UTC`
+- summary: `최근 수동 task 10건 중 7건에서 첫 Reviewer가 task 기록 정합성 문제만으로 FINDINGS를 내 repair 예산을 소진했다. candidate 커밋 전에 기록을 canonical parser와 Console parser로 읽고, staged 변경 파일과 owned 행을 대조하고, updated_at 갱신과 파일 끝 줄바꿈을 확인해 결정론적 위반이면 candidate를 만들지 않게 한다. Owner가 D1 (a)·D2 차단·D3 참고로 Start를 승인해 scripts/check_task_record.py와 SOP 3·task-template·Reviewer 호출 Skill 변경을 구현했다. Reviewer minor를 repair 3회(Owner가 예산을 2, 다시 3으로 증액)로 고쳤다. push 없음.`
 - source_command: `Owner 요청: candidate 커밋 전 task 기록 사전 점검 강화 (Claude Code 세션)`
 
 ## 기준선
@@ -142,6 +142,8 @@ candidate 커밋 전에 다음 항목을 결정론적으로 검사하도록 해.
 | R1 | "task-0171의 repair 예산을 기존 1회에서 총 2회로 늘리는 것을 승인한다." / "Reviewer 2의 minor 지적 2건을 모두 수정해." / "변경 파일 목록을 얻는 Git 명령에 `--no-renames`를 적용해 파일 이동 전후 경로가 모두 검사되도록 한다." / "범위 밖 파일을 `owned` 경로로 이동하는 사례를 self-test에 추가한다." / "Git 설정에 따라 검사 결과가 달라지지 않는지 확인한다." / "task-0171 기록의 T10 및 관련 검증 항목에 repair 1 이후 실제 결과를 반영한다." / "self-test 14/0, T9 재현 결과, validator, intake smoke, diff 검사, 사전 점검 결과를 실제 실행 로그와 대조해 기록한다." | repair 2: `--no-renames`, 이동 사례와 `diff.renames` true·false·copies 비교 self-test, 아래 repair 1·2 실제 결과 표 |
 | R2 | "변경 후 사전 점검을 통과한 경우에만 candidate를 생성한다." / "새 candidate hash를 고정해 Reviewer를 다시 호출하고, 이후 QA와 기존 완료 절차를 진행한다." / "남은 지적이 있으면 임의로 추가 repair하거나 SOP §8로 수용하지 말고 중단해 보고한다." / "기존 승인·검증 정책은 유지한다." | 사전 점검 종료 0일 때만 commit → 새 Reviewer → QA → Console Complete. 지적이 남으면 멈춤 |
 | R3 | "`jarvis.bat`은 건드리지 않는다." / "push는 하지 않는다." / "다른 worktree와 smoke 임시 폴더는 건드리지 않는다." / "task 기록을 직접 DONE으로 변경하지 않는다." / "Console Complete 절차를 사용한다." / "완료 보고에는 최종 테스트 결과, Reviewer·QA 판정, checkpoint 커밋, Console Complete 상태, main과 origin/main의 차이를 포함해라." | 보호 대상 무접촉, push 없음, DONE은 Console Complete. 최종 보고 항목 |
+| R4 | "Owner 결정: 선택지 1 승인." / "repair 예산을 총 3회로 한정해 증액합니다." / "이번 repair는 Reviewer 3의 H1(minor, 기록 누락)만 수정합니다." / "실행 로그로 확인된 candidate 3 사전 점검 결과를 task-0171 기록에 한 행으로 추가하세요." / "1차: `staged_files=5`, `violations=0`, `status=PASS`, `preflight_exit=0`" / "2차: `violations=0`, `status=PASS`, `exit=0`" / "2차 실행에서 확인되지 않은 staged 파일 수는 기재하지 마세요." / "기록 수정 후 preflight를 다시 실행하고 PASS 여부를 확인하세요." / "새 Reviewer 검토를 진행하세요." / "Reviewer가 PASS하면 QA를 진행하고, 기존 SOP에 따라 checkpoint와 Console Complete까지 진행하세요." | repair 3: 기록에 사전 점검 결과 한 행만. 재점검 → Reviewer 4 → PASS면 QA → checkpoint → Console Complete |
+| R5 | "이번 증액은 총 repair 3회 한도입니다." / "추가 FINDINGS가 나오면 임의로 더 수정하거나 SOP §8로 수용하지 말고 중단해 보고하세요." / "코드·SOP·Skill·template은 변경하지 마세요." / "기존 검증 결과를 재사용할 수 있는 경우 불필요하게 반복하지 말고, 이번 변경에 필요한 검증만 수행하세요." / "`jarvis.bat`은 열람·수정·스테이징하지 마세요." / "다른 worktree와 임시 폴더도 건드리지 마세요." / "`git push`는 하지 마세요." / "task 파일을 직접 DONE으로 바꾸지 말고 Console의 공식 Complete 절차를 따르세요." / "수정·검증 결과와 최종 Git 상태를 보고하세요." | 기록만 변경. 이 변경에 필요한 검증(사전 점검, 기록 파서)만 다시. FINDINGS가 나오면 멈춤 |
 
 ## Start 승인 (원문)
 
@@ -315,3 +317,45 @@ budget: `repair_budget=2`(Owner 증액), `repair_count=2`(이 repair 뒤).
 | `check_no_secrets`(`scripts/check_task_record.py`) | findings 0 |
 | self-test 임시 폴더 | 남지 않음(0) |
 | Python | 3.12.10(`shutil.rmtree(onexc=…)` 지원) |
+
+## Candidate 3 (repair 2)
+
+`d7d1d84715dccc3b37d6fc58bdb2ef5999acae20` (parent `0d4a05d`). Candidate 2의 Reviewer 결과는 무효.
+
+| 검사 | 결과(실행 로그 그대로) |
+| --- | --- |
+| candidate 3 커밋 전 사전 점검 | 1차: `staged_files=5`, `violations=0`, `status=PASS`, `preflight_exit=0`. 2차(확인되지 않은 수치 문구를 고친 뒤): `violations=0`, `status=PASS`, `exit=0` |
+
+## Reviewer 3 (`d7d1d84`, 유효, FINDINGS minor 1)
+
+| # | 지적 | 처리 |
+| --- | --- | --- |
+| H1 | "repair 2 뒤 실제 결과" 표에 candidate 3 커밋 전 사전 점검 결과가 없고 "Candidate 3" 절도 없다 | repair 3: 위 "Candidate 3 (repair 2)" 절과 사전 점검 행 추가(기록만) |
+
+`self_deviations` 없음. 코드·SOP·Skill·template 지적 없음. repair 예산 2회 소진으로 Owner에게 보고했고 Owner가 예산을 3으로 늘려 H1만 고치도록 승인했다(아래 원문).
+
+## Owner 결정: repair 예산 증액 2→3 (원문)
+
+```text
+Owner 결정: 선택지 1 승인. repair 예산을 총 3회로 한정해 증액합니다. 이번 repair는 Reviewer 3의 H1(minor, 기록 누락)만 수정합니다.
+
+1. 실행 로그로 확인된 candidate 3 사전 점검 결과를 task-0171 기록에 한 행으로 추가하세요.
+   * 1차: `staged_files=5`, `violations=0`, `status=PASS`, `preflight_exit=0`
+   * 2차: `violations=0`, `status=PASS`, `exit=0`
+   * 2차 실행에서 확인되지 않은 staged 파일 수는 기재하지 마세요.
+2. 기록 수정 후 preflight를 다시 실행하고 PASS 여부를 확인하세요.
+3. 새 Reviewer 검토를 진행하세요.
+4. Reviewer가 PASS하면 QA를 진행하고, 기존 SOP에 따라 checkpoint와 Console Complete까지 진행하세요.
+5. 이번 증액은 총 repair 3회 한도입니다. 추가 FINDINGS가 나오면 임의로 더 수정하거나 SOP §8로 수용하지 말고 중단해 보고하세요.
+6. 코드·SOP·Skill·template은 변경하지 마세요. 기존 검증 결과를 재사용할 수 있는 경우 불필요하게 반복하지 말고, 이번 변경에 필요한 검증만 수행하세요.
+7. `jarvis.bat`은 열람·수정·스테이징하지 마세요. 다른 worktree와 임시 폴더도 건드리지 마세요.
+8. `git push`는 하지 마세요. task 파일을 직접 DONE으로 바꾸지 말고 Console의 공식 Complete 절차를 따르세요.
+
+수정·검증 결과와 최종 Git 상태를 보고하세요.
+```
+
+budget: `repair_budget=3`(Owner 증액), `repair_count=3`(이 repair 뒤). repair 3은 이 기록만 바꾼다.
+
+| 검사 | 결과(실행 로그 그대로) |
+| --- | --- |
+| candidate 4(repair 3) 커밋 전 사전 점검 | 이 표를 쓰기 전: `staged_files=5`, `violations=0`, `status=PASS`, `preflight_exit=0`. 이 표를 쓴 뒤 다시 실행해 같은 판정(`violations=0`, `status=PASS`, 종료 0)이 나온 것을 확인하고 커밋했다. discord-intake smoke failed 0 |
