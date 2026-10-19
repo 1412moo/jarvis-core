@@ -183,11 +183,12 @@ def process_lock_held(path: Path | None = None) -> bool:
 # task-0167: a Worker process can outlive the bot that started it (task-0165 V3), and the
 # file lock above dies with the bot. Each run leaves a marker next to its attempt worktree
 # from the start of the attempt until the run has written its result (repair 1: the whole
-# run, not only the Worker stage). It names the process running the run (the bot) and,
-# while one runs, the Worker process, each by PID, executable path and start time, so a
+# run, not only the Worker stage). It names the process running the run (the bot) and every
+# child process the run has running (repair 2: the Worker, the Reviewer, tests, QA and git,
+# all of which start through _run), each by PID, executable path and start time, so a
 # process found later is the same one only when all three match (a reused PID does not).
 WORKER_MARKER_SUFFIX = ".worker.json"
-WORKER_MARKER_KEYS = ("task_id", "attempt", "pid", "exe", "started", "worker")
+WORKER_MARKER_KEYS = ("task_id", "attempt", "pid", "exe", "started", "children")
 PROCESS_IDENTITY_KEYS = ("pid", "exe", "started")
 
 
@@ -264,38 +265,100 @@ def _identity_record(pid: int) -> dict:
     return {"pid": pid, "exe": identity[0] if identity else "", "started": identity[1] if identity else 0}
 
 
-def _write_worker_marker(worktree: Path, task_id: str, pid: int, worker_pid: int | None = None) -> None:
-    """Write the marker of this attempt: pid runs the run, worker_pid is its running Worker."""
+def _identity_state(identity: dict) -> str:
+    """"alive" when this exact process (PID, path and start time) still runs, "unknown" when the
+    PID's process cannot be identified, "gone" when it has ended or the PID is another process's."""
 
-    marker = {
-        "task_id": task_id,
-        "attempt": worktree.name,
-        **_identity_record(pid),
-        "worker": _identity_record(worker_pid) if worker_pid is not None else None,
-    }
+    state, found = _probe_process(identity["pid"])
+    if state == "alive":
+        return "alive" if found == (os.path.normcase(identity["exe"]), identity["started"]) else "gone"
+    return state
+
+
+def _write_marker_file(worktree: Path, task_id: str, run: dict, children: list[dict]) -> None:
+    marker = {"task_id": task_id, "attempt": worktree.name, **run, "children": children}
     path = worker_marker_path(worktree)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(marker), encoding="utf-8")
     os.replace(tmp, path)
 
 
-def _start_run_marker(worktree: Path, task_id: str) -> Path:
-    """Mark this process as running the attempt. A failed write only makes a later recovery refuse."""
+class _RunMarker:
+    """task-0167 repair 2: the marker of the run going on in this thread, kept up to date by _run.
 
-    try:
-        _write_worker_marker(worktree, task_id, os.getpid())
-    except OSError:
-        pass
-    return worker_marker_path(worktree)
+    An earlier run of the same attempt (an accept again after its bot died) may have left a
+    marker whose processes still run or cannot be identified. They are carried into this
+    marker, and when this run ends the marker is left naming them instead of removed, so a
+    recovery keeps refusing until they are gone.
+    """
+
+    def __init__(self, worktree: Path, task_id: str) -> None:
+        self.worktree, self.task_id = worktree, task_id
+        self.path = worker_marker_path(worktree)
+        self.run = _identity_record(os.getpid())
+        self.children: dict[int, dict] = {}
+        self.earlier_run: dict | None = None
+        self.carried: list[dict] = []
+        self.token: contextvars.Token | None = None
+        earlier = _read_worker_marker(self.path) if self.path.exists() else None
+        if earlier is not None and earlier["task_id"] == task_id:
+            self.earlier_run = {key: earlier[key] for key in PROCESS_IDENTITY_KEYS}
+            processes = [*earlier["children"]]
+            if self.earlier_run != self.run:
+                processes.append(self.earlier_run)
+            self.carried = [p for p in processes if _identity_state(p) != "gone"]
+
+    def write(self) -> None:
+        try:
+            _write_marker_file(self.worktree, self.task_id, self.run, [*self.carried, *self.children.values()])
+        except OSError:
+            pass  # a stale or missing marker only makes a later recovery refuse
+
+    def add(self, pid: int) -> None:
+        state, found = _probe_process(pid)
+        if state == "gone":
+            return  # it already ended
+        # A child that cannot be identified is written empty, so the marker reads as invalid.
+        self.children[pid] = {"pid": pid, "exe": found[0] if found else "", "started": found[1] if found else 0}
+        self.write()
+
+    def discard(self, pid: int) -> None:
+        if self.children.pop(pid, None) is not None:
+            self.write()
 
 
-def _end_run_marker(marker: Path | None) -> None:
-    """Remove the run's marker once its result is written; a failure leaves it to refuse a recovery."""
+_ACTIVE_RUN_MARKER: contextvars.ContextVar[_RunMarker | None] = contextvars.ContextVar("jarvis_run_marker", default=None)
+
+
+def _start_run_marker(worktree: Path, task_id: str) -> _RunMarker:
+    """Mark this process as running the attempt; from now on _run names each child it starts."""
+
+    marker = _RunMarker(worktree, task_id)
+    marker.token = _ACTIVE_RUN_MARKER.set(marker)
+    marker.write()
+    return marker
+
+
+def _end_run_marker(marker: _RunMarker | None) -> None:
+    """Remove the run's marker once its result is written; a failure leaves it to refuse a recovery.
+
+    Processes carried from an earlier run that still run, or cannot be identified, stay named.
+    """
 
     if marker is None:
         return
+    if marker.token is not None:
+        try:
+            _ACTIVE_RUN_MARKER.reset(marker.token)
+        except ValueError:
+            _ACTIVE_RUN_MARKER.set(None)
+        marker.token = None
+    still = [p for p in marker.carried if _identity_state(p) != "gone"]
     try:
-        marker.unlink(missing_ok=True)
+        if still and marker.earlier_run is not None:
+            _write_marker_file(marker.worktree, marker.task_id, marker.earlier_run, still)
+        else:
+            marker.path.unlink(missing_ok=True)
     except OSError:
         pass
 
@@ -322,7 +385,7 @@ def _read_worker_marker(path: Path) -> dict | None:
         isinstance(data["task_id"], str) and data["task_id"]
         and isinstance(data["attempt"], str) and data["attempt"] == path.name[: -len(WORKER_MARKER_SUFFIX)]
         and _valid_identity({key: data[key] for key in PROCESS_IDENTITY_KEYS})
-        and (data["worker"] is None or _valid_identity(data["worker"]))
+        and isinstance(data["children"], list) and all(_valid_identity(child) for child in data["children"])
     ):
         return None
     return data
@@ -332,15 +395,7 @@ def _marker_process_state(data: dict) -> str:
     """"alive" when a process the marker names still runs, "unknown" when one cannot be
     identified, "gone" when every one has ended (or its PID now belongs to another process)."""
 
-    identities = [{key: data[key] for key in PROCESS_IDENTITY_KEYS}]
-    if data["worker"] is not None:
-        identities.append(data["worker"])
-    states = []
-    for identity in identities:
-        state, found = _probe_process(identity["pid"])
-        if state == "alive":
-            state = "alive" if found == (os.path.normcase(identity["exe"]), identity["started"]) else "gone"
-        states.append(state)
+    states = [_identity_state(identity) for identity in [{key: data[key] for key in PROCESS_IDENTITY_KEYS}, *data["children"]]]
     if "alive" in states:
         return "alive"
     return "unknown" if "unknown" in states else "gone"
@@ -496,12 +551,12 @@ def _run(
     cwd: Path,
     timeout: int,
     stdin_text: str | None = None,
-    started: Callable[[int], None] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run one process; on timeout kill its whole tree (claude.cmd spawns node).
 
-    task-0167: started, when given, is told the process id right after the start. A failure
-    there is ignored; the run, its time limit and its result stay as they were.
+    task-0167 repair 2: while a run marker is active in this thread, the process is named in
+    it from right after its start until it has ended, whatever stage started it (Worker,
+    Reviewer, tests, QA, git). A failure to write the marker never changes the run.
     """
 
     proc = subprocess.Popen(
@@ -514,11 +569,9 @@ def _run(
         encoding="utf-8",
         errors="replace",
     )
-    if started is not None:
-        try:
-            started(proc.pid)
-        except Exception:  # noqa: BLE001 - a missing marker only makes a later recovery refuse
-            pass
+    marker = _ACTIVE_RUN_MARKER.get()
+    if marker is not None:
+        marker.add(proc.pid)
     try:
         out, err = proc.communicate(input=stdin_text, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -532,6 +585,9 @@ def _run(
             proc.kill()
         proc.communicate()
         raise
+    finally:
+        if marker is not None:
+            marker.discard(proc.pid)
     return subprocess.CompletedProcess(proc.args, proc.returncode, out or "", err or "")
 
 
@@ -800,15 +856,7 @@ def _existing_attempts(repo_root: Path, worktree_root: Path, task_id: str) -> li
     return sorted(numbers)
 
 
-def _run_worker(worktree: Path, prompt: str, task_id: str | None = None) -> None:
-    """Run the Worker in the attempt worktree.
-
-    task-0167: with task_id, the run's marker beside the worktree also names the Worker
-    process while it runs. When the Worker ends (success, failure or time limit) the marker
-    names the run alone again; the run removes it once its result is written (repair 1).
-    Only a process killed with its bot leaves the marker behind; worker_marker_state() reads it.
-    """
-
+def _run_worker(worktree: Path, prompt: str) -> None:
     try:
         completed = _run(
             [
@@ -826,13 +874,9 @@ def _run_worker(worktree: Path, prompt: str, task_id: str | None = None) -> None
             cwd=worktree,
             timeout=WORKER_TIMEOUT_SECONDS,
             stdin_text=prompt,
-            started=(lambda pid: _write_worker_marker(worktree, task_id, os.getpid(), pid)) if task_id else None,
         )
     except subprocess.TimeoutExpired:
         raise StageFailure("worker", "worker_timeout", f"{WORKER_TIMEOUT_SECONDS}s")
-    finally:
-        if task_id:
-            _start_run_marker(worktree, task_id)
     if completed.returncode != 0:
         raise StageFailure("worker", "worker_failed", (completed.stderr or completed.stdout).strip()[:200])
 
@@ -1179,8 +1223,9 @@ def _run_pipeline(
     worktree_root = worktree_root or WORKTREE_ROOT
     budget = max(0, min(REPAIR_BUDGET_MAX, REPAIR_BUDGET if repair_budget is None else repair_budget))
     failure_record = ""
-    # task-0167 repair 1: this run's marker, from the start of the attempt until its result is written.
-    run_marker: Path | None = None
+    # task-0167 repair 1: this run's marker, from the start of the attempt until its result is
+    # written; repair 2: it also names each child process while it runs (see _run).
+    run_marker: _RunMarker | None = None
     try:
         # 1. Preflight: main is on main and clean (tracked files).
         result.stage = "preflight"
@@ -1219,7 +1264,7 @@ def _run_pipeline(
         else:
             result.stage = "worker"
             _report_progress(progress, "worker")
-            _run_worker(worktree, worker_prompt(task_id, request), task_id)
+            _run_worker(worktree, worker_prompt(task_id, request))
 
         parent: str | None = None
         while True:
@@ -1309,7 +1354,7 @@ def _run_pipeline(
             parent = candidate
             result.stage = "repair"
             _report_progress(progress, "repair")
-            _run_worker(worktree, repair_prompt(task_id, request, candidate, review_text, changed), task_id)
+            _run_worker(worktree, repair_prompt(task_id, request, candidate, review_text, changed))
 
         # 9. QA: deterministic checks on the exact candidate, cumulative from the baseline.
         result.stage = "qa"
@@ -1422,9 +1467,10 @@ def _accept_candidate(
     result = WorkerRunResult(task_id=task_id, accepted=True)
     worktree_root = worktree_root or WORKTREE_ROOT
     approved = False
-    # task-0167 repair 1: the run's marker, from just before the approval transition (FAILED
-    # -> TODO -> DOING) until the result is written, as for a pipeline run.
-    run_marker: Path | None = None
+    # task-0167: the run's marker, from the recorded attempt being found (repair 2: before the
+    # QA checks, so their processes are named too) until the result is written, as for a
+    # pipeline run.
+    run_marker: _RunMarker | None = None
     try:
         result.stage = "accept"
         worktree, branch, candidate, baseline, chain, changed = find_owner_review_attempt(
@@ -1432,6 +1478,7 @@ def _accept_candidate(
         )
         result.worktree, result.branch, result.candidate, result.baseline = str(worktree), branch, candidate, baseline
         result.candidates, result.repairs, result.changed_files = chain, len(chain) - 1, changed
+        run_marker = _start_run_marker(worktree, task_id)
         _accept_main_check(repo_root, baseline, task_id)
 
         _report_progress(progress, "qa")
@@ -1443,7 +1490,6 @@ def _accept_candidate(
             raise StageFailure("accept", "accept_worktree_dirty", "the QA run left changes in the attempt worktree")
 
         result.stage = "approval"
-        run_marker = _start_run_marker(worktree, task_id)
         applied, why = approve()
         if not applied:
             raise StageFailure("approval", "accept_transition_failed", why)

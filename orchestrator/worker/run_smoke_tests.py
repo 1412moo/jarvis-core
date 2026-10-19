@@ -35,6 +35,23 @@ FAKE_CLAUDE = textwrap.dedent(
     if os.environ.get("FAKE_LOG"):
         with open(os.environ["FAKE_LOG"], "a", encoding="utf-8") as log:
             log.write(("REVIEWER" if "--agent" in args else "WORKER") + "\\n" + prompt + "\\n=====\\n")
+    if os.environ.get("FAKE_MARKER_LOG"):
+        # task-0167 repair 2: whether a run marker names this process (the Worker or the Reviewer)
+        # while it runs. The named process is the one _run started: this one, or the .cmd shim.
+        mine, found = (os.getpid(), os.getppid()), ""
+        for _ in range(100):
+            for path in Path(os.environ["FAKE_MARKER_DIR"]).glob("*.worker.json"):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if any(child.get("pid") in mine for child in data.get("children", [])):
+                    found = json.dumps(data)
+            if found:
+                break
+            time.sleep(0.05)
+        with open(os.environ["FAKE_MARKER_LOG"], "a", encoding="utf-8") as log:
+            log.write(("REVIEWER" if "--agent" in args else "WORKER") + (" named " + found if found else " unnamed") + "\\n")
     if "--agent" in args:
         mode = os.environ.get("FAKE_REVIEW", "pass")
         if mode == "move":
@@ -99,16 +116,6 @@ FAKE_CLAUDE = textwrap.dedent(
         print(json.dumps({"result": f"candidate_hash: x\\nverdict: {verdict}\\n{body}\\nunverified: []\\nself_deviations: []"}))
         sys.exit(3 if mode == "crashfindings" else 0)
     mode = os.environ.get("FAKE_WORKER", "ok")
-    if os.environ.get("FAKE_MARKER_LOG"):
-        # task-0167: the run's marker beside this attempt worktree while the Worker runs, once it
-        # names this Worker (repair 1: the run writes it first, the Worker is added on start).
-        marker = Path.cwd().parent / (Path.cwd().name + ".worker.json")
-        for _ in range(100):
-            if marker.exists() and '"worker": {' in marker.read_text(encoding="utf-8"):
-                break
-            time.sleep(0.05)
-        with open(os.environ["FAKE_MARKER_LOG"], "a", encoding="utf-8") as log:
-            log.write(("present " + marker.read_text(encoding="utf-8") if marker.exists() else "absent") + "\\n")
     if mode == "timeout":
         time.sleep(30)
     if mode == "fail":
@@ -315,13 +322,21 @@ def _stop(proc: subprocess.Popen) -> None:
     proc.wait(timeout=30)
 
 
+def write_marker(worktree: Path, task_id: str, pid: int, children: tuple[int, ...] = ()) -> None:
+    """A marker fixture: pid as the run's process, children as its running child processes."""
+
+    claude_worker._write_marker_file(worktree, task_id, claude_worker._identity_record(pid),
+                                     [claude_worker._identity_record(child) for child in children])
+
+
 def marker_flow(clone: Path, worktrees: Path) -> None:
     """task-0167: the marker a run leaves from the start of its attempt until its result is
-    written (repair 1: the whole run), and the states read from it."""
+    written (repair 1: the whole run), naming each child process while it runs (repair 2),
+    and the states read from it."""
 
     log = worktrees.parent / "marker.log"
     log.write_text("", encoding="utf-8")
-    os.environ["FAKE_MARKER_LOG"] = str(log)
+    os.environ["FAKE_MARKER_LOG"], os.environ["FAKE_MARKER_DIR"] = str(log), str(worktrees)
     me = os.getpid()
     try:
         for name, worker, reason in (("markerok", "ok", ""), ("markertimeout", "timeout", "worker_timeout"),
@@ -338,17 +353,20 @@ def marker_flow(clone: Path, worktrees: Path) -> None:
 
             r, *_ = run_case(name, clone, worktrees, worker=worker, progress=at_stage, on_record=at_record)
             lines = log.read_text(encoding="utf-8").splitlines()
-            during = json.loads(lines[0][len("present "):]) if lines and lines[0].startswith("present ") else {}
-            check(f"marker: {name} names this run and its Worker while the Worker runs, and is gone after the run",
-                  during.get("pid") == me and isinstance(during.get("worker"), dict) and during["worker"]["pid"] != me
+            during = json.loads(lines[0][len("WORKER named "):]) if lines and lines[0].startswith("WORKER named ") else {}
+            check(f"marker: {name} names this run and its running Worker, and is gone after the run",
+                  during.get("pid") == me and during.get("attempt") == f"task-8000-{name}"
                   and seen.get("record") is True and not marker.exists()
                   and (r.ok if not reason else r.reason == reason), f"{lines!r}:{seen}:{r.stage}:{r.reason}")
             if not reason:
+                check("marker: the Reviewer process is named while it runs (repair 2)",
+                      any(line.startswith("REVIEWER named ") for line in lines), str(lines))
                 stages = [seen.get(stage) for stage in ("reviewer", "qa", "integrate")]
-                check("marker: after the Worker ends the marker stays through Reviewer, QA and integrate, naming the run only",
-                      all(isinstance(m, dict) and m["pid"] == me and m["worker"] is None for m in stages), str(seen))
+                check("marker: between child processes the marker names the run only (each ended child is removed)",
+                      all(isinstance(m, dict) and m["pid"] == me and m["children"] == [] for m in stages), str(seen))
     finally:
         os.environ.pop("FAKE_MARKER_LOG", None)
+        os.environ.pop("FAKE_MARKER_DIR", None)
 
     # A refused resume leaves no marker either.
     r, *_ = run_case("markerresume", clone, worktrees, worker="ok", resume=True)
@@ -365,18 +383,36 @@ def marker_flow(clone: Path, worktrees: Path) -> None:
     attempt = worktrees / task_id
     attempt.mkdir()
     check("marker state: an attempt without a marker is missing", state() == "missing")
-    sleeper = _sleeper()
-    worker = _sleeper()
+
+    # repair 2: any child process a run starts through _run (tests, QA, git as well as the
+    # Worker and the Reviewer) is named while it runs and removed when it ends.
+    probe = ("import json, os, sys; d = json.load(open(sys.argv[1], encoding='utf-8')); "
+             "print(any(c['pid'] in (os.getpid(), os.getppid()) for c in d['children']))")
+    running = claude_worker._start_run_marker(attempt, task_id)
     try:
-        claude_worker._write_worker_marker(attempt, task_id, sleeper.pid)
+        inside = claude_worker._run([sys.executable, "-B", "-c", probe, str(claude_worker.worker_marker_path(attempt))],
+                                    cwd=clone, timeout=60)
+        after = json.loads(claude_worker.worker_marker_path(attempt).read_text(encoding="utf-8"))
+    finally:
+        claude_worker._end_run_marker(running)
+    check("marker: any child process started through _run is named while it runs, then removed",
+          inside.stdout.strip() == "True" and after["pid"] == me and after["children"] == []
+          and not claude_worker.worker_marker_path(attempt).exists(), f"{inside.stdout!r}:{after}")
+    outside = claude_worker._run([sys.executable, "-B", "-c", "print(1)"], cwd=clone, timeout=60)
+    check("marker: outside a run nothing is written", outside.returncode == 0
+          and not claude_worker.worker_marker_path(attempt).exists())
+
+    sleeper = _sleeper()
+    child = _sleeper()
+    try:
+        write_marker(attempt, task_id, sleeper.pid)
         marker = claude_worker.worker_marker_path(attempt)
         real = json.loads(marker.read_text(encoding="utf-8"))
         check("marker state: a marker naming the running process is alive", state() == "alive"
-              and real["pid"] == sleeper.pid and real["exe"] and real["started"] > 0 and real["worker"] is None, str(real))
+              and real["pid"] == sleeper.pid and real["exe"] and real["started"] > 0 and real["children"] == [], str(real))
 
         def variant(**changes) -> str:
-            marker.write_text(json.dumps({k: v for k, v in {**real, **changes}.items() if v is not None or k == "worker"}),
-                              encoding="utf-8")
+            marker.write_text(json.dumps({k: v for k, v in {**real, **changes}.items() if v is not None}), encoding="utf-8")
             return state()
 
         check("marker state: the same PID with another start time is not that process (PID reuse)",
@@ -386,14 +422,15 @@ def marker_flow(clone: Path, worktrees: Path) -> None:
         check("marker state: an empty executable path is invalid", variant(exe="") == "invalid")
         check("marker state: another task's marker is invalid", variant(task_id="task-8000-other") == "invalid")
         ended = {"pid": real["pid"], "exe": real["exe"], "started": real["started"] + 1}
-        live_worker = claude_worker._identity_record(worker.pid)
-        check("marker state: an ended run with its Worker still running is alive (the orphan Worker)",
-              variant(started=real["started"] + 1, worker=live_worker) == "alive")
-        check("marker state: a running run whose Worker has ended is alive", variant(worker=ended) == "alive")
-        check("marker state: a run and a Worker that have both ended are gone",
-              variant(started=real["started"] + 1, worker=ended) == "gone")
-        check("marker state: an incomplete Worker identity is invalid", variant(worker={"pid": worker.pid}) == "invalid")
-        check("marker state: an empty Worker executable path is invalid", variant(worker={**live_worker, "exe": ""}) == "invalid")
+        live_child = claude_worker._identity_record(child.pid)
+        check("marker state: an ended run with a child still running is alive (an orphan Worker, Reviewer or test)",
+              variant(started=real["started"] + 1, children=[live_child]) == "alive")
+        check("marker state: a running run whose children have ended is alive", variant(children=[ended]) == "alive")
+        check("marker state: a run and its children that have all ended are gone",
+              variant(started=real["started"] + 1, children=[ended, ended]) == "gone")
+        check("marker state: an incomplete child identity is invalid", variant(children=[{"pid": child.pid}]) == "invalid")
+        check("marker state: an empty child executable path is invalid", variant(children=[{**live_child, "exe": ""}]) == "invalid")
+        check("marker state: children that are not a list are invalid", variant(children=live_child) == "invalid")
         # F1 (repair 1): a process that may run but cannot be identified is never read as ended.
         real_probe = claude_worker._probe_process
         claude_worker._probe_process = lambda pid: ("unknown", None)
@@ -402,6 +439,18 @@ def marker_flow(clone: Path, worktrees: Path) -> None:
         finally:
             claude_worker._probe_process = real_probe
         check("marker state: a process whose identity cannot be read is invalid, not gone (F1)", unknown == "invalid", unknown)
+
+        # repair 2: a run of the same attempt (accept again after its bot died) carries the
+        # earlier run's processes that still run, and leaves them named when it ends.
+        variant(started=real["started"] + 1, children=[live_child])
+        again = claude_worker._start_run_marker(attempt, task_id)
+        carried = json.loads(marker.read_text(encoding="utf-8"))
+        claude_worker._end_run_marker(again)
+        left = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else {}
+        check("marker: a new run of the same attempt keeps naming the earlier run's live child, and leaves it named",
+              carried["pid"] == me and live_child in carried["children"]
+              and left.get("children") == [live_child] and left.get("started") == real["started"] + 1 and state() == "alive",
+              f"{carried} {left}")
         marker.write_text("{not json", encoding="utf-8")
         check("marker state: an unreadable marker is invalid", state() == "invalid")
         marker.write_text(json.dumps(real), encoding="utf-8")
@@ -411,15 +460,22 @@ def marker_flow(clone: Path, worktrees: Path) -> None:
         check("marker state: an earlier attempt's live process counts as alive", state() == "alive")
     finally:
         _stop(sleeper)
-        _stop(worker)
-    probe = claude_worker._probe_process(sleeper.pid)
-    check("marker state: a PID no process has any more is read as gone by the system (F1)", probe == ("gone", None), str(probe))
+        _stop(child)
+    probe_ended = claude_worker._probe_process(sleeper.pid)
+    check("marker state: a PID no process has any more is read as gone by the system (F1)",
+          probe_ended == ("gone", None), str(probe_ended))
     check("marker state: once that process ends, a newer attempt without a marker is missing, not gone",
           state() == "missing")
     (worktrees / f"{task_id}-r2").rmdir()
     check("marker state: the latest attempt's marker naming an ended process is gone", state() == "gone")
+    marker.write_text(json.dumps({**real, "started": real["started"] + 1, "children": [live_child]}), encoding="utf-8")
+    ended_run = claude_worker._start_run_marker(attempt, task_id)
+    claude_worker._end_run_marker(ended_run)
+    check("marker: a new run whose carried processes have all ended removes the marker at its end",
+          not marker.exists())
+    marker.write_text(json.dumps(real), encoding="utf-8")
     early = worktrees / f"{task_id}-r2"
-    claude_worker._write_worker_marker(early, task_id, sleeper.pid)
+    write_marker(early, task_id, sleeper.pid)
     early_marker = claude_worker.worker_marker_path(early)
     check("marker state: a marker written before its worktree was added counts as the latest attempt",
           claude_worker.worker_marker_state(task_id, repo_root=clone, worktree_root=worktrees)[1] == early_marker.name
@@ -479,7 +535,7 @@ def recover_flow(clone: Path, worktrees: Path) -> None:
     attempt.mkdir()
     sleeper = _sleeper()
     try:
-        claude_worker._write_worker_marker(attempt, task_id, sleeper.pid)
+        write_marker(attempt, task_id, sleeper.pid)
         marker = claude_worker.worker_marker_path(attempt)
         real = marker.read_text(encoding="utf-8")
         go_alive = bot._run_command(f"/go {task_id}")
@@ -505,6 +561,14 @@ def recover_flow(clone: Path, worktrees: Path) -> None:
         check("recover: a process whose identity cannot be read refuses (F1), nothing changes",
               unreadable.get("reason") == "recover_worker_marker_invalid" and unchanged() and not bot._WORKER_LOCK.locked(),
               str(unreadable))
+        # repair 2: the bot is gone but a child of its run (a Reviewer, a test) still runs.
+        data = json.loads(real)
+        marker.write_text(json.dumps({**data, "started": data["started"] + 1,
+                                      "children": [claude_worker._identity_record(sleeper.pid)]}), encoding="utf-8")
+        orphan_child = bot._run_command(f"/go {task_id} recover")
+        check("recover: a child process of the run still running refuses recover (repair 2), nothing changes",
+              orphan_child.get("reason") == "recover_worker_alive" and unchanged(), str(orphan_child))
+        marker.write_text(real, encoding="utf-8")
     finally:
         _stop(sleeper)
     # Bounded: a lock left held by an earlier step must fail this check, not hang the run.
@@ -941,7 +1005,8 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
         origin_before = git(["rev-parse", "origin/main"], clone)
         r = claude_worker.accept_candidate(task_id=task_id, record=record, approve=approve, repo_root=clone,
                                            worktree_root=worktrees, record_result=record_result,
-                                           progress=accept_stages[-1].append)
+                                           progress=lambda stage: (accept_stages[-1].append(stage),
+                                                                   accept_markers[-1].setdefault(stage, markers_of(task_id))))
         check(f"accept {task_id}: no push", git(["rev-parse", "origin/main"], clone) == origin_before and not r.pushed)
         return r, approvals, calls
 
@@ -1074,9 +1139,9 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
           and r.reviewer_verdict == "")
     check("progress: an accepted candidate reports qa then integrate", accept_stages[-1] == ["qa", "integrate"], str(accept_stages[-1]))
     seen = accept_markers[-1]
-    check("marker: accept marks the attempt from the approval transition until the record is written, then removes it",
+    check("marker: accept marks the attempt from before QA until the record is written, then removes it (repair 2)",
           all(len(seen.get(k) or []) == 1 and seen[k][0]["pid"] == os.getpid() and seen[k][0]["attempt"] == wt.name
-              and seen[k][0]["worker"] is None for k in ("approve", "record"))
+              and seen[k][0]["children"] == [] for k in ("qa", "approve", "record"))
           and markers_of("task-8000-accref") == [], str(seen))
     check("accept: jarvis.bat never in main index or tree", not git(["ls-files", "--", "jarvis.bat"], clone))
 

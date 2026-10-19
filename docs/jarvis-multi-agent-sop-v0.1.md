@@ -358,8 +358,11 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 13. Recover. `/go <id> recover`는 `/work`로 만든 DOING task에만, Owner가 명시적으로 요청할 때만
     한다(task-0167). 실행은 attempt를 만들 때부터 결과(DONE·FAILED와 실행 기록)를 쓸 때까지
     attempt worktree 옆(저장소 밖)에 실행 표지를 두고 그 뒤 지운다(repair 1, run 전체). accept는
-    승인 전이 직전부터 결과를 쓸 때까지 같은 표지를 둔다. 표지는 run을 실행하는 봇 프로세스와,
-    Worker가 도는 동안 그 Worker 프로세스를 각각 PID·실행 파일 경로·프로세스 시작 시각으로 적는다.
+    기록된 attempt를 찾은 뒤(QA 전)부터 결과를 쓸 때까지 같은 표지를 둔다. 표지는 run을 실행하는
+    봇 프로세스와, run이 시작해 아직 실행 중인 자식 프로세스(Worker·Reviewer·테스트·QA·git, 모두
+    같은 실행 함수로 시작) 각각을 PID·실행 파일 경로·프로세스 시작 시각으로 적고, 자식이 끝나면
+    그 항목을 지운다(repair 2). 같은 attempt의 이전 run이 남긴 표지에 아직 실행 중이거나 식별할 수
+    없는 프로세스가 있으면 새 표지에 이어 적고, run이 끝날 때도 그 프로세스를 적은 표지를 남긴다.
     recover는 Worker 잠금 둘을 잡은 채 마지막 attempt의 표지가 가리키는 프로세스가 모두 끝났을
     때만(세 값이 모두 같은 프로세스가 없을 때) 실패 기록과 `DOING→FAILED`를 한 번의 원자적 쓰기로
     적용하고, `/go`와 같은 Owner 승인 감사와 실행 결과 감사를 남긴다. 다시 실행하지 않으며 재실행은
@@ -368,6 +371,10 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
     표지든 살아 있는 프로세스를 가리키면 `recover_worker_alive`, 마지막 attempt에 표지가 없으면
     `recover_worker_marker_missing`, 어느 attempt의 표지든 읽을 수 없거나 식별 정보가 불완전하거나
     표지가 가리키는 프로세스를 식별할 수 없으면(접근 거부 등, 끝난 것으로 보지 않는다)
-    `recover_worker_marker_invalid`로 거절하고 아무것도 바꾸지 않는다(fail closed). 표지가 생기기
-    전에 시작된 시도와, DOING 전환 뒤 표지를 쓰기 전(preflight)에 멈춘 실행도 표지가 없으므로 같은
-    거절이다.
+    `recover_worker_marker_invalid`로 거절하고 아무것도 바꾸지 않는다(fail closed). 마지막 attempt는
+    worktree·브랜치·표지 파일 번호 중 가장 큰 번호이고, recover는 표지를 지우지 않는다. 표지가
+    생기기 전에 시작된 시도는 표지가 없으므로 `recover_worker_marker_missing`이다. DOING 전환 뒤
+    이번 실행의 표지를 쓰기 전(preflight)에 멈춘 실행은, 이전 attempt가 남긴 표지가 없으면 같은
+    거절이고, 있으면 그 표지가 마지막 attempt의 표지로 판정한다(가리키는 프로세스가 모두 끝났으면
+    recover가 된다). 이 구간에는 worktree와 Worker가 아직 없고, 읽기 전용 git 명령만 표지 없이
+    실행된다.
