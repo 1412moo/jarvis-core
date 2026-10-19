@@ -473,6 +473,24 @@ def marker_flow(clone: Path, worktrees: Path) -> None:
     claude_worker._end_run_marker(ended_run)
     check("marker: a new run whose carried processes have all ended removes the marker at its end",
           not marker.exists())
+    # repair 3: an earlier marker of the same attempt that cannot be read is never overwritten
+    # into a valid one: during the new run and after it the marker reads invalid.
+    for label, earlier in (
+        ("an empty child identity", {**real, "children": [{"pid": 4242, "exe": "", "started": 0}]}),
+        ("another task's marker", {**real, "task_id": "task-8000-other"}),
+        ("unreadable text", None),
+    ):
+        text = json.dumps(earlier) if earlier is not None else "{not json"
+        marker.write_text(text, encoding="utf-8")
+        running = claude_worker._start_run_marker(attempt, task_id)
+        during = state()
+        claude_worker._run([sys.executable, "-B", "-c", "print(1)"], cwd=clone, timeout=60)
+        after_child = state()
+        claude_worker._end_run_marker(running)
+        left = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else {}
+        check(f"marker: a new run over {label} keeps the marker invalid during and after the run, the text kept (repair 3)",
+              during == "invalid" and after_child == "invalid" and state() == "invalid"
+              and left.get(claude_worker.EARLIER_UNREADABLE_KEY) == text, f"{during} {after_child} {left}")
     marker.write_text(json.dumps(real), encoding="utf-8")
     early = worktrees / f"{task_id}-r2"
     write_marker(early, task_id, sleeper.pid)
@@ -568,6 +586,15 @@ def recover_flow(clone: Path, worktrees: Path) -> None:
         orphan_child = bot._run_command(f"/go {task_id} recover")
         check("recover: a child process of the run still running refuses recover (repair 2), nothing changes",
               orphan_child.get("reason") == "recover_worker_alive" and unchanged(), str(orphan_child))
+        # repair 3: a later run over a marker naming a child it could not identify, or another
+        # task's marker, leaves it invalid, so recover still refuses.
+        for label, earlier in (("an empty child identity", {**data, "children": [{"pid": 4242, "exe": "", "started": 0}]}),
+                               ("another task's marker", {**data, "task_id": "task-8000-other"})):
+            marker.write_text(json.dumps(earlier), encoding="utf-8")
+            claude_worker._end_run_marker(claude_worker._start_run_marker(attempt, task_id))
+            refused_invalid = bot._run_command(f"/go {task_id} recover")
+            check(f"recover: after a later run over {label}, recover still refuses as invalid (repair 3), nothing changes",
+                  refused_invalid.get("reason") == "recover_worker_marker_invalid" and unchanged(), str(refused_invalid))
         marker.write_text(real, encoding="utf-8")
     finally:
         _stop(sleeper)
@@ -1173,9 +1200,23 @@ def accept_flow(clone: Path, worktrees: Path) -> None:
         git(["branch", "-D", f"jarvis/{name}"], clone)
     check("accept setup: only -r3 is left", gap.branch == "jarvis/task-8000-accgap-r3"
           and claude_worker._attempt_numbers(clone, worktrees, "task-8000-accgap") == ({3}, False))
+    # task-0167 repair 3: an earlier run of this attempt left a marker with a child it could not identify.
+    gap_marker = claude_worker.worker_marker_path(worktrees / "task-8000-accgap-r3")
+    gap_marker.write_text(json.dumps({"task_id": "task-8000-accgap", "attempt": "task-8000-accgap-r3",
+                                      **claude_worker._identity_record(os.getpid()),
+                                      "children": [{"pid": 4242, "exe": "", "started": 0}]}), encoding="utf-8")
+    earlier_text = gap_marker.read_text(encoding="utf-8")
     r, a, c = accept("task-8000-accgap", gap_record)
     check("accept: a gap in attempt numbers does not hide the recorded attempt", r.ok and git(["rev-parse", "HEAD^"], clone) == gap.candidate,
           f"{r.stage}:{r.reason}:{r.detail}")
+    seen = accept_markers[-1]
+    left = json.loads(gap_marker.read_text(encoding="utf-8")) if gap_marker.exists() else {}
+    check("marker: an accept over an unreadable earlier marker keeps it invalid during the run and leaves it after (repair 3)",
+          all(len(seen.get(k) or []) == 1 and seen[k][0].get(claude_worker.EARLIER_UNREADABLE_KEY) == earlier_text
+              for k in ("qa", "approve", "record"))
+          and left.get(claude_worker.EARLIER_UNREADABLE_KEY) == earlier_text
+          and claude_worker.worker_marker_state("task-8000-accgap", repo_root=clone, worktree_root=worktrees)[0] == "invalid",
+          f"{seen} {left}")
 
     # task-0157: a committed record, as in the real sequence. The record is committed before the run, so the
     # attempt's baseline holds it (run_case rewrites the same content). The stopped run then writes its failure

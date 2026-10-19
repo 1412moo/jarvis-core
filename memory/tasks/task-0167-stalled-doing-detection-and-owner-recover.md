@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-18 16:42 UTC`
-- updated_at: `2026-10-19 04:37 UTC`
+- updated_at: `2026-10-19 05:02 UTC`
 - summary: `Worker 경로 task가 DOING인데 실행 중인 Worker가 없으면 이전 실행 기록과 관계없이 멈춤 후보로 판정하고(V3 결함), 고아 Worker까지 식별되는 실행 표지를 두며, Owner 전용 /go <id> recover가 감사 기록과 함께 DOING을 FAILED로만 바꾼다. 실행 표지가 없거나 불완전하면 복구를 거절하고, Worker 경로 task에 대한 /retry는 거절한다. 자동 재실행·큐·Scheduler는 만들지 않고 push는 하지 않는다.`
 - source_command: `Owner 승인: R2 설계 결정(task-0165 실제 Discord 검증 V3 뒤)`
 
@@ -60,7 +60,7 @@
 
 ## Manager 요약
 
-아래 행은 Owner 결정 블록 셋("Owner 결정", "D1 결정", "D2 결정"), Start 승인, 진행 승인, repair 결정, 예산 증액 결정 원문의 조건 문장을 빠짐없이 인용한다.
+아래 행은 Owner 결정 블록 셋("Owner 결정", "D1 결정", "D2 결정"), Start 승인, 진행 승인, repair 결정, 예산 증액 결정 두 건 원문의 조건 문장을 빠짐없이 인용한다.
 
 | # | 승인 조건 (원문 인용) | Manager 해석과 충족 방법 |
 | --- | --- | --- |
@@ -92,6 +92,13 @@
 | Q3 | "task 기록의 updated_at도 실제 수정 시점에 맞게 갱신한다." | `updated_at`을 이 repair 기록 시각으로 갱신(status는 `DOING` 그대로) |
 | Q4 | "새 candidate 생성 후 Reviewer와 QA를 다시 진행한다." / "새 candidate에 한해 Reviewer 무효(self_deviations 등 자체 규칙 위반) 시 재검토 1회를 허용한다(retry_budget 1→2). 유효한 FINDINGS는 무효 처리하지 않고 그대로 보고한다." | 새 candidate에 새 Reviewer → QA. 무효 검토일 때만 같은 candidate로 재검토 1회(`retry_budget=2`). 유효한 FINDINGS는 그대로 보고하고 멈춘다(남은 repair 없음) |
 | Q5 | "push, master-plan 갱신, 최종 DONE 처리는 별도 승인 전까지 하지 않는다." / "기존 candidate bf87a66과 모든 보존 대상 임시 폴더 및 worktree는 그대로 유지한다." | push·master-plan·DONE 없음. `bf87a66`은 새 candidate의 부모로 남고 고치지 않는다. smoke 임시 폴더·task-0166 기록·`-r1`·`-r2` worktree·`jarvis.bat`을 건드리지 않는다 |
+| T0 | 예산 증액: "task-0167 repair 예산을 2에서 3으로 증액한다. 이 증액은 task-0167에만 적용한다." / "ad79cee 위에서 repair 3으로 다음을 수정한다." | `repair_budget=3`, 이 repair로 `repair_count=3`. `ad79cee` 위에 새 commit으로 만들고 `ad79cee`·`bf87a66`은 그대로 둔다 |
+| T1 | "1. 옵션 (b)를 적용한다. 같은 attempt의 기존 표지가 존재하지만 읽을 수 없거나, 불완전하거나, 다른 task를 가리키는 경우 새 실행이 이를 덮어써서 안전성 정보를 잃지 않도록 한다. 해당 상태는 invalid로 유지하고, 실행 종료 후에도 자동 삭제하지 않는다. recover는 기존 fail-closed 원칙에 따라 거절되어야 한다." | 그런 표지의 텍스트를 새 run이 쓰는 모든 표지에 `earlier_unreadable`로 담아 run 동안·종료 뒤 모두 invalid, 종료 때 삭제하지 않음. recover는 `recover_worker_marker_invalid`로 거절 |
+| T2 | "2. 빈 child identity 및 다른 task의 표지를 이용한 회귀 테스트를 추가한다. 새 실행 중과 종료 후에도 invalid 상태가 유지되고 recover가 거절되는지 확인한다. 기존 정상 표지 carry-over 테스트도 유지한다." | `marker_flow`(빈 child·다른 task·읽을 수 없는 텍스트, run 중·자식 실행 뒤·종료 뒤), `recover_flow`(두 경우 recover 거절), `accept_flow`(실제 accept), 기존 이어 적기 검사 유지 |
+| T3 | "3. 이 동작을 SOP §10.2 item 13과 task-0167 기록에 정확하게 반영한다. Reviewer의 major finding과 이 Owner 결정을 기록하고 updated_at도 갱신한다." | SOP 13항 추가 문장, 이 기록의 Reviewer·Owner 원문·repair 3 절, Repair 2 한계 서술 정정, `updated_at` 갱신 |
+| T4 | "4. 정상 검사와 변형 검증을 실행하고 새 candidate를 만든 뒤 Reviewer와 QA를 진행한다." | Worker smoke·self-check·SOP validator·discord-intake와 변형 검증, 새 candidate → Reviewer → QA |
+| T5 | "5. 새 candidate에 대한 Reviewer가 자체 규칙 위반으로 무효가 되면 기존 승인 범위에 따라 재검토 1회를 허용한다. 유효한 FINDINGS 또는 major finding은 그대로 보고하고 임의로 수용 처리하지 않는다." | 무효 검토일 때만 같은 candidate 재검토 1회(`retry_budget=2`, `retry_count=1`). 유효한 FINDINGS는 수용하지 않고 보고 후 멈춘다 |
+| T6 | "6. push, master-plan 갱신, 최종 DONE 처리는 별도 승인 전까지 하지 않는다." / "7. 기존 candidate ad79cee와 bf87a66, 47개 smoke 임시 폴더, task-0166 기록 및 두 worktree, jarvis.bat은 보존한다." / "승인 범위는 위 repair 3, 새 candidate의 Reviewer 및 QA까지다. 추가 repair가 필요하면 다시 멈추고 Owner에게 보고한다." | push·master-plan·DONE 없음. 보존 대상 모두 건드리지 않음. 범위는 repair 3·Reviewer·QA까지이고 추가 repair가 필요하면 멈추고 보고 |
 
 ## 범위와 안전 조건
 
@@ -319,7 +326,7 @@ bf87a66 위에서 repair 2로 다음을 수정한다.
 | `docs/jarvis-multi-agent-sop-v0.1.md` | §10.2 13항: 자식 프로세스 표지, 이전 run 프로세스 이어 적기, accept 표지 시작 시점(QA 전), B의 preflight 서술을 코드와 맞춤 |
 | 이 기록 | 위 Reviewer 결과와 Owner 원문, repair 2, 검증, `updated_at` 갱신(Owner 지시, task-model 7절). Repair 1 절의 preflight 서술을 고침 |
 
-남는 한계: 표지는 `_run`이 직접 시작한 프로세스를 적는다. 그 프로세스가 다시 띄운 손자(예: `claude.cmd`가 띄운 node)는 따로 적지 않으며, 직접 자식이 살아 있는 동안만 그 실행이 이어지는 것으로 본다. 이전 run의 표지가 읽을 수 없는 상태면 이어 적지 못하고 새 표지로 바뀐다(표지는 원자적으로 쓰므로 직접 고친 경우만 해당). Windows 접근 거부로 `unknown`이 되는 실제 경로와 `/proc` 경로는 repair 1과 같이 실제로 재현하지 않았다.
+남는 한계: 표지는 `_run`이 직접 시작한 프로세스를 적는다. 그 프로세스가 다시 띄운 손자(예: `claude.cmd`가 띄운 node)는 따로 적지 않으며, 직접 자식이 살아 있는 동안만 그 실행이 이어지는 것으로 본다. 이전 run의 표지가 읽을 수 없는 상태면 이어 적지 못하고 새 표지로 바뀐다(표지는 원자적으로 쓰므로 직접 고친 경우만 해당). [repair 3에서 정정: 이 서술은 틀렸다. 이 코드 자신이 식별하지 못한 프로세스를 빈 값으로 적어 표지를 invalid로 만들 수 있고, repair 2는 그런 표지를 덮어써 지웠다(`ad79cee` Reviewer major). repair 3부터는 아래 "Repair 3" 절대로 invalid를 유지한다.] Windows 접근 거부로 `unknown`이 되는 실제 경로와 `/proc` 경로는 repair 1과 같이 실제로 재현하지 않았다.
 
 ## Repair 2 Implementer 검증 (작업 트리 기준, candidate 3 전)
 
@@ -333,3 +340,62 @@ repair 1과 같은 `.env` 없는 임시 clone(scratchpad, `bf87a66`을 체크아
 | 남은 흔적 | smoke 임시 폴더 46→47. M16 run이 Worker 잠금 파일을 연 채 끝나 지우지 못한 1개(`jarvis_worker_smoke_c226gbw_`). 정상 코드 run은 폴더를 남기지 않았다. Owner가 정하기 전까지 보존 |
 
 `bf87a66`, task-0166 기록, `-r1`·`-r2` worktree, `jarvis.bat`은 건드리지 않았다. `updated_at`은 이 기록 시각(`2026-10-19 04:37 UTC`)이다.
+
+## Candidate 3
+
+`ad79cee3f1e37c7e7788378c73a5f948eac4ace3` (repair 2, 부모 `bf87a66`, 로컬 커밋, push 안 함).
+
+## Reviewer (`ad79cee`, 유효, FINDINGS major)
+
+`self_deviations: []`로 유효한 검토였다. verdict FINDINGS, major 1건.
+
+| 지적 (요지) | Manager 대조 |
+| --- | --- |
+| `_RunMarker.__init__`은 `_read_worker_marker`가 값을 돌려줄 때만 이전 run의 프로세스를 이어 적는다. 그런데 이 코드 자신이 식별하지 못한 자식·run을 빈 값(`exe` 빈 문자열, `started` 0)으로 적어 표지를 invalid로 만들므로, 같은 attempt의 두 번째 run(봇이 accept QA 중 죽은 뒤 다시 accept)은 그 표지를 이어 적지 못하고 덮어쓰며, `_end_run_marker`가 지운다. 기록의 한계("직접 고친 경우만 해당")와 SOP 13항("식별할 수 없는 프로세스가 있으면 새 표지에 이어 적고")이 코드와 어긋나고, 그 경우의 smoke 검사가 없다. 영향: 식별하지 못한, 아직 돌 수 있는 첫 run의 QA·git 자식이 표지에서 사라져 나중의 recover가 `gone`에 이를 수 있다(fail open) | 맞다. 재현 조건은 (1) 첫 accept에서 자식이나 봇 식별 실패로 표지가 invalid, (2) 승인 전이 전에 봇 종료(FAILED 유지), (3) 같은 기록으로 accept 다시 실행해 덮어씀, (4) 두 번째 run이 승인 뒤 멈춰 recover하거나 정상 종료로 표지 삭제. accept 경로에서만 생긴다(pipeline은 attempt 번호가 새로 정해지고, 같은 번호 표지가 남는 경우는 DOING이라 새 run이 시작되지 않음). Windows에서 자기 자식 식별이 실패할 가능성은 매우 낮지만 Owner 조건 A의 fail closed를 깨므로 major 판단은 타당. 회귀가 아니다: `bf87a66`도 같은 attempt 표지를 조건 없이 덮어썼지만 그때는 자식을 적지 않았고 accept 표지는 승인 전이 직전에 시작해 잃을 정보가 없었다. repair 2가 자식 기록·QA 전 표지·이어 적기를 더하면서 읽을 수 없는 이전 표지 경우를 빠뜨렸고 문서 두 곳을 틀리게 적은 새 결함이다 |
+
+Reviewer가 미확인으로 남긴 "봇 작업 스레드로의 ContextVar 전달"은 Manager가 확인했다: 봇은 `asyncio.to_thread(_run_worker_job, …)`로 실행하고, 표지 ContextVar는 그 스레드 안의 `run_pipeline`·`accept_candidate`가 직접 설정·해제하므로 스레드 사이 전달이 필요 없다.
+
+repair 예산(2/2)이 소진되었고 major는 §8 수용 대상이 아니어서 고치지 않고 Owner에게 보고했다. 수정안으로 (b) invalid 유지(권장)와 (a) accept 거절을 제시했다.
+
+## Owner 결정: repair 예산 증액 2→3 (원문)
+
+```text
+task-0167 repair 예산을 2에서 3으로 증액한다. 이 증액은 task-0167에만 적용한다.
+ad79cee 위에서 repair 3으로 다음을 수정한다.
+
+1. 옵션 (b)를 적용한다. 같은 attempt의 기존 표지가 존재하지만 읽을 수 없거나, 불완전하거나, 다른 task를 가리키는 경우 새 실행이 이를 덮어써서 안전성 정보를 잃지 않도록 한다. 해당 상태는 invalid로 유지하고, 실행 종료 후에도 자동 삭제하지 않는다. recover는 기존 fail-closed 원칙에 따라 거절되어야 한다.
+2. 빈 child identity 및 다른 task의 표지를 이용한 회귀 테스트를 추가한다. 새 실행 중과 종료 후에도 invalid 상태가 유지되고 recover가 거절되는지 확인한다. 기존 정상 표지 carry-over 테스트도 유지한다.
+3. 이 동작을 SOP §10.2 item 13과 task-0167 기록에 정확하게 반영한다. Reviewer의 major finding과 이 Owner 결정을 기록하고 updated_at도 갱신한다.
+4. 정상 검사와 변형 검증을 실행하고 새 candidate를 만든 뒤 Reviewer와 QA를 진행한다.
+5. 새 candidate에 대한 Reviewer가 자체 규칙 위반으로 무효가 되면 기존 승인 범위에 따라 재검토 1회를 허용한다. 유효한 FINDINGS 또는 major finding은 그대로 보고하고 임의로 수용 처리하지 않는다.
+6. push, master-plan 갱신, 최종 DONE 처리는 별도 승인 전까지 하지 않는다.
+7. 기존 candidate ad79cee와 bf87a66, 47개 smoke 임시 폴더, task-0166 기록 및 두 worktree, jarvis.bat은 보존한다.
+
+승인 범위는 위 repair 3, 새 candidate의 Reviewer 및 QA까지다. 추가 repair가 필요하면 다시 멈추고 Owner에게 보고한다.
+```
+
+이 증액은 task-0167에만 효력이 있다. budget: `retry_budget=2`(새 candidate의 무효 검토 재검토 1회 한정, `ad79cee` 검토는 유효해 쓰지 않음), `retry_count=1`, `repair_budget=3`, `repair_count=3`(이 repair).
+
+## Repair 3 (major: 읽을 수 없는 이전 표지)
+
+| 파일 | 변경 |
+| --- | --- |
+| `orchestrator/worker/claude_worker.py` | `_RunMarker.__init__`: 같은 attempt의 표지가 있지만 `_read_worker_marker`가 읽지 못하거나(손상·불완전, 빈 식별 값 포함) 다른 task를 가리키면, 그 파일 내용(최대 4000자)을 `earlier_unreadable`로 보관한다. `_write_marker_file`은 이 값을 `earlier_unreadable` 키로 함께 쓰고, 키 집합이 달라 그 표지는 항상 invalid로 읽힌다. run 동안의 모든 쓰기(`write`)와 끝(`_end_run_marker`)에서 이 키를 유지하며, 끝날 때 지우지 않는다. 읽을 수 있는 이전 표지의 이어 적기(repair 2)는 그대로 |
+| `orchestrator/worker/run_smoke_tests.py` | `marker_flow`: 빈 child identity·다른 task·읽을 수 없는 텍스트 세 경우 각각, 새 run 시작 뒤·자식 실행 뒤·run 종료 뒤 모두 `invalid`이고 원래 텍스트가 보관됨. `recover_flow`: 빈 child identity·다른 task 표지 위에서 run이 한 번 돈 뒤에도 recover가 `recover_worker_marker_invalid`로 거절되고 아무것도 바뀌지 않음. `accept_flow`: 빈 child identity 표지가 있는 attempt를 실제 accept하면 QA·승인·기록 시점 표지가 그 텍스트를 담고, 끝난 뒤에도 표지가 남아 `invalid`. 기존 정상 표지 이어 적기 검사는 그대로 |
+| `docs/jarvis-multi-agent-sop-v0.1.md` | §10.2 13항에 읽을 수 없는 이전 표지의 처리와 그 뒤 recover 거절(Owner 확인 뒤 수동 삭제 전까지) |
+| 이 기록 | 위 Reviewer 결과·Manager 대조·Owner 원문, repair 3, 검증, Repair 2 절 한계 서술 정정, `updated_at` 갱신 |
+
+운영상 결과: 이런 표지가 남은 task는 이후 어느 attempt의 recover도 `recover_worker_marker_invalid`로 거절된다(모든 attempt 표지를 보는 판정). Owner가 해당 프로세스가 없음을 확인하고 그 표지 파일을 직접 지워야 recover를 다시 쓸 수 있다.
+
+## Repair 3 Implementer 검증 (작업 트리 기준, candidate 4 전)
+
+같은 `.env` 없는 임시 clone(scratchpad, `ad79cee`를 체크아웃하고 변경 파일 복사)에서 실행했다. 실제 봇·Discord·claude는 실행하지 않았다.
+
+| # | 결과 |
+| --- | --- |
+| 정상 | Worker smoke 470/0(repair 2의 464에서 +6: `marker_flow` 3, `recover_flow` 2, `accept_flow` 1), self-check 104/0, SOP validator PASS(음성 검사 133), discord-intake 141/0 |
+| 변형 | 각각 전체 Worker smoke. M18 읽을 수 없는 이전 표지를 보관하지 않음(repair 2 동작) → 6건(새 검사 6건 모두). M19 종료 때 그 표지를 지움 → 6건. M20 run 동안의 쓰기에 보관 값을 넣지 않음 → 4건(run 중 상태 검사 3, accept 1). 세 변형 모두 검사가 잡았다 |
+| 다시 돌리지 않은 것 | Console smoke(Console이 읽는 코드와 이 기록의 status는 그대로). 이전 repair의 M1~M17 |
+| 남은 흔적 | smoke 임시 폴더 47개 그대로(이번 정상·변형 run은 폴더를 남기지 않았다) |
+
+`ad79cee`·`bf87a66`, task-0166 기록, `-r1`·`-r2` worktree, `jarvis.bat`은 건드리지 않았다. `updated_at`은 이 기록 시각(`2026-10-19 05:02 UTC`)이다.

@@ -275,8 +275,19 @@ def _identity_state(identity: dict) -> str:
     return state
 
 
-def _write_marker_file(worktree: Path, task_id: str, run: dict, children: list[dict]) -> None:
+# task-0167 repair 3: the text of an earlier marker of the same attempt that could not be read
+# (unreadable, incomplete, or another task's). A marker carrying it never reads as valid, so a
+# recovery keeps refusing until the Owner has checked and removed it by hand.
+EARLIER_UNREADABLE_KEY = "earlier_unreadable"
+EARLIER_UNREADABLE_MAX = 4000
+
+
+def _write_marker_file(
+    worktree: Path, task_id: str, run: dict, children: list[dict], earlier_unreadable: str | None = None
+) -> None:
     marker = {"task_id": task_id, "attempt": worktree.name, **run, "children": children}
+    if earlier_unreadable is not None:
+        marker[EARLIER_UNREADABLE_KEY] = earlier_unreadable
     path = worker_marker_path(worktree)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(marker), encoding="utf-8")
@@ -290,6 +301,11 @@ class _RunMarker:
     marker whose processes still run or cannot be identified. They are carried into this
     marker, and when this run ends the marker is left naming them instead of removed, so a
     recovery keeps refusing until they are gone.
+
+    repair 3: an earlier marker that cannot be read (unreadable, incomplete, such as an empty
+    identity this code wrote for a process it could not identify, or another task's) cannot
+    say which processes it named. Its text is kept in every marker this run writes, which
+    makes them read as invalid, and the marker is left in place when the run ends.
     """
 
     def __init__(self, worktree: Path, task_id: str) -> None:
@@ -300,8 +316,15 @@ class _RunMarker:
         self.earlier_run: dict | None = None
         self.carried: list[dict] = []
         self.token: contextvars.Token | None = None
+        self.earlier_unreadable: str | None = None
         earlier = _read_worker_marker(self.path) if self.path.exists() else None
-        if earlier is not None and earlier["task_id"] == task_id:
+        if self.path.exists() and (earlier is None or earlier["task_id"] != task_id):
+            try:
+                text = self.path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            self.earlier_unreadable = text[:EARLIER_UNREADABLE_MAX]
+        elif earlier is not None:
             self.earlier_run = {key: earlier[key] for key in PROCESS_IDENTITY_KEYS}
             processes = [*earlier["children"]]
             if self.earlier_run != self.run:
@@ -310,7 +333,8 @@ class _RunMarker:
 
     def write(self) -> None:
         try:
-            _write_marker_file(self.worktree, self.task_id, self.run, [*self.carried, *self.children.values()])
+            _write_marker_file(self.worktree, self.task_id, self.run, [*self.carried, *self.children.values()],
+                               self.earlier_unreadable)
         except OSError:
             pass  # a stale or missing marker only makes a later recovery refuse
 
@@ -343,6 +367,7 @@ def _end_run_marker(marker: _RunMarker | None) -> None:
     """Remove the run's marker once its result is written; a failure leaves it to refuse a recovery.
 
     Processes carried from an earlier run that still run, or cannot be identified, stay named.
+    repair 3: a marker that kept an unreadable earlier marker is left in place, still invalid.
     """
 
     if marker is None:
@@ -355,7 +380,9 @@ def _end_run_marker(marker: _RunMarker | None) -> None:
         marker.token = None
     still = [p for p in marker.carried if _identity_state(p) != "gone"]
     try:
-        if still and marker.earlier_run is not None:
+        if marker.earlier_unreadable is not None:
+            _write_marker_file(marker.worktree, marker.task_id, marker.run, [], marker.earlier_unreadable)
+        elif still and marker.earlier_run is not None:
             _write_marker_file(marker.worktree, marker.task_id, marker.earlier_run, still)
         else:
             marker.path.unlink(missing_ok=True)
