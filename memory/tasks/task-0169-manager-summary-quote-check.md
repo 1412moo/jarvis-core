@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 09:32 UTC`
-- updated_at: `2026-10-19 09:32 UTC`
-- summary: `Reviewer가 Manager 요약에 빠진 Owner 조건을 지적해 repair, repair 예산 증액, SOP 8 수용으로 이어진 일이 task-0133~0168 기록 17건에 남아 있다. 같은 비교를 Reviewer 호출 전에 결정론적으로 하는 읽기 전용 스크립트 scripts/check_summary_quotes.py와 self-test를 더하고, SOP 3 Manager 항목과 jarvis-reviewer-call Skill 3단계가 이를 먼저 실행하게 한다. 참고 자료이며 gate나 판정이 아니다. push 없음.`
+- updated_at: `2026-10-19 09:37 UTC`
+- summary: `Reviewer가 Manager 요약에 빠진 Owner 조건을 지적해 repair, repair 예산 증액, SOP 8 수용으로 이어진 일이 task-0133~0168 기록 17건에 남아 있다. 같은 비교를 Reviewer 호출 전에 결정론적으로 하는 읽기 전용 스크립트 scripts/check_summary_quotes.py와 self-test를 더하고, SOP 3 Manager 항목과 jarvis-reviewer-call Skill 3단계가 이를 먼저 실행하게 한다. 참고 자료이며 gate나 판정이 아니다. candidate c7ff349 Reviewer PASS, QA PASS. DONE은 Owner Console Complete 대기. push 없음.`
 - source_command: `Owner 요청: Jarvis-Core 다음 개발 과제 발굴 및 실행 (Claude Code 세션)`
 
 ## 기준선
@@ -107,3 +107,33 @@ Owner 개입을 실제로 반복해서 만든 지점이다(조사 1·2). 기존 
 | V10 | `git diff --check` | 통과 |
 
 cp949 콘솔에서 `PYTHONIOENCODING` 없이 실행해 한국어 출력이 깨지지 않음을 확인했다(스크립트가 stdout·stderr를 UTF-8로 맞춘다).
+
+## Candidate
+
+`c7ff34905bffa577f4f31fea6dc6cc85a2511987` (parent = baseline, 단일 commit, 변경 파일 4개 = 범위 owned).
+
+## Reviewer (`c7ff349`, 유효)
+
+| 항목 | 내용 |
+| --- | --- |
+| 호출 | Claude Code `reviewer` agent, candidate·baseline 전체 hash, file scope 4개, evidence 3개, Manager 요약과 Owner 원문(위 블록) 전달 |
+| verdict | PASS, findings `[]`, `self_deviations` `[]` |
+| unverified | self-test, 과거 기록 재현, SOP validator, intake·Console smoke, check_no_secrets, `git diff --check`, cp949 출력, 작업 트리의 `jarvis.bat`·task-0166 무접촉(모두 실행 검사라 `not_run`) → 아래 QA가 같은 candidate에서 확인 |
+| budget | `retry_count=0`, `repair_count=0` |
+
+## QA (candidate `c7ff34905bffa577f4f31fea6dc6cc85a2511987`)
+
+main HEAD = candidate, tracked 변경 없음(untracked `jarvis.bat`·task-0166 기록만, 내용 미접촉)에서 실행했다. 콘솔 코드 페이지 949, `PYTHONUTF8`·`PYTHONIOENCODING` 없음.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | self-test | checks=16, failures=0, PASS |
+| Q2 | 과거 기록 재현 | task-0164 exit 1이고 Reviewer 3 지적 세 문장 3/3 포함, task-0161 exit 1, task-0168 exit 2(요약 절 없음), 이 기록 exit 0 |
+| Q3 | SOP validator | PASS |
+| Q4 | check_no_secrets | 새 파일 findings 0(`--staged` 검사 포함). 전체 scan 7건은 기존 자체 fixture |
+| Q5 | discord-intake smoke | total 144, failed 0 |
+| Q6 | Console smoke | 통과 |
+| Q7 | `git diff --check 1c49b2f c7ff349` | 통과 |
+| Q8 | `jarvis.bat` | candidate tree에 없음, 작업 트리 untracked 그대로 |
+
+판정: QA PASS. DONE은 Owner Console Complete로만 한다. push 없음.
