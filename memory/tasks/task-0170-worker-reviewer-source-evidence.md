@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 11:18 UTC`
-- updated_at: `2026-10-19 11:21 UTC`
-- summary: `task-0166에서 Worker가 코드 사실을 인용한 예시를 Reviewer가 읽을 수 없어 qa_unverified_owner_review로 멈추고 Owner 확인과 accept가 필요했다. 파이프라인 Reviewer 근거 경로에 요청과 candidate 변경 내용이 가리키는 저장소 파일을 읽기 전용으로 더한다. Owner가 D1 (b)·D2·D3을 승인해 Console Start 뒤 구현했고, 요청과 candidate 추가 줄에 나온 저장소 파일을 차단 규칙과 10개 상한 아래 근거로 넘긴다. Reviewer FINDINGS minor 2건(기록 문구)을 repair 1로 고쳤다. DONE은 QA 뒤 Owner Console Complete. push 없음.`
+- updated_at: `2026-10-19 11:41 UTC`
+- summary: `task-0166에서 Worker가 코드 사실을 인용한 예시를 Reviewer가 읽을 수 없어 qa_unverified_owner_review로 멈추고 Owner 확인과 accept가 필요했다. 파이프라인 Reviewer 근거 경로에 요청과 candidate 변경 내용이 가리키는 저장소 파일을 읽기 전용으로 더한다. Owner가 D1 (b)·D2·D3을 승인해 Console Start 뒤 구현했고, 요청과 candidate 추가 줄에 나온 저장소 파일을 차단 규칙과 10개 상한 아래 근거로 넘긴다. Reviewer FINDINGS minor 2건(기록 문구)을 repair 1로 고친 candidate 5cc55cc가 Reviewer PASS와 QA PASS를 받았다. DONE은 Owner Console Complete 대기. push 없음.`
 - source_command: `Owner 요청: Reviewer 근거 확장 작업 등록과 범위·검증 계획 정리 (Claude Code 세션)`
 
 ## 기준선
@@ -184,3 +184,35 @@ Start 전 확인(2026-10-19 11:20 UTC): main HEAD `ef5c61937d32eb7dfd841cadf3b88
 
 `self_deviations` 없음. `unverified` 3건(테스트 결과, `보호 경로`가 `PROTECTED_PATHS` 하나로 다 덮이는지, 실제 Discord·claude 미실행)은 QA에서 확인한다. 코드·SOP·테스트 지적은 없다.
 repair는 Manager가 예산 안에서 진행했다(`repair_count=1`, 예산 1 소진). 코드·SOP·테스트는 바꾸지 않고 이 기록만 고친다.
+
+## Candidate 2 (repair 1)
+
+`5cc55cc201ea4f9117f8b8356a655eac52f93667` (parent `0fc1236`, 이 기록만 변경). Candidate 1의 Reviewer 결과는 무효.
+
+## Reviewer 2 (`5cc55cc`, 유효)
+
+| 항목 | 내용 |
+| --- | --- |
+| 호출 | 전체 hash, baseline `ef5c619`, commit 구조, file scope 4개, evidence `.claude/agents/reviewer.md`·task-0166 기록·`docs/codex-operating-rules.md`, Manager 요약과 승인 원문 두 블록 |
+| verdict | PASS, findings `[]`, `self_deviations` `[]` |
+| unverified | 테스트 결과(T1~T7), 정규식·차단의 실행 동작, repair 1 뒤 `updated_at` 갱신 여부, 실제 Discord·claude 미실행(T8) → 아래 QA |
+| budget | `retry_count=0`, `repair_count=1`(예산 1 소진) |
+
+## QA (candidate `5cc55cc201ea4f9117f8b8356a655eac52f93667`)
+
+main HEAD = candidate, tracked 변경 없음(untracked `jarvis.bat`만)에서 실행했다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | Worker smoke | total 494, failed 0, 종료 코드 0. source evidence 10건 PASS(task-0166 형태, 변형 검증, 요청 경로, 차단·탈출·절대·URL·디렉터리·와일드카드·없는 파일, 차단 단위 확인, scope 중복, 10개 상한, task 기록 병행). 실행 전후 smoke 임시 폴더 47개로 같음 |
+| Q2 | Discord self-check suite | 실패 0, 종료 코드 0 |
+| Q3 | SOP validator | PASS |
+| Q4 | discord-intake smoke | total 145, failed 0 |
+| Q5 | `git diff --check ef5c619 5cc55cc` | 통과 |
+| Q6 | `jarvis.bat` | candidate tree에 없음, 작업 트리 untracked 그대로 |
+| Q7 | `check_no_secrets`(변경 파일 4개) | findings 0 |
+| Q8 | 보호 경로 범위 | `docs/codex-operating-rules.md` §6의 보호 파일은 `jarvis.bat` 하나이고(`PROTECTED_PATHS`와 같음) 비밀 파일은 `.env` 계열 차단이 맡는다. 승인 D2의 "보호 경로"를 덮는다 |
+| Q9 | 실제 Discord·claude | 이 task 동안 실행하지 않았다(가짜 Worker·Reviewer만). 감사 체인 valid, length 18로 task 시작 전과 같음 |
+| Q10 | `updated_at` | repair 1이 summary를 바꾸면서 `updated_at`(11:21 UTC)을 갱신하지 않아 task-model §7과 어긋났다. 이 QA 기록 commit에서 summary와 함께 갱신했다(기록 정정, 코드 무관) |
+
+판정: QA PASS. DONE은 Owner Console Complete로만 한다. push 없음.
