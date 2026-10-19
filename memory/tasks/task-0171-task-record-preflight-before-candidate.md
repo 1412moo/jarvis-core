@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 13:47 UTC`
-- updated_at: `2026-10-19 14:32 UTC`
-- summary: `최근 수동 task 10건 중 7건에서 첫 Reviewer가 task 기록 정합성 문제만으로 FINDINGS를 내 repair 예산을 소진했다. candidate 커밋 전에 기록을 canonical parser와 Console parser로 읽고, staged 변경 파일과 owned 행을 대조하고, updated_at 갱신과 파일 끝 줄바꿈을 확인해 결정론적 위반이면 candidate를 만들지 않게 한다. Owner가 D1 (a)·D2 차단·D3 참고로 Start를 승인해 scripts/check_task_record.py와 SOP 3·task-template·Reviewer 호출 Skill 변경을 구현했다. Reviewer minor를 repair 3회(Owner가 예산을 2, 다시 3으로 증액)로 고쳤다. push 없음.`
+- updated_at: `2026-10-19 14:36 UTC`
+- summary: `최근 수동 task 10건 중 7건에서 첫 Reviewer가 task 기록 정합성 문제만으로 FINDINGS를 내 repair 예산을 소진했다. candidate 커밋 전에 기록을 canonical parser와 Console parser로 읽고, staged 변경 파일과 owned 행을 대조하고, updated_at 갱신과 파일 끝 줄바꿈을 확인해 결정론적 위반이면 candidate를 만들지 않게 한다. Owner가 D1 (a)·D2 차단·D3 참고로 Start를 승인해 scripts/check_task_record.py와 SOP 3·task-template·Reviewer 호출 Skill 변경을 구현했다. Reviewer minor를 repair 3회(Owner가 예산을 2, 다시 3으로 증액)로 고친 candidate 969f53b가 Reviewer PASS와 QA PASS를 받았다. DONE은 Owner Console Complete 대기. push 없음.`
 - source_command: `Owner 요청: candidate 커밋 전 task 기록 사전 점검 강화 (Claude Code 세션)`
 
 ## 기준선
@@ -359,3 +359,33 @@ budget: `repair_budget=3`(Owner 증액), `repair_count=3`(이 repair 뒤). repai
 | 검사 | 결과(실행 로그 그대로) |
 | --- | --- |
 | candidate 4(repair 3) 커밋 전 사전 점검 | 이 표를 쓰기 전: `staged_files=5`, `violations=0`, `status=PASS`, `preflight_exit=0`. 이 표를 쓴 뒤 다시 실행해 같은 판정(`violations=0`, `status=PASS`, 종료 0)이 나온 것을 확인하고 커밋했다. discord-intake smoke failed 0 |
+
+## Reviewer 4 (`969f53b`, 유효)
+
+| 항목 | 내용 |
+| --- | --- |
+| 호출 | 전체 hash, baseline `e79a2cb`, commit 구조(candidate 1~3 무효), file scope 5개, evidence 5개, Manager 요약(M1~M13·S1~S5·R1~R5)과 승인 원문 네 블록 |
+| verdict | PASS, findings `[]`, `self_deviations` `[]` |
+| unverified | candidate 3·4 사전 점검 결과, 테스트 결과, C1·C2·C5 실행, hook·push·보호 대상 무접촉 → 아래 QA |
+| budget | `retry_count=0`, `repair_count=3`(예산 3, 소진) |
+
+## QA (candidate `969f53b94726da605a7880331451656fde29846d`)
+
+main HEAD = candidate, staged 변경 없음, tracked 변경 없음(untracked `jarvis.bat`만)에서 실행했다. repair 3은 이 기록만 바꿨다(`git diff --name-only d7d1d84 969f53b` = 이 기록 1개). 그래서 코드에만 걸리는 T9 재현은 repair 2 뒤 결과(49회, candidate 1과 같음)를 재사용했다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1 | 사전 점검(이 기록, baseline `e79a2cb`) | `staged_files=5`, `violations=0`, `status=PASS`, 종료 0 |
+| Q2 | `check_task_record --self-test` | checks=16, failures=0 |
+| Q3 | `check_summary_quotes --self-test` | failures=0 |
+| Q4 | SOP validator | PASS |
+| Q5 | discord-intake smoke | total 146, failed 0 |
+| Q6 | Console smoke | 통과 |
+| Q7 | `git diff --check e79a2cb 969f53b` | 통과 |
+| Q8 | `jarvis.bat` | candidate tree에 없음, 작업 트리 untracked 그대로 |
+| Q9 | git hook | `.git/hooks`에 `.sample` 아닌 파일 0개(D1: hook 없음) |
+| Q10 | `check_no_secrets`(baseline..candidate 변경 파일) | findings 0 |
+| Q11 | self-test 임시 폴더 | 남지 않음(0) |
+| Q12 | T9 재현 | 재사용(위 사유). 실제 지적 0161 줄바꿈·0168 백틱·0170 `updated_at`을 잡고 정상 candidate는 막지 않음 |
+
+판정: QA PASS. DONE은 Owner Console Complete로만 한다. push 없음.
