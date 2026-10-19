@@ -132,7 +132,8 @@ def check(record: str, baseline: str, repo: Path = ROOT) -> Result:
     if _metadata(text).get("source_command") == WORKER_SOURCE_COMMAND:
         result.error = "worker_path_record: Worker-path records are written by the pipeline and are not checked here"
         return result
-    diff = _git(["diff", "--cached", "--name-only", baseline], repo)
+    # --no-renames: a moved file is listed at both paths whatever diff.renames says (repair 2).
+    diff = _git(["diff", "--cached", "--name-only", "--no-renames", baseline], repo)
     if diff.returncode != 0:
         result.error = f"baseline_unreadable: {diff.stderr.decode('utf-8', 'replace').strip()[:200]}"
         return result
@@ -311,6 +312,20 @@ def _run_self_test() -> tuple[int, list[str]]:
         expect("a \"*\" pattern in owned covers no file (Reviewer 1)",
                codes(result) == ["C3"] and "docs/notes.txt" in result.violations[0]["problem"], result.violations)
         _git(["rm", "-q", "--cached", "--", "docs/notes.txt"], repo)
+
+        # Reviewer 2: moving an unowned file into an owned directory still reports the source path,
+        # with diff.renames on or off.
+        _git(["mv", "README.md", "docs/guide/readme.md"], repo)
+        seen = []
+        for setting in ("true", "false", "copies"):
+            _git(["config", "diff.renames", setting], repo)
+            result = check(record, baseline, repo)
+            seen.append(result.violations)
+        expect("a moved unowned file is C3 at its source path",
+               codes(Result(record, violations=seen[0])) == ["C3"] and "README.md" in seen[0][0]["problem"], seen[0])
+        expect("the move is judged the same with diff.renames true, false and copies", seen[0] == seen[1] == seen[2], seen)
+        _git(["config", "--unset", "diff.renames"], repo)
+        _git(["mv", "docs/guide/readme.md", "README.md"], repo)
 
         write("README.md", "changed\n")
         stage("README.md")

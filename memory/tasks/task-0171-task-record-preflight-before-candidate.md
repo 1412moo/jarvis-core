@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 13:47 UTC`
-- updated_at: `2026-10-19 14:15 UTC`
-- summary: `최근 수동 task 10건 중 7건에서 첫 Reviewer가 task 기록 정합성 문제만으로 FINDINGS를 내 repair 예산을 소진했다. candidate 커밋 전에 기록을 canonical parser와 Console parser로 읽고, staged 변경 파일과 owned 행을 대조하고, updated_at 갱신과 파일 끝 줄바꿈을 확인해 결정론적 위반이면 candidate를 만들지 않게 한다. Owner가 D1 (a)·D2 차단·D3 참고로 Start를 승인해 scripts/check_task_record.py와 SOP 3·task-template·Reviewer 호출 Skill 변경을 구현했다. push 없음.`
+- updated_at: `2026-10-19 14:28 UTC`
+- summary: `최근 수동 task 10건 중 7건에서 첫 Reviewer가 task 기록 정합성 문제만으로 FINDINGS를 내 repair 예산을 소진했다. candidate 커밋 전에 기록을 canonical parser와 Console parser로 읽고, staged 변경 파일과 owned 행을 대조하고, updated_at 갱신과 파일 끝 줄바꿈을 확인해 결정론적 위반이면 candidate를 만들지 않게 한다. Owner가 D1 (a)·D2 차단·D3 참고로 Start를 승인해 scripts/check_task_record.py와 SOP 3·task-template·Reviewer 호출 Skill 변경을 구현했다. Reviewer minor를 repair 2회(Owner가 예산을 2로 증액)로 고쳤다. push 없음.`
 - source_command: `Owner 요청: candidate 커밋 전 task 기록 사전 점검 강화 (Claude Code 세션)`
 
 ## 기준선
@@ -139,6 +139,9 @@ candidate 커밋 전에 다음 항목을 결정론적으로 검사하도록 해.
 | S3 | "D3: 참고 출력 유지." / "원문 인용 검사는 실행하되 종료 코드에는 영향을 주지 않는다." | C6은 출력만 |
 | S4 | "이 결정으로 task-0171 Start를 승인한다." / "등록된 범위와 검증 계획 안에서 구현 및 테스트를 진행한다." / "추가 범위 확장 없이 최소 diff를 유지하고, 기존 Reviewer·QA·repair 예산·SOP §8 및 승인 정책을 그대로 지킨다." | Console Start → 범위 표대로 구현 → T1~T10 |
 | S5 | "테스트 결과와 실제 위반 사례 재현을 근거로 완료 절차를 진행하고, push는 별도 승인 전까지 하지 않는다." / "추가 Owner 결정이 필요한 문제가 생기면 임의로 범위를 확장하지 말고 해당 지점에서 멈춰 보고한다." | QA 뒤 Console Complete·checkpoint·master-plan까지. push 없음. 새 결정이 필요하면 멈춤 |
+| R1 | "task-0171의 repair 예산을 기존 1회에서 총 2회로 늘리는 것을 승인한다." / "Reviewer 2의 minor 지적 2건을 모두 수정해." / "변경 파일 목록을 얻는 Git 명령에 `--no-renames`를 적용해 파일 이동 전후 경로가 모두 검사되도록 한다." / "범위 밖 파일을 `owned` 경로로 이동하는 사례를 self-test에 추가한다." / "Git 설정에 따라 검사 결과가 달라지지 않는지 확인한다." / "task-0171 기록의 T10 및 관련 검증 항목에 repair 1 이후 실제 결과를 반영한다." / "self-test 14/0, T9 재현 결과, validator, intake smoke, diff 검사, 사전 점검 결과를 실제 실행 로그와 대조해 기록한다." | repair 2: `--no-renames`, 이동 사례와 `diff.renames` true·false·copies 비교 self-test, 아래 repair 1·2 실제 결과 표 |
+| R2 | "변경 후 사전 점검을 통과한 경우에만 candidate를 생성한다." / "새 candidate hash를 고정해 Reviewer를 다시 호출하고, 이후 QA와 기존 완료 절차를 진행한다." / "남은 지적이 있으면 임의로 추가 repair하거나 SOP §8로 수용하지 말고 중단해 보고한다." / "기존 승인·검증 정책은 유지한다." | 사전 점검 종료 0일 때만 commit → 새 Reviewer → QA → Console Complete. 지적이 남으면 멈춤 |
+| R3 | "`jarvis.bat`은 건드리지 않는다." / "push는 하지 않는다." / "다른 worktree와 smoke 임시 폴더는 건드리지 않는다." / "task 기록을 직접 DONE으로 변경하지 않는다." / "Console Complete 절차를 사용한다." / "완료 보고에는 최종 테스트 결과, Reviewer·QA 판정, checkpoint 커밋, Console Complete 상태, main과 origin/main의 차이를 포함해라." | 보호 대상 무접촉, push 없음, DONE은 Console Complete. 최종 보고 항목 |
 
 ## Start 승인 (원문)
 
@@ -184,7 +187,7 @@ Start 전 확인(2026-10-19 14:06 UTC): main HEAD `e79a2cb214e6b6c11eddd753f2bf1
 
 | 파일 | 변경 |
 | --- | --- |
-| `scripts/check_task_record.py` | 신규. `git show :<기록>`(staged)과 `git diff --cached --name-only <baseline>`을 대상으로 C1 `_transition_metadata`, C2 `parse_task_view_text`, C3 `owned` 행 대조(경로와 `/`로 끝나는 디렉터리; `*` 패턴은 어떤 파일도 덮지 않음(repair 1); 이 기록 자신은 허용; 백틱 안이라도 `/`·`*`·확장자가 없는 이름은 경로로 보지 않음; 바뀌지 않은 owned 경로는 경고), C4 HEAD 대비 `updated_at`, C5 파일 끝 줄바꿈, C6 `check_summary_quotes.check_text` 참고 출력. 위반마다 `fix:` 줄. 종료 코드 0/1/2. `source_command: /task` 기록은 종료 2. `--json`, `--self-test`(임시 git 저장소, 14건, repair 1 뒤) |
+| `scripts/check_task_record.py` | 신규. `git show :<기록>`(staged)과 `git diff --cached --name-only <baseline>`을 대상으로 C1 `_transition_metadata`, C2 `parse_task_view_text`, C3 `owned` 행 대조(경로와 `/`로 끝나는 디렉터리; `*` 패턴은 어떤 파일도 덮지 않음(repair 1); 이 기록 자신은 허용; 백틱 안이라도 `/`·`*`·확장자가 없는 이름은 경로로 보지 않음; 바뀌지 않은 owned 경로는 경고), C4 HEAD 대비 `updated_at`, C5 파일 끝 줄바꿈, C6 `check_summary_quotes.check_text` 참고 출력. 위반마다 `fix:` 줄. 종료 코드 0/1/2. `source_command: /task` 기록은 종료 2. `--json`, `--self-test`(임시 git 저장소, repair 1 뒤 14건, repair 2 뒤 16건). 변경 목록은 `--no-renames`로 얻는다(repair 2) |
 | `docs/jarvis-multi-agent-sop-v0.1.md` | §3 Manager의 task-0169 항목을 "candidate(repair 포함) 커밋 전 staged 상태로 실행, 종료 코드 0이 아니면 candidate를 만들지 않음, 인용 목록은 참고"로 교체 |
 | `memory/tasks/task-template.md` | 맨 위 주석 한 줄: 수동 SOP task 범위 표의 `owned` 행 형식 |
 | `.claude/skills/jarvis-reviewer-call/SKILL.md` | 3단계 실행 명령을 새 스크립트로(BLOCKED면 호출문을 만들지 않음, 인용 목록은 그대로 전달), allowed-tools 1개 교체 |
@@ -206,7 +209,7 @@ Start 전 확인(2026-10-19 14:06 UTC): main HEAD `e79a2cb214e6b6c11eddd753f2bf1
 | 기타 | stage 안 된 기록 / Worker 경로 기록 | 종료 2 |
 | 변형 | C1·C2·C3(범위 밖)·C3(행 없음)·C4·C5를 각각 끄거나 C6을 차단으로 바꾸면 | 7가지 모두 self-test 실패(검사가 실제로 잡음) |
 | T9 | task-0160~0170 기록을 바꾼 커밋 48개(검사 49회, `beb2b92`는 두 기록을 함께 바꿈)를 그 시점 그대로(HEAD = 부모, index = 그 커밋, 임시 clone) 재현 | 아래 표 |
-| T10 | `check_task_record --self-test` 13/0, `check_summary_quotes --self-test` PASS, SOP validator PASS, discord-intake smoke 146/0, Console smoke 통과, `git diff --check` 통과, 변경 파일 `check_no_secrets` 0건, self-test 임시 폴더 남지 않음 | 통과 |
+| T10 | (candidate 1 기준) `check_task_record --self-test` 13/0, `check_summary_quotes --self-test` PASS, SOP validator PASS, discord-intake smoke 146/0, Console smoke 통과, `git diff --check` 통과, 변경 파일 `check_no_secrets` 0건, self-test 임시 폴더 남지 않음 | 통과 |
 
 template을 canonical parser에 넣으면 `task_file_invalid_id`인데, 수정 전 HEAD의 template도 같다(자리표시 id). 이번 변경과 무관하다.
 
@@ -236,3 +239,79 @@ template을 canonical parser에 넣으면 `task_file_invalid_id`인데, 수정 �
 
 `self_deviations` 없음. `unverified` 6건(T10 결과, T9 재현, `shutil.rmtree(onexc=…)`의 Python 3.12 의존, SOP validator, `run_web_app` import 부작용, hook·push 없음)은 QA에서 확인한다.
 repair는 Manager가 예산 안에서 진행했다(`repair_count=1`, 예산 1 소진).
+
+## Candidate 2 (repair 1)
+
+`0d4a05d7fba27808c7394cb1ff4dd005529f42f2` (parent `1c74364`). Candidate 1의 Reviewer 결과는 무효.
+
+### repair 1 뒤 실제 결과 (candidate 2 커밋 전, 작업 트리·staged 기준)
+
+| 검사 | 결과 |
+| --- | --- |
+| `check_task_record --self-test` | checks=14, failures=0 |
+| T9 재현 | 49회 출력이 candidate 1 때와 한 줄도 다르지 않음 |
+| SOP validator | PASS |
+| discord-intake smoke | failed 0 |
+| `git diff --cached --check` | 통과 |
+| 사전 점검 | violations=0, status=PASS(그 실행에서는 staged 파일 수를 출력하지 않음) |
+| Console smoke, `check_summary_quotes --self-test`, `check_no_secrets` | 이 시점에는 다시 실행하지 않음 |
+
+## Reviewer 2 (`0d4a05d`, 유효, FINDINGS minor 2)
+
+| # | 지적 | 처리 |
+| --- | --- | --- |
+| G1 | C3 변경 목록의 `git diff --cached --name-only`에 `--no-renames`가 없어 파일 이동은 새 경로만 비교되고 결과가 `diff.renames` 설정에 따라 달라진다 | Manager가 저장소 밖 임시 저장소에서 사실 확인(기본 설정은 새 경로만, `--no-renames`는 두 경로). repair 예산 소진으로 Owner에게 보고 |
+| G2 | 기록 T10이 "self-test 13/0"으로 남고 repair 1 뒤 실제 결과가 없다 | 위 "repair 1 뒤 실제 결과" 표 |
+
+`self_deviations` 없음. Owner가 repair 예산을 2로 늘리고 두 건 수정을 승인했다(아래 원문).
+
+## Owner 결정: repair 예산 증액 1→2 (원문)
+
+```text
+task-0171의 repair 예산을 기존 1회에서 총 2회로 늘리는 것을 승인한다.
+Reviewer 2의 minor 지적 2건을 모두 수정해.
+
+1. C3 파일 이동 결함
+   * 변경 파일 목록을 얻는 Git 명령에 `--no-renames`를 적용해 파일 이동 전후 경로가 모두 검사되도록 한다.
+   * 범위 밖 파일을 `owned` 경로로 이동하는 사례를 self-test에 추가한다.
+   * Git 설정에 따라 검사 결과가 달라지지 않는지 확인한다.
+2. 작업 기록 갱신
+   * task-0171 기록의 T10 및 관련 검증 항목에 repair 1 이후 실제 결과를 반영한다.
+   * self-test 14/0, T9 재현 결과, validator, intake smoke, diff 검사, 사전 점검 결과를 실제 실행 로그와 대조해 기록한다.
+3. 검증 및 완료
+   * 변경 후 사전 점검을 통과한 경우에만 candidate를 생성한다.
+   * 새 candidate hash를 고정해 Reviewer를 다시 호출하고, 이후 QA와 기존 완료 절차를 진행한다.
+   * 남은 지적이 있으면 임의로 추가 repair하거나 SOP §8로 수용하지 말고 중단해 보고한다.
+   * 기존 승인·검증 정책은 유지한다.
+4. 보호 사항
+   * `jarvis.bat`은 건드리지 않는다.
+   * push는 하지 않는다.
+   * 다른 worktree와 smoke 임시 폴더는 건드리지 않는다.
+   * task 기록을 직접 DONE으로 변경하지 않는다. Console Complete 절차를 사용한다.
+
+완료 보고에는 최종 테스트 결과, Reviewer·QA 판정, checkpoint 커밋, Console Complete 상태, main과 origin/main의 차이를 포함해라.
+```
+
+budget: `repair_budget=2`(Owner 증액), `repair_count=2`(이 repair 뒤).
+
+## Repair 2
+
+| 파일 | 변경 |
+| --- | --- |
+| `scripts/check_task_record.py` | C3 변경 목록에 `--no-renames`. self-test 2건 추가: 범위 밖 `README.md`를 owned 디렉터리로 `git mv`하면 원래 경로로 C3, `diff.renames`가 true·false·copies일 때 판정이 같음 |
+| 이 기록 | summary·`updated_at`, T10 행 시점 표시, repair 1·2 실제 결과, Reviewer 2, Owner 결정 원문, R1~R3 요약 행 |
+
+### repair 2 뒤 실제 결과 (candidate 3 커밋 전)
+
+| 검사 | 결과 |
+| --- | --- |
+| `check_task_record --self-test` | checks=16, failures=0. 변형: `--no-renames`를 빼면 새 검사 2건이 실패(설정에 따라 `[]`와 C3로 갈림) |
+| `check_summary_quotes --self-test` | checks=16, failures=0 |
+| T9 재현 | 49회 출력이 candidate 1 때와 같음 |
+| SOP validator | PASS(negative 133, 실패 0) |
+| discord-intake smoke | total 146, failed 0 |
+| Console smoke | 통과 |
+| `git diff --check` | 통과 |
+| `check_no_secrets`(`scripts/check_task_record.py`) | findings 0 |
+| self-test 임시 폴더 | 남지 않음(0) |
+| Python | 3.12.10(`shutil.rmtree(onexc=…)` 지원) |
