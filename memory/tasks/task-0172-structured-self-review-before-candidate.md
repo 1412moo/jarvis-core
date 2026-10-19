@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-19 15:57 UTC`
-- updated_at: `2026-10-19 16:23 UTC`
-- summary: `task-0170과 task-0171에서 candidate 뒤 Reviewer가 낸 지적이 모두 candidate 전 staged diff에서 보이는 내용이었고 repair 예산을 소진해 Owner 증액이 두 번 필요했다. SOP 3의 Implementer self-review를 Reviewer와 같은 관점의 읽기 전용 검토 1회로 정하고, 고친 뒤 task-0171 사전 점검을 다시 통과해야 candidate를 만들게 한다. Owner가 D1~D3을 승인해 Console Start 뒤 self-reviewer agent, jarvis-self-review Skill, SOP 3 한 항목을 구현했고 과거 상태 4개 재현에서 실제 Reviewer 지적 9건 중 7건을 candidate 전에 찾았고 잘못된 지적은 해석이 갈리는 4건을 넣어도 4건이다. 첫 candidate 전 self-review 1회 지적 8건을 모두 고쳤다. push 없음.`
+- updated_at: `2026-10-19 16:29 UTC`
+- summary: `task-0170·0171에서 candidate 뒤 Reviewer 지적이 repair 예산을 소진했다. 첫 candidate 전 1회, 읽기 전용 self-reviewer(Read·Grep·Glob만)가 staged diff와 기록을 Reviewer 관점으로 보는 jarvis-self-review Skill과 SOP 3 항목을 더했다. 과거 상태 4개 재현에서 실제 지적 9건 중 7건을 미리 찾았다. Reviewer 1 지적은 Owner 해석 승인 뒤 repair 1로 반영했다. push 없음.`
 - source_command: `Owner 요청: candidate 전 구조화된 self-review 등록 (Claude Code 세션)`
 
 ## 기준선
@@ -99,7 +99,9 @@ SOP §5의 정의에 따라 공식 Reviewer finding이나 QA 실패에 대응하
 | P3 | "D3 — 기록 형식" / "task 기록에 `Self-review` 절을 둡니다." / "발견 사항, 수정·미수정 여부와 이유, 수정 후 task-0171 사전 점검 결과를 기록합니다." / "self-review는 최대 1회 실행합니다." / "발견 사항을 수정한 뒤 사전 점검을 다시 통과해야 candidate를 생성할 수 있습니다." / "self-review에서 candidate 전에 수정한 사항은 SOP §5 정의에 따라 repair 예산에 포함하지 않습니다." / "공식 Reviewer 이후의 수정은 기존 예산과 승인 규칙을 그대로 적용합니다." | D3, A2·A3 그대로 |
 | P4 | "진행 범위와 제한" / "1. Console의 공식 Start 절차로 task-0172를 시작합니다." / "2. 승인된 범위에서 agent 정의, 새 Skill, 필요한 SOP 및 task 기록만 최소한으로 수정합니다." / "3. task-0170·0171의 지정된 candidate 상태를 대상으로 과거 Reviewer 지적의 사전 발견 여부, 놓친 항목, 잘못된 지적을 항목별로 측정합니다." | Console Start, owned 범위만, V5~V7 |
 | P5 | "4. V9 중단 조건을 적용합니다." / "발견 항목이 0개이거나 잘못된 지적이 발견 항목보다 많으면 SOP 반영을 완료 처리하지 말고 중단해 보고합니다." / "5. 공식 Reviewer, QA, repair 예산, §8, Owner 승인 정책은 변경하지 않습니다." / "6. 구현 후 기존 validator·smoke 및 관련 검증을 실행하고 결과를 기록합니다." | V9, 정책 무변경, V8 |
-| P6 | "7. task-0172를 직접 DONE으로 편집하지 말고 기존 SOP의 Reviewer → QA → checkpoint → Console Complete 절차를 따릅니다." / "8. `jarvis.bat`은 열람·수정·스테이징하지 마세요." / "다른 worktree와 임시 폴더도 건드리지 말고, `git push`는 별도 Owner 승인 없이 하지 마세요." / "승인된 범위를 벗어나는 문제가 생기면 임의로 확장하지 말고 중단해 보고하세요." | 공식 완료 절차, 보호 대상 무접촉, push 없음, 범위 밖이면 멈춤 |
+| P6 | "7. task-0172를 직접 DONE으로 편집하지 말고 기존 SOP의 Reviewer → QA → checkpoint → Console Complete 절차를 따릅니다." / "8. `jarvis.bat`은 열람·수정·스테이징하지 마세요." / "다른 worktree와 임시 폴더도 건드리지 말고, `git push`는 별도 Owner 승인 없이 하지 마세요." / "승인된 범위를 벗어나는 문제가 생기면 임의로 확장하지 말고 중단해 보고하세요." | 공식 완료 절차, push 없음, 범위 밖이면 멈춤. 8항의 "다른 worktree와 임시 폴더"는 기존에 있던 다른 worktree와 smoke 임시 폴더를 바꾸거나 지우지 말라는 뜻이다(R1, Owner 해석 승인). 이 task가 검증용으로 저장소 밖에 만든 임시 clone과 요청 파일은 분리해 쓰고 검증 뒤 정리한다 |
+| R1 | "Owner 결정 — task-0172 Start 승인 8항의 해석 확인" / "해석을 승인합니다." / "Start 승인 8항의 "다른 worktree와 임시 폴더도 건드리지 말고"는 기존에 존재하던 다른 worktree와 smoke 임시 폴더를 변경하거나 삭제하지 말라는 의미로 적용합니다." / "이번 task에서 검증 목적으로 별도 생성한 임시 clone과 요청 파일은 기존 작업 환경과 분리하고, 검증 종료 후 정리하는 것을 허용합니다." / "기존 worktree와 smoke 임시 폴더를 수정·삭제하거나 그 내용을 변경해서는 안 됩니다." / "이 해석과 이번 task의 실제 처리 결과를 task-0172 기록에 남기세요." / "이 승인은 이번 task의 임시 환경 사용에 대한 확인이며, 다른 task의 보호 조건을 포괄적으로 변경하는 승인은 아닙니다." | P6 해석에 반영, 아래 "임시 환경 처리" 절. 이 task에만 적용 |
+| R2 | "남은 Reviewer 지적도 처리하세요." / "1. Skill의 `allowed-tools`에서 `Write`를 제거해 self-review agent의 쓰기 권한을 부여하지 마세요." / "2. 저장소 밖 경로 제한이 지시문에만 의존하는 부분은 사실대로 기록하고, 기술적으로 보장되는 권한 제한과 구분하세요." / "3. repair 예산 1회 범위에서 수정한 뒤 task-0171 사전 점검, 새 Reviewer, QA를 진행하세요." / "4. 추가 FINDINGS가 나오면 임의로 repair 예산을 늘리지 말고 중단해 보고하세요." / "`jarvis.bat`은 열람·수정·스테이징하지 마세요." / "기존 worktree와 smoke 임시 폴더를 건드리지 말고, `git push`는 별도 승인 없이 하지 마세요." / "Console Complete를 포함한 기존 SOP를 준수하세요." | repair 1: Skill allowed-tools에서 `Write` 제거, Skill에 보장되는 제한(도구 목록)과 지시문 의존(저장소 밖 경로 등) 구분. 사전 점검 → Reviewer 2 → QA. FINDINGS가 남으면 멈춤 |
 
 ## Start 승인 (원문)
 
@@ -229,3 +231,60 @@ V7 잘못된 지적(Owner 조건 "잘못된 지적 때문에 불필요한 수정
 8건 모두 수정했고 수정하지 않은 지적은 없다. 이 수정들은 candidate 전이라 repair가 아니다(A2). self-review는 이 task에서 다시 실행하지 않는다(task당 1회).
 
 수정 뒤 사전 점검(candidate 1 커밋 전): `staged_files=4`, `violations=0`, `status=PASS`, 종료 0, 작업 트리 = index. 이 줄을 쓴 뒤 다시 stage하고 실행해 같은 판정이 나온 것을 확인하고 candidate를 만들었다. SOP validator PASS, discord-intake smoke failed 0, `git diff --cached --check` 통과.
+
+## Candidate 1
+
+`6f86321c60a8828690a36de603dcf07a06481a38` (parent = baseline `8bb7026`).
+
+## Reviewer 1 (`6f86321`, 유효, FINDINGS major 1·minor 1)
+
+| # | 지적 | 처리 |
+| --- | --- | --- |
+| F1 (major) | Start 승인 8항 "다른 worktree와 임시 폴더도 건드리지 말고"를 P6가 "보호 대상 무접촉"으로만 해석하고, 이 task가 임시 clone을 만들고 지우며 요청 파일을 쓴 일(그리고 Skill이 그것을 표준 절차로 둔 일)과의 관계를 설명하지 않음 | 승인 조건 해석이라 repair 전에 멈추고 Owner에게 확인을 받음(아래 원문). P6에 Owner가 승인한 해석을 반영하고 R1 행과 "임시 환경 처리" 절 추가 |
+| F2 (minor) | Skill allowed-tools의 `Write`에 경로 제한이 없어 "저장소 밖에만 쓴다"가 지시문에만 의존함 | Skill allowed-tools에서 `Write` 제거. Skill에 도구 목록으로 보장되는 제한과 지시문에만 의존하는 제한을 나눠 적음 |
+
+`self_deviations` 없음. 이 수정으로 Self-review 절 SR6 행의 "allowed-tools에 `Write` 추가"는 repair 1에서 되돌려졌다(요청 파일 쓰기는 Skill이 미리 허용하지 않고 세션의 일반 권한 확인을 거친다).
+
+## Owner 결정: Start 승인 8항 해석 확인 (원문)
+
+```text
+Owner 결정 — task-0172 Start 승인 8항의 해석 확인
+해석을 승인합니다. Start 승인 8항의 "다른 worktree와 임시 폴더도 건드리지 말고"는 기존에 존재하던 다른 worktree와 smoke 임시 폴더를 변경하거나 삭제하지 말라는 의미로 적용합니다.
+이번 task에서 검증 목적으로 별도 생성한 임시 clone과 요청 파일은 기존 작업 환경과 분리하고, 검증 종료 후 정리하는 것을 허용합니다. 기존 worktree와 smoke 임시 폴더를 수정·삭제하거나 그 내용을 변경해서는 안 됩니다.
+이 해석과 이번 task의 실제 처리 결과를 task-0172 기록에 남기세요. 이 승인은 이번 task의 임시 환경 사용에 대한 확인이며, 다른 task의 보호 조건을 포괄적으로 변경하는 승인은 아닙니다.
+남은 Reviewer 지적도 처리하세요.
+
+1. Skill의 `allowed-tools`에서 `Write`를 제거해 self-review agent의 쓰기 권한을 부여하지 마세요.
+2. 저장소 밖 경로 제한이 지시문에만 의존하는 부분은 사실대로 기록하고, 기술적으로 보장되는 권한 제한과 구분하세요.
+3. repair 예산 1회 범위에서 수정한 뒤 task-0171 사전 점검, 새 Reviewer, QA를 진행하세요.
+4. 추가 FINDINGS가 나오면 임의로 repair 예산을 늘리지 말고 중단해 보고하세요.
+
+`jarvis.bat`은 열람·수정·스테이징하지 마세요. 기존 worktree와 smoke 임시 폴더를 건드리지 말고, `git push`는 별도 승인 없이 하지 마세요. Console Complete를 포함한 기존 SOP를 준수하세요.
+```
+
+## 임시 환경 처리 (R1에 따른 실제 처리 결과)
+
+| 대상 | 위치 | 처리 |
+| --- | --- | --- |
+| V4 읽기 전용 확인용 clone | 세션 scratchpad `probe/clone`(저장소 밖) | V4 두 실행 뒤 남아 있던 것을 repair 1 전에 삭제(삭제 확인) |
+| V5~V7 재현용 clone 4개 | OS 임시 폴더 `jarvis_self_review_replay_*`(저장소 밖) | 재현 스크립트가 끝에서 삭제(삭제 확인, 남은 폴더 0) |
+| self-review 요청·출력 파일과 재현 결과 | 세션 scratchpad(저장소 밖) | QA 근거로 QA 끝까지 두고, QA 뒤 삭제해 그 결과를 QA 절에 적는다 |
+| 기존 worktree | `jarvis-core-worktrees` 4개 | 건드리지 않음(`git worktree list` 5줄 그대로) |
+| 기존 smoke 임시 폴더 | `%TEMP%\jarvis_worker_smoke_*` 47개 | 건드리지 않음(작업 전후 47개) |
+
+## Repair 1
+
+| 파일 | 변경 |
+| --- | --- |
+| `.claude/skills/jarvis-self-review/SKILL.md` | allowed-tools에서 `Write` 제거. 요청 파일 쓰기는 Skill이 미리 허용하지 않고 세션 권한 확인을 거친다고 적음. 3단계에 "도구 목록으로 보장되는 것(self-reviewer는 Read·Grep·Glob만, V4)"과 "지시문에만 의존하는 것(요청 파일을 저장소 밖에 쓰기, 저장소 루트에서 실행, 다른 실행 없음)"을 나눠 적음 |
+| 이 기록 | summary·`updated_at`, P6 해석, R1·R2 요약 행, Candidate 1, Reviewer 1, Owner 결정 원문, 임시 환경 처리, 이 절 |
+
+budget: `repair_budget=1`, `repair_count=1`(예산 소진). self-review는 이 task에서 다시 실행하지 않는다(task당 1회).
+
+repair 1 사전 점검 첫 실행은 `violations=2`(C1 `task_file_field_too_long`, C2 `field_too_long` summary), 종료 1로 막혔다. summary가 532자로 canonical 상한 500자를 넘었기 때문이다. summary를 줄인 뒤 다시 실행했다(아래 행). 이때 출력된 수정 안내 문구("a value cannot contain a backtick")는 백틱 사례용 고정 문구라 길이 초과에는 맞지 않았다(task-0171 스크립트의 한계, 이 task 범위 밖).
+
+| 검사 | 결과(실행 로그 그대로) |
+| --- | --- |
+| repair 1 candidate 커밋 전 사전 점검(summary 정정 뒤) | 이 표를 쓰기 전과 쓴 뒤 각각 실행해 같은 판정을 확인하고 커밋했다. 값은 이 표 아래 줄 |
+
+값: `staged_files=4`, `violations=0`, `status=PASS`, 종료 0, 작업 트리 = index.
