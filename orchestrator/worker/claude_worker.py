@@ -277,7 +277,9 @@ def _identity_state(identity: dict) -> str:
 
 # task-0167 repair 3: the text of an earlier marker of the same attempt that could not be read
 # (unreadable, incomplete, or another task's). A marker carrying it never reads as valid, so a
-# recovery keeps refusing until the Owner has checked and removed it by hand.
+# recovery refuses as invalid while it is kept. Removing it by hand does not by itself let a
+# recovery go ahead: if it was the latest attempt's marker, that attempt then has none and the
+# recovery refuses as missing; only a newer attempt's own marker can let it go ahead.
 EARLIER_UNREADABLE_KEY = "earlier_unreadable"
 EARLIER_UNREADABLE_MAX = 4000
 

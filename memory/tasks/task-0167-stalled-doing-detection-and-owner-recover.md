@@ -387,6 +387,8 @@ ad79cee 위에서 repair 3으로 다음을 수정한다.
 
 운영상 결과: 이런 표지가 남은 task는 이후 어느 attempt의 recover도 `recover_worker_marker_invalid`로 거절된다(모든 attempt 표지를 보는 판정). Owner가 해당 프로세스가 없음을 확인하고 그 표지 파일을 직접 지워야 recover를 다시 쓸 수 있다.
 
+> 정정(2026-10-19, task-0168): 위 마지막 문장은 일부 경우에만 맞다. 보존된 표지가 마지막 attempt 자신의 것이면, 지운 뒤 그 attempt에 표지가 없어 `worker_marker_state`가 `missing`을 돌려주고 `_run_recover`가 `recover_worker_marker_missing`으로 거절한다(거절 사유만 바뀜). 수동 삭제 뒤 recover가 진행될 수 있는 것은 그 표지가 더 이전 attempt의 것이고, 더 새 attempt가 자기 표지를 남긴 채 멈췄으며 그 표지가 가리키는 프로세스가 모두 끝난 경우뿐이다. 원문은 기록으로 남긴다.
+
 ## Repair 3 Implementer 검증 (작업 트리 기준, candidate 4 전)
 
 같은 `.env` 없는 임시 clone(scratchpad, `ad79cee`를 체크아웃하고 변경 파일 복사)에서 실행했다. 실제 봇·Discord·claude는 실행하지 않았다.

@@ -365,8 +365,12 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
     없는 프로세스가 있으면 새 표지에 이어 적고, run이 끝날 때도 그 프로세스를 적은 표지를 남긴다.
     같은 attempt의 이전 표지가 있지만 읽을 수 없거나 불완전하거나(식별하지 못한 프로세스를 빈 값으로
     적은 표지 포함) 다른 task를 가리키면, 새 run은 그 내용을 버리지 않고 자기가 쓰는 표지마다 담아
-    run 동안과 끝난 뒤 모두 invalid로 두며, 끝나도 지우지 않는다(repair 3). 그 task의 recover는
-    Owner가 확인하고 그 표지를 직접 지울 때까지 `recover_worker_marker_invalid`로 거절된다.
+    run 동안과 끝난 뒤 모두 invalid로 두며, 끝나도 지우지 않는다(repair 3). 그 표지가 남아 있는
+    동안 그 task의 recover는 `recover_worker_marker_invalid`로 거절된다. Owner가 확인하고 그 표지를
+    직접 지워도, 그것이 마지막 attempt의 표지였다면 그 attempt에 표지가 없으므로
+    `recover_worker_marker_missing`으로 거절되고 거절 사유만 바뀐다. 지운 뒤 recover가 진행될 수
+    있는 것은 그 표지가 더 이전 attempt의 것이고, 더 새 attempt가 자기 표지를 남긴 채 멈췄으며 그
+    표지가 가리키는 프로세스가 모두 끝난 경우뿐이다(task-0168).
     recover는 Worker 잠금 둘을 잡은 채 마지막 attempt의 표지가 가리키는 프로세스가 모두 끝났을
     때만(세 값이 모두 같은 프로세스가 없을 때) 실패 기록과 `DOING→FAILED`를 한 번의 원자적 쓰기로
     적용하고, `/go`와 같은 Owner 승인 감사와 실행 결과 감사를 남긴다. 다시 실행하지 않으며 재실행은
