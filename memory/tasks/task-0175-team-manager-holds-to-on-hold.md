@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 15:05 UTC`
-- updated_at: `2026-10-20 16:38 UTC`
+- updated_at: `2026-10-20 16:39 UTC`
 - summary: `task-0156에서 Owner가 보류한 Team Manager task 중 NEEDS_APPROVAL 5건(0030, 0032, 0033, 0034, 0036)의 summary에 보류 주체·근거·사유·재개 조건을 승인된 문구로 기록했고(task-model §9, 0033·0036은 축약하고 원문을 본문에 보존), Reviewer·QA 뒤 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. DOING인 task-0031은 그대로 둔다. Reviewer 지적(T8 인용 불일치, 요약 머리말의 출처 안내)을 repair 1·2로 고쳤고 검토·Hold 결과는 본문에 기록한다.`
 - source_command: `Owner 결정: 패키지 B A안, task-0175 등록과 계획 (Claude Code 세션)`
 
@@ -237,7 +237,7 @@ Start 전 확인(2026-10-20 15:31 UTC): fetch 뒤 branch `main`, HEAD `7cf5c8502
 | T12 | "task-0031은 DOING 그대로 유지하고, task-0035와 task-0156의 기록, `jarvis.bat`, 보존 worktree는 변경하지 마세요." / "push는 하지 마세요." / "실행 전후의 task별 변경 내용과 검증 결과를 보고하세요." | 0031은 DOING 그대로, 0035·0156 기록·`jarvis.bat`·보존 worktree는 바꾸지 않는다. push하지 않는다. 실행 전후의 task별 변경과 검증 결과를 보고한다 |
 | T13 | "Owner 결정: A 승인 — task-0175 기록만 수정" / "Repair 1회(예산 1/1)를 승인합니다." / "task-0175 기록의 T8과 Manager 요약에서 실제 task summary에 없는 인용 문구를 수정하세요." / "task-0036의 실제 문구: `API 키 발급/결제/외부연결/코드 변경 없음`" / "task-0033의 실제 문구: `모델 다운로드/credential 발급/외부 연결/코드 구현 없음`" / "두 문자열을 실제 기록과 정확히 일치시키세요." / "다른 task 기록 5건은 수정하지 마세요." / "수정 후 새 candidate를 만들고, 새 candidate에 대해 Reviewer → QA를 처음부터 다시 진행하세요." / "Reviewer와 QA가 동일한 candidate를 검증해야 합니다." | repair 1(예산 1/1)로 T8 해석 칸의 인용을 0036 "API 키 발급/결제/외부연결/코드 변경 없음", 0033 "모델 다운로드/credential 발급/외부 연결/코드 구현 없음"으로 바꿨고, 두 문자열이 각 summary 줄에 그대로 있는지 편집 전에 확인했다. 다섯 task 기록은 바꾸지 않았다. 새 candidate에 Reviewer → QA를 처음부터 실행하고 둘이 같은 candidate를 검증한다 |
 | T14 | "검증 및 후속 절차" / "Reviewer와 QA가 유효한 PASS를 내기 전에는 Hold를 진행하지 마세요." / "둘 다 PASS하면 기존 승인 계획대로 Hold → 상태 검증 → Record Completion Evidence → Console Complete Preview/Confirm → DONE checkpoint → master-plan sync를 진행하세요." / "예산 소진, 검토 실패, 예상하지 못한 변경 또는 절차상 문제가 발생하면 즉시 멈추고 보고하세요." / "`git push`는 하지 마세요." | Reviewer와 QA가 같은 새 candidate에 유효한 PASS를 낸 뒤에만 Hold → 상태 검증 → Record Completion Evidence → Console Complete Preview/Confirm → DONE checkpoint → master-plan 기록 커밋을 진행한다. 예산 소진·검토 실패·예상 밖 변경·절차 문제면 멈추고 보고한다. push하지 않는다 |
-| T15 | "향후 같은 종류의 minor 지적에 대한 원칙" / "이번 task-0175에 한해, Reviewer의 유효한 minor FINDINGS가 실제 사실 오류 또는 인용 불일치를 지적하고 repair 예산이 남아 있다면, 즉시 멈추지 말고 승인된 예산 내에서 수정한 뒤 새 candidate로 Reviewer와 QA를 다시 진행해도 됩니다." / "단, 의미 변경, 작업 범위 확대, 상태 전이 정책 변경, 예산 초과, 또는 기존 승인과 충돌하는 문제는 자동으로 수정하지 말고 Owner에게 보고하세요." / "이 원칙은 이번 task-0175에만 적용하며, SOP나 다른 task의 기본 정책은 변경하지 마세요." | 이 원칙은 task-0175에만 적용하고 SOP·다른 task는 바꾸지 않는다. repair 예산이 1/1로 소진돼 다음 repair에는 이 원칙을 쓸 수 없으므로, 다음 지적은 고치지 않고 Owner에게 보고한다. 의미 변경·범위 확대·전이 정책 변경·예산 초과·승인 충돌은 언제나 보고 대상이다 |
+| T15 | "향후 같은 종류의 minor 지적에 대한 원칙" / "이번 task-0175에 한해, Reviewer의 유효한 minor FINDINGS가 실제 사실 오류 또는 인용 불일치를 지적하고 repair 예산이 남아 있다면, 즉시 멈추지 말고 승인된 예산 내에서 수정한 뒤 새 candidate로 Reviewer와 QA를 다시 진행해도 됩니다." / "단, 의미 변경, 작업 범위 확대, 상태 전이 정책 변경, 예산 초과, 또는 기존 승인과 충돌하는 문제는 자동으로 수정하지 말고 Owner에게 보고하세요." / "이 원칙은 이번 task-0175에만 적용하며, SOP나 다른 task의 기본 정책은 변경하지 마세요." | 이 원칙은 task-0175에만 적용하고 SOP·다른 task는 바꾸지 않는다. repair 1 뒤 예산이 1/1로 소진돼 Reviewer 2 지적은 고치지 않고 Owner에게 보고했고, Owner가 예산을 2로 늘려 repair 2를 승인했다(T16). repair 2가 마지막이라 이후 지적은 고치지 않고 Owner에게 보고한다. 의미 변경·범위 확대·전이 정책 변경·예산 초과·승인 충돌은 언제나 보고 대상이다 |
 | T16 | "Owner 결정: A 승인 — task-0175 한정 repair 예산 증액" / "task-0175에 한해 repair 예산을 기존 1회에서 총 2회로 늘리는 것을 승인합니다." / "이번 수정은 두 번째이자 마지막 repair입니다." | repair 예산을 task-0175에 한해 2로 늘렸고(SOP·다른 task 무변경), 이번 수정이 두 번째이자 마지막 repair다(`repair_count=2`) |
 | T17 | "`5a24ce7`의 task-0175 기록에서 Manager 요약 머리말 한 문장만 다음 취지로 수정하세요." / "기존: "위 두 원문 블록의 문장을 그대로 옮겼다"" / "수정: "위 두 원문 블록과 아래 Repair 1 원문 블록의 문장을 그대로 옮겼다"" / "실제 문맥에 맞게 자연스럽게 작성하되, 출처 블록의 위치와 개수가 정확해야 합니다." | 머리말 한 문장만 고쳤다. 이번 결정도 원문 블록으로 기록해 표 아래 블록이 둘이 되므로, 위치와 개수가 정확하도록 표 위 두 블록과 표 아래 두 블록(Repair 1, Repair 2)을 이름으로 적고 행 범위별 출처를 밝혔다 |
 | T18 | "Reviewer를 다시 부르기 전에 Manager 요약의 모든 인용·출처 안내를 실제 원문 블록과 직접 대조하세요." / "특히 T8 및 T13~T15의 인용 대상, 블록의 위치, 인용 문구의 일치 여부를 확인하고, 불일치가 있으면 Reviewer 호출 전에 수정하세요." / "기존에 승인된 내용과 범위는 바꾸지 마세요." | Reviewer 호출 전 "인용·출처 대조" 절의 스크립트로 모든 인용 문장이 해당 행 범위의 원문 블록에 그대로 있는지, 블록 위치(표 위 2·표 아래 2), T8의 두 인용 문자열이 0033·0036 summary에 그대로 있는지 확인했다. 승인된 내용과 범위는 바꾸지 않았다 |
@@ -333,6 +333,7 @@ Owner 결정: A 승인 — task-0175 한정 repair 예산 증액
 - 머리말 한 문장을 바꿨다. 이번 결정을 원문 블록으로 기록하면 표 아래 블록이 둘(Repair 1, Repair 2)이 되므로, "출처 블록의 위치와 개수가 정확해야" 한다는 지시대로 표 위 두 블록과 표 아래 두 블록을 이름으로 적고 행 범위별 출처(T1~T6, T7~T12, T13~T15, T16~T19)를 밝혔다.
 - 이번 결정 원문의 문장을 인용하는 T16~T19 행을 더했다. 그 밖에 바뀐 것은 SOP가 요구하는 기록뿐이다: 기준선 budget 행(`repair_budget=2`, `repair_count=2`), summary, 위 Candidate 2·Reviewer 2·Owner 결정 원문·이 절, updated_at(2026-10-20 16:38 UTC, 편집 스크립트가 UTC 시계를 읽어 넣음).
 - 다섯 task 기록은 바꾸지 않았다. Reviewer 호출 전 대조 결과는 아래 "인용·출처 대조" 절에 적는다.
+- Reviewer 3 호출 전 점검에서 T15 해석 칸이 "예산 1/1 소진" 시점에 머물러 있는 것을 찾아 repair 2 범위 안에서 현재 상태(예산 2, repair 2가 마지막)로 고쳤다. 인용 문장은 바꾸지 않았다.
 
 ## 인용·출처 대조 (Reviewer 3 호출 전)
 
