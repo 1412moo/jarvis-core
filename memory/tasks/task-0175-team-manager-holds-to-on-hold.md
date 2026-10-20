@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 15:05 UTC`
-- updated_at: `2026-10-20 16:59 UTC`
+- updated_at: `2026-10-20 17:01 UTC`
 - summary: `task-0156에서 Owner가 보류한 Team Manager task 중 NEEDS_APPROVAL 5건(0030, 0032, 0033, 0034, 0036)의 summary에 보류 주체·근거·사유·재개 조건을 승인된 문구로 기록했고(task-model §9, 0033·0036은 축약하고 원문을 본문에 보존), Reviewer·QA 뒤 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. DOING인 task-0031은 그대로 둔다. Reviewer 지적(인용 불일치, 요약 머리말 출처 안내, push 금지 인용 누락, 시각 서술)을 repair 1~3으로 고쳤고 검토·Hold 결과는 본문에 기록한다.`
 - source_command: `Owner 결정: 패키지 B A안, task-0175 등록과 계획 (Claude Code 세션)`
 
@@ -389,7 +389,7 @@ Owner 결정: A 승인 — task-0175 한정 최종 repair
 - 지적 1: T19 인용에 "`git push`는 하지 마세요."를 넣고 해석 칸에 "`git push`하지 않는다"를 더했다.
 - 지적 2: Repair 2 절의 시각 서술을 `b3cf4d9`(16:38 UTC)와 `45dc6ae`(16:39 UTC) 각각의 메타데이터와 맞게 고쳤다.
 - SOP가 요구하는 기록: 머리말을 다섯 블록(표 위 2, 표 아래 3)과 행 범위로 고쳤고, 이번 결정 원문을 인용하는 T20~T23 행, 기준선 budget 행(`repair_budget=3`, `repair_count=3`), summary, 위 Candidate 3·Reviewer 3·Owner 결정 원문·이 절을 더했다.
-- updated_at은 이 repair 3 편집 시각 2026-10-20 16:59 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
+- updated_at은 이 repair 3 편집 시각 2026-10-20 17:01 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음). 처음 16:59 UTC로 넣었으나 아래 대조 절을 그 뒤에 더해, Reviewer 호출 전에 마지막 편집 시각으로 맞췄다.
 - 다섯 task 기록은 바꾸지 않았다. retry 예산(1)은 남아 있지만, 다음 Reviewer가 무효면 승인 4항에 따라 retry 규칙으로 처리하고 보고하며, 유효한 지적이나 QA 실패면 중단하고 보고한다.
 
 ## 인용·출처 대조 (Reviewer 4 호출 전)
