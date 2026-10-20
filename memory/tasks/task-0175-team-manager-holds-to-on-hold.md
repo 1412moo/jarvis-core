@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 15:05 UTC`
-- updated_at: `2026-10-20 16:39 UTC`
-- summary: `task-0156에서 Owner가 보류한 Team Manager task 중 NEEDS_APPROVAL 5건(0030, 0032, 0033, 0034, 0036)의 summary에 보류 주체·근거·사유·재개 조건을 승인된 문구로 기록했고(task-model §9, 0033·0036은 축약하고 원문을 본문에 보존), Reviewer·QA 뒤 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. DOING인 task-0031은 그대로 둔다. Reviewer 지적(T8 인용 불일치, 요약 머리말의 출처 안내)을 repair 1·2로 고쳤고 검토·Hold 결과는 본문에 기록한다.`
+- updated_at: `2026-10-20 16:59 UTC`
+- summary: `task-0156에서 Owner가 보류한 Team Manager task 중 NEEDS_APPROVAL 5건(0030, 0032, 0033, 0034, 0036)의 summary에 보류 주체·근거·사유·재개 조건을 승인된 문구로 기록했고(task-model §9, 0033·0036은 축약하고 원문을 본문에 보존), Reviewer·QA 뒤 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. DOING인 task-0031은 그대로 둔다. Reviewer 지적(인용 불일치, 요약 머리말 출처 안내, push 금지 인용 누락, 시각 서술)을 repair 1~3으로 고쳤고 검토·Hold 결과는 본문에 기록한다.`
 - source_command: `Owner 결정: 패키지 B A안, task-0175 등록과 계획 (Claude Code 세션)`
 
 ## 기준선
@@ -16,7 +16,7 @@
 | baseline | `7cf5c850256c63945026f8d086fc9cb88f5694f5` (등록 시점 main HEAD = origin/main, fetch 후 확인). Start 때 다시 확인한다 |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 등록 방식 | 이 기록을 `TODO`로 작업 트리에만 만들었다(커밋·stage 없음). task-0173·0174와 같이 Start 승인 뒤 candidate에 포함한다 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (repair 1 뒤 1, Owner가 이 task에 한해 예산을 2로 증액한 뒤 repair 2로 2. 아래 "Repair 1"·"Repair 2") |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=3`, `repair_count=3` (repair 1 뒤 1, Owner가 이 task에 한해 예산을 2로 증액한 뒤 repair 2로 2, 다시 3으로 증액한 뒤 repair 3으로 3. 아래 "Repair 1"·"Repair 2"·"Repair 3") |
 
 ## Owner 결정 (원문)
 
@@ -219,7 +219,7 @@ Start 전 확인(2026-10-20 15:31 UTC): fetch 뒤 branch `main`, HEAD `7cf5c8502
 
 ## Manager 요약
 
-원문 인용은 이 표 위의 두 원문 블록("Owner 결정 (원문)", "Owner 결정: D1~D3와 Start 승인 (원문)")과 표 아래의 두 원문 블록("Owner 결정: Repair 1 (원문)", "Owner 결정: Repair 2 (원문)")의 문장을 그대로 옮겼다. T1~T6은 첫째, T7~T12는 둘째, T13~T15는 셋째, T16~T19는 넷째 블록을 인용한다. 해석은 오른쪽 칸에만 적는다.
+원문 인용은 이 표 위의 두 원문 블록("Owner 결정 (원문)", "Owner 결정: D1~D3와 Start 승인 (원문)")과 표 아래의 세 원문 블록("Owner 결정: Repair 1 (원문)", "Owner 결정: Repair 2 (원문)", "Owner 결정: Repair 3 (원문)")의 문장을 그대로 옮겼다. T1~T6은 첫째, T7~T12는 둘째, T13~T15는 셋째, T16~T19는 넷째, T20~T23은 다섯째 블록을 인용한다. 해석은 오른쪽 칸에만 적는다.
 
 | # | 원문 인용 | Manager 해석과 충족 |
 | --- | --- | --- |
@@ -241,7 +241,11 @@ Start 전 확인(2026-10-20 15:31 UTC): fetch 뒤 branch `main`, HEAD `7cf5c8502
 | T16 | "Owner 결정: A 승인 — task-0175 한정 repair 예산 증액" / "task-0175에 한해 repair 예산을 기존 1회에서 총 2회로 늘리는 것을 승인합니다." / "이번 수정은 두 번째이자 마지막 repair입니다." | repair 예산을 task-0175에 한해 2로 늘렸고(SOP·다른 task 무변경), 이번 수정이 두 번째이자 마지막 repair다(`repair_count=2`) |
 | T17 | "`5a24ce7`의 task-0175 기록에서 Manager 요약 머리말 한 문장만 다음 취지로 수정하세요." / "기존: "위 두 원문 블록의 문장을 그대로 옮겼다"" / "수정: "위 두 원문 블록과 아래 Repair 1 원문 블록의 문장을 그대로 옮겼다"" / "실제 문맥에 맞게 자연스럽게 작성하되, 출처 블록의 위치와 개수가 정확해야 합니다." | 머리말 한 문장만 고쳤다. 이번 결정도 원문 블록으로 기록해 표 아래 블록이 둘이 되므로, 위치와 개수가 정확하도록 표 위 두 블록과 표 아래 두 블록(Repair 1, Repair 2)을 이름으로 적고 행 범위별 출처를 밝혔다 |
 | T18 | "Reviewer를 다시 부르기 전에 Manager 요약의 모든 인용·출처 안내를 실제 원문 블록과 직접 대조하세요." / "특히 T8 및 T13~T15의 인용 대상, 블록의 위치, 인용 문구의 일치 여부를 확인하고, 불일치가 있으면 Reviewer 호출 전에 수정하세요." / "기존에 승인된 내용과 범위는 바꾸지 마세요." | Reviewer 호출 전 "인용·출처 대조" 절의 스크립트로 모든 인용 문장이 해당 행 범위의 원문 블록에 그대로 있는지, 블록 위치(표 위 2·표 아래 2), T8의 두 인용 문자열이 0033·0036 summary에 그대로 있는지 확인했다. 승인된 내용과 범위는 바꾸지 않았다 |
-| T19 | "수정 후 새 candidate를 만들고 Reviewer → QA를 동일한 새 candidate에 대해 처음부터 진행하세요." / "유효한 Reviewer PASS와 QA PASS를 모두 얻기 전에는 Hold를 진행하지 마세요." / "두 검증이 모두 PASS하면 이미 승인된 절차대로 Hold → 상태 검증 → Record Completion Evidence → Console Complete Preview/Confirm → DONE checkpoint → master-plan sync를 진행하세요." / "이번 두 번째 repair 이후 추가 지적이 나오거나, 검증이 실패하거나, 예산이 소진되면 임의로 예산을 다시 늘리지 말고 멈춰 보고하세요." / "다섯 task 기록의 기존 승인된 summary 변경은 유지하세요." / "task-0031, task-0035, task-0156, `jarvis.bat`, 보호된 worktree는 건드리지 마세요." / "이번 예산 증액과 검증 지시는 task-0175에만 적용하며, SOP나 다른 task의 정책은 변경하지 않습니다." | 새 candidate에 Reviewer → QA를 처음부터 실행하고, 둘 다 유효한 PASS일 때만 Hold → 상태 검증 → Record Completion Evidence → Console Complete Preview/Confirm → DONE checkpoint → master-plan 기록 커밋을 진행한다. 이후 지적·검증 실패·예산 소진이면 예산을 늘리지 않고 멈춰 보고한다. 다섯 기록의 승인된 summary는 유지하고 0031·0035·0156·`jarvis.bat`·보존 worktree는 건드리지 않는다. 이 지시는 task-0175에만 적용한다 |
+| T19 | "수정 후 새 candidate를 만들고 Reviewer → QA를 동일한 새 candidate에 대해 처음부터 진행하세요." / "유효한 Reviewer PASS와 QA PASS를 모두 얻기 전에는 Hold를 진행하지 마세요." / "두 검증이 모두 PASS하면 이미 승인된 절차대로 Hold → 상태 검증 → Record Completion Evidence → Console Complete Preview/Confirm → DONE checkpoint → master-plan sync를 진행하세요." / "이번 두 번째 repair 이후 추가 지적이 나오거나, 검증이 실패하거나, 예산이 소진되면 임의로 예산을 다시 늘리지 말고 멈춰 보고하세요." / "다섯 task 기록의 기존 승인된 summary 변경은 유지하세요." / "task-0031, task-0035, task-0156, `jarvis.bat`, 보호된 worktree는 건드리지 마세요." / "`git push`는 하지 마세요." / "이번 예산 증액과 검증 지시는 task-0175에만 적용하며, SOP나 다른 task의 정책은 변경하지 않습니다." | 새 candidate에 Reviewer → QA를 처음부터 실행하고, 둘 다 유효한 PASS일 때만 Hold → 상태 검증 → Record Completion Evidence → Console Complete Preview/Confirm → DONE checkpoint → master-plan 기록 커밋을 진행한다. 이후 지적·검증 실패·예산 소진이면 예산을 늘리지 않고 멈춰 보고한다. 다섯 기록의 승인된 summary는 유지하고 0031·0035·0156·`jarvis.bat`·보존 worktree는 건드리지 않고 `git push`하지 않는다. 이 지시는 task-0175에만 적용한다 |
+| T20 | "Owner 결정: A 승인 — task-0175 한정 최종 repair" / "task-0175에 한해 repair 예산을 총 3회로 늘립니다." / "이번이 세 번째이자 마지막 repair입니다." / "수정 범위는 아래 두 항목으로 제한합니다." / "T19에 Repair 2 원문 7항의 `git push` 금지 문구와 그 의미를 정확히 반영합니다." / "Repair 2 절의 시각을 실제 메타데이터와 대조해 일치시킵니다." | repair 예산을 task-0175에 한해 3으로 늘렸고 이번이 마지막 repair다(`repair_count=3`). 고친 것은 두 항목뿐이다: T19에 "`git push`는 하지 마세요." 인용과 "`git push`하지 않는다" 해석을 더했고, Repair 2 절의 시각을 `b3cf4d9`(16:38 UTC)·`45dc6ae`(16:39 UTC)의 메타데이터와 맞췄다 |
+| T21 | "Reviewer 호출 전에 출처 대조를 강화합니다." / "각 인용 문구가 해당 원문 블록에 실제로 존재하는지 확인합니다." / "반대로 각 원문 블록에서 인용 대상으로 삼은 모든 지시·문장이 해당 행 범위에 빠짐없이 반영됐는지도 확인합니다." / "시각과 메타데이터 일치 여부도 스크립트로 확인합니다." / "검사 결과와 불일치가 없음을 확인한 후에만 새 candidate를 만듭니다." | Reviewer 호출 전 "인용·출처 대조 (Reviewer 4 호출 전)" 절의 스크립트로 세 가지를 검사했다: 인용 → 블록(각 인용이 행 범위의 블록에 있음), 블록 → 인용(각 블록의 모든 문장이 그 행 범위에 인용됨), 시각(메타데이터 updated_at = Repair 3 절의 시각, Repair 2 절의 두 시각 = 각 커밋의 메타데이터). 불일치가 없을 때만 candidate를 만들었다 |
+| T22 | "새 candidate에 대해 Reviewer → QA를 처음부터 진행합니다." / "Reviewer는 SOP에서 허용하는 명령 형식만 사용해야 합니다." / "Reviewer 결과가 다시 무효라면 임의로 추가 repair를 하지 말고 남은 retry 규칙에 따라 처리한 뒤 보고하세요." / "세 번째 repair 이후 유효한 FINDINGS가 추가로 나오거나 QA가 실패하면, 추가 예산 증액 없이 즉시 중단하고 Owner에게 보고합니다." / "자동으로 Hold를 진행하지 마세요." / "Reviewer PASS와 QA PASS가 동일 candidate에서 모두 확인된 경우에만 기존 승인 계획대로 Hold → 상태 검증 → Evidence → Complete → DONE checkpoint → master-plan sync를 진행합니다." | 새 candidate에 Reviewer → QA를 처음부터 실행하고 Reviewer 호출문에 허용 명령 형식 요구를 넣는다. Reviewer가 무효면 추가 repair 없이 retry 규칙(1회)으로 처리하고 보고한다. 유효한 지적이나 QA 실패면 예산을 늘리지 않고 중단해 보고하고 Hold하지 않는다. 같은 candidate에 Reviewer PASS와 QA PASS가 있을 때만 Hold → 상태 검증 → Evidence → Complete → DONE checkpoint → master-plan 기록 커밋을 진행한다 |
+| T23 | "기존에 승인된 다섯 task의 summary 변경만 유지하고, 다른 task 기록·보호 파일·worktree는 수정하지 마세요." / "`git push`는 하지 마세요." / "이 결정은 task-0175에만 적용하며 SOP나 다른 task의 정책은 변경하지 않습니다." | 다섯 task의 승인된 summary 변경만 유지하고 다른 task 기록·보호 파일·worktree는 바꾸지 않으며 `git push`하지 않는다. 이 결정은 task-0175에만 적용한다 |
 
 ## 사전 점검 (첫 실행)
 
@@ -331,7 +335,7 @@ Owner 결정: A 승인 — task-0175 한정 repair 예산 증액
 ## Repair 2
 
 - 머리말 한 문장을 바꿨다. 이번 결정을 원문 블록으로 기록하면 표 아래 블록이 둘(Repair 1, Repair 2)이 되므로, "출처 블록의 위치와 개수가 정확해야" 한다는 지시대로 표 위 두 블록과 표 아래 두 블록을 이름으로 적고 행 범위별 출처(T1~T6, T7~T12, T13~T15, T16~T19)를 밝혔다.
-- 이번 결정 원문의 문장을 인용하는 T16~T19 행을 더했다. 그 밖에 바뀐 것은 SOP가 요구하는 기록뿐이다: 기준선 budget 행(`repair_budget=2`, `repair_count=2`), summary, 위 Candidate 2·Reviewer 2·Owner 결정 원문·이 절, updated_at(2026-10-20 16:38 UTC, 편집 스크립트가 UTC 시계를 읽어 넣음).
+- 이번 결정 원문의 문장을 인용하는 T16~T19 행을 더했다. 그 밖에 바뀐 것은 SOP가 요구하는 기록뿐이다: 기준선 budget 행(`repair_budget=2`, `repair_count=2`), summary, 위 Candidate 2·Reviewer 2·Owner 결정 원문·이 절, updated_at(`b3cf4d9`의 편집 시각 2026-10-20 16:38 UTC, 같은 repair의 `45dc6ae`에서 T15를 고칠 때 16:39 UTC로 바뀜. 둘 다 편집 스크립트가 UTC 시계를 읽어 넣음. 그 뒤의 값은 아래 "Repair 3").
 - 다섯 task 기록은 바꾸지 않았다. Reviewer 호출 전 대조 결과는 아래 "인용·출처 대조" 절에 적는다.
 - Reviewer 3 호출 전 점검에서 T15 해석 칸이 "예산 1/1 소진" 시점에 머물러 있는 것을 찾아 repair 2 범위 안에서 현재 상태(예산 2, repair 2가 마지막)로 고쳤다. 인용 문장은 바꾸지 않았다.
 
@@ -343,3 +347,59 @@ scratchpad 스크립트로 Manager 요약을 원문 블록과 직접 대조했�
 - 인용: 19개 행(T1~T19)에서 인용 86개를 뽑아, 각 인용이 머리말이 밝힌 행 범위의 블록(T1~T6 첫째, T7~T12 둘째, T13~T15 셋째, T16~T19 넷째)에 그대로 있는지 확인했다. 불일치 0. `check_summary_quotes.py`도 `ALL_QUOTED`.
 - T8의 두 인용 "모델 다운로드/credential 발급/외부 연결/코드 구현 없음", "API 키 발급/결제/외부연결/코드 변경 없음"은 각각 0033·0036 summary 줄에 그대로 있다.
 - T13~T15는 셋째 블록(Repair 1)의 문장만 인용한다.
+
+## Candidate 3 (repair 2)
+
+`45dc6ae989148a9ec656e26d34110f5735738a29`(parent `b3cf4d9`, 커밋 2026-10-20 16:39:27 UTC). repair 2는 `b3cf4d9`(머리말, 결정 원문, 인용 대조)와 `45dc6ae`(T15 갱신) 두 커밋이다. 이 기록만 바뀌었다.
+
+## Reviewer 3 (`45dc6ae`, FINDINGS minor 2, `self_deviations` 1건 → 무효)
+
+- findings 1: Repair 2 원문 7항의 "`git push`는 하지 마세요."가 T16~T19의 인용에도 해석에도 없다(같은 문장이 T14에 있어 `check_summary_quotes`는 통과했고, Manager의 대조 스크립트는 인용 → 블록 방향만 봐서 놓쳤다).
+- findings 2: Repair 2 절이 updated_at을 16:38로 적었지만 `45dc6ae`의 메타데이터는 16:39다.
+- `self_deviations`: `git diff b3cf4d9… 45dc6ae…`(부모를 `<hash>^`가 아닌 hash로 씀) 1건. 이 검토는 무효다.
+
+Manager 판정: 두 지적 모두 사실이다. repair 2 승인 6항에 따라 retry나 수정을 하지 않고 Owner에게 보고했다.
+
+## Owner 결정: Repair 3 (원문)
+
+```text
+Owner 결정: A 승인 — task-0175 한정 최종 repair
+
+1. task-0175에 한해 repair 예산을 총 3회로 늘립니다. 이번이 세 번째이자 마지막 repair입니다.
+2. 수정 범위는 아래 두 항목으로 제한합니다.
+   * T19에 Repair 2 원문 7항의 `git push` 금지 문구와 그 의미를 정확히 반영합니다.
+   * Repair 2 절의 시각을 실제 메타데이터와 대조해 일치시킵니다.
+3. Reviewer 호출 전에 출처 대조를 강화합니다.
+   * 각 인용 문구가 해당 원문 블록에 실제로 존재하는지 확인합니다.
+   * 반대로 각 원문 블록에서 인용 대상으로 삼은 모든 지시·문장이 해당 행 범위에 빠짐없이 반영됐는지도 확인합니다.
+   * 시각과 메타데이터 일치 여부도 스크립트로 확인합니다.
+   * 검사 결과와 불일치가 없음을 확인한 후에만 새 candidate를 만듭니다.
+4. 새 candidate에 대해 Reviewer → QA를 처음부터 진행합니다. Reviewer는 SOP에서 허용하는 명령 형식만 사용해야 합니다. Reviewer 결과가 다시 무효라면 임의로 추가 repair를 하지 말고 남은 retry 규칙에 따라 처리한 뒤 보고하세요.
+5. 세 번째 repair 이후 유효한 FINDINGS가 추가로 나오거나 QA가 실패하면, 추가 예산 증액 없이 즉시 중단하고 Owner에게 보고합니다. 자동으로 Hold를 진행하지 마세요.
+6. Reviewer PASS와 QA PASS가 동일 candidate에서 모두 확인된 경우에만 기존 승인 계획대로 Hold → 상태 검증 → Evidence → Complete → DONE checkpoint → master-plan sync를 진행합니다.
+7. 기존에 승인된 다섯 task의 summary 변경만 유지하고, 다른 task 기록·보호 파일·worktree는 수정하지 마세요. `git push`는 하지 마세요.
+
+이 결정은 task-0175에만 적용하며 SOP나 다른 task의 정책은 변경하지 않습니다.
+```
+
+이 증액은 task-0175에만 효력이 있다.
+
+## Repair 3
+
+- 지적 1: T19 인용에 "`git push`는 하지 마세요."를 넣고 해석 칸에 "`git push`하지 않는다"를 더했다.
+- 지적 2: Repair 2 절의 시각 서술을 `b3cf4d9`(16:38 UTC)와 `45dc6ae`(16:39 UTC) 각각의 메타데이터와 맞게 고쳤다.
+- SOP가 요구하는 기록: 머리말을 다섯 블록(표 위 2, 표 아래 3)과 행 범위로 고쳤고, 이번 결정 원문을 인용하는 T20~T23 행, 기준선 budget 행(`repair_budget=3`, `repair_count=3`), summary, 위 Candidate 3·Reviewer 3·Owner 결정 원문·이 절을 더했다.
+- updated_at은 이 repair 3 편집 시각 2026-10-20 16:59 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
+- 다섯 task 기록은 바꾸지 않았다. retry 예산(1)은 남아 있지만, 다음 Reviewer가 무효면 승인 4항에 따라 retry 규칙으로 처리하고 보고하며, 유효한 지적이나 QA 실패면 중단하고 보고한다.
+
+## 인용·출처 대조 (Reviewer 4 호출 전)
+
+Repair 3 결정 3항에 따라 scratchpad 스크립트로 검사했다(`check_summary_quotes.py`의 절 분리·문장 분리 함수를 그대로 씀).
+
+| 검사 | 결과 |
+| --- | --- |
+| 원문 블록 위치·개수 | 표 위 2("Owner 결정 (원문)", "Owner 결정: D1~D3와 Start 승인 (원문)"), 표 아래 3("Owner 결정: Repair 1/2/3 (원문)"). 머리말이 다섯 블록과 행 범위 T1~T6, T7~T12, T13~T15, T16~T19, T20~T23을 모두 밝힘 |
+| 인용 → 블록 | 23개 행의 인용 107개가 모두 행 범위가 가리키는 블록에 있음 |
+| 블록 → 인용 | 블록별 문장 수와 그 행 범위의 인용 수: 32/32, 19/19, 18/18, 18/18, 20/20. 빠진 문장 없음(Repair 2 7항의 "`git push`는 하지 마세요."는 T19에 있음) |
+| 시각 | 메타데이터 updated_at = Repair 3 절의 시각. Repair 2 절의 16:38·16:39 UTC = `b3cf4d9`·`45dc6ae`의 메타데이터 |
+| 검사기 변형 확인 | T19에서 push 인용을 빼면 "Repair 2 (원문) sentence not quoted in T16~T19"로 FAIL, 되돌리면 PASS |
