@@ -65,10 +65,15 @@ from task_file_writer import (  # noqa: E402
     TASK_ALLOWED_METADATA,
     TASK_ALLOWED_STATUSES,
     TASK_FILE_PATTERN,
+    TASK_HOLD_FROM_FIELD,
+    TASK_HOLD_FROM_STATUSES,
+    TASK_HOLD_STATUS,
     CompletionEvidenceWriteResult,
     TaskStatusTransitionResult,
+    hold_task_file,
     preview_task_file_write,
     record_task_completion_evidence,
+    resume_task_file,
     transition_task_file_status,
     write_task_file,
 )
@@ -211,6 +216,7 @@ TASK_VIEW_ALLOWED_FIELDS = frozenset(TASK_VIEW_REQUIRED_FIELDS).union(
     TASK_VIEW_OPTIONAL_TEXT_FIELDS,
     TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS,
     TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS,
+    {TASK_HOLD_FROM_FIELD},
 )
 TASK_VIEW_METADATA_PATTERN = re.compile(
     r"^- (?P<field>[a-z][a-z0-9_]*): `(?P<value>[^`\r\n]*)`$"
@@ -224,6 +230,7 @@ TASK_VIEW_GROUPS = (
     ("needs_attention", "Needs attention"),
     ("in_progress", "In progress"),
     ("ready", "Ready"),
+    ("on_hold", "On hold"),
     ("completed", "Completed"),
 )
 TASK_VIEW_STATUS_RULES = {
@@ -236,17 +243,6 @@ TASK_VIEW_STATUS_RULES = {
         "needs_attention",
         20,
         "Review the summary and clear the blocker outside Jarvis Console.",
-    ),
-    # task-0098: ON_HOLD became the seventh official status by owner decision
-    # (task-0041, 2026-08-28). The model, the template and task_file_writer all
-    # took it; this table was written before that and did not, so a Task using
-    # the documented vocabulary failed closed here as invalid_status. It waits
-    # on an owner call like NEEDS_APPROVAL and BLOCKED do, and ranks after
-    # BLOCKED because the pause is already deliberate.
-    "ON_HOLD": (
-        "needs_attention",
-        25,
-        "Review the summary and make the required decision outside Jarvis Console.",
     ),
     "FAILED": (
         "needs_attention",
@@ -262,6 +258,16 @@ TASK_VIEW_STATUS_RULES = {
         "ready",
         50,
         "Decide whether to start this task outside Jarvis Console.",
+    ),
+    # task-0098: ON_HOLD became the seventh official status by owner decision
+    # (task-0041, 2026-08-28) and was first listed with the attention group.
+    # task-0173 (Owner decision O4): a deliberate pause is not waiting on
+    # anyone, so it has its own group after Ready and before Completed and no
+    # longer takes the places in front of the Tasks in progress.
+    "ON_HOLD": (
+        "on_hold",
+        55,
+        "Resume only after the Owner re-prioritizes this Task; the summary records why it is on hold.",
     ),
     "DONE": (
         "completed",
@@ -324,6 +330,35 @@ TASK_TRANSITION_COMPLETE_WARNING = (
 TASK_TRANSITION_NOTICE = (
     "This changes only status and updated_at. It does not execute the task."
 )
+# task-0173: Hold and Resume. Each takes the statuses it may start from; the
+# target is ON_HOLD for Hold and the recorded hold_from for Resume. DOING is not
+# a Hold source, because a run may still be working on it and the Console
+# cannot tell. Neither action approves, rejects or executes anything.
+TASK_HOLD_ACTIONS = {
+    "hold": (TASK_HOLD_FROM_STATUSES, "HOLD TASK"),
+    "resume": (frozenset({TASK_HOLD_STATUS}), "RESUME TASK"),
+}
+TASK_HOLD_NOTICE = (
+    "Hold changes only status, updated_at and hold_from. It does not execute the task."
+)
+TASK_RESUME_NOTICE = (
+    "Resume returns the Task to the status recorded in hold_from and removes "
+    "hold_from. It changes nothing else and does not execute the task."
+)
+TASK_HOLD_WARNING = (
+    "Before you confirm, this Task's summary must already state who decided the "
+    "hold, why, and what decision resumes it (docs/task-model.md section 9). "
+    "Jarvis does not check the summary. If the reason is missing, cancel and "
+    "record it first."
+)
+TASK_HOLD_APPROVAL_NOTICE = (
+    "Hold does not approve or reject this Task. Resume returns it to "
+    "NEEDS_APPROVAL, where only Discord /approve can approve it."
+)
+TASK_TRANSITION_WARNINGS = {
+    "complete": TASK_TRANSITION_COMPLETE_WARNING,
+    "hold": TASK_HOLD_WARNING,
+}
 TASK_TRANSITION_TOKEN_TTL_SECONDS = 10 * 60
 TASK_TRANSITION_TOKEN_CAPACITY = 128
 TASK_TRANSITION_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{24,128}$")
@@ -1662,6 +1697,13 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
     status_rule = TASK_VIEW_STATUS_RULES.get(status)
     if status_rule is None:
         return invalid_task_view("invalid_status", "status")
+    # task-0173: the same hold_from rule as task_file_writer. It is present
+    # exactly while the Task is ON_HOLD and names a status Hold accepts.
+    if status == TASK_HOLD_STATUS:
+        if metadata.get(TASK_HOLD_FROM_FIELD) not in TASK_HOLD_FROM_STATUSES:
+            return invalid_task_view("invalid_text", TASK_HOLD_FROM_FIELD)
+    elif TASK_HOLD_FROM_FIELD in metadata:
+        return invalid_task_view("invalid_text", TASK_HOLD_FROM_FIELD)
     if (
         "completion_evidence" in metadata
         and metadata_line_indexes["completion_evidence"]
@@ -1743,6 +1785,7 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
         ),
         "has_completion_evidence": "completion_evidence" in metadata,
         "execution": execution,
+        "hold_from": metadata.get(TASK_HOLD_FROM_FIELD),
         "group_id": group_id,
         "display_rank": display_rank,
         "next_action": next_action,
@@ -1975,7 +2018,7 @@ def overview_payload() -> dict[str, Any]:
         "recent_groups": recent_groups,
         "notes": [
             "/api/overview discovery and basic details are read-only.",
-            "Only explicit Start / Complete Preview + Confirm may update a selected valid Task's status and updated_at. Record Completion Evidence Preview + Confirm may append one completion_evidence value and update only updated_at for an eligible DOING Task; it does not validate evidence, change status, complete, or execute the Task.",
+            "Only explicit Start / Complete and Hold / Resume Preview + Confirm may update a selected valid Task's status and updated_at; Hold and Resume also write and remove hold_from. Record Completion Evidence Preview + Confirm may append one completion_evidence value and update only updated_at for an eligible DOING Task; it does not validate evidence, change status, complete, or execute the Task.",
             "Reports and checkpoints are discovered as existing local files only; none are generated here.",
             "Recent items are read-only metadata from allowlisted local paths.",
             "Jarvis Console does not run skills, call Codex/ChatGPT/Hermes, or commit/push.",
@@ -2586,6 +2629,8 @@ class TaskTransitionRegistry:
         confirmation: str,
         tasks_dir: Path,
         writer: Any = transition_task_file_status,
+        hold_writer: Any = hold_task_file,
+        resume_writer: Any = resume_task_file,
     ) -> tuple[int, dict[str, Any]]:
         if not TASK_TRANSITION_TOKEN_PATTERN.fullmatch(token):
             return HTTPStatus.NOT_FOUND, {
@@ -2622,14 +2667,28 @@ class TaskTransitionRegistry:
 
             record.consumed_without_receipt = True
             try:
-                result = writer(
-                    tasks_dir=tasks_dir,
-                    task_id=record.task_id,
-                    expected_digest=record.expected_digest,
-                    current_status=record.current_status,
-                    target_status=record.target_status,
-                    planned_updated_at=record.planned_updated_at,
-                )
+                if record.action in TASK_HOLD_ACTIONS:
+                    # task-0173: the hold writer changes hold_from with the
+                    # status and works out the Resume target from the file.
+                    hold_or_resume = (
+                        hold_writer if record.action == "hold" else resume_writer
+                    )
+                    result = hold_or_resume(
+                        tasks_dir=tasks_dir,
+                        task_id=record.task_id,
+                        expected_digest=record.expected_digest,
+                        current_status=record.current_status,
+                        planned_updated_at=record.planned_updated_at,
+                    )
+                else:
+                    result = writer(
+                        tasks_dir=tasks_dir,
+                        task_id=record.task_id,
+                        expected_digest=record.expected_digest,
+                        current_status=record.current_status,
+                        target_status=record.target_status,
+                        planned_updated_at=record.planned_updated_at,
+                    )
             except OSError:
                 return HTTPStatus.CONFLICT, {
                     "ok": False,
@@ -2644,6 +2703,16 @@ class TaskTransitionRegistry:
                 return HTTPStatus.CONFLICT, {
                     "ok": False,
                     "error": result.reason or "task_transition_failed",
+                }
+            if (
+                record.action in TASK_HOLD_ACTIONS
+                and getattr(result, "current_status", None) != record.target_status
+            ):
+                # The digest binds the file to the Preview, so this cannot differ;
+                # if it ever does, the receipt must not claim the previewed state.
+                return HTTPStatus.CONFLICT, {
+                    "ok": False,
+                    "error": "task_transition_result_mismatch",
                 }
 
             receipt = {
@@ -2720,12 +2789,17 @@ def preview_task_transition(
             "error": "invalid_task_transition_preview",
         }
     transition = TASK_TRANSITION_ACTIONS.get(action)
-    if transition is None:
+    hold_action = TASK_HOLD_ACTIONS.get(action)
+    if transition is not None:
+        current_status, target_status, confirmation_literal = transition
+        allowed_statuses = frozenset({current_status})
+    elif hold_action is not None:
+        allowed_statuses, confirmation_literal = hold_action
+    else:
         return HTTPStatus.BAD_REQUEST, {
             "ok": False,
             "error": "invalid_task_transition_action",
         }
-    current_status, target_status, confirmation_literal = transition
     selected_item = next(
         (
             item
@@ -2774,11 +2848,21 @@ def preview_task_transition(
             "error": "task_changed_since_preview",
         }
     snapshot_status = snapshot_view["status"]
-    if snapshot_status != current_status:
+    if snapshot_status not in allowed_statuses:
+        # task-0173: DOING is not in the Hold set, so a Task a run may still be
+        # working on is refused here as well as by the writer.
         return HTTPStatus.CONFLICT, {
             "ok": False,
             "error": "task_status_transition_not_allowed",
         }
+    if action == "hold":
+        target_status = TASK_HOLD_STATUS
+    elif action == "resume":
+        # Only the recorded hold_from decides where Resume goes; the request
+        # cannot name a target. The parser has already refused a missing or
+        # unknown value, so a Task that waited for approval returns to
+        # NEEDS_APPROVAL.
+        target_status = snapshot_view["hold_from"]
     planned_updated_at = str(utc_now())
     if parse_task_view_timestamp(planned_updated_at) is None:
         return HTTPStatus.CONFLICT, {
@@ -2812,10 +2896,18 @@ def preview_task_transition(
         "storage_location": storage_location,
         "no_execution": True,
         "notice": TASK_TRANSITION_NOTICE,
-        "warning": (
-            TASK_TRANSITION_COMPLETE_WARNING if action == "complete" else ""
-        ),
+        "warning": TASK_TRANSITION_WARNINGS.get(action, ""),
     }
+    if action == "hold":
+        preview["notice"] = TASK_HOLD_NOTICE
+        # task-0173 (C4): the hold reason lives in the summary, written before
+        # Hold. Shown so the Owner can see whether it is there; not evaluated.
+        preview["summary"] = snapshot_view["summary"]
+        if snapshot_status == "NEEDS_APPROVAL":
+            preview["approval_notice"] = TASK_HOLD_APPROVAL_NOTICE
+    elif action == "resume":
+        preview["notice"] = TASK_RESUME_NOTICE
+        preview["hold_from"] = snapshot_view["hold_from"]
     if action == "complete":
         # task-0130: the warning asks the Owner to confirm only when evidence
         # is recorded, so Complete shows what is recorded. The value comes from

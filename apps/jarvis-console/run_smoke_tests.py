@@ -76,7 +76,13 @@ from hermes_manager_pilot.manager_reporting import (
 # task-0101: importing run_web_app puts orchestrator/discord-intake on sys.path,
 # so the writer's own transition constant can be compared against the copy this
 # file spells out.
-from task_file_writer import TASK_STATUS_TRANSITIONS
+from task_file_writer import (
+    TASK_HOLD_FROM_STATUSES,
+    TASK_HOLD_TRANSITIONS,
+    TASK_STATUS_TRANSITIONS,
+    hold_task_file,
+    resume_task_file,
+)
 
 
 def _test_tasks_reports_registry_copy() -> None:
@@ -1990,6 +1996,356 @@ for (const [index, payload] of malformed.entries()) {
     )
 
 
+def _test_task_hold_resume() -> None:
+    """task-0173: Hold / Resume through the writer and the Console flow.
+
+    Hold moves TODO or NEEDS_APPROVAL to ON_HOLD and records hold_from in the
+    same replace; Resume returns to exactly that status and removes it. DOING
+    is refused at every layer, a broken hold_from fails closed, and a Task that
+    waited for approval comes back to NEEDS_APPROVAL.
+    """
+
+    fixture_root = run_web_app.REPO_ROOT / "task-hold-resume-test-fixture"
+    assert fixture_root.resolve().parent == run_web_app.REPO_ROOT.resolve()
+    shutil.rmtree(fixture_root, ignore_errors=True)
+    tasks_dir = fixture_root / "tasks"
+    tasks_dir.mkdir(parents=True)
+    planned = "2026-07-25 12:00 UTC"
+
+    def task_bytes(task_id: str, status: str, *extra: str) -> bytes:
+        return (
+            "\r\n".join(
+                [
+                    f"# {task_id}",
+                    "",
+                    f"- id: `{task_id}`",
+                    "- title: `Hold fixture`",
+                    f"- status: `{status}`",
+                    *extra,
+                    "- repo: `jarvis-core`",
+                    "- created_at: `2026-07-25 09:00 UTC`",
+                    "- updated_at: `2026-07-25 10:00 UTC`",
+                    "- summary: `Hold reason: Owner paused this fixture.`",
+                    "",
+                    "## Body",
+                    "",
+                    "- a body bullet, not metadata",
+                ]
+            )
+            + "\r\n"
+        ).encode("utf-8")
+
+    def write_task(task_id: str, status: str, *extra: str) -> tuple[Path, bytes]:
+        path = tasks_dir / f"{task_id}.md"
+        raw = task_bytes(task_id, status, *extra)
+        path.write_bytes(raw)
+        return path, raw
+
+    def digest(raw: bytes) -> str:
+        return hashlib.sha256(raw).hexdigest()
+
+    class TokenFactory:
+        def __init__(self) -> None:
+            self.counter = 0
+
+        def __call__(self) -> str:
+            self.counter += 1
+            return f"holdresumetoken{self.counter:016d}"
+
+    try:
+        # Rule agreement between the writer, task-model 5-1 and the Console.
+        console_pairs = {
+            (source, run_web_app.TASK_HOLD_STATUS)
+            for source in run_web_app.TASK_HOLD_ACTIONS["hold"][0]
+        } | {
+            (run_web_app.TASK_HOLD_STATUS, target)
+            for target in TASK_HOLD_FROM_STATUSES
+        }
+        assert console_pairs == set(TASK_HOLD_TRANSITIONS)
+        assert console_pairs <= set(TASK_STATUS_TRANSITIONS)
+        assert run_web_app.TASK_HOLD_ACTIONS["hold"][0] == TASK_HOLD_FROM_STATUSES
+        assert "DOING" not in run_web_app.TASK_HOLD_ACTIONS["hold"][0]
+        assert run_web_app.TASK_HOLD_ACTIONS["resume"][0] == frozenset({"ON_HOLD"})
+        assert run_web_app.TASK_HOLD_ACTIONS["hold"][1] == "HOLD TASK"
+        assert run_web_app.TASK_HOLD_ACTIONS["resume"][1] == "RESUME TASK"
+        assert not set(run_web_app.TASK_HOLD_ACTIONS) & set(
+            run_web_app.TASK_TRANSITION_ACTIONS
+        )
+        assert run_web_app.TASK_ALLOWED_METADATA == run_web_app.TASK_VIEW_ALLOWED_FIELDS
+        assert "hold_from" in run_web_app.TASK_VIEW_ALLOWED_FIELDS
+        # The page keeps its own copy of the group list; it must match.
+        app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
+        groups_source = app_js.split("function renderActionableTaskView", 1)[1].split(
+            "];", 1
+        )[0]
+        assert [
+            line.strip().rstrip(",")
+            for line in groups_source.splitlines()
+            if line.strip().startswith('["')
+        ] == [
+            json.dumps([group_id, label])
+            for group_id, label in run_web_app.TASK_VIEW_GROUPS
+        ]
+
+        # Writer: Hold and Resume round trip, byte for byte.
+        for index, source_status in enumerate(("TODO", "NEEDS_APPROVAL"), start=1):
+            task_id = f"task-81{index:02d}-round-trip"
+            path, before = write_task(task_id, source_status)
+            held = hold_task_file(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(before),
+                current_status=source_status,
+                planned_updated_at=planned,
+            )
+            assert held.result_type == "updated", held
+            held_raw = path.read_bytes()
+            assert held_raw == before.replace(
+                f"- status: `{source_status}`\r\n".encode("utf-8"),
+                (
+                    "- status: `ON_HOLD`\r\n"
+                    f"- hold_from: `{source_status}`\r\n"
+                ).encode("utf-8"),
+                1,
+            ).replace(
+                b"- updated_at: `2026-07-25 10:00 UTC`",
+                f"- updated_at: `{planned}`".encode("utf-8"),
+                1,
+            )
+            resumed = resume_task_file(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(held_raw),
+                current_status="ON_HOLD",
+                planned_updated_at="2026-07-25 10:00 UTC",
+            )
+            assert resumed.result_type == "updated", resumed
+            assert resumed.current_status == source_status
+            assert path.read_bytes() == before
+
+        # Writer: Hold refuses every other status, including DOING.
+        for index, status in enumerate(
+            ("DOING", "BLOCKED", "FAILED", "DONE", "ON_HOLD"),
+            start=1,
+        ):
+            task_id = f"task-82{index:02d}-hold-refused"
+            extra = ("- hold_from: `TODO`",) if status == "ON_HOLD" else ()
+            path, before = write_task(task_id, status, *extra)
+            refused = hold_task_file(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(before),
+                current_status=status,
+                planned_updated_at=planned,
+            )
+            assert refused == run_web_app.TaskStatusTransitionResult(
+                "hold", "invalid_task_transition"
+            ), (status, refused)
+            assert path.read_bytes() == before
+
+        # Writer: Resume fails closed on a missing or invalid hold_from, and
+        # refuses anything that is not ON_HOLD.
+        for index, (status, extra, reason) in enumerate(
+            (
+                ("ON_HOLD", (), "task_file_invalid_hold_from_metadata"),
+                ("ON_HOLD", ("- hold_from: `DOING`",), "task_file_invalid_hold_from_metadata"),
+                ("ON_HOLD", ("- hold_from: `todo`",), "task_file_invalid_hold_from_metadata"),
+                ("ON_HOLD", ("- hold_from: `ON_HOLD`",), "task_file_invalid_hold_from_metadata"),
+                (
+                    "ON_HOLD",
+                    ("- hold_from: `TODO`", "- hold_from: `TODO`"),
+                    "task_file_duplicate_metadata",
+                ),
+                ("TODO", ("- hold_from: `TODO`",), "invalid_task_transition"),
+                ("NEEDS_APPROVAL", (), "invalid_task_transition"),
+            ),
+            start=1,
+        ):
+            task_id = f"task-83{index:02d}-resume-refused"
+            path, before = write_task(task_id, status, *extra)
+            refused = resume_task_file(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(before),
+                current_status=status,
+                planned_updated_at=planned,
+            )
+            assert refused.result_type == "hold", (status, extra, refused)
+            assert refused.reason == reason, (status, extra, refused)
+            assert path.read_bytes() == before
+
+        # Writer: a failed write leaves the original bytes and no temp file;
+        # a file changed after Preview is never overwritten.
+        def failing_replace(_temp: Path, _target: Path) -> None:
+            raise OSError("injected replace failure")
+
+        def failing_fsync(_fd: int) -> None:
+            raise OSError("injected fsync failure")
+
+        def failing_open(_path: Path) -> Any:
+            raise OSError("injected open failure")
+
+        for index, (keyword, value, reason) in enumerate(
+            (
+                ("_replace_file", failing_replace, "task_hold_replace_failed"),
+                ("_fsync_file", failing_fsync, "task_hold_fsync_failed"),
+                ("_open_temp_file", failing_open, "task_hold_temp_create_failed"),
+            ),
+            start=1,
+        ):
+            task_id = f"task-84{index:02d}-hold-failure"
+            path, before = write_task(task_id, "TODO")
+            failed = hold_task_file(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(before),
+                current_status="TODO",
+                planned_updated_at=planned,
+                **{keyword: value},
+            )
+            assert failed.result_type == "error", failed
+            assert failed.reason == reason, failed
+            assert path.read_bytes() == before
+            assert not list(tasks_dir.glob(".*.tmp"))
+        path, before = write_task("task-8410-hold-stale", "TODO")
+        changed = before.replace(b"Owner paused", b"Someone edited")
+        stale = hold_task_file(
+            tasks_dir=tasks_dir,
+            task_id="task-8410-hold-stale",
+            expected_digest=digest(before),
+            current_status="TODO",
+            planned_updated_at=planned,
+            _before_final_check=lambda target: target.write_bytes(changed),
+        )
+        assert stale.result_type == "stale", stale
+        assert path.read_bytes() == changed
+        assert not list(tasks_dir.glob(".*.tmp"))
+        resume_path, resume_before = write_task(
+            "task-8411-resume-failure", "ON_HOLD", "- hold_from: `NEEDS_APPROVAL`"
+        )
+        failed_resume = resume_task_file(
+            tasks_dir=tasks_dir,
+            task_id="task-8411-resume-failure",
+            expected_digest=digest(resume_before),
+            current_status="ON_HOLD",
+            planned_updated_at=planned,
+            _replace_file=failing_replace,
+        )
+        assert failed_resume.reason == "task_resume_replace_failed"
+        assert resume_path.read_bytes() == resume_before
+        for leftover in tasks_dir.iterdir():
+            leftover.unlink()
+
+        # Console: Preview + Confirm for Hold and Resume.
+        registry = run_web_app.TaskTransitionRegistry(token_factory=TokenFactory())
+
+        def preview(task_id: str, action: str) -> tuple[int, dict[str, Any]]:
+            return run_web_app.preview_task_transition(
+                {"task_id": task_id, "action": action},
+                registry=registry,
+                tasks_dir=tasks_dir,
+                utc_now=lambda: planned,
+            )
+
+        def confirm(token: str, literal: str) -> tuple[int, dict[str, Any]]:
+            return run_web_app.confirm_task_transition(
+                {"token": token, "confirmation": literal},
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+
+        approval_path, approval_before = write_task(
+            "task-8501-waiting-approval", "NEEDS_APPROVAL"
+        )
+        todo_path, todo_before = write_task("task-8502-todo", "TODO")
+        doing_path, doing_before = write_task("task-8503-doing", "DOING")
+        for task_id in ("task-8501-waiting-approval", "task-8502-todo"):
+            status, payload = preview(task_id, "resume")
+            assert status == HTTPStatus.CONFLICT
+            assert payload["error"] == "task_status_transition_not_allowed"
+        # DOING is refused by the Console before any token exists.
+        status, payload = preview("task-8503-doing", "hold")
+        assert status == HTTPStatus.CONFLICT
+        assert payload["error"] == "task_status_transition_not_allowed"
+        assert doing_path.read_bytes() == doing_before
+        # The request names only the task and the action, never a target.
+        status, payload = run_web_app.preview_task_transition(
+            {"task_id": "task-8502-todo", "action": "resume", "target": "TODO"},
+            registry=registry,
+            tasks_dir=tasks_dir,
+        )
+        assert status == HTTPStatus.BAD_REQUEST
+
+        status, payload = preview("task-8501-waiting-approval", "hold")
+        assert status == HTTPStatus.OK, payload
+        assert payload["confirmation_literal"] == "HOLD TASK"
+        hold_preview = payload["preview"]
+        assert hold_preview["current_state"] == "NEEDS_APPROVAL"
+        assert hold_preview["proposed_state"] == "ON_HOLD"
+        assert hold_preview["notice"] == run_web_app.TASK_HOLD_NOTICE
+        assert hold_preview["warning"] == run_web_app.TASK_HOLD_WARNING
+        assert hold_preview["approval_notice"] == run_web_app.TASK_HOLD_APPROVAL_NOTICE
+        assert hold_preview["summary"] == "Hold reason: Owner paused this fixture."
+        assert hold_preview["no_execution"] is True
+        assert approval_path.read_bytes() == approval_before
+        hold_token = payload["token"]
+        status, payload = confirm(hold_token, "START TASK")
+        assert status == HTTPStatus.BAD_REQUEST
+        assert payload["error"] == "exact_confirmation_required"
+        status, payload = confirm(hold_token, "HOLD TASK")
+        assert status == HTTPStatus.OK, payload
+        assert payload["receipt"]["current_state"] == "ON_HOLD"
+        held_raw = approval_path.read_bytes()
+        assert b"- status: `ON_HOLD`\r\n- hold_from: `NEEDS_APPROVAL`\r\n" in held_raw
+
+        todo_status, todo_payload = preview("task-8502-todo", "hold")
+        assert todo_status == HTTPStatus.OK
+        assert "approval_notice" not in todo_payload["preview"]
+
+        # While ON_HOLD, Hold, Start and Complete are refused.
+        for action in ("hold", "start", "complete"):
+            status, payload = preview("task-8501-waiting-approval", action)
+            assert status == HTTPStatus.CONFLICT, (action, payload)
+
+        # Resume returns to NEEDS_APPROVAL, where Start is still refused.
+        status, payload = preview("task-8501-waiting-approval", "resume")
+        assert status == HTTPStatus.OK, payload
+        assert payload["confirmation_literal"] == "RESUME TASK"
+        assert payload["preview"]["hold_from"] == "NEEDS_APPROVAL"
+        assert payload["preview"]["proposed_state"] == "NEEDS_APPROVAL"
+        assert payload["preview"]["notice"] == run_web_app.TASK_RESUME_NOTICE
+        status, payload = confirm(payload["token"], "RESUME TASK")
+        assert status == HTTPStatus.OK, payload
+        assert payload["receipt"]["current_state"] == "NEEDS_APPROVAL"
+        assert approval_path.read_bytes() == approval_before.replace(
+            b"- updated_at: `2026-07-25 10:00 UTC`",
+            f"- updated_at: `{planned}`".encode("utf-8"),
+            1,
+        )
+        status, payload = preview("task-8501-waiting-approval", "start")
+        assert status == HTTPStatus.CONFLICT
+        assert payload["error"] == "task_status_transition_not_allowed"
+
+        # A file changed after Preview is never written.
+        status, payload = preview("task-8502-todo", "hold")
+        assert status == HTTPStatus.OK
+        todo_path.write_bytes(todo_before.replace(b"Owner paused", b"Edited"))
+        status, payload = confirm(payload["token"], "HOLD TASK")
+        assert status == HTTPStatus.CONFLICT
+        assert payload["error"] == "task_changed_since_preview"
+        assert b"- status: `TODO`" in todo_path.read_bytes()
+
+        # The parser keeps a broken ON_HOLD record out of the actionable
+        # statuses, so Resume never sees it.
+        write_task("task-8504-broken-hold", "ON_HOLD")
+        status, payload = preview("task-8504-broken-hold", "resume")
+        assert status == HTTPStatus.NOT_FOUND
+        assert payload["error"] == "task_not_found_in_actionable_view"
+    finally:
+        shutil.rmtree(fixture_root, ignore_errors=True)
+    assert not fixture_root.exists()
+
+
 def _test_task_transition_vertical_slice() -> None:
     fixture_root = run_web_app.REPO_ROOT / "task-transition-test-fixture"
     resolved_fixture = fixture_root.resolve()
@@ -2040,6 +2396,13 @@ def _test_task_transition_vertical_slice() -> None:
         newline: str = "\r\n",
         extra_lines: tuple[str, ...] = (),
     ) -> bytes:
+        # task-0173: a valid ON_HOLD record carries hold_from, so the fixture
+        # gives it one unless the case supplies its own lines.
+        hold_lines = (
+            ("- hold_from: `TODO`",)
+            if status == "ON_HOLD" and not extra_lines
+            else ()
+        )
         return (
             newline.join(
                 [
@@ -2048,6 +2411,7 @@ def _test_task_transition_vertical_slice() -> None:
                     f"- id: `{task_id}`",
                     f"- title: `{title}`",
                     f"- status: `{status}`",
+                    *hold_lines,
                     "- repo: `jarvis-core`",
                     "- created_at: `2026-07-23 09:00 UTC`",
                     f"- updated_at: `{updated_at}`",
@@ -2171,8 +2535,8 @@ def _test_task_transition_vertical_slice() -> None:
         # Discord approval path can use this durable writer instead of a bare
         # write_text(). This stays an explicit contract test - the set is
         # spelled out rather than imported - so any further widening has to
-        # be made deliberately here too. The console's own surface is
-        # unchanged: TASK_TRANSITION_ACTIONS still offers only start/complete.
+        # be made deliberately here too. task-0173 added the four ON_HOLD
+        # pairs, which only the Hold / Resume writers apply.
         official_transitions = frozenset(
             {
                 ("TODO", "DOING"),
@@ -2181,7 +2545,14 @@ def _test_task_transition_vertical_slice() -> None:
                 ("NEEDS_APPROVAL", "FAILED"),
                 ("DOING", "FAILED"),
                 ("FAILED", "TODO"),
+                ("TODO", "ON_HOLD"),
+                ("NEEDS_APPROVAL", "ON_HOLD"),
+                ("ON_HOLD", "TODO"),
+                ("ON_HOLD", "NEEDS_APPROVAL"),
             }
+        )
+        hold_transitions = frozenset(
+            pair for pair in official_transitions if "ON_HOLD" in pair
         )
         # task-0101: spelling the set out only works if something checks it
         # against the writer's own constant. Nothing did, so the two could
@@ -2189,7 +2560,31 @@ def _test_task_transition_vertical_slice() -> None:
         # sync until task-0098. The count keeps a coordinated shrink of both
         # sides from passing quietly.
         assert official_transitions == TASK_STATUS_TRANSITIONS
-        assert len(official_transitions) == 6
+        assert len(official_transitions) == 10
+        assert hold_transitions == TASK_HOLD_TRANSITIONS
+        assert len(hold_transitions) == 4
+        # task-0173 (E2): a run may still be working on a DOING Task, so it can
+        # never be held.
+        assert ("DOING", "ON_HOLD") not in official_transitions
+        # The generic writer refuses the hold pairs: written there, hold_from
+        # would fall out of step with the status.
+        for source_status, target_status in sorted(hold_transitions):
+            generic_path, generic_before = write_task(
+                "task-7002-generic-hold", source_status
+            )
+            assert run_web_app.transition_task_file_status(
+                tasks_dir=tasks_dir,
+                task_id="task-7002-generic-hold",
+                expected_digest=hashlib.sha256(generic_before).hexdigest(),
+                current_status=source_status,
+                target_status=target_status,
+                planned_updated_at=planned_complete,
+            ) == run_web_app.TaskStatusTransitionResult(
+                "hold",
+                "hold_transition_requires_hold_writer",
+            )
+            assert generic_path.read_bytes() == generic_before
+            generic_path.unlink()
         for source_status in all_statuses:
             for target_status in all_statuses:
                 if (source_status, target_status) in official_transitions:
@@ -2213,8 +2608,50 @@ def _test_task_transition_vertical_slice() -> None:
         # nowhere in any regression suite before this, so dropping one from
         # the writer's constant left every suite green.
         planned_positive = "2026-07-23 12:00 UTC"
+        # task-0173: the hold pairs go through their own writers, positively
+        # here: Hold writes hold_from after status, Resume returns to exactly
+        # that status and removes it, and nothing else in the file moves.
         for index, (source_status, target_status) in enumerate(
-            sorted(official_transitions),
+            sorted(hold_transitions),
+            start=7151,
+        ):
+            hold_id = f"task-{index:04d}-positive-hold"
+            plain_status = target_status if source_status == "ON_HOLD" else source_status
+            hold_path, plain_before = write_task(hold_id, plain_status)
+            held_bytes = plain_before.replace(
+                f"- status: `{plain_status}`\r\n".encode("utf-8"),
+                f"- status: `ON_HOLD`\r\n- hold_from: `{plain_status}`\r\n".encode("utf-8"),
+                1,
+            ).replace(
+                b"- updated_at: `2026-07-23 10:00 UTC`",
+                f"- updated_at: `{planned_positive}`".encode("utf-8"),
+                1,
+            )
+            if source_status == "ON_HOLD":
+                hold_path.write_bytes(held_bytes)
+                resume_result = resume_task_file(
+                    tasks_dir=tasks_dir,
+                    task_id=hold_id,
+                    expected_digest=hashlib.sha256(held_bytes).hexdigest(),
+                    current_status="ON_HOLD",
+                    planned_updated_at="2026-07-23 10:00 UTC",
+                )
+                assert resume_result.result_type == "updated", resume_result
+                assert resume_result.current_status == target_status
+                assert hold_path.read_bytes() == plain_before
+            else:
+                hold_result = hold_task_file(
+                    tasks_dir=tasks_dir,
+                    task_id=hold_id,
+                    expected_digest=hashlib.sha256(plain_before).hexdigest(),
+                    current_status=source_status,
+                    planned_updated_at=planned_positive,
+                )
+                assert hold_result.result_type == "updated", hold_result
+                assert hold_result.current_status == "ON_HOLD"
+                assert hold_path.read_bytes() == held_bytes
+        for index, (source_status, target_status) in enumerate(
+            sorted(official_transitions - hold_transitions),
             start=7101,
         ):
             positive_id = f"task-{index:04d}-positive-transition"
@@ -3500,8 +3937,25 @@ def _test_task_transition_vertical_slice() -> None:
             "function actionableTaskItemMarkup",
             1,
         )[1].split("function renderActionableTaskView", 1)[0]
-        assert 'view.status === "TODO"' in transition_renderer
-        assert 'view.status === "DOING"' in transition_renderer
+        # task-0173: the buttons per status. Hold never appears for DOING; the
+        # server and the writer refuse it as well.
+        for status_actions in (
+            'TODO: [["start", "Start Task"], ["hold", "Hold Task"]]',
+            'DOING: [["complete", "Complete Task"]]',
+            'NEEDS_APPROVAL: [["hold", "Hold Task"]]',
+            'ON_HOLD: [["resume", "Resume Task"]]',
+        ):
+            assert status_actions in transition_renderer
+        for exact_text in (
+            "Hold Task",
+            "Resume Task",
+            '"HOLD TASK": "Confirm Hold"',
+            '"RESUME TASK": "Confirm Resume"',
+            "escapeHtml(preview.approval_notice)",
+            "escapeHtml(preview.hold_from || \"\")",
+            "escapeHtml(preview.summary || \"\")",
+        ):
+            assert exact_text in app_js, exact_text
         assert "escapeHtml(preview.title || \"\")" in transition_renderer
         assert "escapeHtml(preview.current_state || \"\")" in transition_renderer
         assert "escapeHtml(preview.transition || \"\")" in transition_renderer
@@ -4508,6 +4962,16 @@ def _test_actionable_task_view_vertical_slice() -> None:
                     f"- id: `{task_id}`",
                     f"- title: `{title}`",
                     f"- status: `{status}`",
+                    # task-0173: a valid ON_HOLD record carries hold_from.
+                    *(
+                        ("- hold_from: `TODO`",)
+                        if status == "ON_HOLD"
+                        and not any(
+                            line.startswith("- hold_from:")
+                            for line in optional_lines
+                        )
+                        else ()
+                    ),
                     f"- repo: `{repo}`",
                     f"- created_at: `{created_at}`",
                     f"- updated_at: `{updated_at}`",
@@ -4530,11 +4994,6 @@ def _test_actionable_task_view_vertical_slice() -> None:
             20,
             "Review the summary and clear the blocker outside Jarvis Console.",
         ),
-        "ON_HOLD": (
-            "needs_attention",
-            25,
-            "Review the summary and make the required decision outside Jarvis Console.",
-        ),
         "FAILED": (
             "needs_attention",
             30,
@@ -4550,12 +5009,29 @@ def _test_actionable_task_view_vertical_slice() -> None:
             50,
             "Decide whether to start this task outside Jarvis Console.",
         ),
+        # task-0173 (O4): its own group after Ready and before Completed.
+        "ON_HOLD": (
+            "on_hold",
+            55,
+            "Resume only after the Owner re-prioritizes this Task; the summary records why it is on hold.",
+        ),
         "DONE": (
             "completed",
             60,
             "No next action is required.",
         ),
     }
+    # The rule table's own order is the display order, which task_view_counts
+    # reuses for its hidden-by-status listing.
+    assert list(run_web_app.TASK_VIEW_STATUS_RULES) == list(expected_status_rules)
+    assert [group_id for group_id, _label in run_web_app.TASK_VIEW_GROUPS] == [
+        "metadata_review",
+        "needs_attention",
+        "in_progress",
+        "ready",
+        "on_hold",
+        "completed",
+    ]
     for index, (status, expected_rule) in enumerate(
         expected_status_rules.items(),
         start=101,
@@ -4582,12 +5058,14 @@ def _test_actionable_task_view_vertical_slice() -> None:
             "completion_evidence",
             "has_completion_evidence",
             "execution",
+            "hold_from",
             "group_id",
             "display_rank",
             "next_action",
             "read_only",
         }
         assert view["read_only"] is True
+        assert view["hold_from"] == ("TODO" if status == "ON_HOLD" else None)
         # task-0155: a Task without execution metadata has no execution section.
         assert view["execution"] is None
 
@@ -4743,8 +5221,7 @@ def _test_actionable_task_view_vertical_slice() -> None:
         assert "execution" not in view
 
     # task-0098: a record using the documented ON_HOLD status is a valid Task,
-    # not a metadata problem, and reaches Needs attention through the ordinary
-    # projection.
+    # not a metadata problem. task-0173 moved it to its own On hold group.
     on_hold_projection = run_web_app.project_task_view_items(
         [{"path": "memory/tasks/task-0108-on-hold.md"}],
         text_reader=lambda _path: task_markdown("task-0108-on-hold", "ON_HOLD"),
@@ -4754,8 +5231,49 @@ def _test_actionable_task_view_vertical_slice() -> None:
     assert on_hold_view["parse_state"] == "valid"
     assert on_hold_view.get("reason_code") is None
     assert on_hold_view["status"] == "ON_HOLD"
-    assert on_hold_view["group_id"] == "needs_attention"
-    assert on_hold_view["display_rank"] == 25
+    assert on_hold_view["group_id"] == "on_hold"
+    assert on_hold_view["display_rank"] == 55
+    assert on_hold_view["hold_from"] == "TODO"
+
+    # task-0173: hold_from is present exactly while the Task is ON_HOLD and
+    # names TODO or NEEDS_APPROVAL. The Console parser applies the writer's
+    # rule, so any other shape is metadata review and cannot be resumed.
+    assert TASK_HOLD_FROM_STATUSES == frozenset({"TODO", "NEEDS_APPROVAL"})
+    for hold_status, hold_lines, expect_valid in (
+        ("ON_HOLD", ("- hold_from: `NEEDS_APPROVAL`",), True),
+        ("ON_HOLD", ("- hold_from: `DOING`",), False),
+        ("ON_HOLD", ("- hold_from: `ON_HOLD`",), False),
+        ("ON_HOLD", ("- hold_from: `todo`",), False),
+        ("ON_HOLD", ("- hold_from: ``",), False),
+        ("ON_HOLD", ("- hold_from: `TODO`", "- hold_from: `TODO`"), False),
+        ("TODO", ("- hold_from: `TODO`",), False),
+        ("NEEDS_APPROVAL", ("- hold_from: `NEEDS_APPROVAL`",), False),
+        ("DOING", ("- hold_from: `TODO`",), False),
+    ):
+        hold_view = run_web_app.parse_task_view_text(
+            "task-0109-hold-from.md",
+            task_markdown(
+                "task-0109-hold-from",
+                hold_status,
+                optional_lines=hold_lines,
+            ),
+        )
+        assert (hold_view["parse_state"] == "valid") is expect_valid, (
+            hold_status,
+            hold_lines,
+            hold_view,
+        )
+        if not expect_valid:
+            assert hold_view["reason_field"] == "hold_from", hold_view
+    missing_hold_from = task_markdown("task-0110-no-hold-from", "ON_HOLD").replace(
+        "- hold_from: `TODO`\n", ""
+    )
+    assert "hold_from" not in missing_hold_from
+    missing_view = run_web_app.parse_task_view_text(
+        "task-0110-no-hold-from.md", missing_hold_from
+    )
+    assert missing_view["parse_state"] == "invalid"
+    assert missing_view["reason_field"] == "hold_from"
 
     # task-0096: the metadata block ends at the first column-0 line that is not
     # a field, so an ordinary Markdown list in the body is prose. Before the fix
@@ -5122,6 +5640,7 @@ def _test_actionable_task_view_vertical_slice() -> None:
         "needs_attention": 1,
         "in_progress": 1,
         "ready": 2,
+        "on_hold": 0,
         "completed": 1,
     }
 
@@ -5166,8 +5685,9 @@ def _test_actionable_task_view_vertical_slice() -> None:
     assert direct_payload["notes"][:2] == [
         "/api/overview discovery and basic details are read-only.",
         (
-            "Only explicit Start / Complete Preview + Confirm may update "
-            "a selected valid Task's status and updated_at. Record Completion "
+            "Only explicit Start / Complete and Hold / Resume Preview + Confirm "
+            "may update a selected valid Task's status and updated_at; Hold and "
+            "Resume also write and remove hold_from. Record Completion "
             "Evidence Preview + Confirm may append one completion_evidence "
             "value and update only updated_at for an eligible DOING Task; it "
             "does not validate evidence, change status, complete, or execute "
@@ -5274,13 +5794,13 @@ def _test_actionable_task_view_vertical_slice() -> None:
         assert escaping_contract in renderer_source
     # task-0155: execution_updated_at is deliberately not displayed.
     assert "execution_updated_at" not in renderer_source
+    # task-0173: buttons come from one per-status table; a status missing
+    # from it renders none, so DOING never offers Hold.
+    assert "const actionsByStatus = {" in renderer_source
     assert (
-        'const action = valid && view.status === "TODO"\n'
-        '    ? "start"\n'
-        '    : valid && view.status === "DOING"\n'
-        '      ? "complete"\n'
-        '      : "";'
-    ) in renderer_source
+        "const actions = valid ? actionsByStatus[view.status] || [] : [];"
+        in renderer_source
+    )
     assert "<form" not in renderer_source
     assert renderer_source.count(
         'fetch("/api/task-transition/preview"'
@@ -5312,13 +5832,12 @@ def _test_actionable_task_view_vertical_slice() -> None:
     # and ON_HOLD ended up in neither when task-0098 widened the vocabulary,
     # so no test ever rendered it. Their union is checked against the status
     # rules, which makes an eighth status fail here instead of slipping past.
-    badge_guarded_statuses = ("TODO", "DOING")
+    # task-0173: NEEDS_APPROVAL offers Hold and ON_HOLD offers Resume.
+    badge_guarded_statuses = ("TODO", "DOING", "NEEDS_APPROVAL", "ON_HOLD")
     badge_read_only_statuses = (
         "BLOCKED",
-        "ON_HOLD",
         "DONE",
         "FAILED",
-        "NEEDS_APPROVAL",
     )
     assert not set(badge_guarded_statuses) & set(badge_read_only_statuses)
     assert set(badge_guarded_statuses) | set(badge_read_only_statuses) == set(
@@ -6644,7 +7163,8 @@ def _test_task_view_hidden_counts_and_first_screen() -> None:
                 f"- id: `{task_id}`\n"
                 f"- title: `fixture {status}`\n"
                 f"- status: `{status}`\n"
-                "- repo: `jarvis-core`\n"
+                + ("- hold_from: `TODO`\n" if status == "ON_HOLD" else "")
+                + "- repo: `jarvis-core`\n"
                 "- created_at: `2026-10-17 09:00 UTC`\n"
                 f"- updated_at: `2026-10-17 10:{index:02d} UTC`\n"
                 f"- summary: `fixture record for {status}`\n",
@@ -6801,7 +7321,8 @@ def _test_task_view_attention_priority() -> None:
             f"- id: `{task_id}`\n"
             f"- title: `fixture {status}`\n"
             f"- status: `{status}`\n"
-            "- repo: `jarvis-core`\n"
+            + ("- hold_from: `TODO`\n" if status == "ON_HOLD" else "")
+            + "- repo: `jarvis-core`\n"
             "- created_at: `2026-07-23 09:00 UTC`\n"
             f"- updated_at: `{updated_at}`\n"
             f"- summary: `fixture record for {status}`\n"
@@ -7251,6 +7772,7 @@ def main() -> None:
     _test_recent_item_ordering()
     _test_reports_filter_before_cap()
     _test_task_view_attention_priority()
+    _test_task_hold_resume()
     _test_task_view_hidden_counts_and_first_screen()
     _test_actionable_task_view_vertical_slice()
     _test_director_renderer_fails_closed_on_malformed_nested_data()

@@ -52,7 +52,23 @@ TASK_STATUS_TRANSITIONS = frozenset(
         ("NEEDS_APPROVAL", "FAILED"),
         ("DOING", "FAILED"),
         ("FAILED", "TODO"),
+        # task-0173. Console Hold and Resume, written only by hold_task_file() and
+        # resume_task_file(), which change hold_from in the same replace. DOING is not
+        # here on purpose: a run can still be in progress there, and nothing on this
+        # side can tell. Resume returns only to the status hold_from names, so a Task
+        # that waited for approval comes back to NEEDS_APPROVAL and still needs /approve.
+        ("TODO", "ON_HOLD"),
+        ("NEEDS_APPROVAL", "ON_HOLD"),
+        ("ON_HOLD", "TODO"),
+        ("ON_HOLD", "NEEDS_APPROVAL"),
     }
+)
+TASK_HOLD_STATUS = "ON_HOLD"
+TASK_HOLD_FROM_FIELD = "hold_from"
+# task-0173: the statuses Hold accepts, which are also the only values hold_from takes.
+TASK_HOLD_FROM_STATUSES = frozenset({"TODO", "NEEDS_APPROVAL"})
+TASK_HOLD_TRANSITIONS = frozenset(
+    pair for pair in TASK_STATUS_TRANSITIONS if TASK_HOLD_STATUS in pair
 )
 TASK_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M UTC"
 TASK_METADATA_PATTERN = re.compile(
@@ -83,6 +99,7 @@ TASK_ALLOWED_METADATA = TASK_REQUIRED_METADATA.union(
     TASK_OPTIONAL_TEXT_METADATA,
     TASK_OPTIONAL_BOOLEAN_METADATA,
     TASK_OPTIONAL_TIMESTAMP_METADATA,
+    {TASK_HOLD_FROM_FIELD},
 )
 TASK_ALLOWED_STATUSES = frozenset(
     {"NEEDS_APPROVAL", "BLOCKED", "ON_HOLD", "FAILED", "DOING", "TODO", "DONE"}
@@ -511,6 +528,13 @@ def _transition_metadata(
         return None, "task_id_path_mismatch"
     if metadata["status"] not in TASK_ALLOWED_STATUSES:
         return None, "task_file_invalid_status"
+    # task-0173: hold_from is present exactly while the Task is ON_HOLD, and names one
+    # of the statuses Hold accepts. Resume reads it, so anything else fails closed.
+    if metadata["status"] == TASK_HOLD_STATUS:
+        if metadata.get(TASK_HOLD_FROM_FIELD) not in TASK_HOLD_FROM_STATUSES:
+            return None, "task_file_invalid_hold_from_metadata"
+    elif TASK_HOLD_FROM_FIELD in metadata:
+        return None, "task_file_invalid_hold_from_metadata"
     if (
         "completion_evidence" in metadata
         and metadata_line_indexes["completion_evidence"]
@@ -691,6 +715,9 @@ def transition_task_file_status(
         return TaskStatusTransitionResult("hold", "invalid_task_id")
     if (current_status, target_status) not in TASK_STATUS_TRANSITIONS:
         return TaskStatusTransitionResult("hold", "invalid_task_transition")
+    # task-0173: a hold pair written here would leave hold_from out of step.
+    if (current_status, target_status) in TASK_HOLD_TRANSITIONS:
+        return TaskStatusTransitionResult("hold", "hold_transition_requires_hold_writer")
     if not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
         return TaskStatusTransitionResult("hold", "invalid_expected_digest")
     try:
@@ -766,6 +793,200 @@ def transition_task_file_status(
         current_status=target_status,
         updated_at=planned_updated_at,
         file_path=str(target_path),
+    )
+
+
+def _hold_or_resume_task_file(
+    *,
+    hold: bool,
+    tasks_dir: Path,
+    task_id: str,
+    expected_digest: str,
+    current_status: str,
+    planned_updated_at: str,
+    open_temp_file: Callable[[Path], BinaryIO],
+    replace_file: Callable[[Path, Path], None],
+    fsync_file: Callable[[int], None],
+    temp_token_factory: Callable[[], str],
+    before_final_check: Callable[[Path], None] | None,
+) -> TaskStatusTransitionResult:
+    """task-0173: change status, updated_at and hold_from in one atomic replace.
+
+    Hold moves TODO or NEEDS_APPROVAL to ON_HOLD and records the status it left as
+    hold_from, right after the status line. Resume moves ON_HOLD back to exactly that
+    status and removes the line; the caller cannot pick the target. The result is
+    validated again before it is written, so a file with the status and hold_from out of
+    step is never produced, and any failure leaves the original bytes in place.
+    """
+
+    if not TASK_FILE_PATTERN.fullmatch(f"{task_id}.md"):
+        return TaskStatusTransitionResult("hold", "invalid_task_id")
+    if hold and current_status not in TASK_HOLD_FROM_STATUSES:
+        return TaskStatusTransitionResult("hold", "invalid_task_transition")
+    if not hold and current_status != TASK_HOLD_STATUS:
+        return TaskStatusTransitionResult("hold", "invalid_task_transition")
+    if not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
+        return TaskStatusTransitionResult("hold", "invalid_expected_digest")
+    if not _transition_timestamp_is_valid(planned_updated_at):
+        return TaskStatusTransitionResult("hold", "invalid_planned_updated_at")
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return TaskStatusTransitionResult("error", "tasks_dir_not_found")
+
+    resolved_tasks_dir = tasks_dir.resolve()
+    target_path = (tasks_dir / f"{task_id}.md").resolve()
+    if target_path.parent != resolved_tasks_dir:
+        return TaskStatusTransitionResult("hold", "task_path_not_direct_child")
+
+    try:
+        original = target_path.read_bytes()
+    except OSError:
+        return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+    if not hmac.compare_digest(hashlib.sha256(original).hexdigest(), expected_digest):
+        return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+
+    # An ON_HOLD record without a valid hold_from fails here, so Resume refuses it.
+    metadata, metadata_error = _transition_metadata(original, target_path.name)
+    if metadata is None:
+        return TaskStatusTransitionResult("hold", metadata_error)
+    if metadata["id"] != task_id:
+        return TaskStatusTransitionResult("hold", "task_id_path_mismatch")
+    if metadata["status"] != current_status:
+        return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+    target_status = TASK_HOLD_STATUS if hold else metadata[TASK_HOLD_FROM_FIELD]
+    if (current_status, target_status) not in TASK_HOLD_TRANSITIONS:
+        return TaskStatusTransitionResult("hold", "invalid_task_transition")
+
+    status_pattern = re.compile(
+        rb"(?m)^- status: `[^`\r\n]*`(?P<eol>\r?\n|$)"
+    )
+    updated_pattern = re.compile(
+        rb"(?m)^- updated_at: `[^`\r\n]*`(?=\r?$)"
+    )
+    hold_from_pattern = re.compile(
+        rb"(?m)^- hold_from: `[^`\r\n]*`(?:\r?\n|$)"
+    )
+    status_matches = list(status_pattern.finditer(original))
+    if len(status_matches) != 1:
+        return TaskStatusTransitionResult("hold", "task_file_invalid_status_metadata")
+    if len(updated_pattern.findall(original)) != 1:
+        return TaskStatusTransitionResult("hold", "task_file_invalid_updated_at_metadata")
+    if len(hold_from_pattern.findall(original)) != (0 if hold else 1):
+        return TaskStatusTransitionResult("hold", "task_file_invalid_hold_from_metadata")
+
+    status_match = status_matches[0]
+    line_ending = status_match.group("eol")
+    if not line_ending:
+        # The required fields follow status in every record this repository writes.
+        return TaskStatusTransitionResult("hold", "task_file_invalid_status_metadata")
+    status_line = f"- status: `{target_status}`".encode("ascii") + line_ending
+    if hold:
+        status_line += f"- hold_from: `{current_status}`".encode("ascii") + line_ending
+    updated = (
+        original[: status_match.start()]
+        + status_line
+        + original[status_match.end() :]
+    )
+    if not hold:
+        updated = hold_from_pattern.sub(b"", updated, count=1)
+    updated = updated_pattern.sub(
+        f"- updated_at: `{planned_updated_at}`".encode("ascii"),
+        updated,
+        count=1,
+    )
+    result_metadata, result_error = _transition_metadata(updated, target_path.name)
+    if (
+        result_metadata is None
+        or result_metadata["status"] != target_status
+        or (TASK_HOLD_FROM_FIELD in result_metadata) != hold
+    ):
+        return TaskStatusTransitionResult(
+            "hold", result_error or "task_file_invalid_hold_from_metadata"
+        )
+
+    ok, failure = _atomically_replace_task_file(
+        target_path=target_path,
+        updated=updated,
+        expected_digest=expected_digest,
+        temp_suffix="hold" if hold else "resume",
+        open_temp_file=open_temp_file,
+        replace_file=replace_file,
+        fsync_file=fsync_file,
+        temp_token_factory=temp_token_factory,
+        before_final_check=before_final_check,
+    )
+    if not ok:
+        if failure == "stale":
+            return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+        prefix = "task_hold" if hold else "task_resume"
+        return TaskStatusTransitionResult("error", f"{prefix}_{failure}")
+
+    return TaskStatusTransitionResult(
+        "updated",
+        task_id=task_id,
+        previous_status=current_status,
+        current_status=target_status,
+        updated_at=planned_updated_at,
+        file_path=str(target_path),
+    )
+
+
+def hold_task_file(
+    *,
+    tasks_dir: Path,
+    task_id: str,
+    expected_digest: str,
+    current_status: str,
+    planned_updated_at: str,
+    _open_temp_file: Callable[[Path], BinaryIO] = _open_transition_temp_file,
+    _replace_file: Callable[[Path, Path], None] = _replace_transition_file,
+    _fsync_file: Callable[[int], None] = os.fsync,
+    _temp_token_factory: Callable[[], str] = lambda: secrets.token_hex(8),
+    _before_final_check: Callable[[Path], None] | None = None,
+) -> TaskStatusTransitionResult:
+    """Move a TODO or NEEDS_APPROVAL Task to ON_HOLD and record hold_from (task-0173)."""
+
+    return _hold_or_resume_task_file(
+        hold=True,
+        tasks_dir=tasks_dir,
+        task_id=task_id,
+        expected_digest=expected_digest,
+        current_status=current_status,
+        planned_updated_at=planned_updated_at,
+        open_temp_file=_open_temp_file,
+        replace_file=_replace_file,
+        fsync_file=_fsync_file,
+        temp_token_factory=_temp_token_factory,
+        before_final_check=_before_final_check,
+    )
+
+
+def resume_task_file(
+    *,
+    tasks_dir: Path,
+    task_id: str,
+    expected_digest: str,
+    current_status: str,
+    planned_updated_at: str,
+    _open_temp_file: Callable[[Path], BinaryIO] = _open_transition_temp_file,
+    _replace_file: Callable[[Path, Path], None] = _replace_transition_file,
+    _fsync_file: Callable[[int], None] = os.fsync,
+    _temp_token_factory: Callable[[], str] = lambda: secrets.token_hex(8),
+    _before_final_check: Callable[[Path], None] | None = None,
+) -> TaskStatusTransitionResult:
+    """Return an ON_HOLD Task to its hold_from status and drop hold_from (task-0173)."""
+
+    return _hold_or_resume_task_file(
+        hold=False,
+        tasks_dir=tasks_dir,
+        task_id=task_id,
+        expected_digest=expected_digest,
+        current_status=current_status,
+        planned_updated_at=planned_updated_at,
+        open_temp_file=_open_temp_file,
+        replace_file=_replace_file,
+        fsync_file=_fsync_file,
+        temp_token_factory=_temp_token_factory,
+        before_final_check=_before_final_check,
     )
 
 
@@ -870,6 +1091,8 @@ def record_task_execution_result(
         return TaskExecutionResultWriteResult("hold", "invalid_transition_pair")
     if target_status is not None and (current_status, target_status) not in TASK_STATUS_TRANSITIONS:
         return TaskExecutionResultWriteResult("hold", "invalid_task_transition")
+    if (current_status, target_status) in TASK_HOLD_TRANSITIONS:
+        return TaskExecutionResultWriteResult("hold", "hold_transition_requires_hold_writer")
     try:
         parsed_time = datetime.strptime(planned_updated_at, TASK_TIMESTAMP_FORMAT)
     except ValueError:

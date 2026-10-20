@@ -82,6 +82,9 @@ Included:
   arbitrary path, execution, or automatic save.
 - Explicit Preview + Confirm for `TODO → DOING` Start and `DOING → DONE`
   Complete, changing only `status` and `updated_at`.
+- Explicit Preview + Confirm for **Hold** (`TODO` or `NEEDS_APPROVAL` →
+  `ON_HOLD`) and **Resume** (`ON_HOLD` → the status recorded in `hold_from`),
+  changing only `status`, `updated_at` and `hold_from`.
 - Explicit **Record Completion Evidence** Preview + Confirm for a valid `DOING`
   Task without evidence, appending one `completion_evidence` value and changing
   only `updated_at`.
@@ -171,6 +174,33 @@ exists or is valid, a recorded value does not approve Complete, and a missing
 value does not block it. The Owner reads the value and decides. Start Preview
 does not carry the field.
 
+## Hold / Resume Task
+
+Hold and Resume (task-0173) use the same Preview + Confirm flow, token, digest
+check and Actionable Task View selection as Start / Complete.
+
+- **Hold** (`HOLD TASK`) accepts only a `TODO` or `NEEDS_APPROVAL` Task. It sets
+  `status` to `ON_HOLD`, updates `updated_at` and records the status it left as
+  `hold_from`, in one atomic replace. A `DOING` Task cannot be held: a run may
+  still be working on it and the console cannot tell, so Preview and the writer
+  both refuse it.
+- **Resume** (`RESUME TASK`) accepts only an `ON_HOLD` Task. It returns the Task
+  to exactly the status in `hold_from` and removes that line. The request cannot
+  choose the target. An `ON_HOLD` Task without a valid `hold_from` is shown under
+  metadata review and cannot be resumed.
+- The hold reason is written in the summary before Hold
+  (`docs/task-model.md` section 9). Hold Preview shows the summary and asks the
+  Owner to cancel if the reason is missing; Jarvis does not check it.
+
+**D1 (amended, task-0173)**: Jarvis Console is not an approval screen. It has no
+approve or reject action and no approval queue. Its only transitions that touch
+`NEEDS_APPROVAL` are Hold (`NEEDS_APPROVAL → ON_HOLD`) and the Resume that returns
+a Task whose `hold_from` is `NEEDS_APPROVAL` to that status. Neither approves,
+rejects, executes or changes the summary, so a Task that waited for approval
+still reaches execution only through Discord `/approve`. Hold and Resume are
+general transitions (G in `docs/task-0044-audit-hash-chain-design.md` section 3.1),
+not approval transitions, and write no audit entry.
+
 ## Record Completion Evidence
 
 Record Completion Evidence is a separate append-once flow for a valid
@@ -235,14 +265,15 @@ Registry id `tasks_reports`, status `available`. The browser tab is labelled
 Purpose: show task status, reports, checkpoints, and items needing attention.
 
 This is the console's Task lifecycle surface. Discovery and detail are read-only.
-Start / Complete and Record Completion Evidence each need Preview and an explicit
-Confirm, and change only `status`, `updated_at`, and one `completion_evidence`
-value.
+Start / Complete, Hold / Resume and Record Completion Evidence each need Preview
+and an explicit Confirm, and change only `status`, `updated_at`, `hold_from`, and
+one `completion_evidence` value.
 
 A Task with status `NEEDS_APPROVAL` is listed under Needs attention so the owner
 can see it. Jarvis Console shows that state; it does not approve, run, or
 complete Task work, and it has no approval queue. The decision is made outside
-the console.
+the console. The console may only Hold it (D1 as amended by task-0173). An
+`ON_HOLD` Task is listed under On hold, after Ready and before Completed.
 
 A Task run by the Worker pipeline also shows its recorded result read-only:
 **Execution result** (`success`, `failed` or `not_executed`, derived from
@@ -421,8 +452,9 @@ Possible later phases:
 3. Add local report preview forms for existing deterministic renderers.
 4. Refine the read-only review surface only from repeated local-use feedback.
 5. Treat human approval as a separate system, not a later console phase.
-   Jarvis Console stays a Task lifecycle screen and adds no approval queue,
-   approval action, or `NEEDS_APPROVAL` transition.
+   Jarvis Console stays a Task lifecycle screen and adds no approval queue or
+   approval action. Its only `NEEDS_APPROVAL` transitions are Hold and the
+   matching Resume (task-0173).
 6. Consider deeper worker handoff integration only after separate design and
    review.
 

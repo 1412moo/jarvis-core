@@ -17,7 +17,7 @@
 - `TODO`: 시작 전 상태
 - `DOING`: 진행 중 상태
 - `BLOCKED`: 외부 요인으로 진행 불가
-- `ON_HOLD`: Owner의 우선순위 판단으로 의도적 보류 (외부 요인이 아니라는 점에서 `BLOCKED`와 구분)
+- `ON_HOLD`: Owner의 우선순위 판단으로 의도적 보류 (외부 요인이 아니라는 점에서 `BLOCKED`와 구분). 보류 전 상태를 `hold_from`에 기록하고, 해제는 그 상태로만 돌아간다(5-1, 12절)
 - `DONE`: 검증까지 완료
 - `FAILED`: 시도했으나 목표 달성 실패
 - `NEEDS_APPROVAL`: 승인 필요 상태
@@ -56,7 +56,7 @@
 
 ### 5-1) 허용 전이 계약
 
-코드가 적용하는 상태 전이는 아래 6쌍뿐이다. 표에 없는 전이는 durable writer가
+코드가 적용하는 상태 전이는 아래 10쌍뿐이다. 표에 없는 전이는 durable writer가
 거부한다.
 
 | from | to |
@@ -67,6 +67,14 @@
 | `FAILED` | `TODO` |
 | `NEEDS_APPROVAL` | `DOING` |
 | `NEEDS_APPROVAL` | `FAILED` |
+| `TODO` | `ON_HOLD` |
+| `NEEDS_APPROVAL` | `ON_HOLD` |
+| `ON_HOLD` | `TODO` |
+| `ON_HOLD` | `NEEDS_APPROVAL` |
+
+`ON_HOLD`가 들어간 4쌍은 `hold_from`을 함께 쓰고 지우는 전용 writer만 적용한다. 일반 전이
+writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수 있으므로 `ON_HOLD`로 가는
+전이가 없다. 해제의 도착 상태는 `hold_from` 값 하나로 정해진다(12절).
 
 자동 전이는 Owner가 승인한 실행의 결과로 코드가 적용하는 전이를 뜻한다. 그런
 실행 없이 스스로 일어나는 전이는 없다.
@@ -86,6 +94,11 @@
 | Discord `/approve` 승인 / 거절 | `NEEDS_APPROVAL` → `DOING` / `NEEDS_APPROVAL` → `FAILED` |
 | 실행 결과 기록 `_apply_execution_result` (`/approve`·`/run`·`/retry`·`/go` 실행 뒤) | 성공 `DOING` → `DONE`, 실패 `DOING` → `FAILED` |
 | Discord `/go <id> recover` (`/work`로 만든 DOING task, 실행 중인 Worker가 없고 마지막 시도의 실행 표지가 가리키는 프로세스가 모두 끝났을 때만, task-0167) | `DOING` → `FAILED` (실패 기록과 함께, 재실행 없음) |
+| Jarvis Console Hold (표시된 task, `HOLD TASK`, `hold_from`에 출발 상태를 함께 기록, task-0173) | `TODO` → `ON_HOLD`, `NEEDS_APPROVAL` → `ON_HOLD` |
+| Jarvis Console Resume (표시된 task, `RESUME TASK`, `hold_from`이 가리키는 상태로만 복귀하고 `hold_from`을 지움, task-0173) | `ON_HOLD` → `TODO` (`hold_from`이 `TODO`일 때), `ON_HOLD` → `NEEDS_APPROVAL` (`hold_from`이 `NEEDS_APPROVAL`일 때) |
+
+Hold와 Resume은 승인도 거절도 아니며 실행하지 않는다. 승인 대기였던 task는 Resume 뒤에도
+`NEEDS_APPROVAL`이므로 실행에 이르는 길은 Discord `/approve`뿐이다.
 
 ## 6) 새 Task 생성 체크리스트
 새 Task를 만들 때 아래 항목을 순서대로 확인한다.
@@ -112,6 +125,7 @@
 ## 9) BLOCKED / NEEDS_APPROVAL 시 summary 필수 기재 정보
 - `BLOCKED`: 무엇이 막았는지(원인), 누가/무엇이 해소 가능한지(의존 주체), 다음 재시도 조건을 반드시 남긴다.
 - `NEEDS_APPROVAL`: 어떤 항목의 승인이 필요한지(대상), 왜 필요한지(사유), 승인되면 바로 할 다음 작업을 반드시 남긴다.
+- `ON_HOLD`: 보류를 결정한 주체(Owner), 보류 사유, 재개 조건(재개에 필요한 Owner 결정)을 Hold 전에 summary에 남긴다. 보류 결정을 담은 별도 task 기록이 있으면 그 id를 summary에 적는다(예: task-0156). 보류 전 상태는 `hold_from`이 기록하며 Resume은 그 상태로만 되돌린다. Jarvis는 summary에 사유가 있는지 판정하지 않는다.
 
 ## 10) Optional Execution Metadata
 Execution-related fields are optional. The canonical writer
@@ -192,3 +206,24 @@ These fields do not replace the required task fields. If no execution result has
   or automatically complete the Task. `Complete` remains a separate explicit
   Preview + Confirm action.
 - An existing evidence value cannot be overwritten, deleted, or appended again.
+
+## 12) Hold metadata (`hold_from`, task-0173)
+
+`hold_from` is an optional metadata field that exists exactly while a Task is
+`ON_HOLD`:
+
+```markdown
+- hold_from: `NEEDS_APPROVAL`
+```
+
+- Allowed values are `TODO` and `NEEDS_APPROVAL`, the two statuses Hold accepts.
+  Any other value, a duplicate line, an `ON_HOLD` Task without the field, or the
+  field on a Task in any other status fails canonical validation in both the
+  writer and the Console parser.
+- Jarvis Console Hold writes the status, `updated_at` and this line (right after
+  the `status` line) in one atomic replace. Jarvis Console Resume returns the Task
+  to exactly the recorded status and removes the line in one atomic replace. The
+  caller cannot choose the Resume target. Any failure leaves the file unchanged.
+- No other path writes or removes the field. A hand-written `ON_HOLD` record
+  without it is invalid and cannot be resumed; this is stricter than before
+  task-0173, when no such record existed.
