@@ -2,10 +2,10 @@
 
 - id: `task-0173-on-hold-status-transition`
 - title: `ON_HOLD 상태 전이 추가: Console Hold/Resume, hold_from 복귀, On hold 그룹, task-model 5-1·§9 (A2)`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 10:02 UTC`
-- updated_at: `2026-10-20 11:40 UTC`
+- updated_at: `2026-10-20 12:24 UTC`
 - summary: `Console Hold가 TODO·NEEDS_APPROVAL을 ON_HOLD로 옮기며 보류 전 상태를 hold_from에 기록하고, Resume은 그 상태로만 되돌린다(없거나 틀리면 거절). DOING은 보류하지 않고, Task View에 TODO 뒤·DONE 앞 On hold 그룹을 두며 task-model 5-1·§9와 master-plan D1 문구 두 군데를 고쳤다. 사전 점검과 self-review 1회 뒤 Reviewer 1 지적(summary 최신성)을 repair 1로 고친 candidate 2c7106c가 Reviewer PASS와 QA PASS를 받았고, DONE은 Owner의 Console Complete 결정을 기다린다. 기존 6건·감사 체인·Discord 코드 무변경, push 없음.`
 - source_command: `Owner 요청: A2 ON_HOLD 전이 검토, 작업 기록과 work package 제안까지 (Claude Code 세션)`
 
