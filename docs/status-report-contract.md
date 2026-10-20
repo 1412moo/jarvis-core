@@ -20,7 +20,7 @@
   "result_type": "status",
   "id": "task-0001-sample",
   "title": "...",
-  "status": "TODO|DOING|BLOCKED|DONE|FAILED|NEEDS_APPROVAL",
+  "status": "TODO|DOING|BLOCKED|ON_HOLD|DONE|FAILED|NEEDS_APPROVAL",
   "updated_at": "YYYY-MM-DD HH:MM UTC",
   "summary": "..."
 }
@@ -50,6 +50,7 @@
     "TODO": 1,
     "DOING": 1,
     "BLOCKED": 0,
+    "ON_HOLD": 0,
     "DONE": 1,
     "FAILED": 0,
     "NEEDS_APPROVAL": 0
@@ -75,6 +76,7 @@
     "TODO": 0,
     "DOING": 0,
     "BLOCKED": 0,
+    "ON_HOLD": 0,
     "DONE": 0,
     "FAILED": 0,
     "NEEDS_APPROVAL": 0

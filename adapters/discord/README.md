@@ -175,6 +175,7 @@ Owner 전용. Studyroom 콘텐츠 수정 1종만 지원한다.
 - TODO: 0
 - DOING: 0
 - BLOCKED: 0
+- ON_HOLD: 0
 - DONE: 3
 - FAILED: 0
 - NEEDS_APPROVAL: 0
@@ -187,11 +188,12 @@ Owner 전용. Studyroom 콘텐츠 수정 1종만 지원한다.
 
 ### report today success
 ```text
-📊 task report (today, UTC)
+📊 task report
 - total: 2
 - TODO: 0
 - DOING: 0
 - BLOCKED: 0
+- ON_HOLD: 0
 - DONE: 2
 - FAILED: 0
 - NEEDS_APPROVAL: 0
@@ -208,6 +210,7 @@ Owner 전용. Studyroom 콘텐츠 수정 1종만 지원한다.
 - TODO: 0
 - DOING: 0
 - BLOCKED: 0
+- ON_HOLD: 0
 - DONE: 0
 - FAILED: 0
 - NEEDS_APPROVAL: 0

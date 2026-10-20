@@ -53,6 +53,7 @@ if str(AUDIT_CHAIN_DIR) not in sys.path:
 from intake_parser import parse_intake
 from task_draft_builder import build_task_draft
 from task_file_writer import (
+    TASK_ALLOWED_STATUSES,
     TASK_STATUS_TRANSITIONS,
     record_task_execution_result,
     transition_task_file_status,
@@ -101,7 +102,9 @@ TASK_EXECUTION_STATUS_FIELDS = TASK_EXECUTION_REVIEW_FIELDS
 TASK_EXECUTION_DERIVED_FIELDS = ("error", "mode", "reason", "message", "execution_status")
 RETRY_ALLOWED_STATUSES = frozenset({"FAILED", "DOING"})
 RUN_ALLOWED_STATUSES = frozenset({"DOING"})
-REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
+# task-0174: every official status, ON_HOLD right after BLOCKED. A status missing here was
+# counted in total but in no line, so the self-check compares this to TASK_ALLOWED_STATUSES.
+REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "ON_HOLD", "DONE", "FAILED", "NEEDS_APPROVAL")
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "TODO": ("DOING",),
     # DOING -> FAILED was missing here while the code performed it all along:
@@ -685,6 +688,12 @@ def _build_report_payload(parsed_tasks: list[dict[str, str]]) -> dict[str, Any]:
     return {"result_type": "report", "total": len(parsed_tasks), "counts": counts, "recent": recent}
 
 
+def _status_count_lines(counts: dict[str, Any]) -> str:
+    """task-0174: one `- <STATUS>: <n>` line per REPORT_STATUS_ORDER entry, for every report reply."""
+
+    return "\n".join(f"- {status}: {counts.get(status, 0)}" for status in REPORT_STATUS_ORDER)
+
+
 def _empty_report_payload() -> dict[str, Any]:
     return {"result_type": "report_empty", "total": 0, "counts": {status: 0 for status in REPORT_STATUS_ORDER}, "recent": []}
 
@@ -853,6 +862,9 @@ def _build_review_notes(status: str) -> str:
         return "승인 대기 상태로 보임"
     if status == "BLOCKED":
         return "차단 원인과 해소 조건 점검 필요"
+    if status == "ON_HOLD":
+        # task-0174: a deliberate pause by the Owner (task-model 2), not a blocker or a failure.
+        return "의도적으로 보류된 상태로 보임(Owner 재우선순위 대기)"
     return "상태 정보 점검 필요"
 
 
@@ -869,6 +881,11 @@ def _build_recommended_next_steps(status: str) -> list[str]:
         return ["승인 요청 항목과 사유를 점검한다", "승인 후 즉시 수행할 다음 작업을 정리한다"]
     if status == "BLOCKED":
         return ["차단 원인을 summary에 명확히 기록한다", "의존 주체와 재시도 조건을 확인한다"]
+    if status == "ON_HOLD":
+        return [
+            "summary의 보류 사유와 재개 조건을 확인한다",
+            "재개는 Owner 결정 뒤 Jarvis Console Resume으로 보류 전 상태(hold_from)로 되돌린다",
+        ]
     return ["task 메타데이터를 점검한다"]
 
 
@@ -2594,12 +2611,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             "📋 retro today\n"
             f"- total: {pipeline_result.get('total', 0)}\n\n"
             "status summary:\n"
-            f"- TODO: {counts.get('TODO', 0)}\n"
-            f"- DOING: {counts.get('DOING', 0)}\n"
-            f"- BLOCKED: {counts.get('BLOCKED', 0)}\n"
-            f"- DONE: {counts.get('DONE', 0)}\n"
-            f"- FAILED: {counts.get('FAILED', 0)}\n"
-            f"- NEEDS_APPROVAL: {counts.get('NEEDS_APPROVAL', 0)}\n\n"
+            f"{_status_count_lines(counts)}\n\n"
             f"completed today:\n{completed_text}\n\n"
             f"needs follow-up:\n{follow_up_text}\n\n"
             "summary:\n"
@@ -2821,12 +2833,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         return (
             "📊 task report\n"
             "- total: 0\n"
-            f"- TODO: {counts.get('TODO', 0)}\n"
-            f"- DOING: {counts.get('DOING', 0)}\n"
-            f"- BLOCKED: {counts.get('BLOCKED', 0)}\n"
-            f"- DONE: {counts.get('DONE', 0)}\n"
-            f"- FAILED: {counts.get('FAILED', 0)}\n"
-            f"- NEEDS_APPROVAL: {counts.get('NEEDS_APPROVAL', 0)}\n\n"
+            f"{_status_count_lines(counts)}\n\n"
             "최근 업데이트:\n"
             "(없음)"
         )
@@ -2840,12 +2847,7 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         return (
             "📊 task report\n"
             f"- total: {pipeline_result.get('total', 0)}\n"
-            f"- TODO: {counts.get('TODO', 0)}\n"
-            f"- DOING: {counts.get('DOING', 0)}\n"
-            f"- BLOCKED: {counts.get('BLOCKED', 0)}\n"
-            f"- DONE: {counts.get('DONE', 0)}\n"
-            f"- FAILED: {counts.get('FAILED', 0)}\n"
-            f"- NEEDS_APPROVAL: {counts.get('NEEDS_APPROVAL', 0)}\n\n"
+            f"{_status_count_lines(counts)}\n\n"
             f"최근 업데이트:\n{recent_text}"
         )
     if pipeline_result.get("reason") == "doing_without_execution_record":
@@ -3223,6 +3225,8 @@ def _run_self_check_suite() -> dict[str, Any]:
                         f"- id: `{task_id}`",
                         f"- title: `{title}`",
                         f"- status: `{status}`",
+                        # task-0174: a valid ON_HOLD record carries hold_from (task-model 12).
+                        *(["- hold_from: `TODO`"] if status == "ON_HOLD" else []),
                         "- repo: `jarvis-core`",
                         "- created_at: `2026-04-01 00:00 UTC`",
                         f"- updated_at: `{updated_at}`",
@@ -3753,6 +3757,124 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and "report visible item" in report_reply
             )
             _record("report_recent_title_visible", report_recent_title_visible_ok, f"reply={report_reply}")
+
+            # --- task-0174 ON_HOLD in /report, /report today and /retro today --------
+            legacy_status_order = ("TODO", "DOING", "BLOCKED", "DONE", "FAILED", "NEEDS_APPROVAL")
+            _record(
+                "report_status_order_matches_vocabulary",
+                set(REPORT_STATUS_ORDER) == set(TASK_ALLOWED_STATUSES)
+                and len(REPORT_STATUS_ORDER) == len(set(REPORT_STATUS_ORDER)) == 7
+                and REPORT_STATUS_ORDER.index("ON_HOLD") == REPORT_STATUS_ORDER.index("BLOCKED") + 1
+                and tuple(s for s in REPORT_STATUS_ORDER if s != "ON_HOLD") == legacy_status_order,
+                f"order={REPORT_STATUS_ORDER} vocabulary={sorted(TASK_ALLOWED_STATUSES)}",
+            )
+
+            def _status_lines(reply: str) -> list[tuple[str, int]]:
+                return [
+                    (matched.group(1), int(matched.group(2)))
+                    for matched in (re.fullmatch(r"- ([A-Z_]+): (\d+)", line) for line in reply.splitlines())
+                    if matched
+                ]
+
+            def _counts_match_total(result: dict[str, Any]) -> bool:
+                counts = result.get("counts") or {}
+                return list(counts) == list(REPORT_STATUS_ORDER) and sum(counts.values()) == result.get("total")
+
+            def _reply_lines_ok(result: dict[str, Any]) -> bool:
+                lines = _status_lines(_format_reply(result))
+                counts = result.get("counts") or {}
+                return lines == [(status, counts.get(status, 0)) for status in REPORT_STATUS_ORDER]
+
+            today_ymd_hold = datetime.now(UTC).strftime("%Y-%m-%d")
+            report_before = _run_report("/report")
+            today_before = _run_report_today("/report today")
+            retro_before = _run_retro_today("/retro today")
+            _write_task("task-0111-report-on-hold", "ON_HOLD", f"{today_ymd_hold} 12:00 UTC", title="report on hold item")
+            report_after = _run_report("/report")
+            today_after = _run_report_today("/report today")
+            retro_after = _run_retro_today("/retro today")
+            for name, before, after in (
+                ("report", report_before, report_after),
+                ("report_today", today_before, today_after),
+                ("retro_today", retro_before, retro_after),
+            ):
+                _record(
+                    f"{name}_counts_on_hold",
+                    (after.get("counts") or {}).get("ON_HOLD") == (before.get("counts") or {}).get("ON_HOLD", 0) + 1
+                    and after.get("total") == before.get("total", 0) + 1
+                    and _counts_match_total(before)
+                    and _counts_match_total(after),
+                    f"before={before.get('counts')} after={after.get('counts')} total={after.get('total')}",
+                )
+                _record(f"{name}_reply_status_lines", _reply_lines_ok(after), f"reply={_format_reply(after)}")
+            _record(
+                "retro_today_on_hold_not_follow_up",
+                retro_after.get("follow_up_titles") == retro_before.get("follow_up_titles")
+                and retro_after.get("completed_titles") == retro_before.get("completed_titles")
+                and retro_after.get("summary_line") == retro_before.get("summary_line")
+                and "report on hold item" not in (retro_after.get("follow_up_titles") or []),
+                f"before={retro_before} after={retro_after}",
+            )
+            _record(
+                "report_empty_reply_status_lines",
+                _reply_lines_ok(_empty_report_payload()) and _counts_match_total(_empty_report_payload()),
+                f"reply={_format_reply(_empty_report_payload())}",
+            )
+
+            # A day with only an ON_HOLD update is not a follow-up day.
+            with tempfile.TemporaryDirectory(prefix="jarvis-self-check-hold-") as hold_dir:
+                hold_repo = Path(hold_dir)
+                hold_tasks = hold_repo / "memory" / "tasks"
+                hold_tasks.mkdir(parents=True)
+                (hold_tasks / "task-0111-report-on-hold.md").write_bytes(
+                    (tasks_dir / "task-0111-report-on-hold.md").read_bytes()
+                )
+                globals()["REPO_ROOT"] = hold_repo
+                try:
+                    hold_only_retro = _run_retro_today("/retro today")
+                finally:
+                    globals()["REPO_ROOT"] = temp_repo
+            _record(
+                "retro_today_on_hold_only_moves_forward",
+                hold_only_retro.get("total") == 1
+                and (hold_only_retro.get("counts") or {}).get("ON_HOLD") == 1
+                and hold_only_retro.get("follow_up_titles") == []
+                and hold_only_retro.get("summary_line") == "today moved forward on 1 tasks",
+                f"result={hold_only_retro}",
+            )
+
+            review_expected = {
+                "TODO": ("아직 구현 전 또는 계획 단계일 수 있음", ["요구사항과 범위를 다시 확인한다", "작업 착수 조건을 정리한다"]),
+                "DOING": ("진행 중 작업으로 보임", ["진행 중 산출물을 점검한다", "남은 작업을 우선순위로 정리한다"]),
+                "DONE": ("완료 상태로 보임", ["검증 근거와 결과를 최종 점검한다"]),
+                "FAILED": ("실패 원인/재시도 계획 점검 필요", ["실패 원인을 명시한다", "재시도 조건과 계획을 정리한다"]),
+                "NEEDS_APPROVAL": ("승인 대기 상태로 보임", ["승인 요청 항목과 사유를 점검한다", "승인 후 즉시 수행할 다음 작업을 정리한다"]),
+                "BLOCKED": ("차단 원인과 해소 조건 점검 필요", ["차단 원인을 summary에 명확히 기록한다", "의존 주체와 재시도 조건을 확인한다"]),
+                "ON_HOLD": (
+                    "의도적으로 보류된 상태로 보임(Owner 재우선순위 대기)",
+                    [
+                        "summary의 보류 사유와 재개 조건을 확인한다",
+                        "재개는 Owner 결정 뒤 Jarvis Console Resume으로 보류 전 상태(hold_from)로 되돌린다",
+                    ],
+                ),
+            }
+            review_actual = {
+                status: (_build_review_notes(status), _build_recommended_next_steps(status))
+                for status in REPORT_STATUS_ORDER
+            }
+            _record("review_task_status_guidance", review_actual == review_expected, f"actual={review_actual}")
+            # The /review-task command on a real ON_HOLD record carries that guidance end to end.
+            review_on_hold = _run_review_task("/review-task task-0111-report-on-hold")
+            review_on_hold_reply = _format_reply(review_on_hold)
+            _record(
+                "review_task_on_hold_command",
+                review_on_hold.get("result_type") == "review_task_result"
+                and review_on_hold.get("status") == "ON_HOLD"
+                and review_on_hold.get("review_notes") == review_expected["ON_HOLD"][0]
+                and review_on_hold.get("recommended_next_steps") == review_expected["ON_HOLD"][1]
+                and review_expected["ON_HOLD"][0] in review_on_hold_reply,
+                f"result={review_on_hold} reply={review_on_hold_reply}",
+            )
 
             # --- task-0052 audit chain integration -----------------------------
             # The chain is isolated to throwaway state for this whole block, so
