@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 12:53 UTC`
-- updated_at: `2026-10-20 13:08 UTC`
-- summary: `Discord /report, /report today, /retro today의 상태 목록 REPORT_STATUS_ORDER에 ON_HOLD가 없어 보류 task가 total에는 들어가고 상태별 집계와 출력에서는 빠진다. ON_HOLD를 BLOCKED 바로 뒤에 더하고, 출력은 공통 목록을 반복하며, TASK_ALLOWED_STATUSES와의 드리프트 가드, /review-task의 ON_HOLD 안내, README 머리말 정정을 더했다. candidate ae2d992가 Reviewer PASS와 QA PASS를 받은 뒤 기록 시각 정정을 repair 1로 다뤄 새 candidate를 만들었고, 그 Reviewer·QA 결과는 본문에 기록한다.`
+- updated_at: `2026-10-20 13:50 UTC`
+- summary: `Discord /report, /report today, /retro today의 상태 목록 REPORT_STATUS_ORDER에 ON_HOLD가 없어 보류 task가 total에는 들어가고 상태별 집계와 출력에서는 빠진다. ON_HOLD를 BLOCKED 바로 뒤에 더하고, 출력은 공통 목록을 반복하며, TASK_ALLOWED_STATUSES와의 드리프트 가드, /review-task의 ON_HOLD 안내, README 머리말 정정을 더했다. candidate ae2d992가 Reviewer PASS와 QA PASS를 받은 뒤 기록 시각 정정을 repair 1로, Reviewer 2 지적(기록 문장 2곳)을 repair 2(Owner 예산 증액)로 고쳤고, 그 Reviewer·QA 결과는 본문에 기록한다.`
 - source_command: `Owner 결정: task-0174 등록과 구현 전 계획 (Claude Code 세션)`
 
 ## 기준선
@@ -16,7 +16,7 @@
 | baseline | `54cab645949780c57e432b5075f08b1a373ec671` (등록 시점 main HEAD = origin/main, fetch 후 확인). Start 때 다시 확인한다 |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 등록 방식 | 이 기록을 `TODO`로 작업 트리에만 만들었다(커밋·stage 없음). task-0173과 같이 Start 승인 뒤 candidate commit에 함께 들어간다 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (기본값. repair 1 사용, 아래 "Repair 1") |
+| budget | `retry_budget=1`, `retry_count=1`, `repair_budget=2`, `repair_count=2` (repair 1 뒤 1, retry 1(Reviewer 2 무효 검토의 재검토) 뒤 retry 1, Owner가 이 task에 한해 repair 예산을 2로 증액한 뒤 repair 2로 2. 아래 "Repair 1"·"Reviewer 2"·"Repair 2") |
 
 ## Owner 결정 (원문)
 
@@ -176,6 +176,9 @@ Start 전 확인(2026-10-20 12:55 UTC): fetch 뒤 branch `main`, HEAD `54cab6459
 | S14 | "필요한 추가 검토가 있다면 승인된 절차와 예산 안에서 진행해." / "새 candidate가 필요하다면 그 candidate를 기준으로 검토해야 하며, 기존 PASS를 새 candidate의 PASS로 간주하지 마." | 정정을 repair 1(예산 1/1)로 세어 새 candidate를 만들고 Reviewer → QA를 처음부터 실행한다. `ae2d992`의 PASS는 완료 판정에 쓰지 않는다. 추가 수정이 필요하면 escalation한다 |
 | S15 | "기록과 검증 결과가 일치하고 완료 요건을 충족하면 공식 Console Complete Preview를 제시해." / "Preview가 정확하고 SOP 요건이 충족되면 공식 `COMPLETE TASK` 절차를 진행해." / "불일치나 추가 승인이 필요한 사항이 있으면 완료 처리 전에 보고해." | 새 candidate의 Reviewer PASS·QA PASS와 SOP §8 대조가 끝난 뒤에만 Console Complete Preview를 확인하고, 정확하면 `COMPLETE TASK`로 Confirm한다. 이 지시가 S11에서 Owner 결정으로 남겨 둔 Complete를 맡긴다. 불일치나 추가 승인 사항이 있으면 Confirm하지 않고 보고한다 |
 | S16 | "완료 후 DONE checkpoint와 task 상태를 확인하고, 기존 절차대로 master-plan의 최근 완료 목록을 별도 기록 커밋으로 갱신해." / "단, push는 하지 마." / "기존 6건, `jarvis.bat`, 보존 worktree에는 손대지 마." | Complete 뒤 DONE checkpoint와 status를 확인하고, master-plan 최근 완료 목록을 별도 기록 커밋으로 갱신한다. push하지 않고 기존 6건·`jarvis.bat`·보존 worktree를 건드리지 않는다 |
+| S17 | "task-0174에 대해 조건부 A안을 승인합니다." / "repair 예산을 2로 늘리는 변경은 task-0174의 기록 정정에만 적용합니다." / "다른 작업의 예산이나 SOP를 변경하지 마세요." / "기록의 두 부정확한 부분만 수정합니다." / "`updated_at`이 13:08 UTC인 근거와, 앞서 13:04 UTC로 정정했던 이력의 관계를 명확히 기록합니다." / "Repair 1 변경 목록에 Manager 요약 S13~S16 행 추가를 누락 없이 기록합니다." / "코드와 문서는 수정하지 않습니다." | repair 예산 증액(1→2)은 task-0174에만 적용했고 다른 task 예산·SOP는 바꾸지 않았다. 수정한 문장은 두 곳뿐이다: Repair 1 절의 updated_at 근거 문단(13:08 = repair 1 편집 시각, 13:04 = `844e9d4` 시점 이력)과 Repair 1 변경 목록의 S13~S16 보충. 그 밖의 추가는 SOP §3·§5가 요구하는 기록(budget 행, 검토 결과, 이 원문, Repair 2 절, 이 행들, summary, updated_at)이다. 코드·문서 파일은 바꾸지 않았다 |
+| S18 | "새 candidate를 만든 뒤 해당 hash에 고정하여 Reviewer를 진행하고, 필요하면 남은 retry 예산을 SOP에 따라 사용합니다." / "Reviewer 결과가 유효하고 완료 기준을 충족하면 동일 candidate를 대상으로 QA를 처음부터 진행합니다." / "기존 `ae2d992`, `844e9d4`, `43125bd`의 검토 결과를 새 candidate의 결과로 간주하지 마세요." / "예산 소진, 유효한 미해결 지적, 검토 절차 위반이 발생하면 추가 수정하지 말고 Owner에게 보고합니다." | 새 candidate hash에 고정해 Reviewer를 실행한다. retry 예산(1)은 Reviewer 2 무효 검토의 재검토로 이미 써서 남은 retry가 없으므로, 다음 Reviewer가 무효이거나 유효한 지적이 남거나 예산이 필요하면 고치지 않고 Owner에게 보고한다. Reviewer가 유효한 PASS일 때만 같은 candidate로 QA를 처음부터 실행하고, `ae2d992`·`844e9d4`·`43125bd`의 결과는 쓰지 않는다 |
+| S19 | "Reviewer와 QA가 모두 통과한 경우에만 Console Complete Preview → 공식 Confirm → DONE checkpoint → master-plan 최근 완료 목록 갱신 순으로 진행합니다." / "push는 하지 마세요." / "기존 6건, `jarvis.bat`, 보존 worktree는 건드리지 마세요." | Reviewer PASS와 QA PASS가 같은 새 candidate에 있을 때만 Console Complete Preview → `COMPLETE TASK` Confirm → DONE checkpoint → master-plan 최근 완료 기록 커밋 순으로 진행한다. push하지 않고 기존 6건·`jarvis.bat`·보존 worktree를 건드리지 않는다 |
 
 ## 구현
 
@@ -280,4 +283,50 @@ Preview가 정확하고 SOP 요건이 충족되면 공식 `COMPLETE TASK` 절차
 
 Manager 판정: 이 정정을 Reviewer가 보지 않은 기록 변경으로 보고, 이 기록의 현재 내용으로 새 candidate를 만든다. SOP §5의 repair 정의는 "Reviewer finding 또는 QA 실패를 해결하기 위해 tracked source를 바꾸는 correction"이라 이 경우와 정확히 맞지 않지만, 예산을 우회하지 않도록 repair 1로 센다(`repair_count` 0→1, 예산 소진). `ae2d992`의 Reviewer·QA PASS는 완료 판정에 쓰지 않는다. 새 candidate에 Reviewer → QA를 처음부터 실행하고, 수정이 필요한 지적이나 QA 실패가 나오면 예산이 없으므로 고치지 않고 Director를 거쳐 Owner에게 escalation한다.
 
-이 repair가 바꾸는 것은 이 기록뿐이다: summary, 기준선 budget 행, Docs 대조 절의 budget 문장, `844e9d4` 시점의 다음 단계 문장, 위 Owner 지시 원문과 이 절, updated_at. 코드·문서 파일은 `ae2d992`와 같다.
+이 repair가 바꾸는 것은 이 기록뿐이다: summary, 기준선 budget 행, Docs 대조 절의 budget 문장, `844e9d4` 시점의 다음 단계 문장, 위 Owner 지시 원문과 이 절, Manager 요약 표의 S13~S16 행 추가(위 Owner 지시 원문의 인용과 해석, S15의 Console Complete 위임 해석 포함), updated_at. 코드·문서 파일은 `ae2d992`와 같다. (S13~S16 행 추가는 repair 2에서 이 목록에 보충했다.)
+
+updated_at(repair 2에서 보충): repair 1 커밋 `43125bd`의 `updated_at` 13:08 UTC는 repair 1 편집의 실제 시각이며 그 커밋(13:09:14 UTC) 직전이다. 위 "정정" 절의 "실제 시각 13:04 UTC로 고쳤다"는 checkpoint `844e9d4` 시점의 이력이고, 그 13:04는 그 checkpoint(13:05:12 UTC 커밋)의 편집 시각으로 맞는 값이었다. 같은 숫자 13:08이 candidate `ae2d992`의 틀린 값(그 커밋 13:01:18 UTC보다 늦음)과 repair 1의 맞는 값으로 두 번 나온 것은 우연이다.
+
+## Candidate 2 (repair 1)
+
+`43125bdbe051996fe4b5c52c7a18fee3ad10a58e`(parent `844e9d4`, 커밋 13:09:14 UTC). 이 기록 1개만 바뀌었고 코드·문서 파일은 `ae2d992`와 같다. 커밋 전 사전 점검 PASS.
+
+## Reviewer 2 (`43125bd`, FINDINGS minor 1, `self_deviations` 2건 → 무효)
+
+- findings: Repair 1 변경 목록에 같은 커밋에서 더한 Manager 요약 S13~S16 행이 빠졌다.
+- `self_deviations`: `git cat-file -t <baseline 해시>`, `git diff 844e9d4^ 844e9d4`(candidate가 아닌 hash) 2건. 이 검토는 무효다.
+
+Manager 판정: SOP §5에 따라 같은 호출로 1회 재검토(retry, `retry_count` 0→1)했다.
+
+## Reviewer 2 retry (`43125bd`, FINDINGS minor 1, 유효)
+
+`self_deviations: []`. findings: `updated_at`이 13:08로 바뀌었는데 "정정" 절은 13:08을 틀린 값, 13:04를 맞는 값으로 적고 Repair 1 절은 13:08의 근거를 적지 않는다. 최소 수정: Repair 1 절에 13:08이 repair 1 편집 시각(커밋 13:09:14 UTC 직전)임과 13:04 문장이 `844e9d4` 시점 이력임을 적는다.
+
+Manager 판정: 유효한 지적과 무효 검토의 지적 모두 사실이며 기록 문장 수준이다. repair·retry 예산이 모두 소진돼 수정하지 않고 Owner에게 escalation했다. 선택지: A repair 예산 2로 증액 후 두 곳 수정, B SOP §8로 유효한 minor 수용 후 `43125bd`로 QA.
+
+## Owner 결정: 조건부 A안 (원문)
+
+```text
+task-0174에 대해 조건부 A안을 승인합니다.
+
+* repair 예산을 2로 늘리는 변경은 task-0174의 기록 정정에만 적용합니다. 다른 작업의 예산이나 SOP를 변경하지 마세요.
+* 기록의 두 부정확한 부분만 수정합니다.
+   1. `updated_at`이 13:08 UTC인 근거와, 앞서 13:04 UTC로 정정했던 이력의 관계를 명확히 기록합니다.
+   2. Repair 1 변경 목록에 Manager 요약 S13~S16 행 추가를 누락 없이 기록합니다.
+* 코드와 문서는 수정하지 않습니다.
+* 새 candidate를 만든 뒤 해당 hash에 고정하여 Reviewer를 진행하고, 필요하면 남은 retry 예산을 SOP에 따라 사용합니다.
+* Reviewer 결과가 유효하고 완료 기준을 충족하면 동일 candidate를 대상으로 QA를 처음부터 진행합니다. 기존 `ae2d992`, `844e9d4`, `43125bd`의 검토 결과를 새 candidate의 결과로 간주하지 마세요.
+* 예산 소진, 유효한 미해결 지적, 검토 절차 위반이 발생하면 추가 수정하지 말고 Owner에게 보고합니다.
+* Reviewer와 QA가 모두 통과한 경우에만 Console Complete Preview → 공식 Confirm → DONE checkpoint → master-plan 최근 완료 목록 갱신 순으로 진행합니다.
+* push는 하지 마세요. 기존 6건, `jarvis.bat`, 보존 worktree는 건드리지 마세요.
+```
+
+이 증액은 task-0174에만 효력이 있다.
+
+## Repair 2
+
+- 부정확한 곳 1(`updated_at` 근거): Repair 1 절 끝에 "updated_at(repair 2에서 보충)" 문단을 더했다. 13:08이 repair 1 편집 시각이고 "정정" 절의 13:04가 `844e9d4` 시점 이력임을 적었다. "정정" 절 자체는 이력으로 두었다.
+- 부정확한 곳 2(변경 목록): Repair 1 변경 목록에 Manager 요약 S13~S16 행 추가를 넣고, repair 2에서 보충했다고 표시했다.
+- 이 두 곳 말고 바뀐 것은 SOP가 요구하는 기록뿐이다: 기준선 budget 행(`retry_count=1`, `repair_budget=2`, `repair_count=2`), summary, 위 Candidate 2·Reviewer 2·retry·Owner 결정 원문·이 절, Manager 요약 표의 S17~S19 행(위 Owner 결정 원문의 인용과 해석), updated_at.
+- updated_at은 이 repair 2 편집의 실제 시각 2026-10-20 13:50 UTC다(스크립트가 편집 시점의 UTC 시계를 읽어 넣었다).
+- 코드·문서 파일은 `ae2d992`와 같다. retry 예산이 남지 않아, 다음 Reviewer가 무효(`self_deviations`)이거나 유효한 지적이 남으면 고치지 않고 Owner에게 보고한다.
