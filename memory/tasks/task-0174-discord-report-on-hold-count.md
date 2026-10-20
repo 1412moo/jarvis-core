@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 12:53 UTC`
-- updated_at: `2026-10-20 13:04 UTC`
-- summary: `Discord /report, /report today, /retro today의 상태 목록 REPORT_STATUS_ORDER에 ON_HOLD가 없어 보류 task가 total에는 들어가고 상태별 집계와 출력에서는 빠진다. ON_HOLD를 BLOCKED 바로 뒤에 더하고, 출력은 공통 목록을 반복하며, TASK_ALLOWED_STATUSES와의 드리프트 가드, /review-task의 ON_HOLD 안내, README 머리말 정정을 더했다. candidate ae2d992가 Reviewer PASS와 QA PASS를 받았고, DONE은 Owner의 Console Complete 결정을 기다린다.`
+- updated_at: `2026-10-20 13:08 UTC`
+- summary: `Discord /report, /report today, /retro today의 상태 목록 REPORT_STATUS_ORDER에 ON_HOLD가 없어 보류 task가 total에는 들어가고 상태별 집계와 출력에서는 빠진다. ON_HOLD를 BLOCKED 바로 뒤에 더하고, 출력은 공통 목록을 반복하며, TASK_ALLOWED_STATUSES와의 드리프트 가드, /review-task의 ON_HOLD 안내, README 머리말 정정을 더했다. candidate ae2d992가 Reviewer PASS와 QA PASS를 받은 뒤 기록 시각 정정을 repair 1로 다뤄 새 candidate를 만들었고, 그 Reviewer·QA 결과는 본문에 기록한다.`
 - source_command: `Owner 결정: task-0174 등록과 구현 전 계획 (Claude Code 세션)`
 
 ## 기준선
@@ -16,7 +16,7 @@
 | baseline | `54cab645949780c57e432b5075f08b1a373ec671` (등록 시점 main HEAD = origin/main, fetch 후 확인). Start 때 다시 확인한다 |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 등록 방식 | 이 기록을 `TODO`로 작업 트리에만 만들었다(커밋·stage 없음). task-0173과 같이 Start 승인 뒤 candidate commit에 함께 들어간다 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (기본값. repair 1 사용, 아래 "Repair 1") |
 
 ## Owner 결정 (원문)
 
@@ -172,6 +172,10 @@ Start 전 확인(2026-10-20 12:55 UTC): fetch 뒤 branch `main`, HEAD `54cab6459
 | S10 | "먼저 현재 `main`과 `origin/main`이 동기화되어 있는지 확인한다." / "기존 task 등록 규칙과 SOP를 확인하고 task-0174를 공식 절차에 따라 등록한다." / "구현 전 변경 파일과 테스트 계획을 제시한다." / "공식 Console Start 승인 전에는 구현하지 않는다." | 등록 전 fetch 뒤 `main` = `origin/main` = `54cab64`를 확인했고, task-0172·0173 관례대로 `TODO` 기록으로 등록해 변경 파일과 검증 계획을 제시했다. 코드는 Start 뒤에만 바꿨다 |
 | S11 | "승인 후 기존 SOP대로 self-review, preflight, Reviewer, QA, Console Complete를 진행한다." / "실제 검증 결과와 변경 범위를 보고한다." / "확인하지 않은 내용은 완료로 표현하지 않는다." / "먼저 task 등록과 구현 전 계획까지만 진행하고, 공식 Start 승인 전에는 코드를 수정하지 마." | Start 뒤 SOP 순서(사전 점검 → self-review 1회 → candidate → Reviewer → QA)를 따르고 실제 결과만 기록한다. Console Complete는 SOP §8과 승인된 계획("Owner의 Console Complete로 DONE")에 따라 Owner의 결정으로 남기고, 그 전까지 완료로 쓰지 않는다 |
 | S12 | "task-0174 Console Start 승인한다, 계획대로 진행해" | Console Start Preview(TODO → DOING, `no_execution: true`) 확인 뒤 `START TASK`로 Confirm했다("구현 착수" 절). "계획대로"는 이 기록의 설계·범위·검증 계획·SOP 절차다 |
+| S13 | "task-0174의 Reviewer/QA 이후 task 기록 정정 사항부터 확인해." / "candidate `ae2d992`와 결과 기록 checkpoint `844e9d4`의 차이를 확인해." / "정정된 `updated_at`과 self-review 시각이 실제 근거와 일치하는지 확인해." / "관련 SOP에서 Reviewer/QA 이후 기록 변경에 필요한 절차를 확인해." | "Repair 1" 절의 확인 결과 1~3: 차이는 이 기록뿐(`updated_at`, summary, 결과 절), 정정 시각은 파일·커밋 시각과 일치, SOP §4.5~4.8에 따라 기록 변경은 새 candidate가 필요 |
+| S14 | "필요한 추가 검토가 있다면 승인된 절차와 예산 안에서 진행해." / "새 candidate가 필요하다면 그 candidate를 기준으로 검토해야 하며, 기존 PASS를 새 candidate의 PASS로 간주하지 마." | 정정을 repair 1(예산 1/1)로 세어 새 candidate를 만들고 Reviewer → QA를 처음부터 실행한다. `ae2d992`의 PASS는 완료 판정에 쓰지 않는다. 추가 수정이 필요하면 escalation한다 |
+| S15 | "기록과 검증 결과가 일치하고 완료 요건을 충족하면 공식 Console Complete Preview를 제시해." / "Preview가 정확하고 SOP 요건이 충족되면 공식 `COMPLETE TASK` 절차를 진행해." / "불일치나 추가 승인이 필요한 사항이 있으면 완료 처리 전에 보고해." | 새 candidate의 Reviewer PASS·QA PASS와 SOP §8 대조가 끝난 뒤에만 Console Complete Preview를 확인하고, 정확하면 `COMPLETE TASK`로 Confirm한다. 이 지시가 S11에서 Owner 결정으로 남겨 둔 Complete를 맡긴다. 불일치나 추가 승인 사항이 있으면 Confirm하지 않고 보고한다 |
+| S16 | "완료 후 DONE checkpoint와 task 상태를 확인하고, 기존 절차대로 master-plan의 최근 완료 목록을 별도 기록 커밋으로 갱신해." / "단, push는 하지 마." / "기존 6건, `jarvis.bat`, 보존 worktree에는 손대지 마." | Complete 뒤 DONE checkpoint와 status를 확인하고, master-plan 최근 완료 목록을 별도 기록 커밋으로 갱신한다. push하지 않고 기존 6건·`jarvis.bat`·보존 worktree를 건드리지 않는다 |
 
 ## 구현
 
@@ -245,8 +249,35 @@ candidate `ae2d992`의 이 기록에 적은 두 시각은 실제 시각을 확�
 
 - Docs: `not_required`. 문서 변경(README, status-report-contract)은 candidate 안에 있고 Reviewer·QA가 검토했다. master-plan 최근 완료 갱신은 DONE 뒤 관례적인 별도 기록이며 이 task 범위 밖이다.
 - SOP §8: 같은 candidate `ae2d992`에 Reviewer PASS와 QA PASS. 범위 밖 변경·동시 source writer 없음(변경 4개 = owned). `jarvis.bat` untouched/untracked. push·외부 호출·실제 Discord 전송 없음. listener·임시 worktree 남지 않음.
-- budget: `retry_count=0`, `repair_count=0`.
+- budget: `retry_count=0`, `repair_count=0`(이 절 작성 시점). 아래 "Repair 1"에서 1로 바뀌었다.
 
 ## 다음 단계
 
-status는 `DOING`이다. SOP §8과 승인된 계획에 따라 DONE은 Owner가 Jarvis Console Complete(Preview + Confirm `COMPLETE TASK`)로 결정한다. 그 결정을 기다리며, Complete 뒤 상태 변경을 별도 checkpoint commit으로 남긴다. push는 하지 않는다.
+(이 절은 checkpoint `844e9d4` 시점의 계획이다. 아래 "Repair 1"이 이를 대신한다.)
+
+## Owner 지시: 정정 확인 (원문)
+
+```text
+task-0174의 Reviewer/QA 이후 task 기록 정정 사항부터 확인해.
+
+1. candidate `ae2d992`와 결과 기록 checkpoint `844e9d4`의 차이를 확인해.
+2. 정정된 `updated_at`과 self-review 시각이 실제 근거와 일치하는지 확인해.
+3. 관련 SOP에서 Reviewer/QA 이후 기록 변경에 필요한 절차를 확인해.
+4. 필요한 추가 검토가 있다면 승인된 절차와 예산 안에서 진행해. 새 candidate가 필요하다면 그 candidate를 기준으로 검토해야 하며, 기존 PASS를 새 candidate의 PASS로 간주하지 마.
+5. 기록과 검증 결과가 일치하고 완료 요건을 충족하면 공식 Console Complete Preview를 제시해.
+
+Preview가 정확하고 SOP 요건이 충족되면 공식 `COMPLETE TASK` 절차를 진행해. 불일치나 추가 승인이 필요한 사항이 있으면 완료 처리 전에 보고해.
+완료 후 DONE checkpoint와 task 상태를 확인하고, 기존 절차대로 master-plan의 최근 완료 목록을 별도 기록 커밋으로 갱신해. 단, push는 하지 마. 기존 6건, `jarvis.bat`, 보존 worktree에는 손대지 마.
+```
+
+## Repair 1 (Reviewer·QA 뒤 기록 정정)
+
+확인 결과:
+
+1. `ae2d992..844e9d4` 차이는 이 기록 1개뿐이다(41줄 추가, 2줄 변경). 바뀐 줄은 `updated_at`(13:08 → 13:04)과 summary 메타데이터이고, 나머지는 Candidate 1·Reviewer 1·QA·정정·Docs·다음 단계 절 추가다. 코드·문서 파일은 같다.
+2. 정정한 시각은 근거와 맞는다. self-review 요청 파일 12:59:27 UTC, 결과 파일 13:00:31 UTC(결과 JSON `duration_ms` 57719), `ae2d992` 커밋 13:01:18 UTC, `844e9d4` 커밋 13:05:12 UTC로, `updated_at` 13:04는 그 checkpoint 커밋보다 이르다.
+3. SOP §4: tracked file이 바뀌는 repair·Docs sync는 새 candidate를 만들고(5), candidate가 바뀌면 이전 Reviewer/QA 결과는 전부 무효이며(6), 새 candidate는 fresh Reviewer → fresh QA를 통과해야 하고(7), Manager는 final HEAD와 검토된 hash가 같은지 대조한다(8). `844e9d4`는 결과만 덧붙인 것이 아니라 Reviewer가 본 메타데이터(`updated_at`, summary)를 고쳤다.
+
+Manager 판정: 이 정정을 Reviewer가 보지 않은 기록 변경으로 보고, 이 기록의 현재 내용으로 새 candidate를 만든다. SOP §5의 repair 정의는 "Reviewer finding 또는 QA 실패를 해결하기 위해 tracked source를 바꾸는 correction"이라 이 경우와 정확히 맞지 않지만, 예산을 우회하지 않도록 repair 1로 센다(`repair_count` 0→1, 예산 소진). `ae2d992`의 Reviewer·QA PASS는 완료 판정에 쓰지 않는다. 새 candidate에 Reviewer → QA를 처음부터 실행하고, 수정이 필요한 지적이나 QA 실패가 나오면 예산이 없으므로 고치지 않고 Director를 거쳐 Owner에게 escalation한다.
+
+이 repair가 바꾸는 것은 이 기록뿐이다: summary, 기준선 budget 행, Docs 대조 절의 budget 문장, `844e9d4` 시점의 다음 단계 문장, 위 Owner 지시 원문과 이 절, updated_at. 코드·문서 파일은 `ae2d992`와 같다.
