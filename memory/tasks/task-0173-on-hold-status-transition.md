@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 10:02 UTC`
-- updated_at: `2026-10-20 11:28 UTC`
-- summary: `Console Hold가 TODO·NEEDS_APPROVAL을 ON_HOLD로 옮기며 보류 전 상태를 hold_from에 함께 기록하고, Resume은 hold_from 상태로만 되돌린다(hold_from이 없거나 틀리면 거절). DOING은 보류하지 않으며, Task View에 TODO 뒤·DONE 앞의 On hold 그룹을 두고 task-model 5-1·§9와 master-plan D1 문구 두 군데를 고친다. Console Start 뒤 writer·Console·task-model·master-plan·README와 smoke를 구현했고, 사전 점검과 self-review 1회를 마친 뒤 candidate를 만들었다. Reviewer 1 지적(summary 최신성)은 repair 1로 고쳤고 Reviewer·QA 결과는 본문에 기록한다. 기존 6건·감사 체인·Discord 코드는 바꾸지 않았고 push는 하지 않는다.`
+- updated_at: `2026-10-20 11:40 UTC`
+- summary: `Console Hold가 TODO·NEEDS_APPROVAL을 ON_HOLD로 옮기며 보류 전 상태를 hold_from에 기록하고, Resume은 그 상태로만 되돌린다(없거나 틀리면 거절). DOING은 보류하지 않고, Task View에 TODO 뒤·DONE 앞 On hold 그룹을 두며 task-model 5-1·§9와 master-plan D1 문구 두 군데를 고쳤다. 사전 점검과 self-review 1회 뒤 Reviewer 1 지적(summary 최신성)을 repair 1로 고친 candidate 2c7106c가 Reviewer PASS와 QA PASS를 받았고, DONE은 Owner의 Console Complete 결정을 기다린다. 기존 6건·감사 체인·Discord 코드 무변경, push 없음.`
 - source_command: `Owner 요청: A2 ON_HOLD 전이 검토, 작업 기록과 work package 제안까지 (Claude Code 세션)`
 
 ## 기준선
@@ -647,3 +647,38 @@ Manager 판정: 무효 검토라도 지적은 사실이다(summary 갱신 누락
 - 같은 이유로 Implementer 검증 절 끝의 "남은 단계" 문장을 이후 절을 가리키게 고쳤다.
 - 기준선 budget 행을 `repair_count=1`로, updated_at을 이 수정 시각으로 고쳤다.
 - 코드·문서·테스트는 바꾸지 않았다. self-review는 다시 실행하지 않는다(task당 1회, Start 승인 "Self-review는 최초 후보 커밋 전에 1회만 실행").
+
+## Candidate 2 (repair 1)
+
+`2c7106cebfb27682fb90b9610aed7c5d6e60886a`(parent `ff892e5`). 이 기록 1개만 바뀌었다. 커밋 전 사전 점검 PASS(staged_files 8, violations 0, 인용 누락 0).
+
+## Reviewer 2 (`2c7106c`, PASS)
+
+`findings: []`, `self_deviations: []`. 변경 집합 `3bc3fe5..2c7106c` 8개 파일 전체를 검토했다. `unverified` 8건(smoke·Discord·validator·사전 점검 실행, 기존 ON_HOLD 기록 0건, 6건 blob, Console Start 사실, `jarvis.bat`·worktree·push, 브라우저 표시)은 아래 QA로 넘겼다.
+
+## QA (candidate `2c7106cebfb27682fb90b9610aed7c5d6e60886a`)
+
+candidate를 detached로 checkout한 임시 worktree(scratchpad, 저장소 밖)에서만 실행했다. QA 전·후 main HEAD = candidate, QA worktree는 끝나고 삭제했다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| Q1·Q3·Q4·Q5·Q7·Q8 | Console smoke 전체(새 `_test_task_hold_resume` 포함, `main()`에서 호출됨) | PASS, exit 0 |
+| Q2 | SOP validator | PASS. 변형: 5-1에서 `ON_HOLD`→`NEEDS_APPROVAL` 행 제거 → exit 1 `transition_contract_parity`, 5-2에 `DOING` → `ON_HOLD` → exit 1 `transition_path_unknown` |
+| Q6 | 승인 보존(저장소 밖 임시 루트에서 Discord 함수 호출) | PASS. NEEDS_APPROVAL·ON_HOLD·복귀한 NEEDS_APPROVAL에서 `/run`·`/retry`·`/go` 거절, ON_HOLD에서 `/approve` 전이 `status_mismatch`, 복귀 뒤 `/approve`의 `NEEDS_APPROVAL → DOING`만 진행 |
+| Q9 | master-plan diff | hunk가 `-118 +118`, `-203 +203` 둘뿐. Project Control payload에 개정 문구("task-0173 개정") 표시 |
+| Q10 | 기존 6건과 task-0035 blob | baseline·candidate 모두 0030 `5bae2580d369`, 0031 `5d7dbb80335c`, 0032 `ede13b3278fe`, 0033 `999c8e29a6b3`, 0034 `d22b5656479e`, 0036 `d11c6ce0bd55`, 0035 `d494ed175848` |
+| Q11 | discord-intake smoke, Discord self-check suite, `check_task_record.py`, `git diff --check 3bc3fe5 2c7106c`, `jarvis.bat` | 모두 PASS(exit 0, suite `ok: true`). `jarvis.bat`은 candidate tree에 없고 원본 checkout에서 untracked |
+| Q12 | 변형 7개가 각각 smoke 실패로 드러나는지 | 모두 exit 1: writer 쌍 제거, `hold_from` 쓰기 제거(writer 결과 재검증이 `task_file_invalid_hold_from_metadata`로 거절), Resume 도착을 TODO로 고정, Hold 집합에 DOING 추가, ON_HOLD 규칙 되돌림, 화면 그룹 목록에서 on_hold 제거, Console Hold 출발에 DOING 추가. 첫 실행에서 `hold_from` 쓰기 제거 변형이 문법 오류로 실패해 유효하지 않아 `pass`로 바꿔 다시 실행했다 |
+| Q13 | 브라우저(QA worktree의 Console, 포트 8791, QA 전용 fixture 2건) | NEEDS_APPROVAL fixture: Hold Preview에 summary·고정 안내·승인 안내·"Confirm Hold" 표시 → Confirm 뒤 On hold 그룹(Ready 뒤·Completed 앞), "Held from NEEDS_APPROVAL", Resume 버튼 → Resume Preview `ON_HOLD → NEEDS_APPROVAL` → Confirm 뒤 파일이 NEEDS_APPROVAL, `hold_from` 없음. DOING 카드(사본 task-0173·0031)에는 Complete만 있고 Hold 없음. TODO fixture는 Start·Hold. 콘솔 오류 없음. 사본 6건은 조작하지 않았다 |
+| 정리 | listener, 임시 worktree | 8790·8791 listener 없음, QA worktree 삭제, 보존 worktree 4개 그대로 |
+
+## Docs와 완료 조건 대조
+
+- Docs: `not_required`. 문서 변경(task-model, Console README, master-plan D1 두 군데)은 candidate 안에 있고 Reviewer·QA가 검토했다. master-plan의 최근 완료 갱신은 DONE 뒤 관례적인 별도 기록이며 이 task 범위(C1) 밖이다.
+- SOP §8: 같은 candidate `2c7106c`에 Reviewer PASS와 QA PASS. 무효였던 Reviewer 1(`ff892e5`)의 결과는 판정에 쓰지 않았다. 범위 밖 변경·동시 source writer 없음(변경 8개 = owned). `jarvis.bat` untouched/untracked. push·외부 호출 없음. listener·임시 worktree 남지 않음.
+- budget: `retry_count=0`, `repair_count=1`(소진).
+- 이 checkpoint는 결과 기록만 더하고 `updated_at`을 갱신한다.
+
+## 다음 단계
+
+status는 `DOING`이다. SOP §8에 따라 수동 SOP task의 DONE은 Owner가 Jarvis Console Complete(Preview + Confirm `COMPLETE TASK`)로 결정한다. 그 결정을 기다리며, Complete 뒤 상태 변경을 별도 checkpoint commit으로 남긴다. push는 하지 않는다.
