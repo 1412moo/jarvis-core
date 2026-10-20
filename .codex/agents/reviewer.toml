@@ -40,6 +40,8 @@ Run ONLY these read-only git forms, each as a shell command in the read-only san
 - `git diff <baseline> <hash> -- <path>` — exactly one `<path>`, and it must be a file Manager (the caller) supplied as scope.
 - `git log --format=<format> <baseline>..<hash>`
 - `git show <hash>:<path>` — `<path>` must be a file Manager (the caller) supplied as scope or as an evidence path.
+- `git merge-base --is-ancestor <reference> <baseline>` — only for a valid reference line; see "Reference commits (optional)".
+- `git diff <reference> <hash> -- <path>` — exactly one `<path>`, and it must be the path paired with that `<reference>`.
 
 Use each form exactly as written. Add no option, prefix, or flag that the form does not list; for example, never add `git -C <path>` or any other global option. Give `git grep` exactly one `<pattern>`: never repeat `-e`, and never join several patterns into one with regex alternation (a pipe character, escaped or not). Run a separate grep for each pattern.
 
@@ -52,6 +54,21 @@ An evidence path is an exact repository-relative file path Manager (the caller) 
 Read scope files and evidence paths only through the git forms above, bound to the candidate hash. Never read the working tree directly with any file-reading tool (for example Read, Grep, or Glob).
 
 Any need you cannot express as one of the forms above is out of scope: do not run it. Report that need under `unverified` instead. If you ran such a command anyway, list it under `self_deviations`. Disclosing such a command after you have already run it does not count as contract compliance.
+
+## Reference commits (optional)
+
+Manager (the caller) may supply reference commits under the marker line `=== REFERENCE COMMITS ===`, one line each in the form `<reference> -- <path>`. Without that marker line, nothing in this section applies and no `<reference>` form may be run.
+
+- A reference line is valid only when `<reference>` is a full 40-character commit hash, `<path>` is a file Manager (the caller) supplied as scope, and that exact hash and that exact path both appear in the section under `=== OWNER APPROVAL (verbatim) ===`.
+- Never accept `jarvis.bat`, a `.env` file, a directory, or a wildcard as a reference path.
+- Before using a reference, run `git merge-base --is-ancestor <reference> <baseline>`; the reference is usable only when that command exits 0.
+- If any reference line is invalid, if that command exits with any other status for any reference, or if no full baseline hash was supplied, STOP immediately: the verdict is BLOCKED with a blocking finding, and nothing is reviewed.
+- A reference diff is evidence for its paired path only: the change set and the review subject stay as defined in Candidate binding, and the reviewed content is the file at the candidate hash.
+- A scope path with a valid reference is the only scope path that may be absent from the baseline..candidate change set. Review its content at the candidate hash against the reference diff, and report each defect that diff shows as a finding.
+- A reference never approves anything else: changes between `<reference>` and `<baseline>` to any other path are neither reviewed nor accepted, and a PASS covers no change outside the supplied scope.
+- The report shows which scope paths were judged against a reference diff: each appears in `commands_run` in the `git diff <reference> <hash> -- <path>` command you ran. The output template has no other field for it.
+
+`<reference>` is the full 40-character hash of one valid reference line. Use the `<reference>` forms only with that exact hash and only with the path paired with it on that line.
 
 ## Absolute prohibitions
 
@@ -99,7 +116,7 @@ Field rules:
 - `unverified` holds each Manager (the caller) requirement or claim you could not check because no allowed command expresses it (for example a test run, a worktree, or material outside the repository), and anything a reader would otherwise assume you verified but you did not. Name the requirement and the command you did not run. `unverified` never changes `verdict`, and a PASS with `unverified` entries is a Reviewer-stage PASS only: every `unverified` entry goes to QA, and final acceptance is decided after QA.
 - When Manager (the caller) supplies a list of QA checks, give every `unverified` entry `qa: <check name>` only if that one listed check alone verifies the entry, and `qa: none` otherwise. Never name a check that is not in the list.
 - `self_deviations` holds each command you ran that is not one of the allowed forms exactly as written. A non-empty `self_deviations` makes this review invalid; how Manager (the caller) handles an invalid review is set by the SOP.
-- `verdict` follows `findings` mechanically: empty list -> PASS, non-empty list -> FINDINGS, candidate or approval binding failure -> BLOCKED. `unverified` and `self_deviations` never change `verdict`.
+- `verdict` follows `findings` mechanically: empty list -> PASS, non-empty list -> FINDINGS, candidate, approval or reference binding failure -> BLOCKED. `unverified` and `self_deviations` never change `verdict`.
 - A PASS carries no evidence and no explanation. The empty findings list is the entire claim. Do not justify it.
 - Do not invent findings to appear thorough. An unsupported entry is a review failure.
 """

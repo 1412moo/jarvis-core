@@ -125,6 +125,17 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
   검증 뒤에 결정한다.
 - Manager 요약과 Owner 승인 원문을 함께 받고, diff의 범위는 승인 원문을 기준으로
   대조한다. Manager 요약이 승인 원문과 다르면 그 차이를 finding으로 보고한다.
+- 참조 커밋(선택, task-0177). Manager는 호출문의 `=== REFERENCE COMMITS ===` 블록에
+  scope 파일별 참조 커밋을 `<reference> -- <path>`로 줄 수 있다. 그 경로와 전체 40자
+  해시가 Owner 승인 원문에 적혀 있고 참조 커밋이 baseline의 조상일 때만 쓸 수 있으며,
+  아니면 Reviewer는 BLOCKED로 보고한다. `jarvis.bat`·`.env` 계열·디렉터리·와일드카드는
+  참조 경로가 될 수 없고, 전체 40자 baseline이 없어도 BLOCKED다. 이때 새로 쓰는 명령은
+  `git merge-base --is-ancestor <reference> <baseline>`과
+  `git diff <reference> <hash> -- <path>` 둘뿐이다.
+  참조 diff는 그 파일의 검토 근거일 뿐이고, 변경 범위 판정과 검토 대상은 baseline..candidate 규칙 그대로다.
+  참조 커밋과 baseline 사이의 다른 변경은 검토하지도 승인하지도 않는다.
+  참조 diff로 판단한 scope 파일은 Reviewer 보고의 `commands_run`에 그 diff 명령으로 남는다.
+  §10 Worker 파이프라인은 참조 커밋을 쓰지 않는다.
 - tracked/untracked file을 수정하거나 stage/commit하지 않는다.
 - pass는 QA pass나 release 권한을 뜻하지 않는다.
 

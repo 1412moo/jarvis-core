@@ -53,6 +53,30 @@ REVIEWER_ROLE_CLAUSES = (
     "A non-empty `self_deviations` makes this review invalid",
     "`unverified` and `self_deviations` never change `verdict`.",
     "give every `unverified` entry `qa: <check name>` only if that one listed check alone verifies the entry, and `qa: none` otherwise. Never name a check that is not in the list.",
+    # task-0177: optional reference commits, evidence for one scope path each.
+    "- `git merge-base --is-ancestor <reference> <baseline>` — only for a valid reference line; see \"Reference commits (optional)\".",
+    "- `git diff <reference> <hash> -- <path>` — exactly one `<path>`, and it must be the path paired with that `<reference>`.",
+    "Manager (the caller) may supply reference commits under the marker line `=== REFERENCE COMMITS ===`",
+    "Without that marker line, nothing in this section applies and no `<reference>` form may be run.",
+    "that exact hash and that exact path both appear in the section under `=== OWNER APPROVAL (verbatim) ===`.",
+    "Never accept `jarvis.bat`, a `.env` file, a directory, or a wildcard as a reference path.",
+    "the reference is usable only when that command exits 0.",
+    "or if no full baseline hash was supplied, STOP immediately: the verdict is BLOCKED with a blocking finding, and nothing is reviewed.",
+    "A reference diff is evidence for its paired path only: the change set and the review subject stay as defined in Candidate binding",
+    "A scope path with a valid reference is the only scope path that may be absent from the baseline..candidate change set.",
+    "A reference never approves anything else: changes between `<reference>` and `<baseline>` to any other path are neither reviewed nor accepted",
+    "`<reference>` is the full 40-character hash of one valid reference line.",
+    "The report shows which scope paths were judged against a reference diff: each appears in `commands_run`",
+    "candidate, approval or reference binding failure -> BLOCKED.",
+)
+# task-0177: the only Allowed commands lines that may name `<reference>` (Owner decision F2).
+REVIEWER_REFERENCE_FORMS = (
+    "git merge-base --is-ancestor <reference> <baseline>",
+    "git diff <reference> <hash> -- <path>",
+)
+SOP_REFERENCE_CLAUSES = (
+    "참조 diff는 그 파일의 검토 근거일 뿐이고, 변경 범위 판정과 검토 대상은 baseline..candidate 규칙 그대로다.",
+    "참조 커밋과 baseline 사이의 다른 변경은 검토하지도 승인하지도 않는다.",
 )
 CALLER_NAME = "Manager (the caller)"
 
@@ -847,6 +871,32 @@ def _validate_reviewer_parity(
             )
 
 
+def _validate_reviewer_reference_forms(
+    sources: dict[str, str],
+    agents: dict[str, dict[str, Any]],
+    errors: list[str],
+) -> None:
+    """task-0177: Allowed commands name `<reference>` only in the two approved forms."""
+
+    for source_name, text in (
+        (CLAUDE_REVIEWER_PATH, sources.get(CLAUDE_REVIEWER_PATH, "")),
+        (CODEX_REVIEWER_PATH, _instructions(agents, "reviewer.toml")),
+    ):
+        allowed = _section(text, "## Allowed commands", r"^## ")
+        forms = []
+        for line in allowed.splitlines():
+            if "<reference>" not in line:
+                continue
+            match = re.match(r"^- `([^`]*)`", line)
+            forms.append(match.group(1) if match else line.strip())
+        if sorted(forms) != sorted(REVIEWER_REFERENCE_FORMS):
+            _error(
+                errors,
+                "reviewer_reference_forms",
+                f"{source_name} Allowed commands name <reference> in {forms!r}, expected {list(REVIEWER_REFERENCE_FORMS)!r}",
+            )
+
+
 def _section(text: str, heading: str, end_pattern: str) -> str:
     """The text after `heading` up to the first line matching `end_pattern`."""
 
@@ -1069,6 +1119,7 @@ def _validate_sources(sources: dict[str, str]) -> list[str]:
     agents = _parse_agents(sources, errors)
     _validate_role_boundaries(sources, agents, errors)
     _validate_reviewer_parity(sources, agents, errors)
+    _validate_reviewer_reference_forms(sources, agents, errors)
     _validate_budget_and_candidate_rules(sources, agents, errors)
     _validate_escalation_gates(sources, agents, errors)
     _validate_master_plan(sources, errors)
@@ -1077,6 +1128,7 @@ def _validate_sources(sources: dict[str, str]) -> list[str]:
     _validate_pipeline_parity(sources, errors)
     _validate_transition_contract(sources, errors)
     _require_all(errors, "sop_findings_acceptance", SOP_PATH, sources.get(SOP_PATH, ""), SOP_ACCEPTANCE_CLAUSES)
+    _require_all(errors, "sop_reference_commits", SOP_PATH, sources.get(SOP_PATH, ""), SOP_REFERENCE_CLAUSES)
     return sorted(set(errors))
 
 
@@ -1524,6 +1576,44 @@ def _run_negative_mutation_checks(
         )
     except (KeyError, ValueError) as exc:
         failures.append(f"codex_reviewer_bare_caller: {exc}")
+
+    # task-0177: an unapproved or altered `<reference>` form, and the SOP limits.
+    merge_base_line = f"- `{REVIEWER_REFERENCE_FORMS[0]}`"
+    diff_line = f"- `{REVIEWER_REFERENCE_FORMS[1]}`"
+    for path, prefix in (
+        (CLAUDE_REVIEWER_PATH, "claude"),
+        (CODEX_REVIEWER_PATH, "codex"),
+    ):
+        for label, old, new in (
+            (
+                f"{prefix}_reviewer_unapproved_reference_form",
+                merge_base_line,
+                "- `git log --format=<format> <reference>..<baseline> -- <path>`\n" + merge_base_line,
+            ),
+            (
+                f"{prefix}_reviewer_reference_diff_without_path",
+                diff_line,
+                "- `git diff <reference> <hash>`",
+            ),
+        ):
+            try:
+                checks.append(
+                    (label, _replace_once(sources, path, old, new), "reviewer_reference_forms")
+                )
+            except (KeyError, ValueError) as exc:
+                failures.append(f"{label}: {exc}")
+    for index, clause in enumerate(SOP_REFERENCE_CLAUSES, start=1):
+        label = f"sop_reference_clause_{index:02d}_removed"
+        try:
+            checks.append(
+                (
+                    label,
+                    _replace_once(sources, SOP_PATH, clause, "REMOVED_REFERENCE_CLAUSE"),
+                    "sop_reference_commits",
+                )
+            )
+        except (KeyError, ValueError) as exc:
+            failures.append(f"{label}: {exc}")
 
     for label, mutated, expected_code in checks:
         _assert_mutation_fails(

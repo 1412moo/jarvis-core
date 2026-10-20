@@ -3,7 +3,7 @@ name: jarvis-reviewer-call
 description: Assemble one Jarvis-Core Reviewer call for an exact candidate commit. Collects the candidate facts, checks the Manager summary against the Owner approval verbatim, and prints the call blocks for the Manager to send. Explicit invocation only; it never reviews, approves, judges, commits, or changes scope.
 argument-hint: <40-char-candidate-hash> <task-id>
 disable-model-invocation: true
-allowed-tools: Read, Grep, Bash(python -B scripts/check_task_record.py:*), Bash(git status:*), Bash(git rev-parse:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-tree:*)
+allowed-tools: Read, Grep, Bash(python -B scripts/check_task_record.py:*), Bash(git status:*), Bash(git rev-parse:*), Bash(git log:*), Bash(git diff:*), Bash(git ls-tree:*), Bash(git merge-base --is-ancestor:*)
 ---
 
 # Jarvis Reviewer Call (prototype)
@@ -58,6 +58,7 @@ BLOCKED report instead of aborting the skill.
 | Owner approval verbatim | yes | quoted in the task record, or pasted by the Manager |
 | Baseline commit | yes | full 40 characters; read from the record's `## 기준선` table; the Manager may override it in the request |
 | Evidence paths | no | exact repository-relative file paths the Reviewer may read at the candidate hash to check facts (task records, source files); not review scope; no directories or wildcards |
+| Reference commits | no | task-0177; lines `<reference> -- <path>`, each a full 40-character commit hash and one scope path, both written in the Owner approval verbatim; evidence for that path's actual diff only, never review scope of their own |
 
 The baseline is the commit the task started from. The candidate's own diff shows
 only the last commit, so the baseline is what makes the whole task change set
@@ -82,6 +83,9 @@ Run only these read-only forms, one command per fact:
   the commit-structure block
 - `git status --short` — the working tree now
 - `git ls-tree -r --name-only <hash> -- jarvis.bat` — must print nothing
+- `git merge-base --is-ancestor <reference> <baseline>` — once per reference line, only
+  when the Manager supplied reference commits; exit 0 means the reference is a
+  commit that is an ancestor of the baseline, any other status is a BLOCKED condition
 
 Parent handling. Read the parent list from `git log -1 --format=%P`. Use
 `<hash>^` only when that list holds exactly one parent, and only for the
@@ -141,7 +145,9 @@ any of these is true:
 - the baseline is missing from both the request and the record's `## 기준선`, so
   the task change set cannot be computed
 - the file scope is empty, or a scope path is absent from the **task change set**
-  (`<baseline>..<hash>`); the last commit alone is never the criterion
+  (`<baseline>..<hash>`); the last commit alone is never the criterion. The one
+  exception is a scope path that has a valid reference line: it may be absent
+  from the task change set
 - the task change set contains a path that the approved scope does not list, so
   the candidate is wider than what the Owner approved
 - neither the request nor the record gives any Owner approval text to place under
@@ -153,6 +159,12 @@ any of these is true:
 - tracked files outside the candidate have uncommitted changes, so the tree does
   not match the candidate
 - `jarvis.bat` appears in the task change set or in the candidate's tree listing
+- a reference line is invalid: its hash is not 40 characters, its path is not a
+  scope path, the same hash and path are not both written in the Owner approval
+  verbatim, its path is `jarvis.bat`, a `.env` file, a directory or a wildcard,
+  or `git merge-base --is-ancestor <reference> <baseline>` did not exit 0.
+  The Reviewer definition's "Reference commits (optional)" section binds; this
+  preflight only reports what the request and the record contain
 
 A BLOCKED preflight names the smallest missing input. It never guesses a value,
 and it never widens the scope to make a check pass.
@@ -179,6 +191,10 @@ File scope:
 Evidence paths (read-only, not scope; omit this block when there are none):
 - <path>
 
+=== REFERENCE COMMITS ===
+<one line per reference, `<reference> -- <path>`, copied from the Owner approval;
+omit the marker line and this block when there are none>
+
 Never access `jarvis.bat`.
 
 === COMMAND FORM REQUIREMENT ===
@@ -194,6 +210,10 @@ as a finding instead of reading saved tool output.
 <every approval block from the task record, copied exactly, including answers
 to bounded questions>
 ```
+
+A reference diff is evidence for its paired path only. It never widens the scope,
+never changes how the task change set is judged, and never approves a change
+between the reference and the baseline to any other path.
 
 The marker lines are fixed. The Reviewer definition requires
 `=== OWNER APPROVAL (verbatim) ===` exactly, and returns BLOCKED without it. The
