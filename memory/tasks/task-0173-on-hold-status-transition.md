@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 10:02 UTC`
-- updated_at: `2026-10-20 11:19 UTC`
-- summary: `Console Hold가 TODO·NEEDS_APPROVAL을 ON_HOLD로 옮기며 보류 전 상태를 hold_from에 함께 기록하고, Resume은 hold_from 상태로만 되돌린다(hold_from이 없거나 틀리면 거절). DOING은 보류하지 않으며, Task View에 TODO 뒤·DONE 앞의 On hold 그룹을 두고 task-model 5-1·§9와 master-plan D1 문구 두 군데를 고친다. Console Start 뒤 writer·Console·task-model·master-plan·README와 smoke를 구현했고 Implementer 검증을 마쳤으며, 사전 점검·self-review·Reviewer·QA 전이다. 기존 6건·감사 체인·Discord 코드는 바꾸지 않았고 push는 하지 않는다.`
+- updated_at: `2026-10-20 11:28 UTC`
+- summary: `Console Hold가 TODO·NEEDS_APPROVAL을 ON_HOLD로 옮기며 보류 전 상태를 hold_from에 함께 기록하고, Resume은 hold_from 상태로만 되돌린다(hold_from이 없거나 틀리면 거절). DOING은 보류하지 않으며, Task View에 TODO 뒤·DONE 앞의 On hold 그룹을 두고 task-model 5-1·§9와 master-plan D1 문구 두 군데를 고친다. Console Start 뒤 writer·Console·task-model·master-plan·README와 smoke를 구현했고, 사전 점검과 self-review 1회를 마친 뒤 candidate를 만들었다. Reviewer 1 지적(summary 최신성)은 repair 1로 고쳤고 Reviewer·QA 결과는 본문에 기록한다. 기존 6건·감사 체인·Discord 코드는 바꾸지 않았고 push는 하지 않는다.`
 - source_command: `Owner 요청: A2 ON_HOLD 전이 검토, 작업 기록과 work package 제안까지 (Claude Code 세션)`
 
 ## 기준선
@@ -16,7 +16,7 @@
 | baseline | `3bc3fe59afe338d36d50e3da54aaabf69e6537d2` (등록 시점 main HEAD = origin/main). Start 때 다시 확인한다 |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 등록 방식 | 이 기록을 `TODO`로 작업 트리에만 만들었다(커밋·stage 없음). task-0162·0172와 같이 Start 승인 뒤 candidate commit에 함께 들어간다 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (기본값, O9) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (기본값, O9. repair 1 사용, 아래 "Repair 1") |
 
 ## Owner 요청 1 (원문)
 
@@ -615,7 +615,7 @@ Start 전 확인(2026-10-20 10:59 UTC): branch `main`, HEAD `3bc3fe59afe338d36d5
 | I8 | `check_no_secrets.py` | exit 1, findings 7. 모두 `scripts/check_no_secrets.py` 자신의 236~248행 예시 문자열이며 baseline `3bc3fe5`(임시 worktree에서 실행 후 삭제)에서도 같은 7건이다. 이번 변경과 무관 |
 | I9 | 보호 대상 | `jarvis.bat` untracked·무접촉, 보존 worktree 4개 그대로(`git worktree list` 5줄), 기존 6건과 task-0035 파일 무변경(`git status`에 없음) |
 
-남은 단계: 사전 점검 → self-review 1회 → 사전 점검 재통과 → candidate → Reviewer → QA → Docs 판정 → Console Complete.
+이 검증 뒤의 단계(사전 점검, self-review, candidate, Reviewer, repair)는 아래 절에 차례로 적는다.
 
 ## Self-review (첫 candidate 전 1회)
 
@@ -628,3 +628,22 @@ Start 전 확인(2026-10-20 10:59 UTC): branch `main`, HEAD `3bc3fe59afe338d36d5
 | S3 | `hold_from` 규칙 표의 위치 행이 `summary` 뒤로 적혀 있어 코드·task-model §12(`status` 뒤)와 다르다 | 수정. 위치 행을 `status` 줄 바로 뒤로 고치고 설계와의 차이 D1과 제안 단계 기재를 함께 적었다 |
 
 세 지적 모두 이 기록만 고쳤고 코드·문서·테스트는 바꾸지 않았다. 수정 뒤 사전 점검(`check_task_record.py --baseline 3bc3fe5…`)은 `status=PASS`, `staged_files=8`, `violations=0`, `quote_check_unquoted=0`이다.
+
+## Candidate 1
+
+`ff892e5d2beaa068028b77b23acb21794c803a37`(parent = baseline `3bc3fe5`). 변경 8개 파일 = owned. 커밋 전 사전 점검 PASS, HEAD = candidate, stage 없음, `jarvis.bat`은 tree에 없음을 확인하고 `jarvis-reviewer-call` 절차대로 호출문(Manager 요약 18행, 원문 블록 5개, 근거 경로 8개)을 만들었다.
+
+## Reviewer 1 (`ff892e5`, FINDINGS minor 1, `self_deviations` 1건 → 무효)
+
+- findings: summary 메타데이터가 "사전 점검·self-review·Reviewer·QA 전"이라고 적어, 본문 Self-review 절(1회 실행, 사전 점검 PASS)과 맞지 않는다. 최소 수정은 summary를 사전 점검과 self-review 1회가 끝났다고 고치는 것.
+- `self_deviations`: `git grep`에 정규식 대안(`\|`)으로 패턴 두 개를 넣은 명령 1건. `.claude/agents/reviewer.md`에 따라 이 검토는 무효다.
+- `unverified` 9건: 실행 검사(smoke, validator, discord-intake·self-check suite, 사전 점검, Q6 실행), Console Start 사실, `jarvis.bat`·worktree 보존, 기존 ON_HOLD 기록 0건, Project Control 표시. QA Q1~Q13과 Implementer 검증 I1~I9로 넘긴다.
+
+Manager 판정: 무효 검토라도 지적은 사실이다(summary 갱신 누락). 같은 candidate를 다시 검토하는 retry로는 고쳐지지 않고 기록을 바꿔야 하므로, SOP §5에 따라 repair 1을 쓴다(`repair_count` 0→1, 예산 소진). candidate가 바뀌므로 무효 검토의 재검토(retry)는 하지 않고, 새 candidate에 Reviewer → QA를 처음부터 실행한다. 다음 Reviewer나 QA에서 수정이 필요하면 예산이 없으므로 고치지 않고 Director를 거쳐 Owner에게 escalation한다.
+
+## Repair 1
+
+- summary를 현재 단계(사전 점검·self-review 1회 완료, candidate, Reviewer 1 지적을 repair 1로 수정, Reviewer·QA 결과는 본문)로 고쳤다. 이후 단계에서 다시 낡지 않도록 단계 이름 대신 "결과는 본문에 기록한다"로 적었다.
+- 같은 이유로 Implementer 검증 절 끝의 "남은 단계" 문장을 이후 절을 가리키게 고쳤다.
+- 기준선 budget 행을 `repair_count=1`로, updated_at을 이 수정 시각으로 고쳤다.
+- 코드·문서·테스트는 바꾸지 않았다. self-review는 다시 실행하지 않는다(task당 1회, Start 승인 "Self-review는 최초 후보 커밋 전에 1회만 실행").
