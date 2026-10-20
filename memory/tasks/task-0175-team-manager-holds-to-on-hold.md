@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 15:05 UTC`
-- updated_at: `2026-10-20 17:02 UTC`
+- updated_at: `2026-10-20 17:31 UTC`
 - summary: `task-0156에서 Owner가 보류한 Team Manager task 중 NEEDS_APPROVAL 5건(0030, 0032, 0033, 0034, 0036)의 summary에 보류 주체·근거·사유·재개 조건을 승인된 문구로 기록했고(task-model §9, 0033·0036은 축약하고 원문을 본문에 보존), Reviewer·QA 뒤 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. DOING인 task-0031은 그대로 둔다. Reviewer 지적(인용 불일치, 요약 머리말 출처 안내, push 금지 인용 누락, 시각 서술)을 repair 1~3으로 고쳤고 검토·Hold 결과는 본문에 기록한다.`
 - source_command: `Owner 결정: 패키지 B A안, task-0175 등록과 계획 (Claude Code 세션)`
 
@@ -403,3 +403,62 @@ Repair 3 결정 3항에 따라 scratchpad 스크립트로 검사했다(`check_su
 | 블록 → 인용 | 블록별 문장 수와 그 행 범위의 인용 수: 32/32, 19/19, 18/18, 18/18, 20/20. 빠진 문장 없음(Repair 2 7항의 "`git push`는 하지 마세요."는 T19에 있음) |
 | 시각 | 메타데이터 updated_at = Repair 3 절의 시각. Repair 2 절의 16:38·16:39 UTC = `b3cf4d9`·`45dc6ae`의 메타데이터 |
 | 검사기 변형 확인 | T19에서 push 인용을 빼면 "Repair 2 (원문) sentence not quoted in T16~T19"로 FAIL, 되돌리면 PASS |
+
+## Reviewer 4 (`f0fca0c`, FINDINGS major 1·minor 1, `self_deviations` 없음 → 유효)
+
+출처: candidate `f0fca0cd397e88cdb503f6878c88af28e24cb446`에 대한 Reviewer(subagent `reviewer`) 보고. 아래 블록은 그 보고의 `candidate_hash`·`verdict`·`findings`·`self_deviations` 줄을 고치지 않고 옮긴 것이다(줄 번호는 `f0fca0c` 시점의 이 기록 기준).
+
+```text
+candidate_hash: f0fca0cd397e88cdb503f6878c88af28e24cb446
+verdict:        FINDINGS
+findings:       - {severity: major, evidence: "Repair 3 decision item 2 (task-0175 record line 369) says \"수정 범위는 아래 두 항목으로 제한합니다.\" and names only T19's push-ban quote and the Repair 2 section times. The diff of f0fca0cd397e88cdb503f6878c88af28e24cb446 against its parent rewrites the interpretation cells of T17 (adds \"(repair 2 시점. repair 3에서 표 아래 블록이 셋이 되어 머리말을 다시 고쳤다, T20·T21)\") and T18 (adds \"repair 2 시점\" and \"(repair 3의 강화된 대조는 T21)\"). Neither is one of the two items. The T20 interpretation (line 245) still says \"고친 것은 두 항목뿐이다\", while line 392 discloses the T17/T18 edit", impact: "a reader of T20 concludes that repair 3 stayed inside the Owner's two-item limit, but the candidate edits rows the Owner did not list; the Repair 1 principle (line 294) sends 작업 범위 확대 to the Owner instead of fixing it automatically", minimum_correction: "either the Owner explicitly accepts the T17/T18 qualification as within repair 3 and T20 stops saying only two items were fixed, or the T17/T18 cells go back to their 244f8db987044387a3f2eab60fc52cc985099dd8 text"}
+                - {severity: minor, evidence: "task-0175 record line 240 (T15 interpretation) still says \"repair 2가 마지막이라 이후 지적은 고치지 않고 Owner에게 보고한다\", and line 340 says T15 was set to \"현재 상태(예산 2, repair 2가 마지막)\". The budget row (repair_budget=3, repair_count=3) and T20 record a third repair. f0fca0c adds the \"repair 2 시점\" label to T17/T18 for this same kind of staleness, but leaves T15 (and T16's \"이번 수정이 두 번째이자 마지막 repair다(`repair_count=2`)\") without it", impact: "a reader of the Manager summary concludes that repair 2 was the final repair and that the current budget is 2, which contradicts the budget row and T20 in the same record", minimum_correction: "label T15 (and T16) as describing the repair-2 point with a pointer to T20, the same way T17/T18 are labeled; this is also outside the two-item limit, so it needs the same Owner acceptance as the finding above"}
+self_deviations: []
+```
+
+## Owner 결정: C — task-0175 중단 (원문)
+
+```text
+Owner 결정: C — task-0175 중단
+
+1. task-0175의 추가 수정, Reviewer 재호출, QA, Hold, Evidence, Complete를 모두 중단합니다. repair 예산을 추가로 늘리지 마세요.
+2. 현재 `f0fca0c`를 임의로 되돌리거나 추가 수정하지 마세요. 지금 상태를 기준으로 중단 경위를 보고하고, task-0175를 공식적으로 종료하거나 취소하는 방법은 SOP에 따라 가능한 절차를 먼저 확인해 별도 보고하세요. Owner 승인 없이 상태를 임의 변경하지 마세요.
+3. 기존 다섯 task(0030, 0032, 0033, 0034, 0036)는 모두 `NEEDS_APPROVAL` 그대로 유지합니다. Hold를 실행하지 마세요.
+4. task-0031, task-0035, task-0156, `jarvis.bat`, 보호된 worktree는 변경하지 마세요.
+5. `git push`는 하지 마세요.
+6. 마지막으로 현재 브랜치와 원격 간 커밋 차이, task-0175의 마지막 candidate, 작업 트리 상태, 남아 있는 미완료 절차를 사실대로 보고하세요. 추가 작업 방안을 제시하되 실행하지는 마세요.
+
+이 결정은 task-0175에만 적용하며, SOP나 다른 task 기록은 변경하지 않습니다.
+```
+
+## Owner 결정: 중단 기록 승인 (원문)
+
+```text
+Owner 결정: 중단 기록만 승인. 다른 작업은 보류합니다.
+
+1. task-0175 기록에 다음 사실만 추가하는 것을 승인합니다.
+   * Reviewer 4 결과: 유효한 FINDINGS(major 1, minor 1)
+   * major의 원인: Repair 3에서 승인 범위를 벗어나 T17·T18을 수정함
+   * minor: T15·T16의 repair 횟수 관련 서술이 현재 기록과 불일치함
+   * Owner 결정 C에 따라 QA, Hold, Evidence, Complete 및 추가 수정을 중단함
+   * 현재 task-0175 상태는 DOING이며 완료 또는 취소되지 않았음
+2. 상태는 DOING 그대로 유지하세요. `DONE`, `FAILED`, `ON_HOLD` 등으로 임의 변경하지 마세요.
+3. 기록 추가가 현재 SOP에서 허용되는 방식인지 먼저 확인하세요. 허용된다면 위 사실만 추가하고, 상태·기존 검토 결과·repair 이력을 다시 쓰거나 정정하지 마세요. Reviewer 4 결과와 Owner 결정 C는 원문을 보존하거나 출처가 명확한 방식으로 기록하세요.
+4. 기록 변경 후에는 변경 범위를 확인하고, 필요한 검증 절차를 수행하세요. 기록을 추가하는 것이 SOP상 허용되지 않거나 추가 승인이 필요하다면 수정하지 말고 보고하세요.
+5. 로컬 커밋 7개는 그대로 보존하세요. push, reset, revert, cherry-pick은 하지 마세요. `jarvis.bat`과 보호된 worktree도 건드리지 마세요.
+6. 다섯 task의 Hold는 실행하지 마세요. 공식 종료 경로 추가와 Hold 재계획은 별도 제안으로만 남기고, 새 task 등록이나 구현은 시작하지 마세요.
+
+이 승인은 중단 경위를 기록하는 범위에만 적용됩니다. task-0175 완료 승인이나 push 승인이 아닙니다.
+```
+
+## 중단 기록
+
+위 중단 기록 승인 1항이 정한 사실만 적는다.
+
+- Reviewer 4 결과: 유효한 FINDINGS(major 1, minor 1). `self_deviations`가 없어 유효하다.
+- major의 원인: Repair 3에서 승인 범위(Repair 3 결정 2항의 두 항목)를 벗어나 T17·T18을 수정함(`f0fca0c`).
+- minor: T15·T16의 repair 횟수 관련 서술이 현재 기록(budget 행, T20)과 불일치함.
+- Owner 결정 C에 따라 QA, Hold, Evidence, Complete 및 추가 수정을 중단함.
+- 현재 task-0175 상태는 `DOING`이며 완료 또는 취소되지 않았음.
+
+이 절과 위 세 블록은 candidate가 아니다(SOP §4.5의 repair·Docs sync가 아님). 마지막 candidate는 `f0fca0c`다. 상태, 기존 검토 결과, repair 이력, Manager 요약, summary는 바꾸지 않았고 메타데이터는 updated_at(2026-10-20 17:31 UTC)만 바뀌었다.
