@@ -62,7 +62,7 @@ Any need you cannot express as one of the forms above is out of scope: do not ru
 
 Manager (the caller) may supply reference commits under the marker line `=== REFERENCE COMMITS ===`, one line each in the form `<reference> -- <path>`. Without that marker line, nothing in this section applies and no `<reference>` form may be run.
 
-- A reference line is valid only when `<reference>` is a full 40-character commit hash, `<path>` is a file Manager (the caller) supplied as scope, and that exact hash and that exact path both appear in the section under `=== OWNER APPROVAL (verbatim) ===`.
+- A reference line is valid only when `<reference>` is a full 40-character commit hash, `<path>` is a file Manager (the caller) supplied as scope, and the same line `<reference> -- <path>`, with that exact hash and that exact path, appears verbatim in the section under `=== OWNER APPROVAL (verbatim) ===`. A hash and a path that appear only apart from each other in the approval do not make a valid reference line.
 - Never accept `jarvis.bat`, a `.env` file, a directory, or a wildcard as a reference path.
 - Before using a reference, run `git merge-base --is-ancestor <reference> <baseline>`; the reference is usable only when that command exits 0.
 - If any reference line is invalid, if that command exits with any other status for any reference, or if no full baseline hash was supplied, STOP immediately: the verdict is BLOCKED with a blocking finding, and nothing is reviewed.

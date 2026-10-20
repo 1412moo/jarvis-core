@@ -126,8 +126,9 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
 - Manager 요약과 Owner 승인 원문을 함께 받고, diff의 범위는 승인 원문을 기준으로
   대조한다. Manager 요약이 승인 원문과 다르면 그 차이를 finding으로 보고한다.
 - 참조 커밋(선택, task-0177). Manager는 호출문의 `=== REFERENCE COMMITS ===` 블록에
-  scope 파일별 참조 커밋을 `<reference> -- <path>`로 줄 수 있다. 그 경로와 전체 40자
-  해시가 Owner 승인 원문에 적혀 있고 참조 커밋이 baseline의 조상일 때만 쓸 수 있으며,
+  scope 파일별 참조 커밋을 `<reference> -- <path>`로 줄 수 있다. Owner 승인 원문에 같은
+  `<전체 40자 해시> -- <path>` 줄이 그대로 한 줄로 적혀 있고 참조 커밋이 baseline의 조상일 때만 쓸 수 있으며,
+  해시와 경로가 승인 원문의 서로 다른 곳에 따로 있는 것으로는 참조 커밋이 되지 않는다.
   아니면 Reviewer는 BLOCKED로 보고한다. `jarvis.bat`·`.env` 계열·디렉터리·와일드카드는
   참조 경로가 될 수 없고, 전체 40자 baseline이 없어도 BLOCKED다. 이때 새로 쓰는 명령은
   `git merge-base --is-ancestor <reference> <baseline>`과

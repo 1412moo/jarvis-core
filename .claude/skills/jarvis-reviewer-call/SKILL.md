@@ -58,7 +58,7 @@ BLOCKED report instead of aborting the skill.
 | Owner approval verbatim | yes | quoted in the task record, or pasted by the Manager |
 | Baseline commit | yes | full 40 characters; read from the record's `## 기준선` table; the Manager may override it in the request |
 | Evidence paths | no | exact repository-relative file paths the Reviewer may read at the candidate hash to check facts (task records, source files); not review scope; no directories or wildcards |
-| Reference commits | no | task-0177; lines `<reference> -- <path>`, each a full 40-character commit hash and one scope path, both written in the Owner approval verbatim; evidence for that path's actual diff only, never review scope of their own |
+| Reference commits | no | task-0177; lines `<reference> -- <path>`, each a full 40-character commit hash and one scope path, written as that same one line in the Owner approval verbatim (a hash and a path that appear only apart do not count); evidence for that path's actual diff only, never review scope of their own |
 
 The baseline is the commit the task started from. The candidate's own diff shows
 only the last commit, so the baseline is what makes the whole task change set
@@ -160,8 +160,9 @@ any of these is true:
   not match the candidate
 - `jarvis.bat` appears in the task change set or in the candidate's tree listing
 - a reference line is invalid: its hash is not 40 characters, its path is not a
-  scope path, the same hash and path are not both written in the Owner approval
-  verbatim, its path is `jarvis.bat`, a `.env` file, a directory or a wildcard,
+  scope path, the same `<reference> -- <path>` line does not appear verbatim as one
+  line in the Owner approval (a hash and a path that appear only apart do not
+  count), its path is `jarvis.bat`, a `.env` file, a directory or a wildcard,
   or `git merge-base --is-ancestor <reference> <baseline>` did not exit 0.
   The Reviewer definition's "Reference commits (optional)" section binds; this
   preflight only reports what the request and the record contain

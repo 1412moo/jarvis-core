@@ -58,7 +58,8 @@ REVIEWER_ROLE_CLAUSES = (
     "- `git diff <reference> <hash> -- <path>` — exactly one `<path>`, and it must be the path paired with that `<reference>`.",
     "Manager (the caller) may supply reference commits under the marker line `=== REFERENCE COMMITS ===`",
     "Without that marker line, nothing in this section applies and no `<reference>` form may be run.",
-    "that exact hash and that exact path both appear in the section under `=== OWNER APPROVAL (verbatim) ===`.",
+    "and the same line `<reference> -- <path>`, with that exact hash and that exact path, appears verbatim in the section under `=== OWNER APPROVAL (verbatim) ===`.",
+    "A hash and a path that appear only apart from each other in the approval do not make a valid reference line.",
     "Never accept `jarvis.bat`, a `.env` file, a directory, or a wildcard as a reference path.",
     "the reference is usable only when that command exits 0.",
     "or if no full baseline hash was supplied, STOP immediately: the verdict is BLOCKED with a blocking finding, and nothing is reviewed.",
@@ -77,6 +78,7 @@ REVIEWER_REFERENCE_FORMS = (
 SOP_REFERENCE_CLAUSES = (
     "참조 diff는 그 파일의 검토 근거일 뿐이고, 변경 범위 판정과 검토 대상은 baseline..candidate 규칙 그대로다.",
     "참조 커밋과 baseline 사이의 다른 변경은 검토하지도 승인하지도 않는다.",
+    "해시와 경로가 승인 원문의 서로 다른 곳에 따로 있는 것으로는 참조 커밋이 되지 않는다.",
 )
 CALLER_NAME = "Manager (the caller)"
 
