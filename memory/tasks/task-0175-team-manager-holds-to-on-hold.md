@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 15:05 UTC`
-- updated_at: `2026-10-20 15:35 UTC`
-- summary: `task-0156에서 Owner가 보류한 Team Manager task 중 NEEDS_APPROVAL 5건(0030, 0032, 0033, 0034, 0036)의 summary에 보류 주체·근거·사유·재개 조건을 승인된 문구로 기록했고(task-model §9, 0033·0036은 축약하고 원문을 본문에 보존), Reviewer·QA 뒤 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. DOING인 task-0031은 Hold할 수 없어 그대로 둔다. 검토·Hold 결과는 본문에 기록한다.`
+- updated_at: `2026-10-20 16:07 UTC`
+- summary: `task-0156에서 Owner가 보류한 Team Manager task 중 NEEDS_APPROVAL 5건(0030, 0032, 0033, 0034, 0036)의 summary에 보류 주체·근거·사유·재개 조건을 승인된 문구로 기록했고(task-model §9, 0033·0036은 축약하고 원문을 본문에 보존), Reviewer·QA 뒤 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. DOING인 task-0031은 그대로 둔다. Reviewer 1 지적(T8 인용 불일치)을 repair 1로 고쳤고 검토·Hold 결과는 본문에 기록한다.`
 - source_command: `Owner 결정: 패키지 B A안, task-0175 등록과 계획 (Claude Code 세션)`
 
 ## 기준선
@@ -16,7 +16,7 @@
 | baseline | `7cf5c850256c63945026f8d086fc9cb88f5694f5` (등록 시점 main HEAD = origin/main, fetch 후 확인). Start 때 다시 확인한다 |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 등록 방식 | 이 기록을 `TODO`로 작업 트리에만 만들었다(커밋·stage 없음). task-0173·0174와 같이 Start 승인 뒤 candidate에 포함한다 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (기본값. repair 1 사용, 아래 "Repair 1") |
 
 ## Owner 결정 (원문)
 
@@ -230,11 +230,14 @@ Start 전 확인(2026-10-20 15:31 UTC): fetch 뒤 branch `main`, HEAD `7cf5c8502
 | T5 | "검토 및 실행 계획" / "기록 수정이 SOP §4에 따라 Reviewer와 QA를 거쳐야 하는지 확인하고, 필요한 검토 단계를 task 계획에 포함해." / "기록 수정 검토가 완료되기 전에는 기존 task를 Hold하지 마." / "기록 수정 후에는 각 task의 공식 Console Hold Preview를 열고, Owner·사유·재개 조건·`hold_from: NEEDS_APPROVAL`을 확인한 뒤에만 Confirm하도록 계획해." / "Hold 후 상태와 `hold_from`, `/report` 집계, smoke test를 검증하고 checkpoint를 남기는 절차를 포함해." | SOP §4.5에 따라 다섯 기록 수정은 candidate → Reviewer → QA를 거친다. Hold는 같은 candidate의 Reviewer·QA PASS 뒤에만, 건별 Hold Preview에서 Owner·사유·재개 조건·`hold_from` 대상(NEEDS_APPROVAL)을 확인한 뒤 Confirm한다. Hold 뒤 상태·`hold_from`·`/report`·smoke를 검증하고 checkpoint를 남긴다 |
 | T6 | "이번 단계의 제한" / "지금은 task-0175 등록과 계획까지만 진행해." / "기존 5건의 summary나 상태를 수정하지 마." / "task-0031, task-0035, `jarvis.bat`, 보존 worktree는 건드리지 마." / "Reviewer/QA 완료 전 Hold하지 마." / "커밋과 push는 별도 승인 전까지 하지 마." / "등록 결과, task ID, 제안된 summary 문구와 글자 수, 검토·전환 계획을 보고하고 멈춰." | 등록 단계의 제한이며 그 단계에서 지켰다(다섯 건·0031·0035·`jarvis.bat`·worktree 무변경, Hold·커밋·push 없음). 등록 결과와 계획을 보고하고 멈췄다 |
 | T7 | "task-0175 계획의 D1~D3에 대해 다음과 같이 결정합니다." / "D1 승인: 공통 추가 문구를 승인합니다." / "`보류: Owner 결정(task-0156)." / "외부 API·credential·비용·상시 실행 작업은 재개하지 않고, 재개는 별도 Owner 결정이 필요하다.`" | 승인 문구를 다섯 summary 끝에 글자 그대로 붙였다(I2) |
-| T8 | "D2 승인: task-0033과 task-0036은 제안한 대로 summary를 500자 이내로 축약하고, 기존 summary 전문을 `요약 (원문, task-0175 수정 전)` 절로 본문에 보존합니다." / "기존 결론, 권고, NEEDS_APPROVAL 사유와 정책상 의미는 바꾸지 마세요." / "원문 보존 절이 수정 전 summary와 정확히 일치하는지 검증하세요." / "다른 세 건은 기존 summary를 축약하지 않고 승인된 문구만 덧붙입니다." | 0033·0036은 summary를 축약하고 이전 summary 전문을 `## 요약 (원문, task-0175 수정 전)` 절로 보존했다. 보존 절 본문이 baseline summary와 정확히 같음을 확인했다(I3). 줄인 것은 work-order 경로와 0033의 하드웨어 세부값뿐이고, 결론·권고·master-plan §6 잠긴 기능 해석 질문(0033)·"발급/결제/외부 연결 없음" 진술·NEEDS_APPROVAL 사유는 쓰인 그대로라 정책상 의미가 바뀌지 않는다. 0030·0032·0034는 축약 없이 문구만 덧붙였다(I2) |
+| T8 | "D2 승인: task-0033과 task-0036은 제안한 대로 summary를 500자 이내로 축약하고, 기존 summary 전문을 `요약 (원문, task-0175 수정 전)` 절로 본문에 보존합니다." / "기존 결론, 권고, NEEDS_APPROVAL 사유와 정책상 의미는 바꾸지 마세요." / "원문 보존 절이 수정 전 summary와 정확히 일치하는지 검증하세요." / "다른 세 건은 기존 summary를 축약하지 않고 승인된 문구만 덧붙입니다." | 0033·0036은 summary를 축약하고 이전 summary 전문을 `## 요약 (원문, task-0175 수정 전)` 절로 보존했다. 보존 절 본문이 baseline summary와 정확히 같음을 확인했다(I3). 줄인 것은 work-order 경로와 0033의 하드웨어 세부값뿐이고, 결론·권고·master-plan §6 잠긴 기능 해석 질문(0033)·"모델 다운로드/credential 발급/외부 연결/코드 구현 없음"(0033)과 "API 키 발급/결제/외부연결/코드 변경 없음"(0036) 진술·NEEDS_APPROVAL 사유는 쓰인 그대로라 정책상 의미가 바뀌지 않는다. 0030·0032·0034는 축약 없이 문구만 덧붙였다(I2) |
 | T9 | "D3 승인: task-0175는 공식 SOP에 따라 Start부터 Reviewer·QA·Hold·완료 절차까지 진행하도록 승인합니다." / "다만 각 단계의 필수 Preview와 Confirm 조건을 지키고, 검토 실패나 예산 소진, 예상 밖 변경이 발생하면 즉시 멈춰 보고하세요." | D3에 따라 Manager가 Start부터 Complete까지 진행한다. 단계마다 공식 Preview를 확인한 뒤에만 Confirm하고, 검토 실패·예산 소진·예상 밖 변경이면 멈추고 보고한다 |
 | T10 | "공식 Console Start를 먼저 진행합니다." / "task 기록 수정은 승인된 다섯 건으로 한정하고, self-review → candidate → Reviewer → QA를 완료합니다." / "Reviewer와 QA가 모두 유효하게 통과한 동일 candidate에 대해서만 Hold를 진행합니다." / "다섯 건 각각의 Console Hold Preview에서 상태 전이와 summary 조건을 확인한 뒤 Confirm합니다." | Console Start를 먼저 했다("구현 착수"). 바꾼 기존 task 기록은 승인된 다섯 건뿐이고, 이 task 자신의 기록은 SOP가 요구하는 기록으로 함께 바뀐다. self-review → candidate → Reviewer → QA를 거쳐, 유효한 PASS를 받은 같은 candidate에서만 다섯 건 각각의 Hold Preview를 확인하고 Confirm한다 |
 | T11 | "Hold 후 상태, `hold_from`, `/report` 합계, Task View, smoke 및 self-check를 검증합니다." / "Record Completion Evidence → Complete Preview → 공식 Confirm → DONE checkpoint → master-plan 갱신 순으로 진행합니다." | Hold 뒤 status·`hold_from`·`/report` 합계·Task View On hold 그룹·Console smoke·Discord self-check를 검증한 다음, Record Completion Evidence → Complete Preview → `COMPLETE TASK` → DONE checkpoint → master-plan 기록 커밋 순으로 진행한다 |
 | T12 | "task-0031은 DOING 그대로 유지하고, task-0035와 task-0156의 기록, `jarvis.bat`, 보존 worktree는 변경하지 마세요." / "push는 하지 마세요." / "실행 전후의 task별 변경 내용과 검증 결과를 보고하세요." | 0031은 DOING 그대로, 0035·0156 기록·`jarvis.bat`·보존 worktree는 바꾸지 않는다. push하지 않는다. 실행 전후의 task별 변경과 검증 결과를 보고한다 |
+| T13 | "Owner 결정: A 승인 — task-0175 기록만 수정" / "Repair 1회(예산 1/1)를 승인합니다." / "task-0175 기록의 T8과 Manager 요약에서 실제 task summary에 없는 인용 문구를 수정하세요." / "task-0036의 실제 문구: `API 키 발급/결제/외부연결/코드 변경 없음`" / "task-0033의 실제 문구: `모델 다운로드/credential 발급/외부 연결/코드 구현 없음`" / "두 문자열을 실제 기록과 정확히 일치시키세요." / "다른 task 기록 5건은 수정하지 마세요." / "수정 후 새 candidate를 만들고, 새 candidate에 대해 Reviewer → QA를 처음부터 다시 진행하세요." / "Reviewer와 QA가 동일한 candidate를 검증해야 합니다." | repair 1(예산 1/1)로 T8 해석 칸의 인용을 0036 "API 키 발급/결제/외부연결/코드 변경 없음", 0033 "모델 다운로드/credential 발급/외부 연결/코드 구현 없음"으로 바꿨고, 두 문자열이 각 summary 줄에 그대로 있는지 편집 전에 확인했다. 다섯 task 기록은 바꾸지 않았다. 새 candidate에 Reviewer → QA를 처음부터 실행하고 둘이 같은 candidate를 검증한다 |
+| T14 | "검증 및 후속 절차" / "Reviewer와 QA가 유효한 PASS를 내기 전에는 Hold를 진행하지 마세요." / "둘 다 PASS하면 기존 승인 계획대로 Hold → 상태 검증 → Record Completion Evidence → Console Complete Preview/Confirm → DONE checkpoint → master-plan sync를 진행하세요." / "예산 소진, 검토 실패, 예상하지 못한 변경 또는 절차상 문제가 발생하면 즉시 멈추고 보고하세요." / "`git push`는 하지 마세요." | Reviewer와 QA가 같은 새 candidate에 유효한 PASS를 낸 뒤에만 Hold → 상태 검증 → Record Completion Evidence → Console Complete Preview/Confirm → DONE checkpoint → master-plan 기록 커밋을 진행한다. 예산 소진·검토 실패·예상 밖 변경·절차 문제면 멈추고 보고한다. push하지 않는다 |
+| T15 | "향후 같은 종류의 minor 지적에 대한 원칙" / "이번 task-0175에 한해, Reviewer의 유효한 minor FINDINGS가 실제 사실 오류 또는 인용 불일치를 지적하고 repair 예산이 남아 있다면, 즉시 멈추지 말고 승인된 예산 내에서 수정한 뒤 새 candidate로 Reviewer와 QA를 다시 진행해도 됩니다." / "단, 의미 변경, 작업 범위 확대, 상태 전이 정책 변경, 예산 초과, 또는 기존 승인과 충돌하는 문제는 자동으로 수정하지 말고 Owner에게 보고하세요." / "이 원칙은 이번 task-0175에만 적용하며, SOP나 다른 task의 기본 정책은 변경하지 마세요." | 이 원칙은 task-0175에만 적용하고 SOP·다른 task는 바꾸지 않는다. repair 예산이 1/1로 소진돼 다음 repair에는 이 원칙을 쓸 수 없으므로, 다음 지적은 고치지 않고 Owner에게 보고한다. 의미 변경·범위 확대·전이 정책 변경·예산 초과·승인 충돌은 언제나 보고 대상이다 |
 
 ## 사전 점검 (첫 실행)
 
@@ -251,3 +254,41 @@ Start 전 확인(2026-10-20 15:31 UTC): fetch 뒤 branch `main`, HEAD `7cf5c8502
 | S3 | 인용부호 안 문구 "다운로드/credential/외부 연결/코드 구현 없음"이 실제 summary("모델 다운로드/credential 발급/외부 연결/코드 구현 없음")와 다르다 | 수정. 두 곳을 실제 문구로 고쳤다 |
 
 이 기록만 고쳤고 다섯 task 기록은 바꾸지 않았다. updated_at은 이 수정 시각 2026-10-20 15:35 UTC(편집 스크립트가 UTC 시계를 읽어 넣음)다. 수정 뒤 사전 점검: `staged_files=6`, `violations=0`, `quote_check_unquoted=0`, `status=PASS`.
+
+## Candidate 1
+
+`86a5d98be4b9d4c1de5b08329cc82b681ccce31b`(parent = baseline `7cf5c85`, 커밋 2026-10-20 15:35:25 UTC). 변경 6개 파일 = owned.
+
+## Reviewer 1 (`86a5d98`, FINDINGS minor 1, 유효)
+
+`self_deviations: []`. findings: Manager 요약 T8이 인용부호 안에 "발급/결제/외부 연결 없음"을 "쓰인 그대로"라고 적었지만 그 문자열은 두 축약 summary 어디에도 없다(0036 "API 키 발급/결제/외부연결/코드 변경 없음", 0033 "모델 다운로드/credential 발급/외부 연결/코드 구현 없음"). self-review S3 수정 때 새로 넣은 문구였다.
+
+Manager 판정: 지적이 맞다. D3의 "검토 실패 … 즉시 멈춰 보고"에 따라 고치지 않고 Owner에게 보고했다.
+
+## Owner 결정: Repair 1 (원문)
+
+```text
+Owner 결정: A 승인 — task-0175 기록만 수정
+
+1. Repair 1회(예산 1/1)를 승인합니다.
+   * task-0175 기록의 T8과 Manager 요약에서 실제 task summary에 없는 인용 문구를 수정하세요.
+   * task-0036의 실제 문구: `API 키 발급/결제/외부연결/코드 변경 없음`
+   * task-0033의 실제 문구: `모델 다운로드/credential 발급/외부 연결/코드 구현 없음`
+   * 두 문자열을 실제 기록과 정확히 일치시키세요. 다른 task 기록 5건은 수정하지 마세요.
+   * 수정 후 새 candidate를 만들고, 새 candidate에 대해 Reviewer → QA를 처음부터 다시 진행하세요. Reviewer와 QA가 동일한 candidate를 검증해야 합니다.
+2. 검증 및 후속 절차
+   * Reviewer와 QA가 유효한 PASS를 내기 전에는 Hold를 진행하지 마세요.
+   * 둘 다 PASS하면 기존 승인 계획대로 Hold → 상태 검증 → Record Completion Evidence → Console Complete Preview/Confirm → DONE checkpoint → master-plan sync를 진행하세요.
+   * 예산 소진, 검토 실패, 예상하지 못한 변경 또는 절차상 문제가 발생하면 즉시 멈추고 보고하세요.
+   * `git push`는 하지 마세요.
+3. 향후 같은 종류의 minor 지적에 대한 원칙
+   * 이번 task-0175에 한해, Reviewer의 유효한 minor FINDINGS가 실제 사실 오류 또는 인용 불일치를 지적하고 repair 예산이 남아 있다면, 즉시 멈추지 말고 승인된 예산 내에서 수정한 뒤 새 candidate로 Reviewer와 QA를 다시 진행해도 됩니다.
+   * 단, 의미 변경, 작업 범위 확대, 상태 전이 정책 변경, 예산 초과, 또는 기존 승인과 충돌하는 문제는 자동으로 수정하지 말고 Owner에게 보고하세요.
+   * 이 원칙은 이번 task-0175에만 적용하며, SOP나 다른 task의 기본 정책은 변경하지 마세요.
+```
+
+## Repair 1
+
+- T8 해석 칸의 인용을 두 기록의 실제 문자열로 바꿨다: "모델 다운로드/credential 발급/외부 연결/코드 구현 없음"(0033), "API 키 발급/결제/외부연결/코드 변경 없음"(0036). 두 문자열이 현재 0033·0036 summary 줄에 그대로 있는지 편집 스크립트가 먼저 확인했다.
+- SOP가 요구하는 기록도 더했다: 기준선 budget 행(`repair_count=1`), summary, 위 Candidate 1·Reviewer 1·Owner 결정 원문·이 절, Manager 요약의 T13~T15 행(위 원문의 인용과 해석), updated_at(2026-10-20 16:07 UTC, 편집 스크립트가 UTC 시계를 읽어 넣음).
+- 다섯 task 기록은 바꾸지 않았다. 이 repair로 candidate가 바뀌므로 Reviewer 1 결과는 쓰지 않고 새 candidate에 Reviewer → QA를 처음부터 실행한다. 결정 3의 원칙(이 task에 한해 예산 안의 사실·인용 오류 minor는 고친 뒤 재검토)은 repair 예산이 소진돼(1/1) 다음 repair에는 적용할 수 없으므로, 다음 지적은 Owner에게 보고한다.
