@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 18:08 UTC`
-- updated_at: `2026-10-20 18:36 UTC`
+- updated_at: `2026-10-20 18:47 UTC`
 - summary: `Reviewer 정의에 파일별 참조 커밋(reference commit)을 더해, Manager가 지정하고 Owner 승인 원문에 적힌 scope 파일에 한해 Reviewer가 참조 커밋에서 candidate까지의 실제 diff를 독립적으로 읽을 수 있게 한다. candidate 변경 범위 판정과 검토 대상은 기존 baseline 규칙 그대로이고, 참조 diff는 그 파일의 검토 근거로만 쓰며 다른 변경을 승인하지 않는다. reviewer.md·reviewer.toml·validator·SOP·jarvis-reviewer-call Skill이 범위다. task-0176의 E2를 충족하려는 선행 작업이며 Worker 파이프라인은 바꾸지 않는다.`
 - source_command: `Owner 결정: D1, Reviewer 파일별 참조 커밋 설계 task 등록 (Claude Code 세션)`
 
@@ -16,7 +16,7 @@
 | baseline | `2f9dcc357e086d6ea77cd2792e5cbbe270b296e5` (등록 시점 main HEAD = task-0176 candidate, origin/main `7cf5c85`보다 9커밋 앞섬, push 없음). Start 때 다시 확인한다 |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 등록 방식 | 이 기록을 `TODO`로 작업 트리에만 만들었다(커밋·stage 없음). Start 승인 뒤 candidate에 포함한다 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값. Reviewer 1 지적을 Owner 승인 아래 repair 1로 고쳐 1. 아래 "Repair 1") |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (SOP §5 기본값 1에서 Owner가 이 task에 한해 2로 증액. Reviewer 1 지적을 repair 1로, Reviewer 2 지적을 repair 2로 고쳤다. 아래 "Repair 1"·"Repair 2") |
 
 ## Owner 결정 (원문)
 
@@ -149,7 +149,7 @@ Console Start Preview(`task-0177-reviewer-reference-commits`, TODO → DOING, `n
 | --- | --- |
 | `.claude/agents/reviewer.md` | Allowed commands에 `git merge-base --is-ancestor <reference> <baseline>`과 `git diff <reference> <hash> -- <path>` 두 줄, "Reference commits (optional)" 절(표지 줄 `=== REFERENCE COMMITS ===`, 참조 줄의 유효 조건, 조상 확인, BLOCKED 조건, 참조 diff는 근거일 뿐, 참조가 붙은 scope 파일만 baseline..candidate에 없어도 됨, 다른 변경 승인 금지, `commands_run`의 참조 diff 명령이 경로를 보여 준다는 보고 규칙, `<reference>` 정의)을 더했고, verdict 규칙에 "reference binding failure"를 더했다 |
 | `.codex/agents/reviewer.toml` | 위와 같은 문장(developer_instructions) |
-| `scripts/validate_multi_agent_sop.py` | `REVIEWER_ROLE_CLAUSES`에 새 문장 14개(self-review 뒤 보고 규칙 1개 포함, repair 1 뒤 15개), `REVIEWER_REFERENCE_FORMS`(승인된 두 형식)와 `_validate_reviewer_reference_forms`(두 정의의 Allowed commands에서 `<reference>`가 든 줄이 정확히 두 형식인지), `SOP_REFERENCE_CLAUSES`(SOP 문장 2개), negative mutation 6개(각 정의에 `git log` 참조 형식 추가, diff 줄에서 경로 제거, SOP 문장 2개 제거)를 더했다. 새 문장 14개는 기존 규칙대로 두 정의에서 각각 지우는 mutation이 자동으로 생긴다 |
+| `scripts/validate_multi_agent_sop.py` | `REVIEWER_ROLE_CLAUSES`에 새 문장 14개(self-review 뒤 보고 규칙 1개 포함, repair 1 뒤 15개), `REVIEWER_REFERENCE_FORMS`(승인된 두 형식)와 `_validate_reviewer_reference_forms`(두 정의의 Allowed commands에서 `<reference>`가 든 줄이 정확히 두 형식인지), `SOP_REFERENCE_CLAUSES`(SOP 문장 3개, candidate 1에서 2개였고 repair 1에서 1개 추가), 관련 negative mutation 7개(각 정의에 `git log` 참조 형식 추가 2개, diff 줄에서 경로 제거 2개, SOP 문장 3개 제거. candidate 1에서는 6개)를 더했다. 새 문장 14개는 기존 규칙대로 두 정의에서 각각 지우는 mutation이 자동으로 생긴다 |
 | `docs/jarvis-multi-agent-sop-v0.1.md` | §3 Reviewer에 참조 커밋 항목(목적, 승인 원문·조상 조건, 두 명령, 근거일 뿐이라는 제한, 다른 변경 승인 금지, §10 파이프라인은 쓰지 않음) |
 | `.claude/skills/jarvis-reviewer-call/SKILL.md` | 입력 표에 Reference commits 행, allowed-tools에 `Bash(git merge-base --is-ancestor:*)`, Step 1에 조상 확인, Step 4에 참조가 붙은 scope 파일의 변경 범위 예외와 참조 줄 BLOCKED 조건, Step 5 호출문에 `=== REFERENCE COMMITS ===` 블록과 그 제한 |
 
@@ -171,7 +171,7 @@ Console Start Preview(`task-0177-reviewer-reference-commits`, TODO → DOING, `n
 | # | 출처 | 원문 인용 | Manager 해석과 충족 |
 | --- | --- | --- | --- |
 | A1 | Owner 결정 (원문) | "Owner 결정: D1을 선택합니다." / "task-0176의 E2(Reviewer의 독립적인 실제 diff 검토)는 완화하지 않습니다." / "Reviewer 정의에 파일별 참조 커밋을 지원하는 공식 기능을 추가하는 방안을 별도 task로 등록하세요." | D1에 따라 이 task를 등록했다. task-0176의 E2는 완화하지 않고, 이 task가 Reviewer 정의에 파일별 참조 커밋을 공식 기능으로 더한다 |
-| A2 | Owner 결정 (원문) | "현재 candidate `2f9dcc357e086d6ea77cd2792e5cbbe270b296e5`를 보존하세요." / "task-0176은 `DOING` 상태로 유지하고, Reviewer와 QA를 실행하지 마세요." / "새 설계 task는 등록 및 계획 작성까지만 수행하고, 구현이나 상태 전이는 하지 마세요." / "등록 후 Owner의 Start 승인을 기다리세요." | candidate `2f9dcc3`은 이력에 그대로 있다. 이 task의 candidate가 그 위에 쌓여 `2f9dcc3`은 그 parent이고 HEAD가 아니다("위험"의 HEAD 항목). task-0176은 DOING이며 Reviewer·QA를 실행하지 않았다. 등록 단계에서는 기록과 계획만 쓰고 Start 승인을 기다렸다(구현과 이 task의 Start는 Start 승인 뒤) |
+| A2 | Owner 결정 (원문) | "현재 candidate `2f9dcc357e086d6ea77cd2792e5cbbe270b296e5`를 보존하세요." / "task-0176은 `DOING` 상태로 유지하고, Reviewer와 QA를 실행하지 마세요." / "새 설계 task는 등록 및 계획 작성까지만 수행하고, 구현이나 상태 전이는 하지 마세요." / "등록 후 Owner의 Start 승인을 기다리세요." | candidate `2f9dcc3`은 이력에 그대로 있다. `2f9dcc3`은 이 task의 baseline이자 candidate 1 `36631fb`의 parent이고, 그 뒤 candidate들의 조상이며 HEAD가 아니다("위험"의 HEAD 항목). task-0176은 DOING이며 Reviewer·QA를 실행하지 않았다. 등록 단계에서는 기록과 계획만 쓰고 Start 승인을 기다렸다(구현과 이 task의 Start는 Start 승인 뒤) |
 | A3 | Owner 결정 (원문) | "설계 범위에는 `.claude/agents/reviewer.md`, `.codex/agents/reviewer.toml`, `scripts/validate_multi_agent_sop.py`, 관련 SOP 문서, `jarvis-reviewer-call` Skill을 포함하세요." | owned 행의 다섯 파일(reviewer.md, reviewer.toml, validator, SOP, Skill)이 이 범위다. "관련 SOP 문서"는 `docs/jarvis-multi-agent-sop-v0.1.md`로 보았다 |
 | A4 | Owner 결정 (원문) | "참조 커밋은 지정된 파일의 실제 diff를 확인하기 위한 용도로만 사용하고, candidate의 변경 범위 판정과 최종 검토 대상은 기존 규칙대로 유지하는 설계를 우선하세요." / "참조 커밋을 통해 candidate에 포함되지 않은 변경을 임의로 승인하거나, 보호 범위 밖 파일을 수정할 수 없도록 검증 규칙을 명확히 하세요." | 참조 diff는 짝지어진 경로의 검토 근거로만 쓰고 변경 범위 판정과 검토 대상(baseline..candidate, candidate 시점의 파일)은 그대로다. 다른 경로의 변경은 검토하지도 승인하지도 않고 PASS는 scope 밖 변경을 덮지 않는다. 참조는 scope 파일이고 같은 `<해시> -- <path>` 줄이 승인 원문에 한 줄로 적혀 있고 baseline의 조상일 때만 쓰며, `jarvis.bat`·`.env`·디렉터리·와일드카드는 쓸 수 없다. validator가 이 문장들과 명령 형식을 강제한다 |
 | A5 | Owner 결정 (원문) | "등록한 task ID, 변경 예정 파일, 설계 기준, 테스트 항목, 위험 요소를 보고한 뒤 멈추세요." | 등록 보고에서 task ID, 변경 예정 파일, 설계 기준, 테스트 항목, 위험을 보고하고 멈췄다 |
@@ -190,12 +190,21 @@ Console Start Preview(`task-0177-reviewer-reference-commits`, TODO → DOING, `n
 | C7 | Owner 결정: Start 승인 (원문) | "각 단계의 실제 결과를 근거와 함께 보고하고, 성공을 추정하거나 미실행 검증을 PASS로 기록하지 마세요." | 단계마다 실행한 명령의 실제 결과만 적고, 실행하지 않은 검증은 PASS로 적지 않는다 |
 | D1 | Owner 결정: Repair 1 (원문) | "Owner 결정 — task-0177 Reviewer repair 1 승인" / "제안한 repair 1을 승인합니다." / "Reviewer 지적 1을 반영하세요." / "참조 커밋은 Owner 승인 원문에 전체 40자 해시와 경로가 `<40자 해시> -- <path>` 형식으로 동일한 한 줄에 명시된 경우에만 유효하게 인정합니다." / "해시와 경로가 서로 다른 곳에 따로 존재하는 것으로는 승인 조건을 충족하지 못합니다." | 참조 줄은 같은 `<전체 40자 해시> -- <path>` 줄이 승인 원문에 한 줄로 적혀 있을 때만 유효하고, 해시와 경로가 따로 있는 것으로는 부족하다("Repair 1") |
 | D2 | Owner 결정: Repair 1 (원문) | "Reviewer 두 정의, `REVIEWER_ROLE_CLAUSES` validator, SOP, `jarvis-reviewer-call` Skill, task-0177 설계 기준을 동일한 규칙으로 맞추세요." | 두 정의(같은 문장), `REVIEWER_ROLE_CLAUSES`, SOP 항목과 `SOP_REFERENCE_CLAUSES`, Skill 입력 표와 Step 4, 설계 기준 2를 이 규칙으로 맞췄다 |
-| D3 | Owner 결정: Repair 1 (원문) | "Reviewer 지적 2도 제안대로 수정하세요." / "`2f9dcc3`은 현재 candidate의 parent이며 HEAD가 아니라는 사실을 기록에 정확히 반영하세요." | A2 해석을 `2f9dcc3`은 이력에 그대로 있고 이 task candidate의 parent이며 HEAD가 아니라고 고쳤다 |
+| D3 | Owner 결정: Repair 1 (원문) | "Reviewer 지적 2도 제안대로 수정하세요." / "`2f9dcc3`은 현재 candidate의 parent이며 HEAD가 아니라는 사실을 기록에 정확히 반영하세요." | A2 해석을 `2f9dcc3`은 이력에 그대로 있고 이 task candidate의 parent이며 HEAD가 아니라고 고쳤다(candidate 1 기준 문구. 실제 관계는 repair 2에서 A2에 바로잡았다, E2) |
 | D4 | Owner 결정: Repair 1 (원문) | "Reviewer 결과와 repair 내용을 task-0177 기록에 남기세요." | "Reviewer 1"과 "Repair 1" 절에 결과와 수정 내용을 적었다 |
 | D5 | Owner 결정: Repair 1 (원문) | "repair 예산 1/1을 사용하므로 추가 repair는 하지 마세요." / "새 candidate에서 유효한 지적이 다시 나오면 즉시 중단하고 보고하세요." | repair 예산 1/1을 썼다(`repair_count=1`). 새 candidate에서 유효한 지적이 나오면 고치지 않고 멈춰 보고한다 |
 | D6 | Owner 결정: Repair 1 (원문) | "새 candidate를 만든 뒤 Reviewer를 다시 실행하고, PASS한 동일 candidate로 QA를 진행하세요." / "Reviewer와 QA가 모두 PASS하기 전에는 Evidence나 Complete 단계로 넘어가지 마세요." | 새 candidate에 Reviewer를 다시 실행하고 PASS한 같은 candidate로 QA를 한다. 둘 다 PASS가 아니면 Evidence·Complete로 가지 않는다 |
 | D7 | Owner 결정: Repair 1 (원문) | "Push는 하지 마세요." / "task-0176은 별도 task이며, 이번 승인은 task-0176의 수정·상태 변경·Hold 실행을 승인하지 않습니다." | push하지 않는다. task-0176의 기록·상태·Hold는 이 승인으로 바뀌지 않으며 이 repair에서 건드리지 않았다 |
 | D8 | Owner 결정: Repair 1 (원문) | "수정은 승인된 파일 범위에만 한정하세요." / "계획 밖 변경, 보호 대상 수정, 추가 상태 전이 또는 금지된 Git 작업이 필요해지면 실행하지 말고 먼저 보고하세요." / "각 검증은 실제 결과로 보고하고, repair 예산이 소진된 뒤에는 임의로 추가 수정을 하지 마세요." | 수정은 범위의 여섯 파일 안에서만 했고 계획 밖 변경·보호 대상·상태 전이·금지된 Git 작업은 없었다. 검증은 실행한 결과만 적고, 예산이 소진됐으므로 이후 추가 수정은 하지 않는다 |
+| E1 | Owner 결정: Repair 2 (원문) | "결정: 1번 승인 — task-0177 추가 repair 1회를 허용합니다." / "허용 범위는 task-0177 기록 파일로 한정합니다." | repair 2를 1회 허용받았고 바꾼 파일은 이 기록 하나다 |
+| E2 | Owner 결정: Repair 2 (원문) | "A2의 커밋 관계를 실제 Git 이력에 맞게 수정합니다." / "`2f9dcc3`은 candidate 1 `36631fb`의 parent이며, 현재 candidate의 조상입니다." | A2 해석을 `2f9dcc3`은 baseline이자 candidate 1 `36631fb`의 parent이고 그 뒤 candidate들의 조상이며 HEAD가 아니라고 고쳤다. Reviewer 2가 같은 근거로 든 "Repair 1" 절 문구와 D3 해석은 내용을 바꾸지 않고 candidate 1 기준 문구라는 표시만 더했다("Repair 2") |
+| E3 | Owner 결정: Repair 2 (원문) | "구현 표의 validator 수치를 실제 상태와 일치시킵니다." / "`SOP_REFERENCE_CLAUSES` 3개, 관련 negative mutation 7개입니다." | 구현 표의 validator 행을 `SOP_REFERENCE_CLAUSES` 3개, 관련 negative mutation 7개로 맞췄다(candidate 1 때 값도 함께 적음) |
+| E4 | Owner 결정: Repair 2 (원문) | "Reviewer 2의 FINDINGS 원문과 이번 Owner 승인 원문을 task 기록에 남깁니다." / "Manager summary에 이번 결정과 수정 범위를 반영합니다." | "Reviewer 2" 절에 FINDINGS 줄을, "Owner 결정: Repair 2 (원문)" 절에 이 결정을 그대로 남기고 이 E행을 더했다 |
+| E5 | Owner 결정: Repair 2 (원문) | "`repair_budget=2`, `repair_count=2`로 기록을 정합화하고 `updated_at`을 갱신합니다." | 기준선 budget 행을 `repair_budget=2`, `repair_count=2`로 고치고 updated_at을 편집 시각으로 갱신했다 |
+| E6 | Owner 결정: Repair 2 (원문) | "위 범위 밖의 변경은 금지합니다." / "Reviewer 정의, validator, SOP, Skill의 구현 규칙은 수정하지 마세요." / "`jarvis.bat`, task-0176, 보호된 워크트리 및 다른 task 기록은 건드리지 마세요." | 정의·validator·SOP·Skill은 바꾸지 않았고 `jarvis.bat`, task-0176, 보호 worktree, 다른 task 기록도 건드리지 않았다 |
+| E7 | Owner 결정: Repair 2 (원문) | "새 candidate를 만든 뒤 Reviewer를 실행하세요." / "PASS일 때만 동일 candidate에 대해 QA를 실행합니다." / "새 candidate에서 유효한 FINDINGS가 다시 나오면 추가 수정 없이 중단하고 보고하세요." | 새 candidate에 Reviewer를 실행하고 PASS일 때만 같은 candidate로 QA를 한다. 유효한 지적이 다시 나오면 고치지 않고 멈춰 보고한다 |
+| E8 | Owner 결정: Repair 2 (원문) | "Evidence 및 Console Complete Preview/Confirm은 Owner가 직접 수행합니다." / "push는 하지 마세요." | Evidence와 Complete의 Preview/Confirm은 Owner가 직접 한다. push하지 않는다 |
+| E9 | Owner 결정: Repair 2 (원문) | "수정 전후 diff와 기록 정합성 검사 결과를 보고하고, 위 제한을 벗어나는 문제가 발견되면 임의로 확장하지 말고 멈춰서 보고하세요." | 수정 전후 diff와 기록 정합성 검사 결과를 보고하고, 범위 밖 문제는 고치지 않고 멈춰 보고한다 |
 
 ## 사전 점검과 Self-review
 
@@ -246,7 +255,57 @@ Owner 결정 — task-0177 Reviewer repair 1 승인
 ## Repair 1
 
 - 지적 1: 참조 줄의 유효 조건을 "같은 `<reference> -- <path>` 줄이 승인 원문에 그대로 한 줄로 적혀 있음"으로 바꾸고, 해시와 경로가 따로 있는 것으로는 부족하다는 문장을 더했다. 두 정의(같은 문장), `REVIEWER_ROLE_CLAUSES`(바뀐 문장과 새 문장), SOP 항목과 `SOP_REFERENCE_CLAUSES`(새 문장 1개), Skill의 입력 표와 Step 4 BLOCKED 조건, 설계 기준 2를 같은 규칙으로 맞췄다. Manager 요약 A4·B1·C2·C3 해석도 같은 규칙과 수치로 고쳤다.
-- 지적 2: Manager 요약 A2를 "`2f9dcc3`은 이력에 그대로 있고 이 task의 candidate의 parent이며 HEAD가 아니다"로 고치고 "위험"의 HEAD 항목을 가리켰다.
+- 지적 2: Manager 요약 A2를 "`2f9dcc3`은 이력에 그대로 있고 이 task의 candidate의 parent이며 HEAD가 아니다"(candidate 1 기준 문구. 실제 관계는 아래 "Repair 2")로 고치고 "위험"의 HEAD 항목을 가리켰다.
 - 기준선 budget 행을 `repair_count=1`로 고쳤다. 이 repair가 예산 1/1을 쓰므로 추가 repair는 하지 않는다. 새 candidate에서 유효한 지적이 나오면 멈추고 보고한다.
 - 검증(작업 트리): validator status=PASS, negative_checks=170, negative_failures=0. `tomllib` 파싱 통과.
 - updated_at은 이 repair 편집 시각 2026-10-20 18:36 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
+
+## Candidate 2 (repair 1)
+
+`3fc152b0ec53136763d3103d4a5f5a6ddcebe556`(parent `36631fbf0f5af5739ce3a873d16882e1065b39b3`).
+
+## Reviewer 2 (`3fc152b`, FINDINGS minor 2, `self_deviations` 없음 → 유효)
+
+출처: candidate `3fc152b0ec53136763d3103d4a5f5a6ddcebe556`에 대한 Reviewer(subagent `reviewer`) 보고. 아래 블록은 그 보고의 `verdict`·`findings`·`self_deviations` 줄을 고치지 않고 옮긴 것이다(줄 번호는 `3fc152b` 시점의 이 기록 기준).
+
+```text
+candidate_hash: 3fc152b0ec53136763d3103d4a5f5a6ddcebe556
+verdict:        FINDINGS
+findings:       - {severity: minor, evidence: "memory/tasks/task-0177-reviewer-reference-commits.md:174 (row A2) and Manager summary row A2 both say '이 task의 candidate가 그 위에 쌓여 `2f9dcc3`은 그 parent이고 HEAD가 아니다'; Repair 1 line 249 says the same. git log --format=\"%H %P %s\" 2f9dcc357e086d6ea77cd2792e5cbbe270b296e5..3fc152b0ec53136763d3103d4a5f5a6ddcebe556 shows candidate 3fc152b0ec53136763d3103d4a5f5a6ddcebe556 has parent 36631fbf0f5af5739ce3a873d16882e1065b39b3, and only 36631fbf0f5af5739ce3a873d16882e1065b39b3 has parent 2f9dcc357e086d6ea77cd2792e5cbbe270b296e5. The wording follows repair condition 3 ('`2f9dcc3`은 현재 candidate의 parent이며 HEAD가 아니라는 사실을 기록에 정확히 반영하세요'), but that condition's premise holds only for candidate 1", impact: "a reader would wrongly conclude that the reviewed candidate 3fc152b0ec53136763d3103d4a5f5a6ddcebe556 sits directly on 2f9dcc3, when there is an intermediate commit 36631fb between them", minimum_correction: "have A2 (record and summary) say that 2f9dcc3 is the baseline and an ancestor of the current candidate (the parent of candidate 1, 36631fb), not HEAD; or get an Owner decision that the 'parent' wording in repair condition 3 is accepted as written"}
+                - {severity: minor, evidence: "memory/tasks/task-0177-reviewer-reference-commits.md:152 (구현 table, validator row) was partly updated for repair 1 ('repair 1 뒤 15개') but still says '`SOP_REFERENCE_CLAUSES`(SOP 문장 2개)' and 'negative mutation 6개(... SOP 문장 2개 제거)'. At the candidate, scripts/validate_multi_agent_sop.py has 3 SOP_REFERENCE_CLAUSES entries and 4 form mutations plus 3 SOP clause removals (7 mutations), which matches the 133 -> 170 count in row C3", impact: "a reader of the 구현 table would wrongly conclude that the validator enforces only two SOP reference sentences and that the new same-line SOP sentence ('해시와 경로가 승인 원문의 서로 다른 곳에 따로 있는 것으로는 참조 커밋이 되지 않는다.') is not enforced", minimum_correction: "change line 152 to say 3 SOP sentences and 7 negative mutations after repair 1, or mark the 2 and 6 counts as candidate 1 values"}
+self_deviations: []
+```
+
+Manager 판정: 두 지적 모두 사실이다. repair 예산(1/1)이 소진돼 고치지 않고 Owner에게 보고했다.
+
+## Owner 결정: Repair 2 (원문)
+
+```text
+결정: 1번 승인 — task-0177 추가 repair 1회를 허용합니다.
+허용 범위는 task-0177 기록 파일로 한정합니다.
+
+1. A2의 커밋 관계를 실제 Git 이력에 맞게 수정합니다. `2f9dcc3`은 candidate 1 `36631fb`의 parent이며, 현재 candidate의 조상입니다.
+2. 구현 표의 validator 수치를 실제 상태와 일치시킵니다. `SOP_REFERENCE_CLAUSES` 3개, 관련 negative mutation 7개입니다.
+3. Reviewer 2의 FINDINGS 원문과 이번 Owner 승인 원문을 task 기록에 남깁니다.
+4. Manager summary에 이번 결정과 수정 범위를 반영합니다.
+5. `repair_budget=2`, `repair_count=2`로 기록을 정합화하고 `updated_at`을 갱신합니다.
+
+제한 사항
+
+* 위 범위 밖의 변경은 금지합니다. Reviewer 정의, validator, SOP, Skill의 구현 규칙은 수정하지 마세요.
+* `jarvis.bat`, task-0176, 보호된 워크트리 및 다른 task 기록은 건드리지 마세요.
+* 새 candidate를 만든 뒤 Reviewer를 실행하세요. PASS일 때만 동일 candidate에 대해 QA를 실행합니다.
+* 새 candidate에서 유효한 FINDINGS가 다시 나오면 추가 수정 없이 중단하고 보고하세요.
+* Evidence 및 Console Complete Preview/Confirm은 Owner가 직접 수행합니다.
+* push는 하지 마세요.
+
+수정 전후 diff와 기록 정합성 검사 결과를 보고하고, 위 제한을 벗어나는 문제가 발견되면 임의로 확장하지 말고 멈춰서 보고하세요.
+```
+
+## Repair 2
+
+- 지적 1: A2 해석을 "`2f9dcc3`은 이 task의 baseline이자 candidate 1 `36631fb`의 parent이고 그 뒤 candidate들의 조상이며 HEAD가 아니다"로 고쳤다. 같은 지적이 근거로 든 "Repair 1" 절의 문구와 D3 해석은 repair 1 당시의 기록이라 내용을 바꾸지 않고 "candidate 1 기준 문구"라는 표시와 이 절·E2를 가리키는 말만 더했다.
+- 지적 2: 구현 표의 validator 행을 실제 코드와 맞췄다: `SOP_REFERENCE_CLAUSES` 3개, 관련 negative mutation 7개(candidate 1 때 값 2개·6개도 함께 적음).
+- 기준선 budget 행을 `repair_budget=2`, `repair_count=2`로 고쳤다. 예산이 다시 소진됐으므로 새 candidate에서 유효한 지적이 나오면 고치지 않고 멈춰 보고한다.
+- 위 Reviewer 2 결과와 Owner 결정 원문을 남기고 Manager 요약에 E행을 더했다. 이 기록 파일 밖은 바꾸지 않았다(정의·validator·SOP·Skill 무변경).
+- updated_at은 이 repair 편집 시각 2026-10-20 18:47 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
