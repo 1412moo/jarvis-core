@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 12:53 UTC`
-- updated_at: `2026-10-20 13:08 UTC`
-- summary: `Discord /report, /report today, /retro today의 상태 목록 REPORT_STATUS_ORDER에 ON_HOLD가 없어 보류 task가 total에는 들어가고 상태별 집계와 출력에서는 빠진다. ON_HOLD를 BLOCKED 바로 뒤에 더하고, 출력은 공통 목록을 반복하며, TASK_ALLOWED_STATUSES와의 드리프트 가드, /review-task의 ON_HOLD 안내, README 머리말 정정을 더했다. Console Start 뒤 구현과 Implementer 검증을 마쳤고, 사전 점검·self-review·Reviewer·QA 결과는 본문에 기록한다.`
+- updated_at: `2026-10-20 13:04 UTC`
+- summary: `Discord /report, /report today, /retro today의 상태 목록 REPORT_STATUS_ORDER에 ON_HOLD가 없어 보류 task가 total에는 들어가고 상태별 집계와 출력에서는 빠진다. ON_HOLD를 BLOCKED 바로 뒤에 더하고, 출력은 공통 목록을 반복하며, TASK_ALLOWED_STATUSES와의 드리프트 가드, /review-task의 ON_HOLD 안내, README 머리말 정정을 더했다. candidate ae2d992가 Reviewer PASS와 QA PASS를 받았고, DONE은 Owner의 Console Complete 결정을 기다린다.`
 - source_command: `Owner 결정: task-0174 등록과 구현 전 계획 (Claude Code 세션)`
 
 ## 기준선
@@ -211,3 +211,42 @@ retro의 follow-up 조건과 `summary_line`, 승인·전이·실행·Worker·감
 | S2 | 첫 사전 점검 결과가 기록에 없다 | 수정. 위 "사전 점검 (첫 실행)" 절에 적었다 |
 
 수정 뒤 사전 점검: `staged_files=4`, `violations=0`, `quote_check_unquoted=0`, `status=PASS`.
+
+## Candidate 1
+
+`ae2d992c244c16b2ef2291f465624b3384db27eb`(parent = baseline `54cab64`, 커밋 2026-10-20 13:01 UTC). 변경 4개 파일 = owned. 커밋 전 사전 점검 PASS, HEAD = candidate, stage 없음, `jarvis.bat`은 tree에 없음.
+
+## Reviewer 1 (`ae2d992`, PASS)
+
+`findings: []`, `self_deviations: []`. 변경 집합 `54cab64..ae2d992` 4개 파일을 검토했다. `unverified` 6건(self-check·smoke·validator 실행, 변형 검사, 실제 `/report`, 보존 대상, 절차 사실)은 아래 QA로 넘겼다.
+
+## QA (candidate `ae2d992c244c16b2ef2291f465624b3384db27eb`)
+
+candidate를 detached로 checkout한 임시 worktree(scratchpad, 저장소 밖)에서만 실행했다. 끝나고 삭제했고 원본 checkout의 HEAD는 candidate 그대로다.
+
+| # | 검사 | 결과 |
+| --- | --- | --- |
+| V1~V6 | `bot_minimal.py --self-check-suite` | exit 0, `ok: true`, 116개 전부 통과. 새 검사 12개가 모두 있음 |
+| V7 | discord-intake smoke, Console smoke, SOP validator, `check_task_record.py`, `git diff --check 54cab64 ae2d992` | 모두 PASS |
+| V8 | 변형이 self-check 실패로 드러나는지 | 모두 exit 1: `REPORT_STATUS_ORDER`에서 ON_HOLD 제거(가드·세 집계·retro·review 검사 실패), report_empty 출력을 옛 6줄 하드코딩으로 되돌림(`report_empty_reply_status_lines`), retro follow-up에 ON_HOLD 추가(`retro_today_on_hold_not_follow_up` 외 1), ON_HOLD review 안내 제거(`review_task_status_guidance`, `review_task_on_hold_command`). 계획의 "가드 제거"는 가드를 빼도 다른 검사가 실패할 이유가 없어 의미가 없으므로, 대신 공식 어휘 밖 상태(`PAUSED`)를 목록에 넣는 변형을 썼다. 이 변형은 `report_status_order_matches_vocabulary`와 `review_task_status_guidance`가 잡았다(가드만 잡을 것이라는 실행 전 예상은 틀렸다) |
+| I6 | QA worktree에서 `/report` | total 126 = 상태별 합계 126, 키 7개, `- BLOCKED: 0` 다음 `- ON_HOLD: 0` |
+| V9 | 보존 | 보류 6건과 task-0035 blob이 baseline·candidate 모두 0030 `5bae2580d369`, 0031 `5d7dbb80335c`, 0032 `ede13b3278fe`, 0033 `999c8e29a6b3`, 0034 `d22b5656479e`, 0036 `d11c6ce0bd55`, 0035 `d494ed175848`. `jarvis.bat`은 tree에 없고 untracked. 변경 파일 = owned 4개. 보존 worktree 그대로, listener 없음 |
+
+## 정정 (candidate 기록의 시각)
+
+candidate `ae2d992`의 이 기록에 적은 두 시각은 실제 시각을 확인하지 않고 쓴 값이었다. 위의 원래 문장은 이력으로 그대로 두고 여기서 정정한다.
+
+- `updated_at` 13:08 UTC: candidate 커밋(13:01 UTC)보다 늦은 시각이었다. 이 checkpoint에서 실제 시각 13:04 UTC로 고쳤다.
+- Self-review 절의 "13:00~13:06 UTC": 실제로는 요청 파일 작성 12:59:27 UTC, 결과 파일 13:00:31 UTC(scratchpad 파일 시각)다.
+
+정정은 시각 사실만 바꾸며 코드·문서·검증 결과와 무관하다. Reviewer와 QA가 본 candidate 뒤의 기록 변경이므로 Owner에게 보고한다.
+
+## Docs와 완료 조건 대조
+
+- Docs: `not_required`. 문서 변경(README, status-report-contract)은 candidate 안에 있고 Reviewer·QA가 검토했다. master-plan 최근 완료 갱신은 DONE 뒤 관례적인 별도 기록이며 이 task 범위 밖이다.
+- SOP §8: 같은 candidate `ae2d992`에 Reviewer PASS와 QA PASS. 범위 밖 변경·동시 source writer 없음(변경 4개 = owned). `jarvis.bat` untouched/untracked. push·외부 호출·실제 Discord 전송 없음. listener·임시 worktree 남지 않음.
+- budget: `retry_count=0`, `repair_count=0`.
+
+## 다음 단계
+
+status는 `DOING`이다. SOP §8과 승인된 계획에 따라 DONE은 Owner가 Jarvis Console Complete(Preview + Confirm `COMPLETE TASK`)로 결정한다. 그 결정을 기다리며, Complete 뒤 상태 변경을 별도 checkpoint commit으로 남긴다. push는 하지 않는다.
