@@ -2,11 +2,12 @@
 
 - id: `task-0174-discord-report-on-hold-count`
 - title: `Discord /report·/retro today에 ON_HOLD 집계 추가와 상태 어휘 드리프트 가드`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 12:53 UTC`
-- updated_at: `2026-10-20 13:50 UTC`
+- updated_at: `2026-10-20 14:26 UTC`
 - summary: `Discord /report, /report today, /retro today의 상태 목록 REPORT_STATUS_ORDER에 ON_HOLD가 없어 보류 task가 total에는 들어가고 상태별 집계와 출력에서는 빠진다. ON_HOLD를 BLOCKED 바로 뒤에 더하고, 출력은 공통 목록을 반복하며, TASK_ALLOWED_STATUSES와의 드리프트 가드, /review-task의 ON_HOLD 안내, README 머리말 정정을 더했다. candidate ae2d992가 Reviewer PASS와 QA PASS를 받은 뒤 기록 시각 정정을 repair 1로, Reviewer 2 지적(기록 문장 2곳)을 repair 2(Owner 예산 증액)로 고쳤고, 그 Reviewer·QA 결과는 본문에 기록한다.`
+- completion_evidence: `candidate 568c6539d547d1cc9fe7f5f000e9b3983f354900: Reviewer 3 PASS (findings 0, self_deviations 0); QA PASS on the same candidate: bot self-check 116/116, mutation tests 5/5 detected, regressions passed (discord-intake smoke, Console smoke, SOP validator, check_task_record, git diff --check)`
 - source_command: `Owner 결정: task-0174 등록과 구현 전 계획 (Claude Code 세션)`
 
 ## 기준선
