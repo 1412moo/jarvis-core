@@ -2,11 +2,12 @@
 
 - id: `task-0178-manual-task-close-path-design`
 - title: `수동 SOP task 공식 종료 경로 설계`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 05:31 UTC`
-- updated_at: `2026-10-21 06:20 UTC`
+- updated_at: `2026-10-21 06:24 UTC`
 - summary: `Claude Code 세션 등에서 Owner 결정으로 만든 수동 SOP task를 공식으로 종료하는 경로를 설계한다. 지금은 DOING인 수동 task를 닫을 방법이 없어 task-0175·task-0031이 DOING으로 남아 있고, FAILED로 바꾸면 Discord /go가 그 task를 Worker로 실행할 수 있다. 이 task는 설계 문서까지만 만들고 코드·SOP·상태는 바꾸지 않는다. 구현은 설계 승인 뒤 별도 task로 한다.`
+- completion_evidence: `candidate 72c5ea2a38e75c3299ab13afca9dfccf01b8c408: Reviewer 3 PASS (findings 0, self_deviations 0) after repairs 1-2. QA PASS on the same candidate in a temp worktree: change set is the design doc and this record only, cited code names and paths exist, refusal strings and keyword rules match the code, task-0031 /run risk confirmed by pure functions (not run), 129 records with 3 lacking source_command, check_task_record, validator, diff --check. Design only. No push.`
 - source_command: `Owner 지시: 수동 task 종료 경로 설계 task 등록 (Claude Code 세션)`
 
 ## 기준선
