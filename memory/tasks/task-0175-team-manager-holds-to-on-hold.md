@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 15:05 UTC`
-- updated_at: `2026-10-20 17:31 UTC`
+- updated_at: `2026-10-21 05:13 UTC`
 - summary: `task-0156에서 Owner가 보류한 Team Manager task 중 NEEDS_APPROVAL 5건(0030, 0032, 0033, 0034, 0036)의 summary에 보류 주체·근거·사유·재개 조건을 승인된 문구로 기록했고(task-model §9, 0033·0036은 축약하고 원문을 본문에 보존), Reviewer·QA 뒤 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. DOING인 task-0031은 그대로 둔다. Reviewer 지적(인용 불일치, 요약 머리말 출처 안내, push 금지 인용 누락, 시각 서술)을 repair 1~3으로 고쳤고 검토·Hold 결과는 본문에 기록한다.`
 - source_command: `Owner 결정: 패키지 B A안, task-0175 등록과 계획 (Claude Code 세션)`
 
@@ -462,3 +462,11 @@ Owner 결정: 중단 기록만 승인. 다른 작업은 보류합니다.
 - 현재 task-0175 상태는 `DOING`이며 완료 또는 취소되지 않았음.
 
 이 절과 위 세 블록은 candidate가 아니다(SOP §4.5의 repair·Docs sync가 아님). 마지막 candidate는 `f0fca0c`다. 상태, 기존 검토 결과, repair 이력, Manager 요약, summary는 바꾸지 않았고 메타데이터는 updated_at(2026-10-20 17:31 UTC)만 바뀌었다.
+
+## 정리 (task-0176 뒤)
+
+Owner 지시: "task-0175 정리하고 push해"
+
+- 이 task의 목표(다섯 Team Manager task의 ON_HOLD 전환)는 task-0176이 대신 달성했다. task-0176이 `86a5d98`의 다섯 summary 변경을 task-0177의 참조 커밋으로 다시 검토받았고(summary 지적 없음), QA PASS 뒤 Console Hold로 0030·0032·0033·0034·0036을 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮겼으며(`ebff4ad`), DONE이 됐다(`61f102d`).
+- 이 task의 마지막 candidate `f0fca0c`는 Reviewer 4 FINDINGS 뒤 Owner 결정 C로 중단된 그대로이며, Reviewer·QA PASS를 받은 candidate가 없어 SOP §8의 완료 조건을 채우지 못한다. 수동 task를 FAILED 등으로 종료하는 공식 경로도 아직 없다. 그래서 status는 `DOING`으로 두고, 기록만 이렇게 정리한다. 종료 경로가 생기면 그 경로로 닫는다.
+- 위의 기존 절(검토 결과, repair 이력, 중단 기록)은 바꾸지 않았다.
