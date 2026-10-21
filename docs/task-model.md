@@ -89,10 +89,10 @@ writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수
 | Jarvis Console Start | `TODO` → `DOING` |
 | Jarvis Console Complete | `DOING` → `DONE` |
 | Discord `/go` (TODO task) | `TODO` → `DOING` |
-| Discord `/go` 재시도·resume, `/retry` (FAILED task, `/retry`는 `/work`로 만든 task 제외, task-0167) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
+| Discord `/go` 재시도·resume (FAILED task. `/retry`는 task-0179에서 폐기) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
 | Discord `/go <id> accept` (`qa_unverified_owner_review` 기록이 있는 FAILED task, QA 재실행 통과 뒤에만) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
 | Discord `/approve` 승인 / 거절 | `NEEDS_APPROVAL` → `DOING` / `NEEDS_APPROVAL` → `FAILED` |
-| 실행 결과 기록 `_apply_execution_result` (`/approve`·`/run`·`/retry`·`/go` 실행 뒤) | 성공 `DOING` → `DONE`, 실패 `DOING` → `FAILED` |
+| 실행 결과 기록 `_apply_execution_result` (`/approve`·`/go` 실행 뒤. `/run`·`/retry`는 task-0179에서 폐기) | 성공 `DOING` → `DONE`, 실패 `DOING` → `FAILED` |
 | Discord `/go <id> recover` (`/work`로 만든 DOING task, 실행 중인 Worker가 없고 마지막 시도의 실행 표지가 가리키는 프로세스가 모두 끝났을 때만, task-0167) | `DOING` → `FAILED` (실패 기록과 함께, 재실행 없음) |
 | Jarvis Console Hold (표시된 task, `HOLD TASK`, `hold_from`에 출발 상태를 함께 기록, task-0173) | `TODO` → `ON_HOLD`, `NEEDS_APPROVAL` → `ON_HOLD` |
 | Jarvis Console Resume (표시된 task, `RESUME TASK`, `hold_from`이 가리키는 상태로만 복귀하고 `hold_from`을 지움, task-0173) | `ON_HOLD` → `TODO` (`hold_from`이 `TODO`일 때), `ON_HOLD` → `NEEDS_APPROVAL` (`hold_from`이 `NEEDS_APPROVAL`일 때) |

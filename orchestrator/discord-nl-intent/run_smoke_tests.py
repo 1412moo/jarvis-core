@@ -247,8 +247,9 @@ def _run_no_eval_exec_case() -> dict[str, object]:
 
 def _run_no_subprocess_case() -> dict[str, object]:
     """Scoped to the new Phase 2A files only. bot_minimal.py legitimately
-    uses subprocess for its separate, pre-existing whitelisted /run and
-    /retry feature -- out of scope for this Phase 2A check."""
+    uses subprocess for its separate, pre-existing whitelisted execution flow
+    (reached through /approve since task-0179 retired /run and /retry) --
+    out of scope for this Phase 2A check."""
 
     subprocess_usage_pattern = re.compile(r"\bimport subprocess\b|\bsubprocess\.")
     offenders = []

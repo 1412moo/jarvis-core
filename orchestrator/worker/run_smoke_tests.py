@@ -666,18 +666,20 @@ def recover_flow(clone: Path, worktrees: Path) -> None:
     check("stalled: the start-up DM names the earlier record as reference only",
           "이전 실행 기록(참고, 이번 시도와 무관할 수 있음): worker:worker_timeout" in (bot._format_startup_report(scan) or ""))
 
-    # /retry leaves Worker-path tasks to /go; a manual task keeps its old path (self-check covers it).
+    # task-0179: /retry is retired; it answers with a notice for Worker-path and manual tasks alike.
     retry_doing = bot._run_command(f"/retry {retried}")
     failed_id = bot._run_command("/work Studyroom glossary 재시도 거절").get("task_id", "")
     failed_path = set_status(failed_id, "FAILED")
     failed_before = failed_path.read_bytes()
     retry_failed = bot._run_command(f"/retry {failed_id}")
-    check("retry: a Worker-path task is refused before anything changes, DOING or FAILED",
-          retry_doing.get("reason") == "retry_worker_path_use_go" and retry_failed.get("reason") == "retry_worker_path_use_go"
+    manual_before = manual.read_bytes()
+    retry_manual = bot._run_command("/retry task-8100-manual-doing")
+    check("retry: retired for Worker-path tasks, DOING or FAILED, and nothing changes",
+          retry_doing.get("result_type") == "command_retired" and retry_failed.get("result_type") == "command_retired"
           and retried_path.read_bytes() == before and failed_path.read_bytes() == failed_before
-          and f"`/go {failed_id}`" in bot._format_reply(retry_failed), f"{retry_doing} {retry_failed}")
-    check("retry: a manual DOING task still goes the old way (not refused as Worker path)",
-          bot._run_command("/retry task-8100-manual-doing").get("reason") != "retry_worker_path_use_go")
+          and "`/go <task-id>`" in bot._format_reply(retry_failed), f"{retry_doing} {retry_failed}")
+    check("retry: retired for a manual DOING task too, and nothing changes",
+          retry_manual.get("result_type") == "command_retired" and manual.read_bytes() == manual_before, str(retry_manual))
     manual.unlink()
 
 
