@@ -62,5 +62,5 @@ candidate 전 1회(읽기 전용 self-reviewer). minor 3건을 candidate 전에 
 
 | # | 출처 | 원문 인용 | Manager 해석과 충족 |
 | --- | --- | --- | --- |
-| A1 | Owner 결정 (원문) | "[Manager 제안]" / "SOP §8에 "DONE이 아닌 종결(CLOSED)도 있다"는 문장을 넣는 별도 task" | 제안은 "문장"이었지만 실제로는 SOP §8에 네 문장짜리 문단 하나를 더했다. 각 문장은 기존 기준을 가리킬 뿐이다: 대상이 `DOING`인 수동 작업이고 Owner 결정으로 닫는다는 것은 task-model 2절·5-1절, 경로가 Jarvis Console Close뿐이고 사유가 `closed_reason`이라는 것은 task-model 5-2절·13절, Manager가 완료로 보고하지 않는다는 것은 SOP §8 첫 문장("다음 조건을 모두 만족해야 Manager가 완료를 보고할 수 있다"), 되돌릴 수 없어 새 task를 만든다는 것은 task-model 2절·13절, Worker 파이프라인 task가 대상이 아니라는 것은 task-model 5-1절(대상은 수동 task뿐)이다. 새 규칙은 없다 |
+| A1 | Owner 결정 (원문) | "[Manager 제안]" / "SOP §8에 "DONE이 아닌 종결(CLOSED)도 있다"는 문장을 넣는 별도 task" | 제안은 "문장"이었지만 실제로는 SOP §8에 다섯 문장짜리 문단 하나를 더했다. 각 문장은 기존 기준을 가리킬 뿐이다: 대상이 `DOING`인 수동 작업이고 Owner 결정으로 닫는다는 것은 task-model 2절·5-1절, 경로가 Jarvis Console Close뿐이고 사유가 `closed_reason`이라는 것은 task-model 5-2절·13절, Manager가 완료로 보고하지 않는다는 것은 SOP §8 첫 문장("다음 조건을 모두 만족해야 Manager가 완료를 보고할 수 있다"), 되돌릴 수 없어 새 task를 만든다는 것은 task-model 2절·13절, Worker 파이프라인 task가 대상이 아니라는 것은 task-model 5-1절(대상은 수동 task뿐)이다. 새 규칙은 없다 |
 | A2 | Owner 결정 (원문) | "[Owner 답]" / "SOP §8 task 등록하고 진행해" | task를 등록하고 Console로 Start했다. §8 밖과 다른 문서는 바꾸지 않았다 |
