@@ -316,3 +316,19 @@ E4와 Start 승인 3항의 별도 승인 지점을 대체한다. Reviewer와 QA�
 - 이 결정에 맞춰 summary 줄, 실행 계획 4·5단계, Hold 절차를 Manager 직접 수행으로 고치고 처음 계획을 함께 적었다. B4·C4·C6 해석, 재개 절, "Owner 결정: E1~E4 (원문)"과 "Owner 결정: Start 승인 (원문)" 아래의 Manager 문단에는 대체 표시만 더했다. 다섯 task 기록은 바꾸지 않았다.
 - 기준선 budget 행을 `repair_count=1`로 고쳤다(예산 1/1 소진). 새 candidate에서 유효한 지적이 나오면 고치지 않고 보고한다.
 - updated_at은 이 repair 편집 시각 2026-10-21 04:54 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
+
+## Reviewer 2와 SOP §8 수용
+
+- Reviewer 2(`d84120d`) 첫 검토는 허용 명령에 `; echo`를 붙인 `self_deviations` 2건으로 무효였고, SOP §5에 따라 같은 candidate를 1회 재검토했다(`retry_count=1`).
+- 재검토: FINDINGS minor 2, `self_deviations` 없음. (1) R1·Q1·범위·기준선 문구가 재개 뒤 baseline `25f9deb` 위 두 커밋 구조와 맞지 않음(바뀐 파일이 이 기록 하나라는 실질은 맞음), (2) C6의 "5항도 대체" 표시는 선택지 1 문안이 명시하지 않은 추론. 다섯 summary에는 지적이 없었다.
+- repair·retry 예산이 소진돼 Owner에게 보고했고, Owner가 아래와 같이 SOP §8로 두 건을 수용했다. 수용은 candidate `d84120d`에만 효력이 있다.
+
+```text
+[Manager 제안 수용 문안]
+SOP §8에 따라 Reviewer minor 2건을 수용한다. 1) R1·Q1·기준선 문구는 재개 뒤 baseline 25f9deb 기준 "baseline..candidate 변경은 task-0176 기록 하나"로 읽는다. 2) Start 승인 5항의 멈춤 지점도 repair 1 결정(선택지 1)으로 대체된 것으로 확인한다. candidate d84120d로 QA를 진행하고 PASS면 Hold·Evidence·Complete까지 진행한다.
+
+[Owner 답]
+수용해, 끝까지 진행해
+```
+
+- 그 뒤 같은 candidate로 QA PASS, 다섯 건 Hold(`ebff4ad`), Record Completion Evidence와 Complete로 DONE. 이 절은 DONE 뒤 SOP §8의 수용 원문 기록을 위해 더했고 status는 바꾸지 않았다.
