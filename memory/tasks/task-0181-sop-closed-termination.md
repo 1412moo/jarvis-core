@@ -2,11 +2,12 @@
 
 - id: `task-0181-sop-closed-termination`
 - title: `SOP §8에 CLOSED 종결 문단 추가`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 13:09 UTC`
-- updated_at: `2026-10-21 13:13 UTC`
+- updated_at: `2026-10-21 13:15 UTC`
 - summary: `SOP §8(Fail-closed 완료 조건)에 DONE이 아닌 종결이 있다는 문단을 더한다. 수동 SOP 작업을 완료 조건 없이 끝낼 때 Owner 결정으로 Jarvis Console Close를 써서 CLOSED와 closed_reason을 남기며, CLOSED는 완료가 아니므로 Manager가 완료로 보고하지 않고, 되돌릴 수 없으며, Worker 파이프라인 task는 대상이 아니라는 내용이다. task-0180이 Owner 결정 2로 뺀 항목이며 코드와 다른 문서는 바꾸지 않는다.`
+- completion_evidence: `candidate c8186c99e275ca68e5ff1c193d3b2647c3440ab3 (baseline 68c34b0, repair 1 for two minor findings). Reviewer PASS, findings 0, self_deviations 0. QA PASS 21/21 in a fresh CRLF worktree: change set is the SOP and this record, one additions-only hunk in section 8 after the DONE paths, the paragraph matches the writer (DOING to CLOSED only, manual only) and task-model 13, validator PASS with 172 negative checks, check_task_record PASS, summary quotes complete. No push.`
 - source_command: `Owner 지시: SOP §8 task 등록하고 진행 (Claude Code 세션)`
 
 ## 기준선
