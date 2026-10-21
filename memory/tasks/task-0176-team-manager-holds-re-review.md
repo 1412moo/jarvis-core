@@ -2,11 +2,12 @@
 
 - id: `task-0176-team-manager-holds-re-review`
 - title: `Team Manager task 5건 summary 재검토와 ON_HOLD 전환 (task-0175 재추진)`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 17:40 UTC`
-- updated_at: `2026-10-21 04:54 UTC`
+- updated_at: `2026-10-21 05:08 UTC`
 - summary: `task-0175가 Reviewer 4 FINDINGS 뒤 Owner 결정 C로 중단되어, 로컬 커밋 86a5d98에 있는 Team Manager task 5건(0030, 0032, 0033, 0034, 0036)의 summary 변경(보류 주체·근거·사유·재개 조건 기록)을 이 task에서 다시 검토한다. 같은 candidate에서 유효한 Reviewer PASS와 QA PASS를 받은 뒤에만 Manager가 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. 다섯 기록은 이 task에서 고치지 않는다. task-0031·0035·0156과 task-0175 기록은 범위 밖이다.`
+- completion_evidence: `candidate d84120dc2c0ef65f433f6b93d14c006f6fa6f7ca: Reviewer retry FINDINGS minor 2 (record wording) accepted by the Owner under SOP 8; reference diffs from 7cf5c85 found no issue in the five summaries. QA PASS on the same candidate: five diffs equal 86a5d98, summaries and preserved sections ok, protected blobs unchanged, smoke, self-check, validator. Hold: 0030 0032 0033 0034 0036 ON_HOLD, hold_from NEEDS_APPROVAL, /report ON_HOLD 5 total 129 (commit ebff4ad). No push.`
 - source_command: `Owner 결정: 다섯 Team Manager task Hold 재추진, 등록과 계획 (Claude Code 세션)`
 
 ## 기준선
