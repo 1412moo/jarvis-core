@@ -1122,7 +1122,7 @@ def _validate_transition_contract(sources: dict[str, str], errors: list[str]) ->
         code_statuses = set(ast.literal_eval(node.args[0])) if isinstance(node, ast.Call) and node.args else set()
     except ValueError:
         code_statuses = set()
-    status_line = re.search(r"^- `status`: 현재 상태 \(`([A-Z_ |]+)`\)$", _section(model, "## 3) 필수 필드", r"^## "), re.MULTILINE)
+    status_line = re.search(r"^- `status`: 현재 상태 \(`([A-Z_ |]+)`\)\r?$", _section(model, "## 3) 필수 필드", r"^## "), re.MULTILINE)
     doc_statuses = set(status_line.group(1).split(" | ")) if status_line else set()
     if not code_statuses or doc_statuses != code_statuses:
         _error(

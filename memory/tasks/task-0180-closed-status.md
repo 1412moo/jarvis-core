@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 10:28 UTC`
-- updated_at: `2026-10-21 11:15 UTC`
+- updated_at: `2026-10-21 11:41 UTC`
 - summary: `task-0178 설계 C안대로 새 종결 상태 CLOSED와 closed_reason을 구현한다. DOING에서 CLOSED로 가는 전이 하나만 열고, 수동 task(source_command가 /task가 아닌 task)만 대상으로 하며, 사유는 completion_evidence와 같은 형식 규칙으로 상태와 함께 원자적으로 쓴다. 경로는 Console Close(Preview 뒤 CLOSE TASK Confirm)뿐이고 Discord 종료 명령은 두지 않는다. CLOSED는 되돌리지 않는다. 이 task는 어떤 기존 task도 닫지 않는다. task-0175·0031을 닫을지는 구현 뒤 Owner가 정한다.`
 - source_command: `Owner 지시: task-0180 등록하고 Start (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `4b7cb20ce3c60b35fe245ca567f1fe76ed6020e8` (등록 시점 main HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (SOP §5 기본값 1에 Owner 결정 4로 1회 증액, 사용 내역은 Repair 절) |
 | 설계 | `docs/task-0178-manual-task-close-design.md` §4 추천안 C, §5 영향 범위, §7 테스트 계획 |
 
 ## Owner 결정 (원문)
@@ -64,6 +64,18 @@ task-0180 등록하고 Start해
 1. (권장) 짝 파일 5개를 이번 범위로 승인합니다. 화면·테스트가 없으면 Console Close를 쓸 수 없고 검증도 할 수 없습니다. README와 계약 문서를 빼면 문서와 코드가 어긋납니다.
 2. 5개 중 일부만 승인합니다.
 3. 짝 파일 변경을 모두 빼고, 승인된 5개 파일과 결정 2의 4개 문서만 남깁니다.
+
+[Owner 답]
+1로 진행
+```
+
+## Owner 결정 4: repair 예산 증액 (원문)
+
+```text
+[Manager 질문]
+결함: 새로 체크아웃하면 validator가 실패합니다. 이번에 validator에 더한 상태 목록 일치 검사는 줄 끝을 \)$로 잡습니다. 이 PC는 git core.autocrlf=true라서 새로 체크아웃하면 docs/task-model.md가 CRLF 줄바꿈이 되고, 줄 끝의 \r 때문에 이 검사가 맞지 않아 validator가 FAIL합니다.
+1. (권장) repair 예산을 1회 늘립니다. 정규식 한 곳을 고치고 task 기록에 repair 2를 적어 새 candidate를 만든 뒤 Reviewer → QA → Evidence·Complete까지 진행합니다.
+2. task-0180은 여기서 멈추고, validator 수정을 별도 task로 합니다.
 
 [Owner 답]
 1로 진행
@@ -129,8 +141,12 @@ candidate 전 1회(읽기 전용 self-reviewer). minor 4건을 모두 candidate 
 | A6 | Owner 결정 2: 상태 목록 문서 범위 (원문) | "2. 5곳 모두 이번 범위에 넣습니다." / "3. 모두 빼고, 어긋남을 기록한 뒤 별도 task로 고칩니다." / "[Owner 답]" / "1로 진행" | Owner가 2·3이 아닌 선택지 1을 골랐다 |
 | A7 | Owner 결정 3: 짝 파일 범위 (원문) | "[Manager 질문]" / "지적 내용 (major, 범위): 승인 원문 "바뀌는 파일은 다음과 같습니다" 아래에는 5개 파일만 적혀 있습니다. 그런데 candidate는 그 밖의 짝 파일 5개도 바꿨습니다." / "- apps/jarvis-console/web/app.js: Console 화면" / "- apps/jarvis-console/run_smoke_tests.py: Console 테스트" / "- apps/jarvis-console/README.md, adapters/discord/README.md" / "- docs/status-report-contract.md" | 짝 파일 다섯 개는 첫 candidate에서 Owner 승인 없이 바뀌었고, 이 결정으로 범위에 들어왔다. 변경 내용은 구현 절 그대로다 |
 | A8 | Owner 결정 3: 짝 파일 범위 (원문) | "1. (권장) 짝 파일 5개를 이번 범위로 승인합니다. 화면·테스트가 없으면 Console Close를 쓸 수 없고 검증도 할 수 없습니다. README와 계약 문서를 빼면 문서와 코드가 어긋납니다." / "2. 5개 중 일부만 승인합니다." / "3. 짝 파일 변경을 모두 빼고, 승인된 5개 파일과 결정 2의 4개 문서만 남깁니다." / "[Owner 답]" / "1로 진행" | Owner가 2·3이 아닌 선택지 1을 골랐다. 다섯 파일을 모두 유지했다 |
+| A9 | Owner 결정 4: repair 예산 증액 (원문) | "[Manager 질문]" / "결함: 새로 체크아웃하면 validator가 실패합니다. 이번에 validator에 더한 상태 목록 일치 검사는 줄 끝을 \)$로 잡습니다. 이 PC는 git core.autocrlf=true라서 새로 체크아웃하면 docs/task-model.md가 CRLF 줄바꿈이 되고, 줄 끝의 \r 때문에 이 검사가 맞지 않아 validator가 FAIL합니다." | QA가 찾은 결함을 그대로 옮겼다. 정규식 한 곳만 고쳤다(Repair 절의 repair 2) |
+| A10 | Owner 결정 4: repair 예산 증액 (원문) | "1. (권장) repair 예산을 1회 늘립니다. 정규식 한 곳을 고치고 task 기록에 repair 2를 적어 새 candidate를 만든 뒤 Reviewer → QA → Evidence·Complete까지 진행합니다." / "2. task-0180은 여기서 멈추고, validator 수정을 별도 task로 합니다." / "[Owner 답]" / "1로 진행" | Owner가 2가 아닌 선택지 1을 골랐다. repair 예산은 2가 됐고 repair 2를 썼다. 새 candidate는 Reviewer와 QA를 다시 받는다 |
 
 ## Repair
 
 - candidate `346f675471112bb626864a24f56bfe814065d460`: Reviewer FINDINGS, major 1건(짝 파일 다섯 개가 Owner 승인 원문 밖). 같은 검토는 baseline 커밋에 `git grep`을 쓴 것이 허용 형식 밖인데 self_deviations에 적지 않아 그 자체로도 유효하지 않다.
 - repair 1(`repair_count=1`): Owner 결정 3을 원문으로 기록하고 범위 절과 A2를 승인에 맞게 고치고 A7·A8을 더했다. Reviewer가 미검증으로 남긴 실행 결과 writer의 Close 쌍 거부를 `_test_task_close`에 검사로 더했다. 다른 코드는 바꾸지 않았다.
+- candidate `2ce7e0b07b036cf53aa9b3f079b42ca7f4ae3dde`: Reviewer PASS(지적 0, self_deviations 0). 같은 candidate의 QA는 FAIL(36/37): 새로 체크아웃한 worktree(`core.autocrlf=true`로 `docs/task-model.md`가 CRLF)에서 `status_vocabulary_parity`의 정규식이 줄 끝 `\r` 때문에 맞지 않아 validator가 FAIL했다. 작업 트리의 그 파일은 LF라 Implementer 검증에서 드러나지 않았다. baseline 체크아웃의 validator는 PASS였다.
+- repair 2(`repair_count=2`, Owner 결정 4): 그 정규식의 줄 끝을 `\r?$`로 고쳤다. 다른 코드는 바꾸지 않았다.
