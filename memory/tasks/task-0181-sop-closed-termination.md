@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 13:09 UTC`
-- updated_at: `2026-10-21 13:11 UTC`
-- summary: `SOP §8(Fail-closed 완료 조건)에 DONE이 아닌 종결이 있다는 문단을 더한다. 수동 SOP 작업을 완료 조건 없이 끝낼 때 Owner 결정으로 Jarvis Console Close를 써서 CLOSED와 closed_reason을 남기며, CLOSED는 완료가 아니므로 Manager가 완료로 보고하지 않고, 되돌릴 수 없으며, Worker 파이프라인 task는 대상이 아니라는 내용이다. task-0180이 Owner 결정 2로 이번 범위에서 뺀 항목이다. 코드와 다른 문서는 바꾸지 않는다.`
+- updated_at: `2026-10-21 13:13 UTC`
+- summary: `SOP §8(Fail-closed 완료 조건)에 DONE이 아닌 종결이 있다는 문단을 더한다. 수동 SOP 작업을 완료 조건 없이 끝낼 때 Owner 결정으로 Jarvis Console Close를 써서 CLOSED와 closed_reason을 남기며, CLOSED는 완료가 아니므로 Manager가 완료로 보고하지 않고, 되돌릴 수 없으며, Worker 파이프라인 task는 대상이 아니라는 내용이다. task-0180이 Owner 결정 2로 뺀 항목이며 코드와 다른 문서는 바꾸지 않는다.`
 - source_command: `Owner 지시: SOP §8 task 등록하고 진행 (Claude Code 세션)`
 
 ## 기준선
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `68c34b097c4286fa12e9cb1397cf048927af8963` (등록 시점 main HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 | 근거 | task-0180 Owner 결정 2(SOP §8 문장은 별도 task), `docs/task-model.md` §2·§13 |
 
 ## Owner 결정 (원문)
@@ -62,5 +62,10 @@ candidate 전 1회(읽기 전용 self-reviewer). minor 3건을 candidate 전에 
 
 | # | 출처 | 원문 인용 | Manager 해석과 충족 |
 | --- | --- | --- | --- |
-| A1 | Owner 결정 (원문) | "[Manager 제안]" / "SOP §8에 "DONE이 아닌 종결(CLOSED)도 있다"는 문장을 넣는 별도 task" | 제안은 "문장"이었지만 실제로는 SOP §8에 다섯 문장짜리 문단 하나를 더했다. 각 문장은 기존 기준을 가리킬 뿐이다: 대상이 `DOING`인 수동 작업이고 Owner 결정으로 닫는다는 것은 task-model 2절·5-1절, 경로가 Jarvis Console Close뿐이고 사유가 `closed_reason`이라는 것은 task-model 5-2절·13절, Manager가 완료로 보고하지 않는다는 것은 SOP §8 첫 문장("다음 조건을 모두 만족해야 Manager가 완료를 보고할 수 있다"), 되돌릴 수 없어 새 task를 만든다는 것은 task-model 2절·13절, Worker 파이프라인 task가 대상이 아니라는 것은 task-model 5-1절(대상은 수동 task뿐)이다. 새 규칙은 없다 |
+| A1 | Owner 결정 (원문) | "[Manager 제안]" / "SOP §8에 "DONE이 아닌 종결(CLOSED)도 있다"는 문장을 넣는 별도 task" | 제안은 "문장"이었지만 실제로는 SOP §8에 다섯 문장짜리 문단 하나를 더했다. 각 문장은 기존 기준을 가리킬 뿐이다: 대상이 `DOING`인 수동 작업이고 Owner 결정으로 닫는다는 것은 task-model 2절·5-1절, 경로가 Jarvis Console Close뿐이고 사유가 `closed_reason`이라는 것은 task-model 5-2절·13절(Close가 Preview + Confirm 흐름이라는 것은 `apps/jarvis-console/README.md` Close Task 절), Manager가 완료로 보고하지 않는다는 것은 SOP §8 첫 문장("다음 조건을 모두 만족해야 Manager가 완료를 보고할 수 있다"), 되돌릴 수 없어 새 task를 만든다는 것은 task-model 2절·13절, Worker 파이프라인 task가 대상이 아니라는 것은 task-model 5-1절(대상은 수동 task뿐)이다. 새 규칙은 없다 |
 | A2 | Owner 결정 (원문) | "[Owner 답]" / "SOP §8 task 등록하고 진행해" | task를 등록하고 Console로 Start했다. §8 밖과 다른 문서는 바꾸지 않았다 |
+
+## Repair
+
+- candidate `b7645198e268b37c1cd3bfc8402426bd9b1e4693`: Reviewer FINDINGS, minor 2건(유효, self_deviations 0). (1) SOP 문단의 Preview + Confirm에 A1의 출처가 없었다. (2) summary가 네 문장으로 task-model 6절의 1~3문장 기준을 넘었다.
+- repair 1(`repair_count=1`): A1에 Close의 Preview + Confirm 출처(`apps/jarvis-console/README.md` Close Task 절)를 더했고, summary를 세 문장으로 줄였다. SOP 문단은 바꾸지 않았다.
