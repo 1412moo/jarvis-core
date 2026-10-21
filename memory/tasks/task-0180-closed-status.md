@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 10:28 UTC`
-- updated_at: `2026-10-21 10:55 UTC`
+- updated_at: `2026-10-21 11:15 UTC`
 - summary: `task-0178 설계 C안대로 새 종결 상태 CLOSED와 closed_reason을 구현한다. DOING에서 CLOSED로 가는 전이 하나만 열고, 수동 task(source_command가 /task가 아닌 task)만 대상으로 하며, 사유는 completion_evidence와 같은 형식 규칙으로 상태와 함께 원자적으로 쓴다. 경로는 Console Close(Preview 뒤 CLOSE TASK Confirm)뿐이고 Discord 종료 명령은 두지 않는다. CLOSED는 되돌리지 않는다. 이 task는 어떤 기존 task도 닫지 않는다. task-0175·0031을 닫을지는 구현 뒤 Owner가 정한다.`
 - source_command: `Owner 지시: task-0180 등록하고 Start (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `4b7cb20ce3c60b35fe245ca567f1fe76ed6020e8` (등록 시점 main HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 | 설계 | `docs/task-0178-manual-task-close-design.md` §4 추천안 C, §5 영향 범위, §7 테스트 계획 |
 
 ## Owner 결정 (원문)
@@ -52,9 +52,26 @@ task-0180 등록하고 Start해
 1로 진행
 ```
 
+## Owner 결정 3: 짝 파일 범위 (원문)
+
+```text
+[Manager 질문]
+지적 내용 (major, 범위): 승인 원문 "바뀌는 파일은 다음과 같습니다" 아래에는 5개 파일만 적혀 있습니다. 그런데 candidate는 그 밖의 짝 파일 5개도 바꿨습니다.
+- apps/jarvis-console/web/app.js: Console 화면
+- apps/jarvis-console/run_smoke_tests.py: Console 테스트
+- apps/jarvis-console/README.md, adapters/discord/README.md
+- docs/status-report-contract.md
+1. (권장) 짝 파일 5개를 이번 범위로 승인합니다. 화면·테스트가 없으면 Console Close를 쓸 수 없고 검증도 할 수 없습니다. README와 계약 문서를 빼면 문서와 코드가 어긋납니다.
+2. 5개 중 일부만 승인합니다.
+3. 짝 파일 변경을 모두 빼고, 승인된 5개 파일과 결정 2의 4개 문서만 남깁니다.
+
+[Owner 답]
+1로 진행
+```
+
 ## 범위
 
-Manager 제안의 다섯 파일과, 그 다섯 곳을 바꾸면 함께 바꿔야 하는 그 파일들의 짝(같은 기능의 화면·테스트·안내 문서)이다.
+Manager 제안의 다섯 파일, Owner 결정 2의 상태 목록 문서 네 곳, Owner 결정 3의 짝 파일 다섯 개(Console 화면·smoke, 두 README, status-report 계약)다. 처음에는 짝 파일을 Owner에게 묻지 않고 이 절에 적어 넣었고, Reviewer가 승인 없는 범위 확대로 지적해(major) Owner 결정 3으로 승인받았다.
 
 | 구분 | 경로 |
 | --- | --- |
@@ -105,8 +122,15 @@ candidate 전 1회(읽기 전용 self-reviewer). minor 4건을 모두 candidate 
 | # | 출처 | 원문 인용 | Manager 해석과 충족 |
 | --- | --- | --- | --- |
 | A1 | Owner 결정 (원문) | "[Manager 제안]" / "다음: 2번 작업(CLOSED 상태 구현, task-0180)" / "task-0178 설계대로 하면 범위가 task 상태 기준 영역 전체에 걸칩니다. 바뀌는 파일은 다음과 같습니다." | task-0178 설계 C안(§4)을 구현했다. 설계와 다른 점: (1) 설계 §5가 든 SOP §8 문장은 Owner 결정 2로 별도 task로 넘겼다(A5). (2) 설계 §6·§7의 `/run`·`/retry` 거부 테스트는 두 명령이 task-0179에서 폐기돼 대상이 없어, 대신 `/go resume` 거부를 함께 고정했다. (3) 설계 §5의 validator 항목은 기존 전이 표 일치 검사가 새 쌍을 잡는 것을 확인하고, `closed_reason` 규칙 검사 대신 상태 어휘 일치 검사(`status_vocabulary_parity`)를 더했다. `closed_reason` 규칙은 writer와 Console 파서가 검사하고 Console smoke가 고정한다 |
-| A2 | Owner 결정 (원문) | "- orchestrator/discord-intake/task_file_writer.py: 상태와 전이 추가, closed_reason" / "- apps/jarvis-console/run_web_app.py: Console의 CLOSE TASK" / "- adapters/discord/bot_minimal.py: 보고 집계에 CLOSED 추가" / "- docs/task-model.md" / "- scripts/validate_multi_agent_sop.py" | 다섯 파일 모두 바꿨다. 각 파일의 짝(Console 화면·smoke, README, status-report 계약)도 범위 절의 설명대로 바꿨다. 어느 쪽도 다른 task 기록이나 Worker·감사 코드는 건드리지 않았다 |
+| A2 | Owner 결정 (원문) | "- orchestrator/discord-intake/task_file_writer.py: 상태와 전이 추가, closed_reason" / "- apps/jarvis-console/run_web_app.py: Console의 CLOSE TASK" / "- adapters/discord/bot_minimal.py: 보고 집계에 CLOSED 추가" / "- docs/task-model.md" / "- scripts/validate_multi_agent_sop.py" | 다섯 파일 모두 바꿨다. 다른 task 기록이나 Worker·감사 코드는 건드리지 않았다. 짝 파일은 이 승인이 아니라 Owner 결정 3(A7)이 근거다 |
 | A3 | Owner 결정 (원문) | "이 범위로 task-0180을 등록하고 Start해도 될지 승인해 주세요. 승인하시면 바로 시작합니다. task-0175와 task-0031을 실제로 닫는 일은 구현이 끝난 뒤 따로 결정을 받겠습니다." / "[Owner 답]" / "task-0180 등록하고 Start해" | 등록하고 Console로 Start했다. task-0175·0031을 포함해 어떤 task도 닫지 않았고, 닫을지는 구현 뒤 따로 묻는다 |
 | A4 | Owner 결정 2: 상태 목록 문서 범위 (원문) | "[Manager 질문]" / "결정할 것: 범위 밖에 남은 상태 목록 5곳" / "- memory/tasks/task-template.md: 새 task 양식의 status 허용값 줄" / "- memory/README.md: 상태 허용값 목록" / "- reports/README.md: 상태 정의. task-model §2가 "이 정의를 재사용한다"고 적고 있습니다." / "- reports/templates/task-report-template.md: 상태 목록" | 네 문서에 CLOSED만 더했다. `reports/README.md`는 정의 한 줄, `memory/tasks/task-template.md`·`memory/README.md`는 목록과 개수(7 → 8), `reports/templates/task-report-template.md`는 목록만이다. 다른 문장은 더하지 않았다 |
 | A5 | Owner 결정 2: 상태 목록 문서 범위 (원문) | "- SOP §8: DONE이 아닌 종결(CLOSED)도 있다는 한 문장. 설계 §5가 든 곳이고, 에이전트 행동 규칙 영역이라 무게가 다릅니다." / "1. (권장) 앞의 4곳은 상태 목록에 CLOSED 한 줄씩만 더하는 것이라 이번 범위에 넣습니다. SOP §8은 규칙 문서라 빼고 별도 task로 다룹니다." | SOP는 바꾸지 않았다. SOP §8 문장은 별도 task 후보로 남는다 |
 | A6 | Owner 결정 2: 상태 목록 문서 범위 (원문) | "2. 5곳 모두 이번 범위에 넣습니다." / "3. 모두 빼고, 어긋남을 기록한 뒤 별도 task로 고칩니다." / "[Owner 답]" / "1로 진행" | Owner가 2·3이 아닌 선택지 1을 골랐다 |
+| A7 | Owner 결정 3: 짝 파일 범위 (원문) | "[Manager 질문]" / "지적 내용 (major, 범위): 승인 원문 "바뀌는 파일은 다음과 같습니다" 아래에는 5개 파일만 적혀 있습니다. 그런데 candidate는 그 밖의 짝 파일 5개도 바꿨습니다." / "- apps/jarvis-console/web/app.js: Console 화면" / "- apps/jarvis-console/run_smoke_tests.py: Console 테스트" / "- apps/jarvis-console/README.md, adapters/discord/README.md" / "- docs/status-report-contract.md" | 짝 파일 다섯 개는 첫 candidate에서 Owner 승인 없이 바뀌었고, 이 결정으로 범위에 들어왔다. 변경 내용은 구현 절 그대로다 |
+| A8 | Owner 결정 3: 짝 파일 범위 (원문) | "1. (권장) 짝 파일 5개를 이번 범위로 승인합니다. 화면·테스트가 없으면 Console Close를 쓸 수 없고 검증도 할 수 없습니다. README와 계약 문서를 빼면 문서와 코드가 어긋납니다." / "2. 5개 중 일부만 승인합니다." / "3. 짝 파일 변경을 모두 빼고, 승인된 5개 파일과 결정 2의 4개 문서만 남깁니다." / "[Owner 답]" / "1로 진행" | Owner가 2·3이 아닌 선택지 1을 골랐다. 다섯 파일을 모두 유지했다 |
+
+## Repair
+
+- candidate `346f675471112bb626864a24f56bfe814065d460`: Reviewer FINDINGS, major 1건(짝 파일 다섯 개가 Owner 승인 원문 밖). 같은 검토는 baseline 커밋에 `git grep`을 쓴 것이 허용 형식 밖인데 self_deviations에 적지 않아 그 자체로도 유효하지 않다.
+- repair 1(`repair_count=1`): Owner 결정 3을 원문으로 기록하고 범위 절과 A2를 승인에 맞게 고치고 A7·A8을 더했다. Reviewer가 미검증으로 남긴 실행 결과 writer의 Close 쌍 거부를 `_test_task_close`에 검사로 더했다. 다른 코드는 바꾸지 않았다.

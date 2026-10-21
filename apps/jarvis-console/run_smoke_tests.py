@@ -2514,6 +2514,20 @@ def _test_task_close() -> None:
             planned_updated_at=planned,
         ).reason == "close_requires_manual_task"
         assert worker_path.read_bytes() == worker_before
+        # The execution-result writer refuses the close pair too.
+        exec_path, exec_before = write_task("task-8622-exec-close", "DOING")
+        import task_file_writer
+
+        assert task_file_writer.record_task_execution_result(
+            tasks_dir=tasks_dir,
+            task_id="task-8622-exec-close",
+            expected_digest=digest(exec_before),
+            execution_fields={},
+            current_status="DOING",
+            target_status="CLOSED",
+            planned_updated_at=planned,
+        ).reason == "close_transition_requires_close_writer"
+        assert exec_path.read_bytes() == exec_before
         bad_path, bad_before = write_task("task-8621-bad-reason", "DOING")
         for bad_reason in ("", " padded ", "a`b", "two\nlines", "x" * 501, None):
             assert close_task_file(
