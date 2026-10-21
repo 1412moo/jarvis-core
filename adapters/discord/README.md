@@ -99,7 +99,7 @@ python3 adapters/discord/bot_minimal.py
 ### `/work <요청>` 과 `/go <task-id>` (Jarvis v0.2, task-0142)
 Owner 전용. Studyroom 콘텐츠 수정 1종만 지원한다.
 1. `/work <요청>`: 요청에 `studyroom`(또는 `스터디룸`)이 없으면 hold. 있으면 기존 `/task` 경로로 TODO task를 만들고 계획(수정 허용 경로 `apps/studyroom/content/`, 테스트, 승인 명령)을 답한다. 아무것도 실행하지 않는다.
-2. `/go <task-id>`: Owner 승인. `TODO -> DOING`(FAILED면 `FAILED -> TODO -> DOING` 재시도)과 감사 기록 후 즉시 "시작" 응답. 동시에 한 작업만 실행한다.
+2. `/go <task-id>`: Owner 승인. `TODO -> DOING`(FAILED면 `FAILED -> TODO -> DOING` 재시도)과 감사 기록 후 즉시 "시작" 응답. 동시에 한 작업만 실행한다. `/work`로 만든 task(`source_command`가 `/task`)만 시작하고, 수동 task는 잠금이나 기록 변경 없이 `go_requires_worker_path`로 거부한다(task-0182).
 3. 백그라운드에서 `orchestrator/worker/claude_worker.py`가 실행된다: 저장소 밖 worktree(`C:\work\jarvis-core-worktrees\<task-id>`, `JARVIS_WORKTREE_ROOT`로 변경 가능) → Claude Code Worker(`claude -p`, Bash 없음, 파일 편집만) → 허용 경로 검사 → Studyroom smoke → candidate commit → Reviewer(`claude -p --agent reviewer`, git 읽기 명령만 허용) → 결정론적 QA → main이 baseline 그대로일 때만 ff-only 반영 → task `DONE` 기록 → checkpoint commit.
 4. 끝나면 같은 채널에 결과를 보고한다. 실패·timeout·범위 위반이면 task를 `FAILED`로 기록하고 단계, 사유, 선택지(`/go` 재시도, `/status`, 보존된 worktree·브랜치)를 보고한다.
 5. push, 외부 API, credential, `jarvis.bat` 접근은 하지 않는다. 검증: `python -B orchestrator/worker/run_smoke_tests.py`(가짜 claude 사용).

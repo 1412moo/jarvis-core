@@ -1878,6 +1878,9 @@ def _run_go(command_text: str) -> dict[str, Any]:
     if len(parts) == 3 and parts[2] == "accept":
         if status != "FAILED":
             return _error_payload(f"accept_requires_failed:{status or 'unknown'}")
+        # task-0182: the same Worker-path rule as a plain /go, before the record is read.
+        if _task_source_command(task_file) != "/task":
+            return _error_payload("go_requires_worker_path")
         if _owner_review_record(task_file) is None:
             return _error_payload("accept_record_invalid")
         if not _acquire_worker_locks():
@@ -1919,6 +1922,11 @@ def _run_go(command_text: str) -> dict[str, Any]:
         return _error_payload(f"status_not_startable:{status or 'unknown'}")
     if resume and status != "FAILED":
         return _error_payload(f"resume_requires_failed:{status}")
+    # task-0182: only a task /work made (source_command /task) runs as a Worker job. A manual
+    # SOP task never does, so it stays out of the Worker pipeline and Close (task-0180) never
+    # meets one mid-run. Nothing is locked or written before this refusal.
+    if _task_source_command(task_file) != "/task":
+        return _error_payload("go_requires_worker_path")
     if not _acquire_worker_locks():
         return _error_payload("worker_busy")
     try:
@@ -2714,6 +2722,13 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             "- reason: `doing_without_execution_record`"
         )
     reason = str(pipeline_result.get("reason") or "")
+    if reason == "go_requires_worker_path":
+        # task-0182: a manual task is not run by the Worker; nothing was changed.
+        return (
+            "⛔ `/go`는 `/work`로 만든 task만 시작합니다. 이 task는 수동 task라 아무것도 실행하거나 바꾸지 않았습니다.\n"
+            "- 수동 task의 상태 변경은 Jarvis Console을 씁니다.\n"
+            "- reason: `go_requires_worker_path`"
+        )
     if reason == "stalled_doing":
         # task-0167: a Worker-path DOING task with no Worker running, whatever an earlier attempt recorded.
         task_id = pipeline_result.get("task_id")
@@ -4146,19 +4161,30 @@ def _run_self_check_suite() -> dict[str, Any]:
             globals()["REPO_ROOT"] = fixture_root
             claude_worker.WORKTREE_ROOT = Path(tmp) / "worktrees"
 
-            def fixture(task_id: str, status: str) -> Path:
+            def fixture(task_id: str, status: str, source: str = "") -> Path:
                 path = fixture_root / "memory" / "tasks" / f"{task_id}.md"
                 path.write_text(
                     f"# {task_id}\n\n- id: `{task_id}`\n- title: `Studyroom fixture`\n- status: `{status}`\n"
                     "- repo: `jarvis-core`\n- created_at: `2026-10-17 10:00 UTC`\n"
-                    "- updated_at: `2026-10-17 10:00 UTC`\n- summary: `fixture`\n",
+                    "- updated_at: `2026-10-17 10:00 UTC`\n- summary: `fixture`\n"
+                    + (f"- source_command: `{source}`\n" if source else ""),
                     encoding="utf-8",
                 )
                 return path
 
             stalled = fixture("task-9164-stalled-doing", "DOING")
-            ready = fixture("task-9165-ready-todo", "TODO")
-            before = {path: path.read_bytes() for path in (stalled, ready)}
+            # task-0182: /go starts only a Worker-path task, so the ready task is one /work made.
+            ready = fixture("task-9165-ready-todo", "TODO", "/task")
+            manual_todo = fixture("task-9166-manual-todo", "TODO", "Owner decision")
+            manual_failed = fixture("task-9167-manual-failed", "FAILED")
+            before = {path: path.read_bytes() for path in (stalled, ready, manual_todo, manual_failed)}
+            go_checks["manual"] = [
+                _run_go("/go task-9166-manual-todo").get("reason"),
+                _run_go("/go task-9167-manual-failed").get("reason"),
+                _run_go("/go task-9167-manual-failed resume").get("reason"),
+                _run_go("/go task-9167-manual-failed accept").get("reason"),
+            ]
+            go_checks["manual_lock_left"] = _WORKER_LOCK.locked() or claude_worker.process_lock_held()
             go_checks["stalled_free"] = _run_go("/go task-9164-stalled-doing").get("reason")
             lock_handle = claude_worker.acquire_process_lock()
             go_checks["held_by_other"] = lock_handle is not None
@@ -4187,6 +4213,15 @@ def _run_self_check_suite() -> dict[str, Any]:
         and go_checks.get("free_after_release") is True
         and go_checks.get("lock_outside_fixture_repo") is True
         and go_checks.get("files_unchanged") is True,
+        f"checks={go_checks}",
+    )
+    _record(
+        "go_refuses_manual_task_before_any_lock_or_write",
+        "error" not in go_checks
+        and go_checks.get("manual") == ["go_requires_worker_path"] * 4
+        and go_checks.get("manual_lock_left") is False
+        and go_checks.get("files_unchanged") is True
+        and "`/work`로 만든 task만" in _format_reply(_error_payload("go_requires_worker_path")),
         f"checks={go_checks}",
     )
     _record(

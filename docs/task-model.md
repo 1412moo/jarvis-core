@@ -95,8 +95,8 @@ writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수
 | --- | --- |
 | Jarvis Console Start | `TODO` → `DOING` |
 | Jarvis Console Complete | `DOING` → `DONE` |
-| Discord `/go` (TODO task) | `TODO` → `DOING` |
-| Discord `/go` 재시도·resume (FAILED task. `/retry`는 task-0179에서 폐기) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
+| Discord `/go` (`/work`로 만든 TODO task, task-0182) | `TODO` → `DOING` |
+| Discord `/go` 재시도·resume (`/work`로 만든 FAILED task, task-0182. `/retry`는 task-0179에서 폐기) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
 | Discord `/go <id> accept` (`qa_unverified_owner_review` 기록이 있는 FAILED task, QA 재실행 통과 뒤에만) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
 | Discord `/approve` 승인 / 거절 | `NEEDS_APPROVAL` → `DOING` / `NEEDS_APPROVAL` → `FAILED` |
 | 실행 결과 기록 `_apply_execution_result` (`/approve`·`/go` 실행 뒤. `/run`·`/retry`는 task-0179에서 폐기) | 성공 `DOING` → `DONE`, 실패 `DOING` → `FAILED` |
