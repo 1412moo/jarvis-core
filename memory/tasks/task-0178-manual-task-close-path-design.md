@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 05:31 UTC`
-- updated_at: `2026-10-21 05:43 UTC`
+- updated_at: `2026-10-21 06:20 UTC`
 - summary: `Claude Code 세션 등에서 Owner 결정으로 만든 수동 SOP task를 공식으로 종료하는 경로를 설계한다. 지금은 DOING인 수동 task를 닫을 방법이 없어 task-0175·task-0031이 DOING으로 남아 있고, FAILED로 바꾸면 Discord /go가 그 task를 Worker로 실행할 수 있다. 이 task는 설계 문서까지만 만들고 코드·SOP·상태는 바꾸지 않는다. 구현은 설계 승인 뒤 별도 task로 한다.`
 - source_command: `Owner 지시: 수동 task 종료 경로 설계 task 등록 (Claude Code 세션)`
 
@@ -15,7 +15,7 @@
 | --- | --- |
 | baseline | `5ccbd92b2c16abe1dc478c43b722ee66825e8432` (등록 시점 main HEAD = origin/main). Start 때 다시 확인한다 |
 | 등록 방식 | 이 기록을 `TODO`로 작업 트리에만 만들었다(커밋·stage 없음). Start 승인 뒤 candidate에 포함한다 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값. Reviewer 지적 1건을 repair 1로 고쳤다, "Repair 1") |
+| budget | `retry_budget=2`, `retry_count=1`, `repair_budget=2`, `repair_count=2` (SOP §5 기본값 1에서 Owner가 이 task에 한해 둘 다 2로 증액. retry 1은 Reviewer 1 재검토, repair 1·2는 아래 "Repair 1"·"Repair 2") |
 
 ## Owner 결정 (원문)
 
@@ -99,6 +99,10 @@ Console Start Preview(TODO → DOING, `no_execution: true`)를 확인하고 `STA
 | B2 | Owner 결정: G1~G3와 Start (원문) | "G2: 수동 task의 /run·/retry 키워드 선택 문제를 이 설계에 포함한다." | G2: 설계 문서 2절(현재 위험)과 6절(`/run`·`/retry` 수동 task 차단 제안)에 포함했다 |
 | B3 | Owner 결정: G1~G3와 Start (원문) | "G3: Console Preview/Confirm(Start·Evidence·Complete)은 Manager가 진행하고 보고한다." | G3: Console Start는 Manager가 Preview 확인 뒤 Confirm했고, Evidence·Complete도 Manager가 진행하고 보고한다 |
 | B4 | Owner 결정: G1~G3와 Start (원문) | "[Owner 답]" / "권고대로 승인, Start" | Owner 답으로 권고 G1~G3을 승인하고 Start를 지시했다 |
+| C1 | Owner 결정: Repair 2 (원문) | "repair와 retry 예산을 각각 1회 추가한다." / "retry_count=1로 수정하고 새 candidate를 만든다." | repair·retry 예산을 각 1회 늘려 2로 하고, budget 행을 `retry_count=1`로 고친 새 candidate를 만들었다("Repair 2") |
+| C2 | Owner 결정: Repair 2 (원문) | "Reviewer가 PASS하면 QA와 Evidence·Complete까지 진행한다." | 새 candidate에서 Reviewer PASS면 QA, Evidence, Complete까지 Manager가 진행한다 |
+| C3 | Owner 결정: Repair 2 (원문) | "새 candidate에서도 Reviewer가 형식 이탈을 하면 추가 retry 1회만 사용한다." / "유효한 지적이 다시 나오면 무조건 고치지 말고, 그 지적을 보고한 뒤 Owner가 결정한다." | 새 candidate의 Reviewer가 형식 이탈이면 retry 1회만 쓰고, 유효한 지적이면 고치지 않고 보고해 Owner가 정한다 |
+| C4 | Owner 결정: Repair 2 (원문) | "push는 하지 않는다." | push하지 않는다 |
 
 ## 사전 점검과 Self-review
 
@@ -117,3 +121,30 @@ Console Start Preview(TODO → DOING, `no_execution: true`)를 확인하고 `STA
 - 설계 문서 6절의 "3절의 판정"을 "4절 3항의 판정"으로 고쳤다. 다른 내용은 바꾸지 않았다.
 - 기준선 budget 행을 `repair_count=1`로 고쳤다(예산 1/1 소진). 새 candidate에서 유효한 지적이 나오면 고치지 않고 Owner에게 보고한다.
 - updated_at은 이 repair 편집 시각 2026-10-21 05:43 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
+
+## Candidate 2와 Reviewer 2
+
+- candidate `e92d91f7a3627fc516e2bf09c8c3cf424efb27a8`(parent `9cf22bf`).
+- Reviewer 2: 허용되지 않은 grep 형식(정규식 alternation, `-c`) `self_deviations` 2건으로 무효. 그 보고는 기준선 budget 행이 `retry_count=0`으로 남아 Reviewer 1 재검토(retry 1회)와 어긋난다고 적었다(사실). retry·repair 예산이 소진돼 Owner에게 보고했다.
+
+## Owner 결정: Repair 2 (원문)
+
+```text
+repair와 retry 예산을 각각 1회 추가한다.
+
+retry_count=1로 수정하고 새 candidate를 만든다.
+
+Reviewer가 PASS하면 QA와 Evidence·Complete까지 진행한다.
+
+새 candidate에서도 Reviewer가 형식 이탈을 하면 추가 retry 1회만 사용한다.
+
+유효한 지적이 다시 나오면 무조건 고치지 말고, 그 지적을 보고한 뒤 Owner가 결정한다.
+
+push는 하지 않는다.
+```
+
+## Repair 2
+
+- 기준선 budget 행을 `retry_count=1`로 고치고, 이 결정에 따라 `retry_budget=2`, `repair_budget=2`, `repair_count=2`로 적었다. 설계 문서는 바꾸지 않았다.
+- 새 candidate에서 Reviewer가 형식 이탈을 하면 retry 1회만 쓰고, 유효한 지적이 나오면 고치지 않고 Owner에게 보고한다.
+- updated_at은 이 repair 편집 시각 2026-10-21 06:20 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
