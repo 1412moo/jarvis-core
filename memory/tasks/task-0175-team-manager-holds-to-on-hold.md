@@ -2,10 +2,11 @@
 
 - id: `task-0175-team-manager-holds-to-on-hold`
 - title: `보류 중인 Team Manager task 5건의 ON_HOLD 전환 (패키지 B)`
-- status: `DOING`
+- status: `CLOSED`
+- closed_reason: `Owner 위임 종료(2026-10-21): Reviewer 4 FINDINGS 뒤 Owner 결정 C로 중단됐고, 같은 변경(86a5d98)은 task-0176이 다시 검토해 다섯 task의 ON_HOLD 전환과 Complete까지 마쳤다(task-0176 DONE). 이 task는 완료 조건(같은 candidate의 Reviewer·QA PASS)을 채우지 않은 채 대체되어 종료한다.`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 15:05 UTC`
-- updated_at: `2026-10-21 05:13 UTC`
+- updated_at: `2026-10-21 13:06 UTC`
 - summary: `task-0156에서 Owner가 보류한 Team Manager task 중 NEEDS_APPROVAL 5건(0030, 0032, 0033, 0034, 0036)의 summary에 보류 주체·근거·사유·재개 조건을 승인된 문구로 기록했고(task-model §9, 0033·0036은 축약하고 원문을 본문에 보존), Reviewer·QA 뒤 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. DOING인 task-0031은 그대로 둔다. Reviewer 지적(인용 불일치, 요약 머리말 출처 안내, push 금지 인용 누락, 시각 서술)을 repair 1~3으로 고쳤고 검토·Hold 결과는 본문에 기록한다.`
 - source_command: `Owner 결정: 패키지 B A안, task-0175 등록과 계획 (Claude Code 세션)`
 
