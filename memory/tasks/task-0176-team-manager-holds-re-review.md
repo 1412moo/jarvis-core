@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 17:40 UTC`
-- updated_at: `2026-10-20 17:56 UTC`
+- updated_at: `2026-10-21 04:43 UTC`
 - summary: `task-0175가 Reviewer 4 FINDINGS 뒤 Owner 결정 C로 중단되어, 로컬 커밋 86a5d98에 있는 Team Manager task 5건(0030, 0032, 0033, 0034, 0036)의 summary 변경(보류 주체·근거·사유·재개 조건 기록)을 이 task에서 다시 검토한다. 같은 candidate에서 유효한 Reviewer PASS와 QA PASS를 받고 Owner가 별도로 승인한 뒤에만 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. 다섯 기록은 이 task에서 고치지 않는다. task-0031·0035·0156과 task-0175 기록은 범위 밖이다.`
 - source_command: `Owner 결정: 다섯 Team Manager task Hold 재추진, 등록과 계획 (Claude Code 세션)`
 
@@ -245,6 +245,10 @@ Console Start Preview(`task-0176-team-manager-holds-re-review`, TODO → DOING, 
 | C4 | Owner 결정: Start 승인 (원문) | "별도 승인이 필요한 작업" / "Reviewer와 QA가 모두 PASS하더라도, 다섯 건의 Hold를 실행하기 전에 결과와 각 Console Preview를 보고하고 Owner의 별도 승인을 받으세요." / "다섯 건의 Hold 후 검증 결과를 보고하세요." / "Evidence 작성과 최종 Complete를 진행하기 전에 결과를 보고하고 Owner의 별도 승인을 받으세요." / "Push는 하지 마세요." / "Push는 별도 Owner 승인 사항입니다." | Reviewer·QA가 PASS해도 Hold 전에 결과와 각 Console Preview를 보고하고 별도 승인을 받는다. Hold 뒤 검증 결과를 보고하고, Evidence와 Complete 전에도 별도 승인을 받는다. push하지 않는다 |
 | C5 | Owner 결정: Start 승인 (원문) | "`jarvis.bat`을 열거나 수정·stage하지 마세요." / "task-0031, task-0035, task-0156, task-0175 기록은 수정하지 마세요." / "보호 worktree와 계획 밖 파일을 건드리지 마세요." / "reset, revert, cherry-pick, push를 하지 마세요." / "계획에 없는 수정이나 추가 상태 전이가 필요해지면 실행하지 말고 먼저 보고하세요." | `jarvis.bat`을 열지 않고, 0031·0035·0156·0175 기록과 보호 worktree·계획 밖 파일을 건드리지 않으며 reset·revert·cherry-pick·push를 하지 않는다. 계획에 없는 수정이나 상태 전이가 필요하면 실행 전에 보고한다 |
 | C6 | Owner 결정: Start 승인 (원문) | "각 단계의 실제 결과와 검증 근거를 보고하세요." / "PASS를 추정하거나 성공을 미리 선언하지 마세요." / "위 승인 범위 안에서만 진행하고, 다섯 건의 Hold 또는 최종 Complete가 필요한 지점에서는 반드시 멈춰 Owner 승인을 기다리세요." | 단계마다 실제 결과와 근거를 보고하고 PASS를 추정하지 않는다. Hold와 Complete 지점에서 멈춰 Owner 승인을 기다린다 |
+| R1 | Owner 결정: 재개 (원문) | "[Manager 제안 승인 문안]" / "task-0176 재개 승인." / "Reviewer와 사전 점검의 baseline은 25f9deb로 한다." / "새 candidate는 task-0176 기록에 이 승인과 재개 경위만 더하고 다섯 task 기록은 바꾸지 않는다." | Owner 답(R4)으로 승인된 제안 문안이다. Reviewer와 사전 점검의 baseline은 `25f9deb`이고, 새 candidate는 이 기록에 "재개" 절과 이 결정만 더한다. 다섯 task 기록은 바꾸지 않는다 |
+| R2 | Owner 결정: 재개 (원문) | "참조 커밋:" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0030-codex-chatgpt-team-manager-discord.md" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0032-chatgpt-team-manager-integration-research.md" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0033-local-llm-team-manager.md" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0034-local-team-manager-approval-boundary.md" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0036-cloud-llm-candidates.md" / "b86394d9450fb6cf0add6445a9ff0fe149b734ea -- memory/tasks/task-0176-team-manager-holds-re-review.md" | Reviewer 호출의 `=== REFERENCE COMMITS ===` 블록에 이 여섯 줄을 그대로 넣는다. 다섯 기록은 `7cf5c85`부터, 이 기록은 `b86394d`부터의 실제 diff를 검토받는다(E2) |
+| R3 | Owner 결정: 재개 (원문) | "Reviewer와 QA가 같은 candidate에서 PASS하면 다섯 건을 Console로 Hold하고 검증·Evidence·Complete까지 진행한다." / "지적이나 실패가 나오면 고치지 말고 보고한다." / "push는 하지 않는다." | 같은 candidate에서 Reviewer와 QA가 PASS하면 다섯 건의 Console Hold, Hold 뒤 검증, Evidence, Complete까지 Manager가 진행한다(Start 승인의 별도 승인 지점과 E4의 Owner 직접 수행은 이 결정으로 바뀌었다). 지적이나 실패가 나오면 고치지 않고 보고하며 push하지 않는다 |
+| R4 | Owner 결정: 재개 (원문) | "[Owner 답]" / "기록을 최소로 줄이기" / "끝까지 진행해" | Owner가 직접 쓴 말은 이 두 줄이다. 기록은 "재개" 절과 이 결정, 이 R행만 더하는 최소 범위로 하고, 위 제안 문안대로 끝까지 진행한다 |
 
 ## 사전 점검과 Self-review
 
@@ -257,3 +261,25 @@ Console Start Preview(`task-0176-team-manager-holds-re-review`, TODO → DOING, 
   5. minor, "보존 worktree"와 Owner의 "보호 worktree" 용어 차이 → 이 기록의 세 곳을 "보호 worktree"로 맞췄다.
   6. minor, 별도 설계 task 제안 보고가 계획에 없음 → 실행 계획 5단계와 A5 해석에 넣었다.
 - 인용 문장과 승인된 범위는 바꾸지 않았다. updated_at은 이 편집 시각 2026-10-20 17:56 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음). 수정 뒤 사전 점검 2회차: PASS, violations 0, staged 1, 인용 검사 82문장 모두 인용.
+
+## 재개 (task-0177 뒤)
+
+candidate `2f9dcc3`은 Reviewer가 이미 커밋된 다섯 기록 변경의 실제 diff를 볼 공식 방법이 없어 검토 전에 멈췄다. task-0177이 Reviewer 참조 커밋(`=== REFERENCE COMMITS ===`)을 더해 DONE이 됐고(`9e7817a`), HEAD는 `25f9debd0a382232f85b0ca1633fe8020830fbad`다. 아래 결정으로 Reviewer와 사전 점검의 baseline을 `25f9deb`로 쓰고 참조 줄로 다섯 기록과 이 기록의 실제 diff를 검토받는다. 위 절들은 바꾸지 않았다. Owner가 직접 쓴 말은 "Owner 답"의 두 줄이고, 참조 줄은 Owner가 그 답으로 승인한 Manager 제안 문안에 있다(SOP §3 질문·답 기록).
+
+## Owner 결정: 재개 (원문)
+
+```text
+[Manager 제안 승인 문안]
+task-0176 재개 승인. Reviewer와 사전 점검의 baseline은 25f9deb로 한다. 새 candidate는 task-0176 기록에 이 승인과 재개 경위만 더하고 다섯 task 기록은 바꾸지 않는다. 참조 커밋:
+7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0030-codex-chatgpt-team-manager-discord.md
+7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0032-chatgpt-team-manager-integration-research.md
+7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0033-local-llm-team-manager.md
+7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0034-local-team-manager-approval-boundary.md
+7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0036-cloud-llm-candidates.md
+b86394d9450fb6cf0add6445a9ff0fe149b734ea -- memory/tasks/task-0176-team-manager-holds-re-review.md
+Reviewer와 QA가 같은 candidate에서 PASS하면 다섯 건을 Console로 Hold하고 검증·Evidence·Complete까지 진행한다. 지적이나 실패가 나오면 고치지 말고 보고한다. push는 하지 않는다.
+
+[Owner 답]
+기록을 최소로 줄이기
+끝까지 진행해
+```
