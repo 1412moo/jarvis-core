@@ -2,11 +2,12 @@
 
 - id: `task-0182-go-worker-path-only`
 - title: `Discord /go를 Worker 경로 task로 한정`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 14:37 UTC`
-- updated_at: `2026-10-21 14:51 UTC`
+- updated_at: `2026-10-21 15:10 UTC`
 - summary: `Discord /go가 /work로 만든 Worker 경로 task(source_command가 /task)만 시작하게 해, 수동 task가 Worker로 실행되는 길을 막는다. 지금은 /go가 source_command를 보지 않아 수동 TODO·FAILED task도 Worker로 실행되고, 그 task는 실행 중에도 Console Close가 받아들여 SOP §8 문단과 어긋난다. 상태별 기존 거부·안내, accept·recover, Close 코드는 바꾸지 않는다.`
+- completion_evidence: `candidate 30e55d755ce9a23c1c1c216c1a6d645c2c7e8a49 (baseline b329f8a). Reviewer PASS, findings 0, self_deviations 0. QA PASS 27/27 in fresh worktrees: 4 scope files; manual TODO, FAILED, resume and accept now refused with go_requires_worker_path and no lock or write; recover, DOING, DONE and resume-on-TODO answers same as baseline; self-check 108 to 109; Worker smoke 494/0 so Worker-path /go still runs; Console, NL smoke, validator, check_task_record PASS. No push.`
 - source_command: `Owner 지시: /go와 Close 틈 후속 task 진행 (Claude Code 세션)`
 
 ## 기준선
