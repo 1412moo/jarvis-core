@@ -77,7 +77,7 @@ task-0175는 키워드에 해당하지 않는다.
 ## 6. `/run`·`/retry` 키워드 선택 문제 (G2)
 
 C는 "닫힌 task"의 재실행만 막는다. 2절의 위험은 **아직 DOING인** 수동 task(task-0031 등)에도 있다.
-제안: `/run`·`/retry`가 수동 task(3절의 판정)를 `manual_task_not_runnable`로 거부한다.
+제안: `/run`·`/retry`가 수동 task(4절 3항의 판정)를 `manual_task_not_runnable`로 거부한다.
 
 - 확인이 필요한 점: `/run`·`/retry`가 정당하게 다루는 task가 실제로 어떤 `source_command`를 갖는지.
   등록 시점 기록에서 `source_command`가 `/task`인 task는 7건(모두 DONE)이고, `/retry`는 그 값을 이미

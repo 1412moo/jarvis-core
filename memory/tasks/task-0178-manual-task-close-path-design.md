@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 05:31 UTC`
-- updated_at: `2026-10-21 05:37 UTC`
+- updated_at: `2026-10-21 05:43 UTC`
 - summary: `Claude Code 세션 등에서 Owner 결정으로 만든 수동 SOP task를 공식으로 종료하는 경로를 설계한다. 지금은 DOING인 수동 task를 닫을 방법이 없어 task-0175·task-0031이 DOING으로 남아 있고, FAILED로 바꾸면 Discord /go가 그 task를 Worker로 실행할 수 있다. 이 task는 설계 문서까지만 만들고 코드·SOP·상태는 바꾸지 않는다. 구현은 설계 승인 뒤 별도 task로 한다.`
 - source_command: `Owner 지시: 수동 task 종료 경로 설계 task 등록 (Claude Code 세션)`
 
@@ -15,7 +15,7 @@
 | --- | --- |
 | baseline | `5ccbd92b2c16abe1dc478c43b722ee66825e8432` (등록 시점 main HEAD = origin/main). Start 때 다시 확인한다 |
 | 등록 방식 | 이 기록을 `TODO`로 작업 트리에만 만들었다(커밋·stage 없음). Start 승인 뒤 candidate에 포함한다 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값. Reviewer 지적 1건을 repair 1로 고쳤다, "Repair 1") |
 
 ## Owner 결정 (원문)
 
@@ -105,3 +105,15 @@ Console Start Preview(TODO → DOING, `no_execution: true`)를 확인하고 `STA
 - 사전 점검 1회차(`check_task_record.py --baseline 5ccbd92`): PASS, violations 0, staged 2, 인용 누락 0.
 - self-review 1회: 지적 3건(minor). candidate 전이라 repair가 아니다. 처리: (1) `source_command` 없는 기록 수의 기준을 "baseline `5ccbd92`에서 추적되는 129건 중 task-0001~0003의 3건"으로 밝혔다(다시 세어 3건 확인). (2) 5절에 `/go`·`accept`·`recover`·`/retry`·`/run`이 `CLOSED`에 돌려줄 현재 거부 사유 문자열을 적었다. (3) 5절에 task-model §11은 바뀌지 않는 이유를 적었다.
 - updated_at은 이 편집 시각 2026-10-21 05:37 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
+
+## Candidate 1과 Reviewer 1
+
+- candidate `9cf22bf607445dec2bc3fd82923bb29447359f45`(parent `5ccbd92`).
+- Reviewer 1 첫 검토: 허용 명령에 `git -C`를 붙인 `self_deviations` 1건으로 무효. SOP §5에 따라 같은 candidate를 1회 재검토했다(`retry_count=1`).
+- 재검토: FINDINGS minor 1, `self_deviations` 없음. 설계 문서 6절의 "수동 task(3절의 판정)"이 실제 판정이 있는 4절 3항이 아니라 대안 비교 표(3절)를 가리킨다는 지적이다. 사실이다.
+
+## Repair 1
+
+- 설계 문서 6절의 "3절의 판정"을 "4절 3항의 판정"으로 고쳤다. 다른 내용은 바꾸지 않았다.
+- 기준선 budget 행을 `repair_count=1`로 고쳤다(예산 1/1 소진). 새 candidate에서 유효한 지적이 나오면 고치지 않고 Owner에게 보고한다.
+- updated_at은 이 repair 편집 시각 2026-10-21 05:43 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
