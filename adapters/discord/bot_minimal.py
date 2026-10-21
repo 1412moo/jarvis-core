@@ -321,7 +321,7 @@ def _run_notification_publisher(payload: dict[str, Any]) -> dict[str, Any]:
     argument list (no shell), explicit utf-8, bounded timeout, check=False,
     and every exception mapped to a structured result. This is deliberately
     NOT routed through EXECUTION_SCRIPT_WHITELIST - notification is not task
-    execution, and must not become reachable from /run or /retry.
+    execution, and must not become reachable from the execution flow.
     """
 
     try:

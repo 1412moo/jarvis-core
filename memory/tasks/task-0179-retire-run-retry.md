@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `61bea07fb1a3bd0980e0ee6fa46c437bdc5c83d1` (등록 시점 main HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=1`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -74,6 +74,11 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 
 - Discord self-check suite: ok, checks 104(이전 116에서 16개를 빼고 옮긴 검사 2개와 폐기 검사 2개를 더함, 모두 통과).
 - Worker smoke: total=494 failed=0(`/retry` 폐기 검사 2개 포함). discord-nl-intent smoke: 35건 모두 통과. Console smoke 통과. SOP validator PASS. `git diff --check` 통과.
+
+## Repair
+
+- candidate `41dbb16ec27e8900748f118660b5627191ebbbc2`: 첫 Reviewer 호출은 Manager가 승인 원문 표시 줄을 빠뜨려 BLOCKED였다(source 변경 없는 retry 1회, `retry_count=1`). 재호출 Reviewer는 minor 2건을 냈고 자기 형식 이탈이 있어 검토 자체는 무효다.
+- repair 1(`repair_count=1`): 두 지적을 고쳤다. `_run_notification_publisher` docstring의 낡은 `/run`·`/retry` 언급을 실행 흐름으로 바꿨고, README의 선필터 안내 인용을 코드 응답(`/work`·`/go` 포함)과 같게 맞췄다.
 
 ## Manager 요약
 

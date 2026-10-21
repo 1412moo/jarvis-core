@@ -109,7 +109,7 @@ Owner 전용. Studyroom 콘텐츠 수정 1종만 지원한다.
 
 ### Discord 일반 메시지 선필터의 현재 거절 안내 문구
 - 코드의 일반 메시지 선필터 응답은 현재 아래 목록을 안내한다.
-- ``이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`만 지원합니다.``
+- ``이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`, `/work <요청>`, `/go <task-id>`만 지원합니다.``
 - 참고: `_run_command()` 라우팅은 `/run`·`/retry`를 폐기 안내(`command_retired`)로 보낸다(task-0179).
 
 ### 안전 규칙
