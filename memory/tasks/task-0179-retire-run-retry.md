@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 07:07 UTC`
-- updated_at: `2026-10-21 07:22 UTC`
+- updated_at: `2026-10-21 09:43 UTC`
 - summary: `Discord /run과 /retry를 폐기한다. 두 명령은 키워드로 고른 task에 허용 목록의 smoke 테스트를 실행하고 DONE/FAILED를 Owner 검토 없이 기록할 수 있었고(task-0178 설계 2절, task-0031 해당), 수동 task를 막으면 정당한 대상이 남지 않는다. 이제 두 명령은 아무것도 실행하거나 바꾸지 않고 /approve·/go·Console을 쓰라는 안내만 돌려준다. 실행 흐름은 /approve가 계속 쓴다. task-0167의 수동 task /retry 유지 결정을 Owner가 뒤집었다.`
 - source_command: `Owner 결정: /run·/retry 폐기 A안 (Claude Code 세션)`
 
