@@ -2,11 +2,12 @@
 
 - id: `task-0177-reviewer-reference-commits`
 - title: `Reviewer 파일별 참조 커밋(reference commit) 지원`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 18:08 UTC`
-- updated_at: `2026-10-20 18:55 UTC`
+- updated_at: `2026-10-21 03:51 UTC`
 - summary: `Reviewer 정의에 파일별 참조 커밋(reference commit)을 더해, Manager가 지정하고 Owner 승인 원문에 적힌 scope 파일에 한해 Reviewer가 참조 커밋에서 candidate까지의 실제 diff를 독립적으로 읽을 수 있게 한다. candidate 변경 범위 판정과 검토 대상은 기존 baseline 규칙 그대로이고, 참조 diff는 그 파일의 검토 근거로만 쓰며 다른 변경을 승인하지 않는다. reviewer.md·reviewer.toml·validator·SOP·jarvis-reviewer-call Skill이 범위다. task-0176의 E2를 충족하려는 선행 작업이며 Worker 파이프라인은 바꾸지 않는다.`
+- completion_evidence: `candidate 80cb647ad739f5505d4cd31161006aa74a3b2e81: Reviewer 4 retry PASS (findings 0, self_deviations 0; first run invalid, SOP 5 retry 1/1). QA PASS on the same candidate in a temp worktree: validator PASS 170/0 (15 new clauses x2 + 7), reference forms only merge-base and diff in both definitions, orchestrator unchanged, Worker smoke 494/0, Skill forms, Console smoke, Discord self-check 117 ok, check_task_record PASS, diff --check clean, jarvis.bat untracked. No push.`
 - source_command: `Owner 결정: D1, Reviewer 파일별 참조 커밋 설계 task 등록 (Claude Code 세션)`
 
 ## 기준선
