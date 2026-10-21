@@ -11,6 +11,7 @@
 - 상태 변경/실행 명령: `/task`, `/approve`
 - `/run`, `/retry`는 폐기됐다(task-0179). 어떤 task에도 아무것도 실행하거나 바꾸지 않고 `/approve`·`/go`·Jarvis Console을 쓰라는 안내만 돌려준다. 두 명령은 키워드로 고른 task(수동 SOP task 포함)에 허용 목록의 smoke 테스트를 실행하고 DONE/FAILED를 Owner 검토 없이 기록할 수 있었다.
 - `/retro today`는 `updated_at`의 **UTC 날짜 기준 오늘** task만 집계해 회고 요약을 만든다.
+- `CLOSED`(Owner가 Jarvis Console Close로 완료 조건 없이 종료한 수동 task, task-0180)는 `/report`·`/report today`·`/retro today` 상태 줄의 마지막에 집계되고 `/retro today`의 follow-up 대상이 아니다. Discord에는 종료 명령이 없고, `/go`·`/go <id> accept`·`/go <id> recover`는 `CLOSED` task를 받지 않는다(`status_not_startable:CLOSED`, `accept_requires_failed:CLOSED`, `recover_requires_doing:CLOSED`).
 - `/report`는 새로운 report 파일을 생성하지 않는다.
 
 명시적 비범위:
@@ -169,6 +170,7 @@ Owner 전용. Studyroom 콘텐츠 수정 1종만 지원한다.
 - DONE: 3
 - FAILED: 0
 - NEEDS_APPROVAL: 0
+- CLOSED: 0
 
 최근 업데이트:
 1. task-0003-discord-report — DONE — 2026-04-03 01:10 UTC
@@ -187,6 +189,7 @@ Owner 전용. Studyroom 콘텐츠 수정 1종만 지원한다.
 - DONE: 2
 - FAILED: 0
 - NEEDS_APPROVAL: 0
+- CLOSED: 0
 
 최근 업데이트:
 1. task-0003-discord-report — DONE — 2026-04-03 01:10 UTC
@@ -204,6 +207,7 @@ Owner 전용. Studyroom 콘텐츠 수정 1종만 지원한다.
 - DONE: 0
 - FAILED: 0
 - NEEDS_APPROVAL: 0
+- CLOSED: 0
 
 최근 업데이트:
 (없음)

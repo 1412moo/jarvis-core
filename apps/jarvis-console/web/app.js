@@ -855,8 +855,14 @@ function actionableTaskItemMarkup(item) {
   const recordEligible = valid
     && view.status === "DOING"
     && !view.has_completion_evidence;
-  const accessLabel = actions.length || recordEligible ? "Preview + Confirm required" : "Read-only";
-  const accessClass = actions.length || recordEligible ? "approval-needed" : "read-only";
+  // task-0180: Close takes a manual DOING Task only; a Worker-path Task (made by
+  // /task) is closed out by /go <task-id> recover. The server enforces the same rule.
+  const closeEligible = valid
+    && view.status === "DOING"
+    && view.source_command !== "/task";
+  const writable = actions.length || recordEligible || closeEligible;
+  const accessLabel = writable ? "Preview + Confirm required" : "Read-only";
+  const accessClass = writable ? "approval-needed" : "read-only";
   const receiptMarkup = taskTransitionLastReceipt?.receipt?.task_id === view.id
     ? taskTransitionReceiptMarkup(taskTransitionLastReceipt)
     : "";
@@ -888,6 +894,7 @@ function actionableTaskItemMarkup(item) {
         }
         <dt>Completion evidence</dt><dd>${escapeHtml(view.completion_evidence || "Not recorded")}</dd>
         ${valid && view.hold_from ? `<dt>Held from</dt><dd>${escapeHtml(view.hold_from)}</dd>` : ""}
+        ${valid && view.closed_reason ? `<dt>Closed reason</dt><dd>${escapeHtml(view.closed_reason)}</dd>` : ""}
         <dt>Next action</dt><dd>${escapeHtml(view.next_action || "")}</dd>
         <dt>Path</dt><dd><code>${escapeHtml(item.path || "")}</code></dd>
       </dl>
@@ -910,6 +917,16 @@ function actionableTaskItemMarkup(item) {
             <div class="suggestion-actions">
               <input class="completion-evidence-input" type="text" maxlength="500" aria-label="Completion evidence for ${escapeHtml(view.id)}" placeholder="Artifact, test result, review, or report reference">
               <button class="primary-button preview-completion-evidence" type="button" data-task-id="${escapeHtml(view.id)}">Record Evidence</button>
+            </div>
+          `
+          : ""
+      }
+      ${
+        closeEligible
+          ? `
+            <div class="suggestion-actions">
+              <input class="closed-reason-input" type="text" maxlength="500" aria-label="Close reason for ${escapeHtml(view.id)}" placeholder="Owner's reason for closing without completion">
+              <button class="primary-button preview-task-transition" type="button" data-task-id="${escapeHtml(view.id)}" data-task-action="close">Close Task</button>
             </div>
           `
           : ""
@@ -939,6 +956,11 @@ function taskTransitionReceiptMarkup(data) {
         <div><dt>Previous State</dt><dd>${escapeHtml(receipt.previous_state || "")}</dd></div>
         <div><dt>Transition</dt><dd>${escapeHtml(receipt.transition || "")}</dd></div>
         <div><dt>Current State</dt><dd>${escapeHtml(receipt.current_state || "")}</dd></div>
+        ${
+          "closed_reason" in receipt
+            ? `<div><dt>Closed reason</dt><dd>${escapeHtml(receipt.closed_reason || "")}</dd></div>`
+            : ""
+        }
         <div><dt>Updated at</dt><dd>${escapeHtml(receipt.updated_at || "")}</dd></div>
         <div><dt>Storage location</dt><dd><code>${escapeHtml(receipt.storage_location || "")}</code></dd></div>
         <div><dt>Execution</dt><dd>${receipt.no_execution ? "No execution" : "Unavailable"}</dd></div>
@@ -1170,6 +1192,7 @@ function renderTaskTransitionPreview(data) {
     "COMPLETE TASK": "Confirm Complete",
     "HOLD TASK": "Confirm Hold",
     "RESUME TASK": "Confirm Resume",
+    "CLOSE TASK": "Confirm Close",
   }[taskTransitionConfirmation] || "Confirm";
   target.innerHTML = `
     <article class="create-local-task-preview">
@@ -1200,6 +1223,12 @@ function renderTaskTransitionPreview(data) {
             ? `<div><dt>Held from</dt><dd>${escapeHtml(preview.hold_from || "")}</dd></div>`
             : ""
         }
+        ${
+          "closed_reason" in preview
+            ? `<div><dt>Closed reason</dt><dd>${escapeHtml(preview.closed_reason || "")}</dd></div>
+               <div><dt>Reopen</dt><dd>${preview.reversible === false ? "Not possible" : "Unavailable"}</dd></div>`
+            : ""
+        }
         <div><dt>Execution</dt><dd>${preview.no_execution ? "No execution" : "Unavailable"}</dd></div>
       </dl>
       <p class="muted">${escapeHtml(preview.notice || "")}</p>
@@ -1219,6 +1248,12 @@ async function previewTaskTransition(button) {
   const taskId = button.dataset.taskId || "";
   const action = button.dataset.taskAction || "";
   const target = taskTransitionResultElement(taskId);
+  const request = { task_id: taskId, action };
+  if (action === "close") {
+    // task-0180: Close carries the Owner's reason; the server normalizes and checks it.
+    const input = button.closest(".suggestion-actions")?.querySelector(".closed-reason-input");
+    request.closed_reason = input?.value || "";
+  }
   taskTransitionBusy = true;
   taskTransitionLastReceipt = null;
   if (target) {
@@ -1228,7 +1263,7 @@ async function previewTaskTransition(button) {
     const response = await fetch("/api/task-transition/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task_id: taskId, action }),
+      body: JSON.stringify(request),
     });
     const data = await response.json();
     if (!response.ok || !data.ok) {
@@ -1350,6 +1385,7 @@ function renderActionableTaskView(items, counts) {
     ["ready", "Ready"],
     ["on_hold", "On hold"],
     ["completed", "Completed"],
+    ["closed", "Closed"],
   ];
   const displayedItems = (items || []).filter((item) => item?.task_view);
   return `
@@ -1362,9 +1398,9 @@ function renderActionableTaskView(items, counts) {
           <span class="overview-badge">Displayed total: ${escapeHtml(String(displayedItems.length))}</span>
         </div>
       </div>
-      <p class="muted">Discovery and basic details are read-only. Start / Complete changes only status and updated_at; Hold / Resume also writes and removes hold_from. Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Each write requires Preview + Confirm and never executes or automatically completes the Task.</p>
+      <p class="muted">Discovery and basic details are read-only. Start / Complete changes only status and updated_at; Hold / Resume also writes and removes hold_from; Close also writes closed_reason and cannot be undone. Record Completion Evidence appends one evidence value and updates only updated_at for an eligible DOING Task. Each write requires Preview + Confirm and never executes or automatically completes the Task.</p>
       <p class="muted">Shows up to 10 Tasks, attention first then most recently updated; this is not the full backlog.</p>
-      <p class="muted"><strong>Display order:</strong> metadata review, NEEDS_APPROVAL, BLOCKED, FAILED, DOING, TODO, ON_HOLD, DONE; then updated time newest first and path.</p>
+      <p class="muted"><strong>Display order:</strong> metadata review, NEEDS_APPROVAL, BLOCKED, FAILED, DOING, TODO, ON_HOLD, DONE, CLOSED; then updated time newest first and path.</p>
       ${taskViewHiddenCountsMarkup(counts)}
       <div class="overview-skill-grid">
         ${groups

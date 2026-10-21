@@ -102,7 +102,8 @@ TASK_EXECUTION_STATUS_FIELDS = TASK_EXECUTION_REVIEW_FIELDS
 TASK_EXECUTION_DERIVED_FIELDS = ("error", "mode", "reason", "message", "execution_status")
 # task-0174: every official status, ON_HOLD right after BLOCKED. A status missing here was
 # counted in total but in no line, so the self-check compares this to TASK_ALLOWED_STATUSES.
-REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "ON_HOLD", "DONE", "FAILED", "NEEDS_APPROVAL")
+# task-0180: CLOSED (closed by the Owner without the completion conditions) goes last.
+REPORT_STATUS_ORDER = ("TODO", "DOING", "BLOCKED", "ON_HOLD", "DONE", "FAILED", "NEEDS_APPROVAL", "CLOSED")
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "TODO": ("DOING",),
     # DOING -> FAILED was missing here while the code performed it all along:
@@ -863,6 +864,9 @@ def _build_review_notes(status: str) -> str:
     if status == "ON_HOLD":
         # task-0174: a deliberate pause by the Owner (task-model 2), not a blocker or a failure.
         return "의도적으로 보류된 상태로 보임(Owner 재우선순위 대기)"
+    if status == "CLOSED":
+        # task-0180: final; the Owner ended it without the completion conditions (task-model 2).
+        return "Owner가 완료 조건 없이 종료한 상태(다시 열지 않음)"
     return "상태 정보 점검 필요"
 
 
@@ -883,6 +887,11 @@ def _build_recommended_next_steps(status: str) -> list[str]:
         return [
             "summary의 보류 사유와 재개 조건을 확인한다",
             "재개는 Owner 결정 뒤 Jarvis Console Resume으로 보류 전 상태(hold_from)로 되돌린다",
+        ]
+    if status == "CLOSED":
+        return [
+            "closed_reason의 종료 사유를 확인한다",
+            "같은 작업을 다시 하려면 새 task를 만든다",
         ]
     return ["task 메타데이터를 점검한다"]
 
@@ -3073,6 +3082,8 @@ def _run_self_check_suite() -> dict[str, Any]:
                         f"- status: `{status}`",
                         # task-0174: a valid ON_HOLD record carries hold_from (task-model 12).
                         *(["- hold_from: `TODO`"] if status == "ON_HOLD" else []),
+                        # task-0180: a valid CLOSED record carries closed_reason (task-model 13).
+                        *(["- closed_reason: `self-check close`"] if status == "CLOSED" else []),
                         "- repo: `jarvis-core`",
                         "- created_at: `2026-04-01 00:00 UTC`",
                         f"- updated_at: `{updated_at}`",
@@ -3453,9 +3464,10 @@ def _run_self_check_suite() -> dict[str, Any]:
             _record(
                 "report_status_order_matches_vocabulary",
                 set(REPORT_STATUS_ORDER) == set(TASK_ALLOWED_STATUSES)
-                and len(REPORT_STATUS_ORDER) == len(set(REPORT_STATUS_ORDER)) == 7
+                and len(REPORT_STATUS_ORDER) == len(set(REPORT_STATUS_ORDER)) == 8
                 and REPORT_STATUS_ORDER.index("ON_HOLD") == REPORT_STATUS_ORDER.index("BLOCKED") + 1
-                and tuple(s for s in REPORT_STATUS_ORDER if s != "ON_HOLD") == legacy_status_order,
+                and REPORT_STATUS_ORDER[-1] == "CLOSED"
+                and tuple(s for s in REPORT_STATUS_ORDER if s not in ("ON_HOLD", "CLOSED")) == legacy_status_order,
                 f"order={REPORT_STATUS_ORDER} vocabulary={sorted(TASK_ALLOWED_STATUSES)}",
             )
 
@@ -3547,6 +3559,10 @@ def _run_self_check_suite() -> dict[str, Any]:
                         "재개는 Owner 결정 뒤 Jarvis Console Resume으로 보류 전 상태(hold_from)로 되돌린다",
                     ],
                 ),
+                "CLOSED": (
+                    "Owner가 완료 조건 없이 종료한 상태(다시 열지 않음)",
+                    ["closed_reason의 종료 사유를 확인한다", "같은 작업을 다시 하려면 새 task를 만든다"],
+                ),
             }
             review_actual = {
                 status: (_build_review_notes(status), _build_recommended_next_steps(status))
@@ -3564,6 +3580,55 @@ def _run_self_check_suite() -> dict[str, Any]:
                 and review_on_hold.get("recommended_next_steps") == review_expected["ON_HOLD"][1]
                 and review_expected["ON_HOLD"][0] in review_on_hold_reply,
                 f"result={review_on_hold} reply={review_on_hold_reply}",
+            )
+
+            # --- task-0180 CLOSED: counted, not a follow-up, and never runs again ---------
+            closed_report_before = _run_report("/report")
+            closed_retro_before = _run_retro_today("/retro today")
+            closed_task = _write_task(
+                "task-0112-report-closed", "CLOSED", f"{today_ymd_hold} 12:30 UTC", title="report closed item"
+            )
+            closed_report_after = _run_report("/report")
+            closed_retro_after = _run_retro_today("/retro today")
+            _record(
+                "report_counts_closed",
+                (closed_report_after.get("counts") or {}).get("CLOSED")
+                == (closed_report_before.get("counts") or {}).get("CLOSED", 0) + 1
+                and _counts_match_total(closed_report_after)
+                and _reply_lines_ok(closed_report_after)
+                and "- CLOSED: " in _format_reply(closed_report_after),
+                f"before={closed_report_before.get('counts')} after={closed_report_after.get('counts')}",
+            )
+            _record(
+                "retro_today_closed_not_follow_up",
+                closed_retro_after.get("follow_up_titles") == closed_retro_before.get("follow_up_titles")
+                and "report closed item" not in (closed_retro_after.get("follow_up_titles") or []),
+                f"before={closed_retro_before} after={closed_retro_after}",
+            )
+            review_closed = _run_review_task("/review-task task-0112-report-closed")
+            _record(
+                "review_task_closed_command",
+                review_closed.get("status") == "CLOSED"
+                and review_closed.get("review_notes") == review_expected["CLOSED"][0]
+                and review_closed.get("recommended_next_steps") == review_expected["CLOSED"][1],
+                f"result={review_closed}",
+            )
+            # /go, /go accept, /go recover and /go resume refuse CLOSED with the status in the
+            # reason, before any lock or write; the record stays byte for byte.
+            closed_before = closed_task.read_bytes()
+            closed_go = {
+                suffix: _run_command(f"/go task-0112-report-closed{suffix}")
+                for suffix in ("", " accept", " recover", " resume")
+            }
+            _record(
+                "go_refuses_closed_task",
+                closed_go[""].get("reason") == "status_not_startable:CLOSED"
+                and closed_go[" accept"].get("reason") == "accept_requires_failed:CLOSED"
+                and closed_go[" recover"].get("reason") == "recover_requires_doing:CLOSED"
+                and closed_go[" resume"].get("reason") == "status_not_startable:CLOSED"
+                and closed_task.read_bytes() == closed_before
+                and not _worker_running(),
+                f"results={closed_go}",
             )
 
             # --- task-0052 audit chain integration -----------------------------

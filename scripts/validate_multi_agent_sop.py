@@ -1114,6 +1114,22 @@ def _validate_transition_contract(sources: dict[str, str], errors: list[str]) ->
     for match in re.finditer(r"`([A-Z_]+)` → `([A-Z_]+)`", paths):
         if (match.group(1), match.group(2)) not in doc_pairs:
             _error(errors, "transition_path_unknown", f"task-model 5-2 uses {match.group(0)!r}, not in 5-1")
+    # task-0180: the status vocabulary in task-model 3 is exactly the writer's. ON_HOLD
+    # (task-0098) and CLOSED each had to be added in several places; this keeps the
+    # standard document from lagging the code.
+    node = _module_constant(tree, "TASK_ALLOWED_STATUSES")
+    try:
+        code_statuses = set(ast.literal_eval(node.args[0])) if isinstance(node, ast.Call) and node.args else set()
+    except ValueError:
+        code_statuses = set()
+    status_line = re.search(r"^- `status`: 현재 상태 \(`([A-Z_ |]+)`\)$", _section(model, "## 3) 필수 필드", r"^## "), re.MULTILINE)
+    doc_statuses = set(status_line.group(1).split(" | ")) if status_line else set()
+    if not code_statuses or doc_statuses != code_statuses:
+        _error(
+            errors,
+            "status_vocabulary_parity",
+            f"only in writer {sorted(code_statuses - doc_statuses)!r}, only in task-model {sorted(doc_statuses - code_statuses)!r}",
+        )
 
 
 def _validate_sources(sources: dict[str, str]) -> list[str]:
@@ -1440,6 +1456,20 @@ def _run_negative_mutation_checks(
             "성공 `DOING` → `DONE`",
             "성공 `DOING` → `ARCHIVED`",
             "transition_path_unknown",
+        ),
+        (
+            "status_dropped_from_task_model",
+            TASK_MODEL_PATH,
+            "| NEEDS_APPROVAL | CLOSED`)",
+            "| NEEDS_APPROVAL`)",
+            "status_vocabulary_parity",
+        ),
+        (
+            "status_added_to_writer",
+            WRITER_PATH,
+            '"DONE", "CLOSED"}',
+            '"DONE", "CLOSED", "ARCHIVED"}',
+            "status_vocabulary_parity",
         ),
         ("sop_acceptance_major_clause_removed", SOP_PATH, "- blocking과 major는 수용할 수 없다.", "- 수용 제한 없음.", "sop_findings_acceptance"),
         ("sop_acceptance_pipeline_clause_removed", SOP_PATH, "- §10 Worker 파이프라인에는 적용하지 않는다.", "", "sop_findings_acceptance"),

@@ -20,7 +20,7 @@
   "result_type": "status",
   "id": "task-0001-sample",
   "title": "...",
-  "status": "TODO|DOING|BLOCKED|ON_HOLD|DONE|FAILED|NEEDS_APPROVAL",
+  "status": "TODO|DOING|BLOCKED|ON_HOLD|DONE|FAILED|NEEDS_APPROVAL|CLOSED",
   "updated_at": "YYYY-MM-DD HH:MM UTC",
   "summary": "..."
 }
@@ -53,7 +53,8 @@
     "ON_HOLD": 0,
     "DONE": 1,
     "FAILED": 0,
-    "NEEDS_APPROVAL": 0
+    "NEEDS_APPROVAL": 0,
+    "CLOSED": 0
   },
   "recent": [
     {
@@ -79,7 +80,8 @@
     "ON_HOLD": 0,
     "DONE": 0,
     "FAILED": 0,
-    "NEEDS_APPROVAL": 0
+    "NEEDS_APPROVAL": 0,
+    "CLOSED": 0
   },
   "recent": []
 }

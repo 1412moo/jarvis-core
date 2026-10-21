@@ -21,13 +21,14 @@
 - `DONE`: 검증까지 완료
 - `FAILED`: 시도했으나 목표 달성 실패
 - `NEEDS_APPROVAL`: 승인 필요 상태
+- `CLOSED`: Owner가 완료 조건 없이 의도적으로 종료한 수동 task (task-0180). 종료 사유를 `closed_reason`에 기록하고, 다시 열지 않는다(다시 하려면 새 task). 실패가 아니라 Owner 종료이며, 실행 명령은 이 상태의 task를 받지 않는다(5-1, 13절)
 
 ## 3) 필수 필드
 모든 Task는 아래 필드를 반드시 포함한다.
 
 - `id`: Task 고유 식별자 (`task-####-slug`)
 - `title`: 사람이 읽는 작업 제목
-- `status`: 현재 상태 (`TODO | DOING | BLOCKED | ON_HOLD | DONE | FAILED | NEEDS_APPROVAL`)
+- `status`: 현재 상태 (`TODO | DOING | BLOCKED | ON_HOLD | DONE | FAILED | NEEDS_APPROVAL | CLOSED`)
 - `repo`: 작업 대상 저장소 식별자 (예: `jarvis-core`, `subrepo-abc`)
 - `created_at`: 생성 시각 (UTC, `YYYY-MM-DD HH:mm UTC`)
 - `updated_at`: 마지막 수정 시각 (UTC, `YYYY-MM-DD HH:mm UTC`)
@@ -56,7 +57,7 @@
 
 ### 5-1) 허용 전이 계약
 
-코드가 적용하는 상태 전이는 아래 10쌍뿐이다. 표에 없는 전이는 durable writer가
+코드가 적용하는 상태 전이는 아래 11쌍뿐이다. 표에 없는 전이는 durable writer가
 거부한다.
 
 | from | to |
@@ -71,10 +72,16 @@
 | `NEEDS_APPROVAL` | `ON_HOLD` |
 | `ON_HOLD` | `TODO` |
 | `ON_HOLD` | `NEEDS_APPROVAL` |
+| `DOING` | `CLOSED` |
 
 `ON_HOLD`가 들어간 4쌍은 `hold_from`을 함께 쓰고 지우는 전용 writer만 적용한다. 일반 전이
 writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수 있으므로 `ON_HOLD`로 가는
 전이가 없다. 해제의 도착 상태는 `hold_from` 값 하나로 정해진다(12절).
+
+`DOING` → `CLOSED`는 `closed_reason`을 함께 쓰는 전용 writer만 적용하고, 일반 전이 writer와
+실행 결과 writer는 이 쌍을 거부한다. 대상은 수동 task(`source_command`가 `/task`가 아닌 task,
+필드가 없는 기록 포함)뿐이며, Worker 경로 task는 `/go <id> recover`를 쓴다. `CLOSED`에서
+나가는 전이는 없다(13절).
 
 자동 전이는 Owner가 승인한 실행의 결과로 코드가 적용하는 전이를 뜻한다. 그런
 실행 없이 스스로 일어나는 전이는 없다.
@@ -96,16 +103,20 @@ writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수
 | Discord `/go <id> recover` (`/work`로 만든 DOING task, 실행 중인 Worker가 없고 마지막 시도의 실행 표지가 가리키는 프로세스가 모두 끝났을 때만, task-0167) | `DOING` → `FAILED` (실패 기록과 함께, 재실행 없음) |
 | Jarvis Console Hold (표시된 task, `HOLD TASK`, `hold_from`에 출발 상태를 함께 기록, task-0173) | `TODO` → `ON_HOLD`, `NEEDS_APPROVAL` → `ON_HOLD` |
 | Jarvis Console Resume (표시된 task, `RESUME TASK`, `hold_from`이 가리키는 상태로만 복귀하고 `hold_from`을 지움, task-0173) | `ON_HOLD` → `TODO` (`hold_from`이 `TODO`일 때), `ON_HOLD` → `NEEDS_APPROVAL` (`hold_from`이 `NEEDS_APPROVAL`일 때) |
+| Jarvis Console Close (표시된 수동 DOING task, `CLOSE TASK`, Owner가 적은 `closed_reason`을 함께 기록, task-0180) | `DOING` → `CLOSED` |
 
 Hold와 Resume은 승인도 거절도 아니며 실행하지 않는다. 승인 대기였던 task는 Resume 뒤에도
 `NEEDS_APPROVAL`이므로 실행에 이르는 길은 Discord `/approve`뿐이다.
+
+Close는 실행하지 않고 되돌릴 수 없다. Discord에는 종료 명령이 없고, `/go`·`/go <id> accept`·
+`/go <id> recover`는 `CLOSED` task를 받지 않는다.
 
 ## 6) 새 Task 생성 체크리스트
 새 Task를 만들 때 아래 항목을 순서대로 확인한다.
 
 1. `memory/tasks/task-template.md`를 복사해 새 파일(`task-####-slug.md`)을 만든다.
 2. 파일명과 `id`가 동일한지 확인한다.
-3. `status`가 7개 허용값 중 하나인지 확인한다.
+3. `status`가 8개 허용값 중 하나인지 확인한다.
 4. `repo`, `created_at`, `updated_at`를 실제 값으로 채운다.
 5. `summary`를 1~3문장으로 작성하고 범위/확인 필요사항을 반영한다.
 6. 커밋 전 최소 1회 자체 검토로 누락 필드가 없는지 확인한다.
@@ -227,3 +238,25 @@ These fields do not replace the required task fields. If no execution result has
 - No other path writes or removes the field. A hand-written `ON_HOLD` record
   without it is invalid and cannot be resumed; this is stricter than before
   task-0173, when no such record existed.
+
+## 13) Close metadata (`closed_reason`, task-0180)
+
+`closed_reason` is a metadata field that exists exactly while a Task is
+`CLOSED`:
+
+```markdown
+- closed_reason: `VALUE`
+```
+
+- The value follows the `completion_evidence` text rules (11절): one safe,
+  non-empty, already-normalized line of 1–500 Unicode code points, with no
+  Markdown backticks, control/format/surrogate characters, or Unicode
+  line/paragraph separators. Jarvis does not judge what it says.
+- A `CLOSED` Task without the field, an invalid or duplicate value, or the field
+  on a Task in any other status fails canonical validation in both the writer and
+  the Console parser.
+- Jarvis Console Close writes the status, `updated_at` and this line (right after
+  the `status` line) in one atomic replace, only for a manual `DOING` Task. Any
+  failure leaves the file unchanged. No other path writes or removes the field.
+- `CLOSED` is final. A `completion_evidence` recorded before the close stays as it
+  was. To do the work again, create a new Task.

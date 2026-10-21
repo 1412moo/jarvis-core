@@ -64,12 +64,16 @@ if str(DISCORD_INTAKE_ROOT) not in sys.path:
 from task_file_writer import (  # noqa: E402
     TASK_ALLOWED_METADATA,
     TASK_ALLOWED_STATUSES,
+    TASK_CLOSED_REASON_FIELD,
+    TASK_CLOSED_STATUS,
     TASK_FILE_PATTERN,
     TASK_HOLD_FROM_FIELD,
     TASK_HOLD_FROM_STATUSES,
     TASK_HOLD_STATUS,
+    TASK_WORKER_SOURCE_COMMAND,
     CompletionEvidenceWriteResult,
     TaskStatusTransitionResult,
+    close_task_file,
     hold_task_file,
     preview_task_file_write,
     record_task_completion_evidence,
@@ -216,7 +220,7 @@ TASK_VIEW_ALLOWED_FIELDS = frozenset(TASK_VIEW_REQUIRED_FIELDS).union(
     TASK_VIEW_OPTIONAL_TEXT_FIELDS,
     TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS,
     TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS,
-    {TASK_HOLD_FROM_FIELD},
+    {TASK_HOLD_FROM_FIELD, TASK_CLOSED_REASON_FIELD},
 )
 TASK_VIEW_METADATA_PATTERN = re.compile(
     r"^- (?P<field>[a-z][a-z0-9_]*): `(?P<value>[^`\r\n]*)`$"
@@ -232,6 +236,7 @@ TASK_VIEW_GROUPS = (
     ("ready", "Ready"),
     ("on_hold", "On hold"),
     ("completed", "Completed"),
+    ("closed", "Closed"),
 )
 TASK_VIEW_STATUS_RULES = {
     "NEEDS_APPROVAL": (
@@ -273,6 +278,13 @@ TASK_VIEW_STATUS_RULES = {
         "completed",
         60,
         "No next action is required.",
+    ),
+    # task-0180: the Owner closed this Task without the completion conditions. It is
+    # final and is listed after Completed.
+    "CLOSED": (
+        "closed",
+        70,
+        "No next action. The Owner closed this Task; closed_reason records why.",
     ),
 }
 TASK_VIEW_REASON_CODES = frozenset(
@@ -355,9 +367,24 @@ TASK_HOLD_APPROVAL_NOTICE = (
     "Hold does not approve or reject this Task. Resume returns it to "
     "NEEDS_APPROVAL, where only Discord /approve can approve it."
 )
+# task-0180: Close. Only a manual DOING Task (source_command is not /task), only to
+# CLOSED, with the Owner's closed_reason written in the same replace. CLOSED is final.
+TASK_CLOSE_ACTIONS = {
+    "close": (frozenset({"DOING"}), "CLOSE TASK"),
+}
+TASK_CLOSE_NOTICE = (
+    "Close changes only status, updated_at and closed_reason. It does not execute "
+    "the task, and a closed Task cannot be reopened; to do the work again, create a new Task."
+)
+TASK_CLOSE_WARNING = (
+    "Close is for a manual Task the Owner ends without the completion conditions. "
+    "Jarvis does not judge the reason. A Worker-path Task (made by /task) uses "
+    "/go <task-id> recover instead."
+)
 TASK_TRANSITION_WARNINGS = {
     "complete": TASK_TRANSITION_COMPLETE_WARNING,
     "hold": TASK_HOLD_WARNING,
+    "close": TASK_CLOSE_WARNING,
 }
 TASK_TRANSITION_TOKEN_TTL_SECONDS = 10 * 60
 TASK_TRANSITION_TOKEN_CAPACITY = 128
@@ -1704,6 +1731,17 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
             return invalid_task_view("invalid_text", TASK_HOLD_FROM_FIELD)
     elif TASK_HOLD_FROM_FIELD in metadata:
         return invalid_task_view("invalid_text", TASK_HOLD_FROM_FIELD)
+    # task-0180: the same closed_reason rule as task_file_writer. It is present
+    # exactly while the Task is CLOSED, in the completion_evidence text form.
+    if status == TASK_CLOSED_STATUS:
+        closed_reason = metadata.get(TASK_CLOSED_REASON_FIELD)
+        if (
+            closed_reason is None
+            or normalize_completion_evidence(closed_reason) != closed_reason
+        ):
+            return invalid_task_view("invalid_text", TASK_CLOSED_REASON_FIELD)
+    elif TASK_CLOSED_REASON_FIELD in metadata:
+        return invalid_task_view("invalid_text", TASK_CLOSED_REASON_FIELD)
     if (
         "completion_evidence" in metadata
         and metadata_line_indexes["completion_evidence"]
@@ -1786,6 +1824,8 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
         "has_completion_evidence": "completion_evidence" in metadata,
         "execution": execution,
         "hold_from": metadata.get(TASK_HOLD_FROM_FIELD),
+        "closed_reason": metadata.get(TASK_CLOSED_REASON_FIELD),
+        "source_command": normalized_optional_text.get("source_command"),
         "group_id": group_id,
         "display_rank": display_rank,
         "next_action": next_action,
@@ -2018,7 +2058,7 @@ def overview_payload() -> dict[str, Any]:
         "recent_groups": recent_groups,
         "notes": [
             "/api/overview discovery and basic details are read-only.",
-            "Only explicit Start / Complete and Hold / Resume Preview + Confirm may update a selected valid Task's status and updated_at; Hold and Resume also write and remove hold_from. Record Completion Evidence Preview + Confirm may append one completion_evidence value and update only updated_at for an eligible DOING Task; it does not validate evidence, change status, complete, or execute the Task.",
+            "Only explicit Start / Complete, Hold / Resume and Close Preview + Confirm may update a selected valid Task's status and updated_at; Hold and Resume also write and remove hold_from, and Close writes closed_reason. Record Completion Evidence Preview + Confirm may append one completion_evidence value and update only updated_at for an eligible DOING Task; it does not validate evidence, change status, complete, or execute the Task.",
             "Reports and checkpoints are discovered as existing local files only; none are generated here.",
             "Recent items are read-only metadata from allowlisted local paths.",
             "Jarvis Console does not run skills, call Codex/ChatGPT/Hermes, or commit/push.",
@@ -2562,6 +2602,7 @@ class _TaskTransitionRecord:
     expires_at: float
     receipt: dict[str, Any] | None = None
     consumed_without_receipt: bool = False
+    closed_reason: str | None = None
 
 
 class TaskTransitionRegistry:
@@ -2631,6 +2672,7 @@ class TaskTransitionRegistry:
         writer: Any = transition_task_file_status,
         hold_writer: Any = hold_task_file,
         resume_writer: Any = resume_task_file,
+        close_writer: Any = close_task_file,
     ) -> tuple[int, dict[str, Any]]:
         if not TASK_TRANSITION_TOKEN_PATTERN.fullmatch(token):
             return HTTPStatus.NOT_FOUND, {
@@ -2680,6 +2722,16 @@ class TaskTransitionRegistry:
                         current_status=record.current_status,
                         planned_updated_at=record.planned_updated_at,
                     )
+                elif record.action in TASK_CLOSE_ACTIONS:
+                    # task-0180: the close writer writes closed_reason with the status.
+                    result = close_writer(
+                        tasks_dir=tasks_dir,
+                        task_id=record.task_id,
+                        expected_digest=record.expected_digest,
+                        current_status=record.current_status,
+                        closed_reason=record.closed_reason,
+                        planned_updated_at=record.planned_updated_at,
+                    )
                 else:
                     result = writer(
                         tasks_dir=tasks_dir,
@@ -2705,7 +2757,7 @@ class TaskTransitionRegistry:
                     "error": result.reason or "task_transition_failed",
                 }
             if (
-                record.action in TASK_HOLD_ACTIONS
+                (record.action in TASK_HOLD_ACTIONS or record.action in TASK_CLOSE_ACTIONS)
                 and getattr(result, "current_status", None) != record.target_status
             ):
                 # The digest binds the file to the Preview, so this cannot differ;
@@ -2727,6 +2779,8 @@ class TaskTransitionRegistry:
                 "storage_location": record.storage_location,
                 "no_execution": True,
             }
+            if record.action in TASK_CLOSE_ACTIONS:
+                receipt["closed_reason"] = record.closed_reason
             record.receipt = receipt
             record.expires_at = now + self._ttl_seconds
             return HTTPStatus.OK, {
@@ -2776,7 +2830,11 @@ def preview_task_transition(
 ) -> tuple[int, dict[str, Any]]:
     """Preview one status-only transition without writing the Task file."""
 
-    if set(payload) != {"task_id", "action"}:
+    # task-0180: Close alone also takes closed_reason; every other action keeps
+    # the two-field request.
+    if set(payload) not in ({"task_id", "action"}, {"task_id", "action", "closed_reason"}) or (
+        "closed_reason" in payload and payload.get("action") not in TASK_CLOSE_ACTIONS
+    ):
         return HTTPStatus.BAD_REQUEST, {
             "ok": False,
             "error": "task_transition_preview_accepts_task_id_and_action_only",
@@ -2788,8 +2846,16 @@ def preview_task_transition(
             "ok": False,
             "error": "invalid_task_transition_preview",
         }
+    closed_reason: str | None = None
+    if action in TASK_CLOSE_ACTIONS:
+        closed_reason = normalize_completion_evidence(payload.get("closed_reason"))
+        if closed_reason is None:
+            return HTTPStatus.BAD_REQUEST, {
+                "ok": False,
+                "error": "invalid_closed_reason",
+            }
     transition = TASK_TRANSITION_ACTIONS.get(action)
-    hold_action = TASK_HOLD_ACTIONS.get(action)
+    hold_action = TASK_HOLD_ACTIONS.get(action) or TASK_CLOSE_ACTIONS.get(action)
     if transition is not None:
         current_status, target_status, confirmation_literal = transition
         allowed_statuses = frozenset({current_status})
@@ -2863,6 +2929,14 @@ def preview_task_transition(
         # unknown value, so a Task that waited for approval returns to
         # NEEDS_APPROVAL.
         target_status = snapshot_view["hold_from"]
+    elif action == "close":
+        # task-0180: a Worker-path Task is closed out by /go <task-id> recover.
+        if snapshot_view["source_command"] == TASK_WORKER_SOURCE_COMMAND:
+            return HTTPStatus.CONFLICT, {
+                "ok": False,
+                "error": "close_requires_manual_task",
+            }
+        target_status = TASK_CLOSED_STATUS
     planned_updated_at = str(utc_now())
     if parse_task_view_timestamp(planned_updated_at) is None:
         return HTTPStatus.CONFLICT, {
@@ -2882,6 +2956,7 @@ def preview_task_transition(
         expected_digest=hashlib.sha256(raw).hexdigest(),
         confirmation_literal=confirmation_literal,
         expires_at=0.0,
+        closed_reason=closed_reason,
     )
     issue_status, issued = registry.issue(record)
     if issue_status != HTTPStatus.OK:
@@ -2908,6 +2983,10 @@ def preview_task_transition(
     elif action == "resume":
         preview["notice"] = TASK_RESUME_NOTICE
         preview["hold_from"] = snapshot_view["hold_from"]
+    elif action == "close":
+        preview["notice"] = TASK_CLOSE_NOTICE
+        preview["closed_reason"] = closed_reason
+        preview["reversible"] = False
     if action == "complete":
         # task-0130: the warning asks the Owner to confirm only when evidence
         # is recorded, so Complete shows what is recorded. The value comes from

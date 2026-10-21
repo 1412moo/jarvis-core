@@ -85,6 +85,8 @@ Included:
 - Explicit Preview + Confirm for **Hold** (`TODO` or `NEEDS_APPROVAL` →
   `ON_HOLD`) and **Resume** (`ON_HOLD` → the status recorded in `hold_from`),
   changing only `status`, `updated_at` and `hold_from`.
+- Explicit Preview + Confirm for **Close** (a manual `DOING` Task → `CLOSED`,
+  task-0180), changing only `status`, `updated_at` and `closed_reason`.
 - Explicit **Record Completion Evidence** Preview + Confirm for a valid `DOING`
   Task without evidence, appending one `completion_evidence` value and changing
   only `updated_at`.
@@ -201,6 +203,26 @@ still reaches execution only through Discord `/approve`. Hold and Resume are
 general transitions (G in `docs/task-0044-audit-hash-chain-design.md` section 3.1),
 not approval transitions, and write no audit entry.
 
+## Close Task
+
+Close (task-0180) uses the same Preview + Confirm flow, token, digest check and
+Actionable Task View selection as Start / Complete. It is how the Owner ends a
+manual Task without the completion conditions (`docs/task-model.md` sections 2,
+5-1 and 13).
+
+- **Close** (`CLOSE TASK`) accepts only a `DOING` Task whose `source_command` is
+  not `/task` (a record without the field counts as manual). A Worker-path Task
+  is refused by Preview and by the writer; `/go <task-id> recover` closes those
+  out. The Preview request carries the Owner's `closed_reason`, normalized by the
+  completion evidence rules; no other action accepts that field.
+- Confirm sets `status` to `CLOSED`, updates `updated_at` and writes
+  `closed_reason` right after the status line, in one atomic replace. The
+  receipt repeats the reason. Jarvis does not judge the reason.
+- `CLOSED` is final: nothing leaves it, and Discord `/go`, `/go <id> accept` and
+  `/go <id> recover` never take it, so a closed Task cannot run again. Preview
+  says it cannot be reopened. A `CLOSED` Task is listed under Closed, after
+  Completed. Close writes no audit entry, like Hold and Resume.
+
 ## Record Completion Evidence
 
 Record Completion Evidence is a separate append-once flow for a valid
@@ -265,15 +287,16 @@ Registry id `tasks_reports`, status `available`. The browser tab is labelled
 Purpose: show task status, reports, checkpoints, and items needing attention.
 
 This is the console's Task lifecycle surface. Discovery and detail are read-only.
-Start / Complete, Hold / Resume and Record Completion Evidence each need Preview
-and an explicit Confirm, and change only `status`, `updated_at`, `hold_from`, and
-one `completion_evidence` value.
+Start / Complete, Hold / Resume, Close and Record Completion Evidence each need
+Preview and an explicit Confirm, and change only `status`, `updated_at`,
+`hold_from`, `closed_reason`, and one `completion_evidence` value.
 
 A Task with status `NEEDS_APPROVAL` is listed under Needs attention so the owner
 can see it. Jarvis Console shows that state; it does not approve, run, or
 complete Task work, and it has no approval queue. The decision is made outside
 the console. The console may only Hold it (D1 as amended by task-0173). An
-`ON_HOLD` Task is listed under On hold, after Ready and before Completed.
+`ON_HOLD` Task is listed under On hold, after Ready and before Completed. A
+`CLOSED` Task is listed under Closed, after Completed (task-0180).
 
 A Task run by the Worker pipeline also shows its recorded result read-only:
 **Execution result** (`success`, `failed` or `not_executed`, derived from

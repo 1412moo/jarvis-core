@@ -77,9 +77,11 @@ from hermes_manager_pilot.manager_reporting import (
 # so the writer's own transition constant can be compared against the copy this
 # file spells out.
 from task_file_writer import (
+    TASK_CLOSE_TRANSITIONS,
     TASK_HOLD_FROM_STATUSES,
     TASK_HOLD_TRANSITIONS,
     TASK_STATUS_TRANSITIONS,
+    close_task_file,
     hold_task_file,
     resume_task_file,
 )
@@ -2346,6 +2348,373 @@ def _test_task_hold_resume() -> None:
     assert not fixture_root.exists()
 
 
+def _test_task_close() -> None:
+    """task-0180: Close through the writer and the Console flow.
+
+    Close moves a manual DOING Task to CLOSED and writes the Owner's
+    closed_reason right after status in the same replace. Only DOING is
+    accepted, a Worker-path Task (source_command /task) is refused at every
+    layer, the reason follows the completion_evidence text rules, CLOSED is
+    final, and nothing runs.
+    """
+
+    fixture_root = run_web_app.REPO_ROOT / "task-close-test-fixture"
+    assert fixture_root.resolve().parent == run_web_app.REPO_ROOT.resolve()
+    shutil.rmtree(fixture_root, ignore_errors=True)
+    tasks_dir = fixture_root / "tasks"
+    tasks_dir.mkdir(parents=True)
+    planned = "2026-07-26 12:00 UTC"
+    reason = "Owner closed this manual Task without the completion conditions."
+
+    def task_bytes(task_id: str, status: str, *extra: str) -> bytes:
+        return (
+            "\r\n".join(
+                [
+                    f"# {task_id}",
+                    "",
+                    f"- id: `{task_id}`",
+                    "- title: `Close fixture`",
+                    f"- status: `{status}`",
+                    "- repo: `jarvis-core`",
+                    "- created_at: `2026-07-26 09:00 UTC`",
+                    "- updated_at: `2026-07-26 10:00 UTC`",
+                    "- summary: `Manual Task the Owner may close.`",
+                    *extra,
+                    "",
+                    "## Body",
+                    "",
+                    "- a body bullet, not metadata",
+                ]
+            )
+            + "\r\n"
+        ).encode("utf-8")
+
+    def write_task(task_id: str, status: str, *extra: str) -> tuple[Path, bytes]:
+        path = tasks_dir / f"{task_id}.md"
+        raw = task_bytes(task_id, status, *extra)
+        path.write_bytes(raw)
+        return path, raw
+
+    def digest(raw: bytes) -> str:
+        return hashlib.sha256(raw).hexdigest()
+
+    def closed_bytes(raw: bytes, closed_reason: str = reason) -> bytes:
+        return raw.replace(
+            b"- status: `DOING`\r\n",
+            b"- status: `CLOSED`\r\n- closed_reason: `"
+            + closed_reason.encode("utf-8")
+            + b"`\r\n",
+            1,
+        ).replace(
+            b"- updated_at: `2026-07-26 10:00 UTC`",
+            f"- updated_at: `{planned}`".encode("utf-8"),
+            1,
+        )
+
+    class TokenFactory:
+        def __init__(self) -> None:
+            self.counter = 0
+
+        def __call__(self) -> str:
+            self.counter += 1
+            return f"closetasktoken{self.counter:016d}"
+
+    try:
+        # Rule agreement between the writer and the Console.
+        assert TASK_CLOSE_TRANSITIONS == frozenset({("DOING", "CLOSED")})
+        assert TASK_CLOSE_TRANSITIONS <= TASK_STATUS_TRANSITIONS
+        assert run_web_app.TASK_CLOSE_ACTIONS["close"] == (
+            frozenset({"DOING"}),
+            "CLOSE TASK",
+        )
+        assert not set(run_web_app.TASK_CLOSE_ACTIONS) & (
+            set(run_web_app.TASK_TRANSITION_ACTIONS) | set(run_web_app.TASK_HOLD_ACTIONS)
+        )
+        assert "CLOSED" in run_web_app.TASK_ALLOWED_STATUSES
+        assert "closed_reason" in run_web_app.TASK_VIEW_ALLOWED_FIELDS
+        assert run_web_app.TASK_VIEW_STATUS_RULES["CLOSED"][0] == "closed"
+        assert list(run_web_app.TASK_VIEW_STATUS_RULES)[-1] == "CLOSED"
+        assert run_web_app.TASK_VIEW_GROUPS[-1] == ("closed", "Closed")
+
+        # Writer: a manual DOING Task closes byte for byte, LF or CRLF, with or
+        # without source_command, and the result is final.
+        for task_id, extra in (
+            ("task-8601-manual", ()),
+            ("task-8602-manual-source", ("- source_command: `Owner decision`",)),
+        ):
+            path, before = write_task(task_id, "DOING", *extra)
+            result = close_task_file(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(before),
+                current_status="DOING",
+                closed_reason=reason,
+                planned_updated_at=planned,
+            )
+            assert result == run_web_app.TaskStatusTransitionResult(
+                "updated",
+                task_id=task_id,
+                previous_status="DOING",
+                current_status="CLOSED",
+                updated_at=planned,
+                file_path=str(path.resolve()),
+            ), result
+            assert path.read_bytes() == closed_bytes(before)
+            closed = path.read_bytes()
+            for target in ("DOING", "DONE", "FAILED", "TODO", "ON_HOLD"):
+                assert run_web_app.transition_task_file_status(
+                    tasks_dir=tasks_dir,
+                    task_id=task_id,
+                    expected_digest=digest(closed),
+                    current_status="CLOSED",
+                    target_status=target,
+                    planned_updated_at=planned,
+                ).reason == "invalid_task_transition"
+            assert path.read_bytes() == closed
+        lf_path = tasks_dir / "task-8603-manual-lf.md"
+        lf_before = task_bytes("task-8603-manual-lf", "DOING").replace(b"\r\n", b"\n")
+        lf_path.write_bytes(lf_before)
+        assert close_task_file(
+            tasks_dir=tasks_dir,
+            task_id="task-8603-manual-lf",
+            expected_digest=digest(lf_before),
+            current_status="DOING",
+            closed_reason=reason,
+            planned_updated_at=planned,
+        ).result_type == "updated"
+        assert lf_path.read_bytes() == closed_bytes(
+            lf_before.replace(b"\n", b"\r\n")
+        ).replace(b"\r\n", b"\n")
+
+        # Writer: every other status, a Worker-path Task, a bad reason, and a
+        # stale file are refused and leave the bytes as they were.
+        for index, status in enumerate(
+            ("TODO", "BLOCKED", "FAILED", "DONE", "NEEDS_APPROVAL"), start=1
+        ):
+            task_id = f"task-86{10 + index:02d}-close-refused"
+            path, before = write_task(task_id, status)
+            assert close_task_file(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(before),
+                current_status=status,
+                closed_reason=reason,
+                planned_updated_at=planned,
+            ).reason == "invalid_task_transition"
+            assert path.read_bytes() == before
+        worker_path, worker_before = write_task(
+            "task-8620-worker", "DOING", "- source_command: `/task`"
+        )
+        assert close_task_file(
+            tasks_dir=tasks_dir,
+            task_id="task-8620-worker",
+            expected_digest=digest(worker_before),
+            current_status="DOING",
+            closed_reason=reason,
+            planned_updated_at=planned,
+        ).reason == "close_requires_manual_task"
+        assert worker_path.read_bytes() == worker_before
+        bad_path, bad_before = write_task("task-8621-bad-reason", "DOING")
+        for bad_reason in ("", " padded ", "a`b", "two\nlines", "x" * 501, None):
+            assert close_task_file(
+                tasks_dir=tasks_dir,
+                task_id="task-8621-bad-reason",
+                expected_digest=digest(bad_before),
+                current_status="DOING",
+                closed_reason=bad_reason,
+                planned_updated_at=planned,
+            ).reason == "invalid_closed_reason", bad_reason
+        assert close_task_file(
+            tasks_dir=tasks_dir,
+            task_id="task-8621-bad-reason",
+            expected_digest=digest(b"other"),
+            current_status="DOING",
+            closed_reason=reason,
+            planned_updated_at=planned,
+        ).reason == "task_changed_since_preview"
+        assert bad_path.read_bytes() == bad_before
+
+        # Parser: closed_reason is present exactly while the Task is CLOSED.
+        for status, extra, valid in (
+            ("CLOSED", (f"- closed_reason: `{reason}`",), True),
+            ("CLOSED", (), False),
+            ("CLOSED", ("- closed_reason: ``",), False),
+            ("CLOSED", ("- closed_reason: ` padded`",), False),
+            ("CLOSED", (f"- closed_reason: `{reason}`",) * 2, False),
+            ("DONE", (f"- closed_reason: `{reason}`",), False),
+            ("DOING", (f"- closed_reason: `{reason}`",), False),
+        ):
+            text = task_bytes("task-8630-parse", status, *extra).decode("utf-8")
+            view = run_web_app.parse_task_view_text("task-8630-parse.md", text)
+            writer_metadata, _error = run_web_app_writer_metadata(
+                text.encode("utf-8"), "task-8630-parse.md"
+            )
+            assert (view["parse_state"] == "valid") is valid, (status, extra, view)
+            assert (writer_metadata is not None) is valid, (status, extra)
+            if valid:
+                assert view["closed_reason"] == reason
+                assert view["group_id"] == "closed"
+        for leftover in tasks_dir.iterdir():
+            leftover.unlink()
+
+        # Console: Preview + Confirm for Close.
+        registry = run_web_app.TaskTransitionRegistry(token_factory=TokenFactory())
+
+        def preview(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+            return run_web_app.preview_task_transition(
+                payload,
+                registry=registry,
+                tasks_dir=tasks_dir,
+                utc_now=lambda: planned,
+            )
+
+        def confirm(token: str, literal: str) -> tuple[int, dict[str, Any]]:
+            return run_web_app.confirm_task_transition(
+                {"token": token, "confirmation": literal},
+                registry=registry,
+                tasks_dir=tasks_dir,
+            )
+
+        doing_path, doing_before = write_task("task-8701-doing", "DOING")
+        todo_path, todo_before = write_task("task-8702-todo", "TODO")
+        worker_path, worker_before = write_task(
+            "task-8703-worker", "DOING", "- source_command: `/task`"
+        )
+        # The reason is required for Close and refused for every other action.
+        status, payload = preview({"task_id": "task-8701-doing", "action": "close"})
+        assert status == HTTPStatus.BAD_REQUEST
+        assert payload["error"] == "invalid_closed_reason"
+        for bad_reason in ("", "   ", "a`b", "x" * 501, 7):
+            status, payload = preview(
+                {"task_id": "task-8701-doing", "action": "close", "closed_reason": bad_reason}
+            )
+            assert status == HTTPStatus.BAD_REQUEST, bad_reason
+        status, payload = preview(
+            {"task_id": "task-8701-doing", "action": "complete", "closed_reason": reason}
+        )
+        assert status == HTTPStatus.BAD_REQUEST
+        assert payload["error"] == "task_transition_preview_accepts_task_id_and_action_only"
+        status, payload = preview(
+            {"task_id": "task-8701-doing", "action": "close", "closed_reason": reason, "target": "DONE"}
+        )
+        assert status == HTTPStatus.BAD_REQUEST
+        # Only DOING, and never a Worker-path Task.
+        status, payload = preview(
+            {"task_id": "task-8702-todo", "action": "close", "closed_reason": reason}
+        )
+        assert status == HTTPStatus.CONFLICT
+        assert payload["error"] == "task_status_transition_not_allowed"
+        status, payload = preview(
+            {"task_id": "task-8703-worker", "action": "close", "closed_reason": reason}
+        )
+        assert status == HTTPStatus.CONFLICT
+        assert payload["error"] == "close_requires_manual_task"
+        assert todo_path.read_bytes() == todo_before
+        assert worker_path.read_bytes() == worker_before
+
+        # The reason is normalized the way completion evidence is.
+        status, payload = preview(
+            {"task_id": "task-8701-doing", "action": "close", "closed_reason": f"  {reason}  "}
+        )
+        assert status == HTTPStatus.OK, payload
+        assert payload["confirmation_literal"] == "CLOSE TASK"
+        close_preview = payload["preview"]
+        assert close_preview["current_state"] == "DOING"
+        assert close_preview["proposed_state"] == "CLOSED"
+        assert close_preview["transition"] == "DOING \u2192 CLOSED"
+        assert close_preview["closed_reason"] == reason
+        assert close_preview["reversible"] is False
+        assert close_preview["notice"] == run_web_app.TASK_CLOSE_NOTICE
+        assert close_preview["warning"] == run_web_app.TASK_CLOSE_WARNING
+        assert close_preview["no_execution"] is True
+        assert doing_path.read_bytes() == doing_before
+        close_token = payload["token"]
+        for wrong in ("COMPLETE TASK", "close task", "CLOSE"):
+            status, payload = confirm(close_token, wrong)
+            assert status == HTTPStatus.BAD_REQUEST
+            assert payload["error"] == "exact_confirmation_required"
+        assert doing_path.read_bytes() == doing_before
+        status, payload = confirm(close_token, "CLOSE TASK")
+        assert status == HTTPStatus.OK, payload
+        assert payload["receipt"]["current_state"] == "CLOSED"
+        assert payload["receipt"]["transition"] == "DOING \u2192 CLOSED"
+        assert payload["receipt"]["closed_reason"] == reason
+        assert payload["receipt"]["no_execution"] is True
+        assert doing_path.read_bytes() == closed_bytes(doing_before)
+        # The same token answers with the same receipt and writes nothing more.
+        status, again = confirm(close_token, "CLOSE TASK")
+        assert status == HTTPStatus.OK
+        assert again["result_type"] == "already_updated"
+        assert again["receipt"] == payload["receipt"]
+        assert doing_path.read_bytes() == closed_bytes(doing_before)
+
+        # A closed Task offers nothing: every action is refused.
+        for action in ("start", "complete", "hold", "resume"):
+            status, payload = preview({"task_id": "task-8701-doing", "action": action})
+            assert status == HTTPStatus.CONFLICT, (action, payload)
+        status, payload = preview(
+            {"task_id": "task-8701-doing", "action": "close", "closed_reason": reason}
+        )
+        assert status == HTTPStatus.CONFLICT
+        assert doing_path.read_bytes() == closed_bytes(doing_before)
+
+        # A file changed after Preview is never written.
+        stale_path, stale_before = write_task("task-8704-stale", "DOING")
+        status, payload = preview(
+            {"task_id": "task-8704-stale", "action": "close", "closed_reason": reason}
+        )
+        assert status == HTTPStatus.OK
+        stale_path.write_bytes(stale_before.replace(b"may close", b"edited"))
+        status, payload = confirm(payload["token"], "CLOSE TASK")
+        assert status == HTTPStatus.CONFLICT
+        assert payload["error"] == "task_changed_since_preview"
+        assert b"- status: `DOING`" in stale_path.read_bytes()
+
+        # An expired Close token is refused and writes nothing.
+        clock = {"now": 1000.0}
+        expiring = run_web_app.TaskTransitionRegistry(
+            clock=lambda: clock["now"], token_factory=TokenFactory()
+        )
+        expire_path, expire_before = write_task("task-8705-expire", "DOING")
+        status, payload = run_web_app.preview_task_transition(
+            {"task_id": "task-8705-expire", "action": "close", "closed_reason": reason},
+            registry=expiring,
+            tasks_dir=tasks_dir,
+            utc_now=lambda: planned,
+        )
+        assert status == HTTPStatus.OK, payload
+        clock["now"] += run_web_app.TASK_TRANSITION_TOKEN_TTL_SECONDS
+        status, payload = run_web_app.confirm_task_transition(
+            {"token": payload["token"], "confirmation": "CLOSE TASK"},
+            registry=expiring,
+            tasks_dir=tasks_dir,
+        )
+        assert status == HTTPStatus.NOT_FOUND
+        assert payload["error"] == "invalid_or_expired_task_transition_token"
+        assert expire_path.read_bytes() == expire_before
+
+        # The page: Close appears only for a manual DOING Task, with its own
+        # reason input, and sends closed_reason only for Close.
+        app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
+        assert 'view.source_command !== "/task"' in app_js
+        assert 'data-task-action="close">Close Task</button>' in app_js
+        assert 'class="closed-reason-input"' in app_js
+        assert '"CLOSE TASK": "Confirm Close"' in app_js
+        assert "request.closed_reason = input?.value" in app_js
+        assert "body: JSON.stringify(request)," in app_js
+    finally:
+        shutil.rmtree(fixture_root, ignore_errors=True)
+    assert not fixture_root.exists()
+
+
+def run_web_app_writer_metadata(raw: bytes, file_name: str) -> tuple[Any, Any]:
+    """The writer's own header parser, for the parser-agreement checks above."""
+
+    import task_file_writer
+
+    return task_file_writer._transition_metadata(raw, file_name)
+
+
 def _test_task_transition_vertical_slice() -> None:
     fixture_root = run_web_app.REPO_ROOT / "task-transition-test-fixture"
     resolved_fixture = fixture_root.resolve()
@@ -2401,6 +2770,11 @@ def _test_task_transition_vertical_slice() -> None:
         hold_lines = (
             ("- hold_from: `TODO`",)
             if status == "ON_HOLD" and not extra_lines
+            else ()
+        ) + (
+            # task-0180: likewise a valid CLOSED record carries closed_reason.
+            ("- closed_reason: `fixture close`",)
+            if status == "CLOSED" and not extra_lines
             else ()
         )
         return (
@@ -2530,13 +2904,15 @@ def _test_task_transition_vertical_slice() -> None:
             "DONE",
             "FAILED",
             "NEEDS_APPROVAL",
+            "CLOSED",
         )
         # task-0052 widened task_file_writer.TASK_STATUS_TRANSITIONS so the
         # Discord approval path can use this durable writer instead of a bare
         # write_text(). This stays an explicit contract test - the set is
         # spelled out rather than imported - so any further widening has to
         # be made deliberately here too. task-0173 added the four ON_HOLD
-        # pairs, which only the Hold / Resume writers apply.
+        # pairs, which only the Hold / Resume writers apply. task-0180 added
+        # DOING -> CLOSED, which only the Close writer applies.
         official_transitions = frozenset(
             {
                 ("TODO", "DOING"),
@@ -2549,20 +2925,41 @@ def _test_task_transition_vertical_slice() -> None:
                 ("NEEDS_APPROVAL", "ON_HOLD"),
                 ("ON_HOLD", "TODO"),
                 ("ON_HOLD", "NEEDS_APPROVAL"),
+                ("DOING", "CLOSED"),
             }
         )
         hold_transitions = frozenset(
             pair for pair in official_transitions if "ON_HOLD" in pair
         )
+        close_transitions = frozenset({("DOING", "CLOSED")})
         # task-0101: spelling the set out only works if something checks it
         # against the writer's own constant. Nothing did, so the two could
         # drift apart in silence - the way the status vocabulary sat out of
         # sync until task-0098. The count keeps a coordinated shrink of both
         # sides from passing quietly.
         assert official_transitions == TASK_STATUS_TRANSITIONS
-        assert len(official_transitions) == 10
+        assert len(official_transitions) == 11
         assert hold_transitions == TASK_HOLD_TRANSITIONS
         assert len(hold_transitions) == 4
+        assert close_transitions == TASK_CLOSE_TRANSITIONS
+        # task-0180: CLOSED is final; nothing leaves it.
+        assert not any(source == "CLOSED" for source, _target in official_transitions)
+        # The generic writer refuses the close pair: written there, closed_reason
+        # would be missing.
+        generic_path, generic_before = write_task("task-7003-generic-close", "DOING")
+        assert run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="task-7003-generic-close",
+            expected_digest=hashlib.sha256(generic_before).hexdigest(),
+            current_status="DOING",
+            target_status="CLOSED",
+            planned_updated_at=planned_complete,
+        ) == run_web_app.TaskStatusTransitionResult(
+            "hold",
+            "close_transition_requires_close_writer",
+        )
+        assert generic_path.read_bytes() == generic_before
+        generic_path.unlink()
         # task-0173 (E2): a run may still be working on a DOING Task, so it can
         # never be held.
         assert ("DOING", "ON_HOLD") not in official_transitions
@@ -2651,7 +3048,7 @@ def _test_task_transition_vertical_slice() -> None:
                 assert hold_result.current_status == "ON_HOLD"
                 assert hold_path.read_bytes() == held_bytes
         for index, (source_status, target_status) in enumerate(
-            sorted(official_transitions - hold_transitions),
+            sorted(official_transitions - hold_transitions - close_transitions),
             start=7101,
         ):
             positive_id = f"task-{index:04d}-positive-transition"
@@ -2707,7 +3104,7 @@ def _test_task_transition_vertical_slice() -> None:
             "TODO",
             "TODO",
             "TODO",
-            "TODO",
+            "CLOSED",
         )
         assert (
             len(scope_statuses) == run_web_app.OVERVIEW_MAX_ITEMS_PER_DIRECTORY
@@ -2726,16 +3123,16 @@ def _test_task_transition_vertical_slice() -> None:
         outside_id = "task-7299-outside-view"
         outside_path = scope_dir / f"{outside_id}.md"
         # task-0116: selection ranks by task_view_sort_key, not file mtime, so
-        # "outside" means lowest priority rather than oldest file. DONE is the
-        # lowest display_rank and this record loses the path tie-break to the
-        # in-view DONE, which puts it at position eleven. A TODO here would
-        # outrank that in-view DONE and be selected.
+        # "outside" means lowest priority rather than oldest file. CLOSED is the
+        # lowest display_rank (task-0180; DONE before it) and this record loses
+        # the path tie-break to the in-view CLOSED, which puts it at position
+        # eleven. A TODO here would outrank that in-view CLOSED and be selected.
         #
         # Its mtime is the newest in the directory on purpose. That makes the
         # record inside the view under the pre-task-0114 rule and outside it
         # under the current one, so the assertions below fail if production
         # ever goes back to capping by file recency.
-        outside_path.write_bytes(task_bytes(outside_id, "DONE"))
+        outside_path.write_bytes(task_bytes(outside_id, "CLOSED"))
         os.utime(outside_path, (3_000_000, 3_000_000))
         outside_before = outside_path.read_bytes()
 
@@ -2772,15 +3169,15 @@ def _test_task_transition_vertical_slice() -> None:
         }
         assert outside_id not in scope_selected_ids
 
-        # task-0116: the excluded record is DONE and so is an in-view one. The
-        # in-view DONE answers 409 because it was selected and its status is
-        # wrong; the excluded DONE answers 404 because it was never selected.
+        # task-0116: the excluded record is CLOSED and so is an in-view one. The
+        # in-view CLOSED answers 409 because it was selected and its status is
+        # wrong; the excluded CLOSED answers 404 because it was never selected.
         # Same status, different gate - that is what proves the 404 below is
         # the selection gate rather than a status or path error.
         in_view_done = next(
             scope_id
             for scope_id, scope_status in scope_in_view
-            if scope_status == "DONE"
+            if scope_status == "CLOSED"
         )
         in_view_done_start = run_web_app.preview_task_transition(
             {"task_id": in_view_done, "action": "start"},
@@ -4972,6 +5369,16 @@ def _test_actionable_task_view_vertical_slice() -> None:
                         )
                         else ()
                     ),
+                    # task-0180: a valid CLOSED record carries closed_reason.
+                    *(
+                        ("- closed_reason: `fixture close`",)
+                        if status == "CLOSED"
+                        and not any(
+                            line.startswith("- closed_reason:")
+                            for line in optional_lines
+                        )
+                        else ()
+                    ),
                     f"- repo: `{repo}`",
                     f"- created_at: `{created_at}`",
                     f"- updated_at: `{updated_at}`",
@@ -5020,6 +5427,12 @@ def _test_actionable_task_view_vertical_slice() -> None:
             60,
             "No next action is required.",
         ),
+        # task-0180: final, after Completed.
+        "CLOSED": (
+            "closed",
+            70,
+            "No next action. The Owner closed this Task; closed_reason records why.",
+        ),
     }
     # The rule table's own order is the display order, which task_view_counts
     # reuses for its hidden-by-status listing.
@@ -5031,6 +5444,7 @@ def _test_actionable_task_view_vertical_slice() -> None:
         "ready",
         "on_hold",
         "completed",
+        "closed",
     ]
     for index, (status, expected_rule) in enumerate(
         expected_status_rules.items(),
@@ -5059,6 +5473,8 @@ def _test_actionable_task_view_vertical_slice() -> None:
             "has_completion_evidence",
             "execution",
             "hold_from",
+            "closed_reason",
+            "source_command",
             "group_id",
             "display_rank",
             "next_action",
@@ -5066,6 +5482,10 @@ def _test_actionable_task_view_vertical_slice() -> None:
         }
         assert view["read_only"] is True
         assert view["hold_from"] == ("TODO" if status == "ON_HOLD" else None)
+        assert view["closed_reason"] == (
+            "fixture close" if status == "CLOSED" else None
+        )
+        assert view["source_command"] is None
         # task-0155: a Task without execution metadata has no execution section.
         assert view["execution"] is None
 
@@ -5378,14 +5798,23 @@ def _test_actionable_task_view_vertical_slice() -> None:
     assert optional_view is not None and plain_view is not None
     # task-0155: execution metadata now adds only the derived execution
     # section; every other key stays exactly as for the plain Task.
+    # task-0180: source_command is shown too, so Close can tell a Worker-path Task.
     assert optional_view["execution"] == {
         "status": "failed",
         "summary": "summary",
     }
     assert plain_view["execution"] is None
+    assert optional_view["source_command"] == "/task"
+    assert plain_view["source_command"] is None
     assert {
-        key: value for key, value in optional_view.items() if key != "execution"
-    } == {key: value for key, value in plain_view.items() if key != "execution"}
+        key: value
+        for key, value in optional_view.items()
+        if key not in {"execution", "source_command"}
+    } == {
+        key: value
+        for key, value in plain_view.items()
+        if key not in {"execution", "source_command"}
+    }
     optional_false_view = run_web_app.parse_task_view_text(
         "task-0301-optional.md",
         task_markdown(
@@ -5431,7 +5860,7 @@ def _test_actionable_task_view_vertical_slice() -> None:
         for field_name in (
             (
                 run_web_app.TASK_VIEW_OPTIONAL_TEXT_FIELDS
-                - {"completion_evidence"}
+                - {"completion_evidence", "source_command"}
             )
             | run_web_app.TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS
             | run_web_app.TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS
@@ -5642,6 +6071,7 @@ def _test_actionable_task_view_vertical_slice() -> None:
         "ready": 2,
         "on_hold": 0,
         "completed": 1,
+        "closed": 0,
     }
 
     cap_candidates = [
@@ -5685,9 +6115,10 @@ def _test_actionable_task_view_vertical_slice() -> None:
     assert direct_payload["notes"][:2] == [
         "/api/overview discovery and basic details are read-only.",
         (
-            "Only explicit Start / Complete and Hold / Resume Preview + Confirm "
-            "may update a selected valid Task's status and updated_at; Hold and "
-            "Resume also write and remove hold_from. Record Completion "
+            "Only explicit Start / Complete, Hold / Resume and Close Preview + "
+            "Confirm may update a selected valid Task's status and updated_at; "
+            "Hold and Resume also write and remove hold_from, and Close writes "
+            "closed_reason. Record Completion "
             "Evidence Preview + Confirm may append one completion_evidence "
             "value and update only updated_at for an eligible DOING Task; it "
             "does not validate evidence, change status, complete, or execute "
@@ -5834,10 +6265,12 @@ def _test_actionable_task_view_vertical_slice() -> None:
     # rules, which makes an eighth status fail here instead of slipping past.
     # task-0173: NEEDS_APPROVAL offers Hold and ON_HOLD offers Resume.
     badge_guarded_statuses = ("TODO", "DOING", "NEEDS_APPROVAL", "ON_HOLD")
+    # task-0180: CLOSED is final, so it renders read-only.
     badge_read_only_statuses = (
         "BLOCKED",
         "DONE",
         "FAILED",
+        "CLOSED",
     )
     assert not set(badge_guarded_statuses) & set(badge_read_only_statuses)
     assert set(badge_guarded_statuses) | set(badge_read_only_statuses) == set(
@@ -7164,6 +7597,7 @@ def _test_task_view_hidden_counts_and_first_screen() -> None:
                 f"- title: `fixture {status}`\n"
                 f"- status: `{status}`\n"
                 + ("- hold_from: `TODO`\n" if status == "ON_HOLD" else "")
+                + ("- closed_reason: `fixture close`\n" if status == "CLOSED" else "")
                 + "- repo: `jarvis-core`\n"
                 "- created_at: `2026-10-17 09:00 UTC`\n"
                 f"- updated_at: `2026-10-17 10:{index:02d} UTC`\n"
@@ -7322,6 +7756,8 @@ def _test_task_view_attention_priority() -> None:
             f"- title: `fixture {status}`\n"
             f"- status: `{status}`\n"
             + ("- hold_from: `TODO`\n" if status == "ON_HOLD" else "")
+            # task-0180: a valid CLOSED record carries closed_reason.
+            + ("- closed_reason: `fixture close`\n" if status == "CLOSED" else "")
             + "- repo: `jarvis-core`\n"
             "- created_at: `2026-07-23 09:00 UTC`\n"
             f"- updated_at: `{updated_at}`\n"
@@ -7412,6 +7848,7 @@ def _test_task_view_attention_priority() -> None:
             "ON_HOLD",
             "BLOCKED",
             "NEEDS_APPROVAL",
+            "CLOSED",
         )
         assert set(statuses) == set(run_web_app.TASK_VIEW_STATUS_RULES)
         records = tuple(
@@ -7773,6 +8210,7 @@ def main() -> None:
     _test_reports_filter_before_cap()
     _test_task_view_attention_priority()
     _test_task_hold_resume()
+    _test_task_close()
     _test_task_view_hidden_counts_and_first_screen()
     _test_actionable_task_view_vertical_slice()
     _test_director_renderer_fails_closed_on_malformed_nested_data()

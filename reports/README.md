@@ -12,6 +12,7 @@
 - `DONE`: 검증까지 완료된 상태.
 - `FAILED`: 시도했으나 목표 달성 실패. 원인과 후속 조치 필요.
 - `NEEDS_APPROVAL`: 승인 없이는 진행하면 안 되는 작업 상태.
+- `CLOSED`: Owner가 완료 조건 없이 의도적으로 종료한 수동 작업. 종료 사유를 `closed_reason`에 남기며 다시 열지 않는다(다시 하려면 새 task).
 
 ## 2) 보고서 파일 이름 규칙
 - Task 보고서: `task-YYYY-MM-DD-###-slug.md`

@@ -61,8 +61,18 @@ TASK_STATUS_TRANSITIONS = frozenset(
         ("NEEDS_APPROVAL", "ON_HOLD"),
         ("ON_HOLD", "TODO"),
         ("ON_HOLD", "NEEDS_APPROVAL"),
+        # task-0180. Console Close, written only by close_task_file(), which writes
+        # closed_reason in the same replace. CLOSED is final: nothing leaves it, and
+        # /go, /go accept and /go recover never take it, so a closed Task cannot run again.
+        ("DOING", "CLOSED"),
     }
 )
+TASK_CLOSED_STATUS = "CLOSED"
+TASK_CLOSED_REASON_FIELD = "closed_reason"
+TASK_CLOSE_TRANSITIONS = frozenset({("DOING", TASK_CLOSED_STATUS)})
+# task-0180: a Task whose source_command is exactly this was made by Discord /task and
+# runs through the Worker; /go <id> recover closes out those, so Close refuses them.
+TASK_WORKER_SOURCE_COMMAND = "/task"
 TASK_HOLD_STATUS = "ON_HOLD"
 TASK_HOLD_FROM_FIELD = "hold_from"
 # task-0173: the statuses Hold accepts, which are also the only values hold_from takes.
@@ -99,10 +109,10 @@ TASK_ALLOWED_METADATA = TASK_REQUIRED_METADATA.union(
     TASK_OPTIONAL_TEXT_METADATA,
     TASK_OPTIONAL_BOOLEAN_METADATA,
     TASK_OPTIONAL_TIMESTAMP_METADATA,
-    {TASK_HOLD_FROM_FIELD},
+    {TASK_HOLD_FROM_FIELD, TASK_CLOSED_REASON_FIELD},
 )
 TASK_ALLOWED_STATUSES = frozenset(
-    {"NEEDS_APPROVAL", "BLOCKED", "ON_HOLD", "FAILED", "DOING", "TODO", "DONE"}
+    {"NEEDS_APPROVAL", "BLOCKED", "ON_HOLD", "FAILED", "DOING", "TODO", "DONE", "CLOSED"}
 )
 
 
@@ -535,6 +545,13 @@ def _transition_metadata(
             return None, "task_file_invalid_hold_from_metadata"
     elif TASK_HOLD_FROM_FIELD in metadata:
         return None, "task_file_invalid_hold_from_metadata"
+    # task-0180: closed_reason is present exactly while the Task is CLOSED, under the
+    # completion_evidence text rules (task-model section 13).
+    if metadata["status"] == TASK_CLOSED_STATUS:
+        if not _completion_evidence_is_valid(metadata.get(TASK_CLOSED_REASON_FIELD)):
+            return None, "task_file_invalid_closed_reason_metadata"
+    elif TASK_CLOSED_REASON_FIELD in metadata:
+        return None, "task_file_invalid_closed_reason_metadata"
     if (
         "completion_evidence" in metadata
         and metadata_line_indexes["completion_evidence"]
@@ -718,6 +735,9 @@ def transition_task_file_status(
     # task-0173: a hold pair written here would leave hold_from out of step.
     if (current_status, target_status) in TASK_HOLD_TRANSITIONS:
         return TaskStatusTransitionResult("hold", "hold_transition_requires_hold_writer")
+    # task-0180: likewise, a close written here would leave closed_reason out.
+    if (current_status, target_status) in TASK_CLOSE_TRANSITIONS:
+        return TaskStatusTransitionResult("hold", "close_transition_requires_close_writer")
     if not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
         return TaskStatusTransitionResult("hold", "invalid_expected_digest")
     try:
@@ -990,6 +1010,133 @@ def resume_task_file(
     )
 
 
+def close_task_file(
+    *,
+    tasks_dir: Path,
+    task_id: str,
+    expected_digest: str,
+    current_status: str,
+    closed_reason: str,
+    planned_updated_at: str,
+    _open_temp_file: Callable[[Path], BinaryIO] = _open_transition_temp_file,
+    _replace_file: Callable[[Path, Path], None] = _replace_transition_file,
+    _fsync_file: Callable[[int], None] = os.fsync,
+    _temp_token_factory: Callable[[], str] = lambda: secrets.token_hex(8),
+    _before_final_check: Callable[[Path], None] | None = None,
+) -> TaskStatusTransitionResult:
+    """task-0180: move a manual DOING Task to CLOSED and write closed_reason in one replace.
+
+    Only DOING -> CLOSED, and only for a Task whose source_command is not the Worker
+    path's /task (a record without source_command counts as manual). closed_reason goes
+    right after the status line, under the completion_evidence text rules; Jarvis does not
+    judge what it says. The result is validated again before it is written, and any failure
+    leaves the original bytes in place. Nothing leaves CLOSED.
+    """
+
+    if not TASK_FILE_PATTERN.fullmatch(f"{task_id}.md"):
+        return TaskStatusTransitionResult("hold", "invalid_task_id")
+    if (current_status, TASK_CLOSED_STATUS) not in TASK_CLOSE_TRANSITIONS:
+        return TaskStatusTransitionResult("hold", "invalid_task_transition")
+    if not _completion_evidence_is_valid(closed_reason):
+        return TaskStatusTransitionResult("hold", "invalid_closed_reason")
+    if not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
+        return TaskStatusTransitionResult("hold", "invalid_expected_digest")
+    if not _transition_timestamp_is_valid(planned_updated_at):
+        return TaskStatusTransitionResult("hold", "invalid_planned_updated_at")
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return TaskStatusTransitionResult("error", "tasks_dir_not_found")
+
+    resolved_tasks_dir = tasks_dir.resolve()
+    target_path = (tasks_dir / f"{task_id}.md").resolve()
+    if target_path.parent != resolved_tasks_dir:
+        return TaskStatusTransitionResult("hold", "task_path_not_direct_child")
+
+    try:
+        original = target_path.read_bytes()
+    except OSError:
+        return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+    if not hmac.compare_digest(hashlib.sha256(original).hexdigest(), expected_digest):
+        return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+
+    metadata, metadata_error = _transition_metadata(original, target_path.name)
+    if metadata is None:
+        return TaskStatusTransitionResult("hold", metadata_error)
+    if metadata["id"] != task_id:
+        return TaskStatusTransitionResult("hold", "task_id_path_mismatch")
+    if metadata["status"] != current_status:
+        return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+    if metadata.get("source_command") == TASK_WORKER_SOURCE_COMMAND:
+        return TaskStatusTransitionResult("hold", "close_requires_manual_task")
+
+    status_pattern = re.compile(
+        rb"(?m)^- status: `[^`\r\n]*`(?P<eol>\r?\n|$)"
+    )
+    updated_pattern = re.compile(
+        rb"(?m)^- updated_at: `[^`\r\n]*`(?=\r?$)"
+    )
+    status_matches = list(status_pattern.finditer(original))
+    if len(status_matches) != 1:
+        return TaskStatusTransitionResult("hold", "task_file_invalid_status_metadata")
+    if len(updated_pattern.findall(original)) != 1:
+        return TaskStatusTransitionResult("hold", "task_file_invalid_updated_at_metadata")
+
+    status_match = status_matches[0]
+    line_ending = status_match.group("eol")
+    if not line_ending:
+        # The required fields follow status in every record this repository writes.
+        return TaskStatusTransitionResult("hold", "task_file_invalid_status_metadata")
+    status_line = (
+        f"- status: `{TASK_CLOSED_STATUS}`".encode("ascii")
+        + line_ending
+        + f"- {TASK_CLOSED_REASON_FIELD}: `{closed_reason}`".encode("utf-8")
+        + line_ending
+    )
+    updated = (
+        original[: status_match.start()]
+        + status_line
+        + original[status_match.end() :]
+    )
+    updated = updated_pattern.sub(
+        f"- updated_at: `{planned_updated_at}`".encode("ascii"),
+        updated,
+        count=1,
+    )
+    result_metadata, result_error = _transition_metadata(updated, target_path.name)
+    if (
+        result_metadata is None
+        or result_metadata["status"] != TASK_CLOSED_STATUS
+        or result_metadata.get(TASK_CLOSED_REASON_FIELD) != closed_reason
+    ):
+        return TaskStatusTransitionResult(
+            "hold", result_error or "task_file_invalid_closed_reason_metadata"
+        )
+
+    ok, failure = _atomically_replace_task_file(
+        target_path=target_path,
+        updated=updated,
+        expected_digest=expected_digest,
+        temp_suffix="close",
+        open_temp_file=_open_temp_file,
+        replace_file=_replace_file,
+        fsync_file=_fsync_file,
+        temp_token_factory=_temp_token_factory,
+        before_final_check=_before_final_check,
+    )
+    if not ok:
+        if failure == "stale":
+            return TaskStatusTransitionResult("stale", "task_changed_since_preview")
+        return TaskStatusTransitionResult("error", f"task_close_{failure}")
+
+    return TaskStatusTransitionResult(
+        "updated",
+        task_id=task_id,
+        previous_status=current_status,
+        current_status=TASK_CLOSED_STATUS,
+        updated_at=planned_updated_at,
+        file_path=str(target_path),
+    )
+
+
 @dataclass(frozen=True)
 class TaskExecutionResultWriteResult:
     result_type: str
@@ -1093,6 +1240,8 @@ def record_task_execution_result(
         return TaskExecutionResultWriteResult("hold", "invalid_task_transition")
     if (current_status, target_status) in TASK_HOLD_TRANSITIONS:
         return TaskExecutionResultWriteResult("hold", "hold_transition_requires_hold_writer")
+    if (current_status, target_status) in TASK_CLOSE_TRANSITIONS:
+        return TaskExecutionResultWriteResult("hold", "close_transition_requires_close_writer")
     try:
         parsed_time = datetime.strptime(planned_updated_at, TASK_TIMESTAMP_FORMAT)
     except ValueError:
