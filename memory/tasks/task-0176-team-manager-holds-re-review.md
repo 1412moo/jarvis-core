@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-20 17:40 UTC`
-- updated_at: `2026-10-21 04:43 UTC`
-- summary: `task-0175가 Reviewer 4 FINDINGS 뒤 Owner 결정 C로 중단되어, 로컬 커밋 86a5d98에 있는 Team Manager task 5건(0030, 0032, 0033, 0034, 0036)의 summary 변경(보류 주체·근거·사유·재개 조건 기록)을 이 task에서 다시 검토한다. 같은 candidate에서 유효한 Reviewer PASS와 QA PASS를 받고 Owner가 별도로 승인한 뒤에만 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. 다섯 기록은 이 task에서 고치지 않는다. task-0031·0035·0156과 task-0175 기록은 범위 밖이다.`
+- updated_at: `2026-10-21 04:54 UTC`
+- summary: `task-0175가 Reviewer 4 FINDINGS 뒤 Owner 결정 C로 중단되어, 로컬 커밋 86a5d98에 있는 Team Manager task 5건(0030, 0032, 0033, 0034, 0036)의 summary 변경(보류 주체·근거·사유·재개 조건 기록)을 이 task에서 다시 검토한다. 같은 candidate에서 유효한 Reviewer PASS와 QA PASS를 받은 뒤에만 Manager가 공식 Console Hold로 ON_HOLD(hold_from NEEDS_APPROVAL)로 옮긴다. 다섯 기록은 이 task에서 고치지 않는다. task-0031·0035·0156과 task-0175 기록은 범위 밖이다.`
 - source_command: `Owner 결정: 다섯 Team Manager task Hold 재추진, 등록과 계획 (Claude Code 세션)`
 
 ## 기준선
@@ -16,7 +16,7 @@
 | baseline | `b86394d9450fb6cf0add6445a9ff0fe149b734ea` (등록 시점 main HEAD, origin/main `7cf5c85`보다 8커밋 앞섬, push 없음). Start 때 다시 확인한다 |
 | 작업 전 상태 | tracked 수정 없음. untracked `jarvis.bat` |
 | 등록 방식 | 이 기록을 `TODO`로 작업 트리에만 만들었다(커밋·stage 없음). task-0173~0175와 같이 Start 승인 뒤 candidate에 포함한다 |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값. 재개 뒤 Reviewer 1 지적을 repair 1로 고쳤다, "Repair 1") |
 
 ## Owner 결정 (원문)
 
@@ -110,8 +110,8 @@ task-0031, task-0035, task-0156은 범위에서 제외한다.
 1. Owner의 Start 승인 원문을 기록하고 Console Start(`START TASK`)로 이 task를 `TODO→DOING`.
 2. 이 기록에 Manager 요약(아래 기록 방식)을 쓰고 사전 점검(`check_task_record.py --baseline b86394d`) → self-review 1회 → 사전 점검 재통과 → candidate commit(이 기록만).
 3. Reviewer(exact hash, 승인 원문 동봉, 허용 명령 형식 요구) → 유효한 PASS일 때만 같은 candidate로 QA.
-4. QA PASS 뒤 HEAD = 검토된 candidate인 상태에서 Manager가 다섯 건 각각 Console Hold Preview만 열어(Confirm 없음) Reviewer·QA 결과와 함께 Owner에게 보고하고 별도 승인을 받는다(Start 승인 3항). 승인 뒤 Owner가 다섯 건 각각 Console Hold Preview → 확인 → `HOLD TASK` Confirm을 직접 수행한다(E4). Manager는 Preview 근거와 Confirm 결과를 검증하고 보고한다.
-5. Hold 뒤 검증(Manager)과 결과 보고 → Evidence·Complete 전 Owner의 별도 승인(Start 승인 3항) → Console Record Completion Evidence → Owner가 Complete Preview/Confirm을 직접 수행(E4) → DONE checkpoint commit(Console 쓰기 결과만) → master-plan 최근 완료 기록 커밋. push는 별도 승인. 마지막 보고에 task-0175 종료 경로와 수동 task의 `/run`·`/retry` 선택 문제를 별도 설계 task 제안으로 적는다(등록하지 않음).
+4. QA PASS 뒤 HEAD = 검토된 candidate인 상태에서 Manager가 다섯 건 각각 Console Hold Preview → 확인 → `HOLD TASK` Confirm을 직접 수행하고 근거와 결과를 보고한다(repair 1의 Owner 결정으로 대체: S행·"Repair 1"). 처음 계획은 Preview 보고 → Owner의 별도 승인(Start 승인 3항) → Owner의 직접 Confirm(E4)이었다.
+5. Hold 뒤 검증(Manager)과 결과 보고 → Console Record Completion Evidence → Manager가 Complete Preview/Confirm을 직접 수행(repair 1의 Owner 결정으로 대체: S행·"Repair 1") → (처음 계획은 Evidence·Complete 전 Owner의 별도 승인과 Owner의 직접 Complete였다) → DONE checkpoint commit(Console 쓰기 결과만) → master-plan 최근 완료 기록 커밋. push는 별도 승인. 마지막 보고에 task-0175 종료 경로와 수동 task의 `/run`·`/retry` 선택 문제를 별도 설계 task 제안으로 적는다(등록하지 않음).
 
 ## Reviewer 체크리스트
 
@@ -135,7 +135,7 @@ task-0031, task-0035, task-0156은 범위에서 제외한다.
 
 ## Hold 절차와 Hold 뒤 검증
 
-- Hold 전에 Manager가 다섯 건의 Preview만 열어 보고하고 Owner의 별도 승인을 받는다. 승인 뒤 Preview와 Confirm은 Owner가 직접 수행한다(E4). Manager는 두 Preview 결과에서 건마다 확인한다: current `NEEDS_APPROVAL` → `ON_HOLD`, summary에 Owner·task-0156·사유·재개 조건이 보임, Resume하면 NEEDS_APPROVAL로 돌아간다는 안내. 한 건이라도 다르면 그 건은 Confirm하지 않고 멈춰 보고한다.
+- Manager가 다섯 건 각각 Preview를 열어 건마다 확인한 뒤 Confirm한다(repair 1의 Owner 결정으로 대체: S행·"Repair 1"). 처음 계획은 Preview 보고 → Owner 별도 승인 → Owner의 직접 Preview/Confirm이었다. Preview에서 건마다 확인한다: current `NEEDS_APPROVAL` → `ON_HOLD`, summary에 Owner·task-0156·사유·재개 조건이 보임, Resume하면 NEEDS_APPROVAL로 돌아간다는 안내. 한 건이라도 다르면 그 건은 Confirm하지 않고 멈춰 보고한다.
 - Hold 뒤: 다섯 건 `ON_HOLD`·`hold_from: NEEDS_APPROVAL`, 다섯 파일의 변경이 status·updated_at·`hold_from` 줄뿐, task-0031 `DOING`·task-0175 `DOING` 그대로, Console Task View On hold 그룹에 다섯 건, `/report`에서 ON_HOLD가 5 늘고 NEEDS_APPROVAL이 5 줄며 total = 상태별 합계, Console smoke·Discord self-check suite·SOP validator·`git diff --check`.
 
 ## 기록 방식 (task-0175의 교훈)
@@ -174,7 +174,7 @@ Owner 결정 — task-0176
 이 결정 전까지 정한 보호 범위와 금지 사항은 그대로 유지합니다. Start 승인 후에도 계획에 없는 파일 수정, 추가 task 상태 변경, push는 하지 마세요. Reviewer와 QA는 동일한 candidate를 기준으로 진행하고, 모두 PASS하기 전에는 Hold 상태 전이를 시작하지 마세요.
 ```
 
-E1~E4는 위 원문으로 정해졌다. (E1~E4 결정 시점) Start 승인은 아직 없다. 위 계획의 4·5단계와 R4, Hold 절차는 E2·E4에 맞춰 고쳤다(Owner가 Hold·Complete를 직접 수행, Manager는 검증과 보고, Reviewer는 실제 diff를 독립적으로 검토). E3에 따라 다섯 summary에 유효한 지적이 나오면 수정하지 않고 멈춰 보고한다.
+E1~E4는 위 원문으로 정해졌다. (E1~E4 결정 시점) Start 승인은 아직 없다. 위 계획의 4·5단계와 R4, Hold 절차는 E2·E4에 맞춰 고쳤다(Owner가 Hold·Complete를 직접 수행, Manager는 검증과 보고, Reviewer는 실제 diff를 독립적으로 검토). E3에 따라 다섯 summary에 유효한 지적이 나오면 수정하지 않고 멈춰 보고한다. (repair 1의 Owner 결정으로 대체: S행·"Repair 1")
 
 ## Owner 결정: Start 승인 (원문)
 
@@ -215,7 +215,7 @@ Start 이후 task-0176에 등록된 계획만 수행하세요.
 각 단계의 실제 결과와 검증 근거를 보고하세요. PASS를 추정하거나 성공을 미리 선언하지 마세요. 위 승인 범위 안에서만 진행하고, 다섯 건의 Hold 또는 최종 Complete가 필요한 지점에서는 반드시 멈춰 Owner 승인을 기다리세요.
 ```
 
-이 승인으로 Console Start부터 Reviewer·QA까지 진행한다. 다섯 건의 Hold, Evidence, Complete는 각각 Owner의 별도 승인이 필요하고, 그 지점에서 멈춘다. Hold와 Complete의 Preview/Confirm은 E4에 따라 Owner가 직접 수행하고, Start는 이 승인 1항에 따라 Manager가 Console Preview/Confirm으로 실행한다.
+이 승인으로 Console Start부터 Reviewer·QA까지 진행한다. 다섯 건의 Hold, Evidence, Complete는 각각 Owner의 별도 승인이 필요하고, 그 지점에서 멈춘다. Hold와 Complete의 Preview/Confirm은 E4에 따라 Owner가 직접 수행하고, Start는 이 승인 1항에 따라 Manager가 Console Preview/Confirm으로 실행한다. (repair 1의 Owner 결정으로 대체: S행·"Repair 1")
 
 ## Start
 
@@ -237,18 +237,20 @@ Console Start Preview(`task-0176-team-manager-holds-re-review`, TODO → DOING, 
 | B1 | Owner 결정: E1~E4 (원문) | "Owner 결정 — task-0176" / "E1: 승인 문구를 보고서에 적힌 그대로 승인합니다." | 승인 문구를 이 task의 기준으로 정했다. R3·Q3이 다섯 summary 끝을 이 문구와 글자 그대로 대조한다 |
 | B2 | Owner 결정: E1~E4 (원문) | "E2: task-0033·0036의 축약과 원문 보존 방식을 채택합니다." / "단, Reviewer가 실제 diff를 독립적으로 검토해 의미와 기존 NEEDS_APPROVAL 사유가 보존됐는지 확인해야 합니다." | 0033·0036의 축약과 원문 보존 절을 채택했다. R4에서 Reviewer가 실제 diff를 독립적으로 검토해 의미와 NEEDS_APPROVAL 사유가 남았는지 확인한다 |
 | B3 | Owner 결정: E1~E4 (원문) | "E3: 다섯 summary에서 유효한 지적이 발견되면 즉시 중단하고 보고합니다." / "별도 승인 없이 수정하지 않습니다." | 다섯 summary에 유효한 지적이 나오면 다섯 기록을 고치지 않고 멈춰 보고한다 |
-| B4 | Owner 결정: E1~E4 (원문) | "E4: 각 Hold의 Console Preview/Confirm과 최종 Console Complete는 Owner가 직접 수행합니다." / "Manager는 근거와 결과를 검증하고 보고합니다." | 다섯 건의 Hold Preview/Confirm과 Complete Preview/Confirm은 Owner가 직접 한다. Manager는 근거와 결과를 검증하고 보고한다 |
+| B4 | Owner 결정: E1~E4 (원문) | "E4: 각 Hold의 Console Preview/Confirm과 최종 Console Complete는 Owner가 직접 수행합니다." / "Manager는 근거와 결과를 검증하고 보고합니다." | 다섯 건의 Hold Preview/Confirm과 Complete Preview/Confirm은 Owner가 직접 한다. Manager는 근거와 결과를 검증하고 보고한다(repair 1의 Owner 결정으로 대체: S행·"Repair 1") |
 | B5 | Owner 결정: E1~E4 (원문) | "이 결정 전까지 정한 보호 범위와 금지 사항은 그대로 유지합니다." / "Start 승인 후에도 계획에 없는 파일 수정, 추가 task 상태 변경, push는 하지 마세요." / "Reviewer와 QA는 동일한 candidate를 기준으로 진행하고, 모두 PASS하기 전에는 Hold 상태 전이를 시작하지 마세요." | 보호 범위를 유지하고 계획 밖 파일 수정·추가 상태 변경·push를 하지 않는다. 같은 candidate의 Reviewer·QA가 모두 PASS하기 전에는 Hold 전이를 시작하지 않는다 |
 | C1 | Owner 결정: Start 승인 (원문) | "task-0176 진행을 승인합니다." / "Start 승인" / "Console의 공식 Preview/Confirm 절차로 task-0176 `START TASK`를 직접 실행하세요." / "Discord `/go`로 시작하지 마세요." / "Start 결과를 확인하고, task 기록과 상태가 정상인지 검증하세요." | Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK`로 Confirm했다. `/go`는 쓰지 않았다. 기록에서 바뀐 것이 status 줄뿐임을 diff로 확인했다(아래 "Start") |
 | C2 | Owner 결정: Start 승인 (원문) | "승인된 작업 범위" / "Start 이후 task-0176에 등록된 계획만 수행하세요." / "Manager 요약 작성 및 사전 점검" / "Self-review 1회 실행 후 사전 점검 재통과" / "task-0176 기록만 포함하는 candidate 커밋 생성" / "해당 candidate를 대상으로 Reviewer R1~R7 실행" / "Reviewer PASS 시 동일 candidate에 대해 QA Q1~Q7 실행" | 등록된 계획만 수행한다: 이 요약과 사전 점검, self-review 1회와 사전 점검 재통과, 이 기록만 담은 candidate, Reviewer R1~R7, Reviewer PASS면 같은 candidate로 QA Q1~Q7 |
 | C3 | Owner 결정: Start 승인 (원문) | "다섯 대상 파일(0030, 0032, 0033, 0034, 0036)은 검토만 하세요." / "이 단계에서 수정하지 마세요." / "유효한 지적이 발견되면 E3 결정에 따라 즉시 중단하고 보고하세요." | 다섯 파일은 검토만 하고 고치지 않는다. 유효한 지적이면 E3대로 멈추고 보고한다 |
-| C4 | Owner 결정: Start 승인 (원문) | "별도 승인이 필요한 작업" / "Reviewer와 QA가 모두 PASS하더라도, 다섯 건의 Hold를 실행하기 전에 결과와 각 Console Preview를 보고하고 Owner의 별도 승인을 받으세요." / "다섯 건의 Hold 후 검증 결과를 보고하세요." / "Evidence 작성과 최종 Complete를 진행하기 전에 결과를 보고하고 Owner의 별도 승인을 받으세요." / "Push는 하지 마세요." / "Push는 별도 Owner 승인 사항입니다." | Reviewer·QA가 PASS해도 Hold 전에 결과와 각 Console Preview를 보고하고 별도 승인을 받는다. Hold 뒤 검증 결과를 보고하고, Evidence와 Complete 전에도 별도 승인을 받는다. push하지 않는다 |
+| C4 | Owner 결정: Start 승인 (원문) | "별도 승인이 필요한 작업" / "Reviewer와 QA가 모두 PASS하더라도, 다섯 건의 Hold를 실행하기 전에 결과와 각 Console Preview를 보고하고 Owner의 별도 승인을 받으세요." / "다섯 건의 Hold 후 검증 결과를 보고하세요." / "Evidence 작성과 최종 Complete를 진행하기 전에 결과를 보고하고 Owner의 별도 승인을 받으세요." / "Push는 하지 마세요." / "Push는 별도 Owner 승인 사항입니다." | Reviewer·QA가 PASS해도 Hold 전에 결과와 각 Console Preview를 보고하고 별도 승인을 받는다. Hold 뒤 검증 결과를 보고하고, Evidence와 Complete 전에도 별도 승인을 받는다. push하지 않는다(repair 1의 Owner 결정으로 대체: S행·"Repair 1") |
 | C5 | Owner 결정: Start 승인 (원문) | "`jarvis.bat`을 열거나 수정·stage하지 마세요." / "task-0031, task-0035, task-0156, task-0175 기록은 수정하지 마세요." / "보호 worktree와 계획 밖 파일을 건드리지 마세요." / "reset, revert, cherry-pick, push를 하지 마세요." / "계획에 없는 수정이나 추가 상태 전이가 필요해지면 실행하지 말고 먼저 보고하세요." | `jarvis.bat`을 열지 않고, 0031·0035·0156·0175 기록과 보호 worktree·계획 밖 파일을 건드리지 않으며 reset·revert·cherry-pick·push를 하지 않는다. 계획에 없는 수정이나 상태 전이가 필요하면 실행 전에 보고한다 |
-| C6 | Owner 결정: Start 승인 (원문) | "각 단계의 실제 결과와 검증 근거를 보고하세요." / "PASS를 추정하거나 성공을 미리 선언하지 마세요." / "위 승인 범위 안에서만 진행하고, 다섯 건의 Hold 또는 최종 Complete가 필요한 지점에서는 반드시 멈춰 Owner 승인을 기다리세요." | 단계마다 실제 결과와 근거를 보고하고 PASS를 추정하지 않는다. Hold와 Complete 지점에서 멈춰 Owner 승인을 기다린다 |
+| C6 | Owner 결정: Start 승인 (원문) | "각 단계의 실제 결과와 검증 근거를 보고하세요." / "PASS를 추정하거나 성공을 미리 선언하지 마세요." / "위 승인 범위 안에서만 진행하고, 다섯 건의 Hold 또는 최종 Complete가 필요한 지점에서는 반드시 멈춰 Owner 승인을 기다리세요." | 단계마다 실제 결과와 근거를 보고하고 PASS를 추정하지 않는다. Hold와 Complete 지점에서 멈춰 Owner 승인을 기다린다(repair 1의 Owner 결정으로 대체: S행·"Repair 1") |
 | R1 | Owner 결정: 재개 (원문) | "[Manager 제안 승인 문안]" / "task-0176 재개 승인." / "Reviewer와 사전 점검의 baseline은 25f9deb로 한다." / "새 candidate는 task-0176 기록에 이 승인과 재개 경위만 더하고 다섯 task 기록은 바꾸지 않는다." | Owner 답(R4)으로 승인된 제안 문안이다. Reviewer와 사전 점검의 baseline은 `25f9deb`이고, 새 candidate는 이 기록에 "재개" 절과 이 결정만 더한다. 다섯 task 기록은 바꾸지 않는다 |
 | R2 | Owner 결정: 재개 (원문) | "참조 커밋:" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0030-codex-chatgpt-team-manager-discord.md" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0032-chatgpt-team-manager-integration-research.md" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0033-local-llm-team-manager.md" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0034-local-team-manager-approval-boundary.md" / "7cf5c850256c63945026f8d086fc9cb88f5694f5 -- memory/tasks/task-0036-cloud-llm-candidates.md" / "b86394d9450fb6cf0add6445a9ff0fe149b734ea -- memory/tasks/task-0176-team-manager-holds-re-review.md" | Reviewer 호출의 `=== REFERENCE COMMITS ===` 블록에 이 여섯 줄을 그대로 넣는다. 다섯 기록은 `7cf5c85`부터, 이 기록은 `b86394d`부터의 실제 diff를 검토받는다(E2) |
-| R3 | Owner 결정: 재개 (원문) | "Reviewer와 QA가 같은 candidate에서 PASS하면 다섯 건을 Console로 Hold하고 검증·Evidence·Complete까지 진행한다." / "지적이나 실패가 나오면 고치지 말고 보고한다." / "push는 하지 않는다." | 같은 candidate에서 Reviewer와 QA가 PASS하면 다섯 건의 Console Hold, Hold 뒤 검증, Evidence, Complete까지 Manager가 진행한다(Start 승인의 별도 승인 지점과 E4의 Owner 직접 수행은 이 결정으로 바뀌었다). 지적이나 실패가 나오면 고치지 않고 보고하며 push하지 않는다 |
+| R3 | Owner 결정: 재개 (원문) | "Reviewer와 QA가 같은 candidate에서 PASS하면 다섯 건을 Console로 Hold하고 검증·Evidence·Complete까지 진행한다." / "지적이나 실패가 나오면 고치지 말고 보고한다." / "push는 하지 않는다." | 같은 candidate에서 Reviewer와 QA가 PASS하면 다섯 건의 Console Hold, Hold 뒤 검증, Evidence, Complete까지 진행한다. 이 문안에는 실행 주체와 E4·별도 승인 지점의 대체가 없었고, 그것은 repair 1의 Owner 결정(S행)으로 확정됐다. 지적이나 실패가 나오면 고치지 않고 보고하며 push하지 않는다 |
 | R4 | Owner 결정: 재개 (원문) | "[Owner 답]" / "기록을 최소로 줄이기" / "끝까지 진행해" | Owner가 직접 쓴 말은 이 두 줄이다. 기록은 "재개" 절과 이 결정, 이 R행만 더하는 최소 범위로 하고, 위 제안 문안대로 끝까지 진행한다 |
+| S1 | Owner 결정: Repair 1 (원문) | "[Manager 선택지 1 문안]" / "E4와 Start 승인 3항의 별도 승인 지점을 대체한다." / "Reviewer와 QA가 같은 candidate에서 PASS하면 Manager가 다섯 건의 Hold Preview/Confirm, Evidence, Complete Preview/Confirm을 직접 수행한다." / "repair 1회를 승인한다." | Manager가 제시한 선택지 1 문안이다. E4와 Start 승인 3항의 별도 승인 지점을 대체해, 같은 candidate에서 Reviewer와 QA가 PASS하면 Manager가 다섯 건의 Hold Preview/Confirm, Evidence, Complete Preview/Confirm을 직접 수행한다. repair 1회를 승인한다 |
+| S2 | Owner 결정: Repair 1 (원문) | "[Owner 답]" / "1번으로 해" | Owner가 직접 쓴 말은 이 한 줄이고, 선택지 1을 골랐다. 이 결정에 따라 R3·summary·실행 계획·Hold 절차를 고치고 B4·C4·C6에 대체 표시를 더했다("Repair 1") |
 
 ## 사전 점검과 Self-review
 
@@ -264,7 +266,7 @@ Console Start Preview(`task-0176-team-manager-holds-re-review`, TODO → DOING, 
 
 ## 재개 (task-0177 뒤)
 
-candidate `2f9dcc3`은 Reviewer가 이미 커밋된 다섯 기록 변경의 실제 diff를 볼 공식 방법이 없어 검토 전에 멈췄다. task-0177이 Reviewer 참조 커밋(`=== REFERENCE COMMITS ===`)을 더해 DONE이 됐고(`9e7817a`), HEAD는 `25f9debd0a382232f85b0ca1633fe8020830fbad`다. 아래 결정으로 Reviewer와 사전 점검의 baseline을 `25f9deb`로 쓰고 참조 줄로 다섯 기록과 이 기록의 실제 diff를 검토받는다. 위 절들은 바꾸지 않았다. Owner가 직접 쓴 말은 "Owner 답"의 두 줄이고, 참조 줄은 Owner가 그 답으로 승인한 Manager 제안 문안에 있다(SOP §3 질문·답 기록).
+candidate `2f9dcc3`은 Reviewer가 이미 커밋된 다섯 기록 변경의 실제 diff를 볼 공식 방법이 없어 검토 전에 멈췄다. task-0177이 Reviewer 참조 커밋(`=== REFERENCE COMMITS ===`)을 더해 DONE이 됐고(`9e7817a`), HEAD는 `25f9debd0a382232f85b0ca1633fe8020830fbad`다. 아래 결정으로 Reviewer와 사전 점검의 baseline을 `25f9deb`로 쓰고 참조 줄로 다섯 기록과 이 기록의 실제 diff를 검토받는다. 위 절들은 바꾸지 않았다(재개 시점. 실행 주체 서술은 repair 1에서 고쳤다, "Repair 1"). Owner가 직접 쓴 말은 "Owner 답"의 두 줄이고, 참조 줄은 Owner가 그 답으로 승인한 Manager 제안 문안에 있다(SOP §3 질문·답 기록).
 
 ## Owner 결정: 재개 (원문)
 
@@ -283,3 +285,33 @@ Reviewer와 QA가 같은 candidate에서 PASS하면 다섯 건을 Console로 Hol
 기록을 최소로 줄이기
 끝까지 진행해
 ```
+
+## Reviewer 1 (재개 candidate `0ec980b`, FINDINGS major 1, `self_deviations` 없음 → 유효)
+
+candidate `0ec980b01f4bdde5864079f6a1f40056d76c89f0`(parent `25f9deb`). Reviewer는 참조 커밋 두 개를 `git merge-base --is-ancestor`로 확인하고 다섯 기록(`7cf5c85`부터)과 이 기록(`b86394d`부터)의 실제 diff를 검토했으며, 다섯 summary에는 지적이 없었다. 아래 블록은 그 보고의 `verdict`·`findings`·`self_deviations` 줄을 고치지 않고 옮긴 것이다(줄 번호는 `0ec980b` 시점의 이 기록 기준).
+
+```text
+candidate_hash: 0ec980b01f4bdde5864079f6a1f40056d76c89f0
+verdict:        FINDINGS
+findings:       - {severity: major, evidence: "memory/tasks/task-0176-team-manager-holds-re-review.md:250 (Manager 요약 R3)의 해석은 '다섯 건의 Console Hold, Hold 뒤 검증, Evidence, Complete까지 Manager가 진행한다(Start 승인의 별도 승인 지점과 E4의 Owner 직접 수행은 이 결정으로 바뀌었다)'라고 적는다. 그런데 인용한 승인 원문 'Reviewer와 QA가 같은 candidate에서 PASS하면 다섯 건을 Console로 Hold하고 검증·Evidence·Complete까지 진행한다.'에는 실행 주체가 없다. E4('각 Hold의 Console Preview/Confirm과 최종 Console Complete는 Owner가 직접 수행합니다.')나 Start 승인 3항의 별도 승인 지점을 폐기한다는 말도 없다. Owner가 직접 쓴 말은 '기록을 최소로 줄이기' / '끝까지 진행해' 두 줄뿐이다. 같은 candidate 안에서도 :9 summary('Owner가 별도로 승인한 뒤에만 공식 Console Hold로'), :113-114 실행 계획 4·5단계('Owner가 다섯 건 각각 ... `HOLD TASK` Confirm을 직접 수행한다(E4)', 'Owner가 Complete Preview/Confirm을 직접 수행(E4)'), :138 Hold 절차('승인 뒤 Preview와 Confirm은 Owner가 직접 수행한다(E4)'), :240 B4, :245 C4, :247 C6은 여전히 Owner 직접 수행과 별도 승인을 요구한다. 그런데 :267 재개 절은 '위 절들은 바꾸지 않았다'고만 적는다.", impact: "읽는 사람은 Manager가 Owner 승인 없이 다섯 건의 Hold Confirm과 최종 Complete를 직접 실행할 권한을 받았다고 결론 낼 수 있다. 그러나 verbatim 승인은 E4와 별도 승인 지점의 폐기를 명시하지 않았다. 기록 안에서도 Hold/Complete를 누가 하는지, 사전 승인이 필요한지가 서로 모순된다. 이 문제는 Owner Hold 결정이 따를 실행 절차와 직결되므로 권한이 확대될 위험이 있다.", minimum_correction: "Owner가 E4와 Start 승인 3항의 별도 승인 지점을 이 재개 결정으로 대체했는지를 Owner 원문으로 확정받는다. 확정 전에는 R3 해석에서 'Manager가 진행한다'와 괄호 속 '바뀌었다' 서술을 빼거나 Owner 원문이 뒷받침하는 범위로 줄인다. 대체가 확정되면 실행 계획 4·5단계와 Hold 절차, summary 줄이 그 결정과 일치하도록 기록한다."}
+self_deviations: []
+```
+
+Manager 판정: 사실이다. 재개 문안에는 실행 주체와 E4·별도 승인 지점의 대체가 없었다. 승인 문안대로 고치지 않고 Owner에게 보고했다.
+
+## Owner 결정: Repair 1 (원문)
+
+```text
+[Manager 선택지 1 문안]
+E4와 Start 승인 3항의 별도 승인 지점을 대체한다. Reviewer와 QA가 같은 candidate에서 PASS하면 Manager가 다섯 건의 Hold Preview/Confirm, Evidence, Complete Preview/Confirm을 직접 수행한다. repair 1회를 승인한다.
+
+[Owner 답]
+1번으로 해
+```
+
+## Repair 1
+
+- R3 해석에서 "Manager가 진행한다"와 "바뀌었다" 서술을 빼고, 실행 주체와 대체는 이 결정으로 확정됐다고 적었다.
+- 이 결정에 맞춰 summary 줄, 실행 계획 4·5단계, Hold 절차를 Manager 직접 수행으로 고치고 처음 계획을 함께 적었다. B4·C4·C6 해석, 재개 절, "Owner 결정: E1~E4 (원문)"과 "Owner 결정: Start 승인 (원문)" 아래의 Manager 문단에는 대체 표시만 더했다. 다섯 task 기록은 바꾸지 않았다.
+- 기준선 budget 행을 `repair_count=1`로 고쳤다(예산 1/1 소진). 새 candidate에서 유효한 지적이 나오면 고치지 않고 보고한다.
+- updated_at은 이 repair 편집 시각 2026-10-21 04:54 UTC다(편집 스크립트가 UTC 시계를 읽어 넣음).
