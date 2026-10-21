@@ -2,11 +2,12 @@
 
 - id: `task-0180-closed-status`
 - title: `CLOSED 상태와 Console Close 구현`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-21 10:28 UTC`
-- updated_at: `2026-10-21 11:41 UTC`
+- updated_at: `2026-10-21 11:51 UTC`
 - summary: `task-0178 설계 C안대로 새 종결 상태 CLOSED와 closed_reason을 구현한다. DOING에서 CLOSED로 가는 전이 하나만 열고, 수동 task(source_command가 /task가 아닌 task)만 대상으로 하며, 사유는 completion_evidence와 같은 형식 규칙으로 상태와 함께 원자적으로 쓴다. 경로는 Console Close(Preview 뒤 CLOSE TASK Confirm)뿐이고 Discord 종료 명령은 두지 않는다. CLOSED는 되돌리지 않는다. 이 task는 어떤 기존 task도 닫지 않는다. task-0175·0031을 닫을지는 구현 뒤 Owner가 정한다.`
+- completion_evidence: `candidate d49e187b3bf5f91e582ccadf480a29aca7aebe64 (baseline 4b7cb20, repairs 1-2 per Owner decisions 3-4). Reviewer PASS, findings 0, self_deviations 0. QA PASS 38/38 in fresh CRLF worktrees: 15 scope files, 132 records parse as before, task-0031 copy closes via CLOSE TASK changing only status, closed_reason, updated_at, then all Console actions and /go forms refused, Worker-path copy refused, Close shown only for manual DOING, self-check 108, smoke suites and validator PASS. No task closed.`
 - source_command: `Owner 지시: task-0180 등록하고 Start (Claude Code 세션)`
 
 ## 기준선
