@@ -260,6 +260,13 @@ DONE 경로는 두 가지다. 수동 SOP 작업의 DONE은 위 조건을 만족�
 Console Complete(Preview + Confirm)로 결정한다. §10 Worker 파이프라인의 자동
 DONE은 §10.2의 적용 조건을 만족할 때만 파이프라인이 기록한다.
 
+DONE이 아닌 종결도 있다. `DOING`인 수동 SOP 작업을 위 조건 없이 끝내야 할 때
+Owner는 그 작업을 `CLOSED`로 닫기로 결정할 수 있고, 닫기는 Jarvis Console Close(Preview +
+Confirm)로만 하며 종료 사유를 `closed_reason`에 남긴다(`docs/task-model.md` 13절).
+`CLOSED`는 완료가 아니고 위 조건을 만족했다는 증거도 아니므로 Manager는 이를 완료로
+보고하지 않는다. `CLOSED`는 되돌릴 수 없어 다시 하려면 새 task를 만든다. §10
+Worker 파이프라인 task는 Close 대상이 아니다.
+
 Owner의 minor finding 수용(수동 경로 한정). Reviewer FINDINGS의 지적이 모두
 minor이면 Owner는 지적별로 수용할 수 있고, 그때 같은 candidate로 QA를 진행한다.
 
