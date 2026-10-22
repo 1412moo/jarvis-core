@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-22 05:30 UTC`
-- updated_at: `2026-10-22 15:02 UTC`
+- updated_at: `2026-10-22 15:20 UTC`
 - summary: `Worker 파이프라인 앞에 팀장(Lead) 단계를 더한다. 작업 종류 표지어가 없는 /work 요청이면 읽기 전용 Claude 팀장이 저장소를 살펴 계획(작업 종류, 단계, 위험도, Owner 결정 필요 여부)을 세워 Discord에 올리고, 기존 작업 종류에 맞으면 그 종류의 TODO task를 만들어 /go를 안내하며 맞지 않으면 이유만 보고한다. 실행은 지금처럼 Owner의 /go로만 시작하고 새 비용·외부 연결은 없다.`
 - source_command: `Owner 지시: 팀장 단계 v0.1 시작 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `e069fa07b2febe80bc9de973404843713d70cbe0` (등록 시점 main HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=3`, `repair_count=3` (SOP §5 기본값 1에 Owner 결정 3·4로 1회씩 증액, 사용 내역은 Repair 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=4`, `repair_count=4` (SOP §5 기본값 1에 Owner 결정 3·4·5로 1회씩 증액, 사용 내역은 Repair 절) |
 | 배경 | Owner의 최종 목표(Discord 지시 → AI 팀장 계획·배분 → 실무·검토·수정 → 보고) 대비 현황 조사에서 가장 큰 병목이 팀장 단계 부재로 확인됨 |
 
 ## Owner 결정 (원문)
@@ -97,6 +97,24 @@ repair 예산을 1회 추가해 줘. 보안 관련 major 지적을 우선 해결
 push는 하지 마.
 ```
 
+## Owner 결정 5: 등록 정보는 폴더가 없을 때만 제거 (원문)
+
+```text
+[Manager 질문]
+선택지
+1. (권장) repair 예산을 1회 더 늘려 고칩니다.
+2. SOP §8에 따라 이 minor 지적을 수용하고, 같은 candidate ac136ef로 바로 QA → 완료로 갑니다.
+
+[Owner 답]
+1번 승인. repair 예산을 1회 추가해 줘.
+
+Git worktree 등록 정보는 실제 임시 폴더가 존재하지 않을 때만 제거하도록 수정해 줘. 폴더 삭제에 실패해 실제 폴더가 남아 있다면 등록 정보를 유지하고, 정리 실패를 명확하게 기록하도록 해 줘.
+
+이 조건을 검증하는 회귀 테스트를 추가해 줘. 변경 범위는 팀장 임시 worktree의 생성 실패 정리로 한정하고, 새 candidate에서 Reviewer → QA → 완료 절차를 진행해 줘.
+
+추가 지적이 나오더라도 승인 범위를 임의로 넓히지 말고 보고해 줘. push는 하지 마.
+```
+
 ## 설계 (v0.1)
 
 1. 진입: `/work <요청>`에 작업 종류 표지어가 있으면 지금과 같다. 없으면(지금은 `unsupported_work_kind` hold) 팀장 단계로 간다. 자연어 일반 메시지의 팀장 연결은 v0.1에서 하지 않는다(자연어 처리 경로와 그 테스트 계약을 따로 바꿔야 함).
@@ -141,7 +159,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 ## Implementer 검증 (작업 트리)
 
 - 실제 `claude`로 팀장을 1회 실행했다(읽기 전용, 25초, 저장소 변경 없음): 요청 "Studyroom 용어집에 RAG 용어를 하나 추가해 줘"에 형식에 맞는 계획(studyroom_content, 단계 5개, risk low)을 냈다.
-- Worker smoke total=535 failed=0(이전 494에 41개, repair 1~3의 검사 포함), Discord self-check ok 109, discord-nl-intent smoke 통과, Console smoke 통과, SOP validator PASS.
+- Worker smoke total=537 failed=0(이전 494에 43개, repair 1~4의 검사 포함), Discord self-check ok 109, discord-nl-intent smoke 통과, Console smoke 통과, SOP validator PASS.
 - 사전 점검(`check_task_record`, baseline `e069fa0`): status=PASS, staged_files 7, violations 0.
 
 ## Self-review
@@ -168,6 +186,8 @@ candidate 전 1회(읽기 전용 self-reviewer, Owner 결정 2 전). major 3·mi
 | C3 | Owner 결정 3: repair 예산과 자연어 연결 (원문) | "일반 자연어 메시지 연결은 v0.2로 미뤄 줘. 이번 task에 추가하지 말고, 필요한 호출 규칙과 테스트 계약을 별도 후속 작업으로 정리해 줘." / "기존 승인 정책과 작업 범위를 유지하면서 진행하고, push는 하지 마." | 자연어 연결은 넣지 않았고, 호출 규칙·원문 보존·테스트 계약·비용을 후속 작업 절에 정리했다. 승인 정책(`/go`, Owner 전용)과 범위 7개 파일은 그대로이고 push는 하지 않는다 |
 | C4 | Owner 결정 4: worktree 생성 실패 정리 (원문) | "[Manager 질문]" / "선택지" / "1. (권장) repair 예산을 1회 더 늘려 고칩니다." / "2. SOP §8에 따라 이 minor 지적을 수용하고, 같은 candidate로 바로 QA → 완료로 갑니다." / "[Owner 답]" / "1번 승인. repair 예산을 1회 추가해 줘." / "임시 worktree 생성 단계에서 실패했을 때 임시 폴더와 생성 도중 남은 worktree 및 Git 등록 정보가 정리되도록 수정해 줘. 실제 정리 여부를 확인하는 회귀 테스트도 추가해 줘." | repair 예산을 3으로 기록하고 repair 3을 썼다. 생성 실패 때도 worktree 제거, 이 팀장 임시 폴더를 가리키는 git 등록 정보만 삭제, 임시 폴더 삭제를 하며, 실제 상태를 확인하는 검사 3개를 더했다 |
 | C5 | Owner 결정 4: worktree 생성 실패 정리 (원문) | "변경 범위는 이 실패 정리 문제로 한정하고, 새 candidate에서 Reviewer → QA → 완료 절차를 진행해 줘. 추가 문제가 발견되더라도 승인 범위를 넘어 확장하지 말고 필요한 경우 보고해 줘." / "push는 하지 마." | 바꾼 것은 `claude_lead.py`의 생성·정리 함수, 그 검사, SOP 팀장 문단의 정리 문장, 이 기록뿐이다. push는 하지 않는다 |
+| C6 | Owner 결정 5: 등록 정보는 폴더가 없을 때만 제거 (원문) | "[Manager 질문]" / "선택지" / "1. (권장) repair 예산을 1회 더 늘려 고칩니다." / "2. SOP §8에 따라 이 minor 지적을 수용하고, 같은 candidate ac136ef로 바로 QA → 완료로 갑니다." / "[Owner 답]" / "1번 승인. repair 예산을 1회 추가해 줘." / "Git worktree 등록 정보는 실제 임시 폴더가 존재하지 않을 때만 제거하도록 수정해 줘. 폴더 삭제에 실패해 실제 폴더가 남아 있다면 등록 정보를 유지하고, 정리 실패를 명확하게 기록하도록 해 줘." | repair 예산을 4로 기록하고 repair 4를 썼다. 등록 정보는 그 worktree 폴더가 없을 때만 지우고, 폴더가 남으면 등록 정보를 남긴 채 임시 폴더 삭제 실패와 등록 정보 유지를 각각 로그 줄로 남긴다 |
+| C7 | Owner 결정 5: 등록 정보는 폴더가 없을 때만 제거 (원문) | "이 조건을 검증하는 회귀 테스트를 추가해 줘. 변경 범위는 팀장 임시 worktree의 생성 실패 정리로 한정하고, 새 candidate에서 Reviewer → QA → 완료 절차를 진행해 줘." / "추가 지적이 나오더라도 승인 범위를 임의로 넓히지 말고 보고해 줘. push는 하지 마." | 검사 2개를 더했다(폴더 삭제 실패 시 등록 정보 유지·로그·다른 기록 무변경, 그 뒤 정리로 모두 사라짐). 바꾼 것은 `claude_lead.py`의 정리 함수, 그 검사, SOP 팀장 문단의 정리 문장, 이 기록뿐이다. push는 하지 않는다 |
 
 ## Repair
 
@@ -177,6 +197,8 @@ candidate 전 1회(읽기 전용 self-reviewer, Owner 결정 2 전). major 3·mi
 - repair 2(`repair_count=2`, Owner 결정 3): 팀장을 저장소 밖 임시 detached worktree(HEAD의 커밋된 파일만)에서 실행하고 끝나면 지운다(만들 수 없으면 실행하지 않음). 실패 결과에서 응답 원문 필드를 없애 Discord에는 사유 코드만 간다. 테스트: 추적되지 않는 `jarvis.bat`·`.env`를 둔 clone에서 팀장 실행 위치에 그 파일이 없고 위치가 저장소 밖이며 끝난 뒤 사라지는지, worktree를 못 만들면 실패하는지, 형식 오류·비정상 종료 때 모델 문장과 stderr가 답에 없는지(Worker smoke total=533 failed=0). SOP §10.1 진입 명령 행·팀장 문단, README의 결과 보고 줄·팀장 설명을 실제 동작에 맞췄다. 자연어 연결은 Owner 결정 3으로 v0.2에 미뤘다.
 - candidate `8bc3a891ae22f9dc778d65c16a94955867d76765`: Reviewer FINDINGS(유효, self_deviations 0), minor 1건: 임시 worktree를 만드는 단계에서 실패하면 임시 폴더와 만들다 만 worktree·git 등록 정보가 남을 수 있었고, SOP·기록은 "끝나면 지운다"고만 적었다.
 - repair 3(`repair_count=3`, Owner 결정 4): `_lead_worktree`가 실패하면 `_remove_lead_worktree`로 정리하고 다시 실패를 올린다. `_remove_lead_worktree`는 worktree 제거와 임시 폴더 삭제 뒤, git의 worktree 기록 중 gitdir이 이 팀장의 임시 폴더 안을 가리키는 것만 지운다(`_drop_lead_registrations`, 다른 worktree 기록은 건드리지 않음). 검사 3개: 저장소가 아닌 곳에서 실패해도 임시 폴더가 남지 않음, `git worktree add`가 tree를 만든 뒤 실패해도 tree·git 기록·임시 폴더가 모두 사라지고 worktree 목록이 그대로임, 폴더만 지워진 기록은 그 기록만 지워지고 다른 기록은 그대로임(Worker smoke total=535 failed=0). SOP 팀장 문단의 정리 문장을 생성 실패까지 포함하도록 고쳤다.
+- candidate `ac136effeee474af9923fca4a8731c00648f1f56`: Reviewer FINDINGS(유효, self_deviations 0), minor 1건: `_drop_lead_registrations`가 설명과 달리 폴더가 남았는지 보지 않고 이 팀장 임시 폴더를 가리키는 기록을 모두 지워, 폴더 삭제가 조용히 실패하면 git 목록 밖에 tree가 남을 수 있었다.
+- repair 4(`repair_count=4`, Owner 결정 5): 기록은 그 worktree 폴더가 없을 때만 지우고, 남아 있으면 기록을 유지하며 `[lead] cleanup incomplete: worktree folder … remains; its git record is kept`를 남긴다. `_remove_lead_worktree`는 임시 폴더가 남으면 `[lead] cleanup failed: temporary folder … remains`를 남긴다. 검사 2개: worktree 제거와 폴더 삭제가 모두 실패하는 경우에 tree가 남고, 기록이 유지되어 git 목록에 보이고, 두 로그 줄이 나오고, 심어 둔 다른 기록은 그대로인지; 그 뒤 정리를 다시 돌리면 tree·기록·폴더가 모두 사라지고 심어 둔 기록은 남는지(Worker smoke total=537 failed=0). SOP 팀장 문단에 이 동작을 적었다.
 
 ## 후속 작업 (v0.2 후보, Owner 결정 3)
 

@@ -897,6 +897,59 @@ def lead_flow(bot, clone: Path, status_of) -> None:
     check("lead: git's record of a removed lead tree is dropped, and no other worktree record is touched",
           orphan.reason == "lead_failed:worktree" and worktree_records() == records_before
           and git(["worktree", "list", "--porcelain"], clone) == list_before, str(worktree_records()))
+
+    # task-0183 repair 4: when the folder cannot be deleted (a locked file, say), git's record is kept,
+    # so the leftover tree stays listed, and the failure is logged. A planted record of another worktree
+    # is never touched either way.
+    import contextlib
+    import io
+
+    other = clone / ".git" / "worktrees" / "other-planted"
+    other.mkdir(parents=True, exist_ok=True)
+    (other / "gitdir").write_text(str(clone.parent / "elsewhere" / "tree" / ".git") + "\n", encoding="utf-8")
+    real_run = claude_worker._run
+    real_rmtree = claude_lead.shutil.rmtree
+
+    def keep_tree_run(args, **kwargs):
+        if list(args[:3]) == ["git", "worktree", "remove"]:
+            return subprocess.CompletedProcess(list(args), 1, "", "simulated: cannot remove")
+        return real_run(args, **kwargs)
+
+    def rmtree_keeping_lead(path, *args, **kwargs):
+        if Path(path).name.startswith("jarvis-lead-"):
+            return None
+        return real_rmtree(path, *args, **kwargs)
+
+    records_before = worktree_records()
+    dirs_before = lead_dirs()
+    made.clear()
+    log = io.StringIO()
+    claude_worker._git = add_then_fail
+    claude_worker._run = keep_tree_run
+    claude_lead.shutil.rmtree = rmtree_keeping_lead
+    try:
+        with contextlib.redirect_stdout(log):
+            stuck = claude_lead.run_lead("x", runner=answer(LEAD_OK))
+    finally:
+        claude_worker._git = real_git
+        claude_worker._run = real_run
+        claude_lead.shutil.rmtree = real_rmtree
+    kept = [name for name in worktree_records() if name not in records_before]
+    stuck_tree = Path(made[0]) if made else Path("missing")
+    logged = log.getvalue()
+    check("lead: a folder that could not be deleted keeps its git record and the failure is logged",
+          stuck.reason == "lead_failed:worktree" and stuck_tree.exists() and len(kept) == 1
+          and str(stuck_tree.name) in git(["worktree", "list"], clone)
+          and "[lead] cleanup failed: temporary folder" in logged
+          and "[lead] cleanup incomplete: worktree folder" in logged and "git record is kept" in logged
+          and (other / "gitdir").exists(), f"{stuck.reason} kept={kept} log={logged!r}")
+    # Now the real cleanup can finish the job: the tree, its record and the folder go; the planted
+    # record of another worktree stays.
+    claude_lead._remove_lead_worktree(clone, stuck_tree)
+    check("lead: a later cleanup removes the leftover tree, its record and its folder, and only those",
+          not stuck_tree.exists() and worktree_records() == records_before and lead_dirs() == dirs_before
+          and (other / "gitdir").exists(), f"records={worktree_records()} dirs={sorted(lead_dirs() - dirs_before)}")
+    shutil.rmtree(other, ignore_errors=True)
     bad_answers = {
         "unexpected_line": LEAD_OK + "extra words\n",
         "missing": LEAD_OK.replace("risk: low\n", ""),

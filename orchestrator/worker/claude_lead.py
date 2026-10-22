@@ -196,8 +196,9 @@ def _lead_worktree(repo_root: Path) -> Path:
 
 
 def _drop_lead_registrations(repo_root: Path, parent: Path) -> None:
-    """Remove git's record of any worktree inside `parent` whose files are gone. Only records whose
-    gitdir points into this lead's own temporary parent are touched; other worktrees are left alone."""
+    """Remove git's record of a worktree inside `parent` only when that worktree's folder no longer
+    exists. Records whose gitdir points elsewhere are never touched. A record whose folder is still on
+    disk is kept, so git keeps listing the leftover tree, and the failure is logged (task-0183 repair 4)."""
 
     completed = claude_worker._run(["git", "rev-parse", "--git-common-dir"], cwd=repo_root,
                                    timeout=claude_worker.GIT_TIMEOUT_SECONDS)
@@ -216,13 +217,19 @@ def _drop_lead_registrations(repo_root: Path, parent: Path) -> None:
             target = gitdir.read_text(encoding="utf-8").strip().replace("\\", "/").lower()
         except OSError:
             continue
-        if target.startswith(own + "/"):
-            shutil.rmtree(record, ignore_errors=True)
+        if not target.startswith(own + "/"):
+            continue
+        tree = Path(target).parent
+        if tree.exists():
+            print(f"[lead] cleanup incomplete: worktree folder {tree} remains; its git record is kept")
+            continue
+        shutil.rmtree(record, ignore_errors=True)
 
 
 def _remove_lead_worktree(repo_root: Path, path: Path) -> None:
     """Remove the lead's worktree, git's record of it and its temporary parent, also when the worktree
-    was only half made. Best effort; never raises."""
+    was only half made. If the folder cannot be deleted, the failure is logged and git's record is
+    kept, so the leftover tree stays listed. Best effort; never raises."""
 
     try:
         claude_worker._run(["git", "worktree", "remove", "--force", str(path)], cwd=repo_root,
@@ -230,6 +237,8 @@ def _remove_lead_worktree(repo_root: Path, path: Path) -> None:
     except Exception:  # noqa: BLE001 - a leftover temp tree must not fail the lead
         pass
     shutil.rmtree(path.parent, ignore_errors=True)
+    if path.parent.exists():
+        print(f"[lead] cleanup failed: temporary folder {path.parent} remains")
     try:
         _drop_lead_registrations(repo_root, path.parent)
     except Exception:  # noqa: BLE001 - see above
