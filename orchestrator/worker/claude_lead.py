@@ -214,12 +214,13 @@ def _drop_lead_registrations(repo_root: Path, parent: Path) -> None:
     for record in records.iterdir():
         gitdir = record / "gitdir"
         try:
-            target = gitdir.read_text(encoding="utf-8").strip().replace("\\", "/").lower()
+            written = gitdir.read_text(encoding="utf-8").strip()
         except OSError:
             continue
-        if not target.startswith(own + "/"):
+        # Case-folded only to decide ownership; the folder check uses the path exactly as git wrote it.
+        if not written.replace("\\", "/").lower().startswith(own + "/"):
             continue
-        tree = Path(target).parent
+        tree = Path(written).parent
         if tree.exists():
             print(f"[lead] cleanup incomplete: worktree folder {tree} remains; its git record is kept")
             continue

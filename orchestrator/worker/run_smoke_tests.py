@@ -939,7 +939,10 @@ def lead_flow(bot, clone: Path, status_of) -> None:
     logged = log.getvalue()
     check("lead: a folder that could not be deleted keeps its git record and the failure is logged",
           stuck.reason == "lead_failed:worktree" and stuck_tree.exists() and len(kept) == 1
-          and str(stuck_tree.name) in git(["worktree", "list"], clone)
+          # The kept record is the leftover tree's own: its gitdir names that exact folder.
+          and Path((clone / ".git" / "worktrees" / kept[0] / "gitdir").read_text(encoding="utf-8").strip()).parent.resolve()
+          == stuck_tree.resolve()
+          and str(stuck_tree.parent.name) in git(["worktree", "list", "--porcelain"], clone)
           and "[lead] cleanup failed: temporary folder" in logged
           and "[lead] cleanup incomplete: worktree folder" in logged and "git record is kept" in logged
           and (other / "gitdir").exists(), f"{stuck.reason} kept={kept} log={logged!r}")
