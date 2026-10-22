@@ -1855,7 +1855,7 @@ def _run_lead_job(request: str) -> dict[str, Any]:
     lead = claude_lead.run_lead(request)
     result: dict[str, Any] = {"result_type": "lead_result", "request": request, "ok": lead.ok, "reason": lead.reason}
     if not lead.ok or lead.plan is None:
-        result["excerpt"] = lead.raw_excerpt
+        # task-0183 repair 2: only the reason code; the model's answer text never reaches Discord.
         return result
     plan = lead.plan
     result["plan"] = {
@@ -2496,10 +2496,9 @@ def _format_lead_reply(result: dict[str, Any]) -> str:
         return f"🧭 팀장 검토 시작: {result.get('request')}\n- 읽기 전용으로 저장소를 살펴 계획을 세웁니다. 끝나면 이 메시지에 여는 스레드에 올립니다(스레드를 열 수 없으면 이 채널)."
     plan = result.get("plan") or {}
     if not result.get("ok") and not plan:
-        excerpt = _discord_safe(result.get("excerpt") or "")
         return (
             "⚠️ 팀장 계획 실패: 아무 task도 만들지 않았습니다.\n"
-            f"- reason: `{result.get('reason')}`" + (f"\n- 응답 일부: {excerpt[:200]}" if excerpt else "")
+            f"- reason: `{_discord_safe(result.get('reason') or '')}`"
         )
     plan = {key: (_discord_safe(value) if isinstance(value, str) else value) for key, value in plan.items()}
     plan["steps"] = [_discord_safe(step) for step in plan.get("steps") or []]

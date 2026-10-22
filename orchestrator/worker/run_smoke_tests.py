@@ -792,6 +792,25 @@ def lead_flow(bot, clone: Path, status_of) -> None:
 
     import claude_lead
 
+    # task-0183 repair 2: the lead runs in a clean worktree of the clone. The clone gets an untracked
+    # jarvis.bat and .env here, which must never be visible to the lead.
+    claude_lead.LEAD_REPO_ROOT = clone
+    secret_files = [clone / "jarvis.bat", clone / ".env"]
+    for path in secret_files:
+        path.write_text("SECRET-DO-NOT-SHOW\n", encoding="utf-8")
+    seen_roots: list[dict] = []
+
+    def inspecting(prompt: str, root: Path) -> subprocess.CompletedProcess:
+        seen_roots.append({
+            "root": root,
+            "exists": root.is_dir(),
+            "outside": not str(root.resolve()).startswith(str(clone.resolve())),
+            "committed": (root / "apps" / "studyroom" / "content" / "glossary.json").is_file(),
+            "secrets": [p.name for p in (root / "jarvis.bat", root / ".env") if p.exists()],
+            "status": git(["status", "--porcelain", "--untracked-files=all"], root),
+        })
+        return answer(LEAD_OK)(prompt, root)
+
     def answer(text: str, returncode: int = 0, as_json: bool = True):
         out = json.dumps({"result": text}) if as_json else text
         return lambda prompt, root: subprocess.CompletedProcess(["claude"], returncode, out, "")
@@ -809,6 +828,20 @@ def lead_flow(bot, clone: Path, status_of) -> None:
           bool(prompts) and all(k.name in prompts[0] and k.allowed_prefix in prompts[0] for k in claude_worker.WORK_KINDS)
           and "jarvis.bat" in prompts[0] and "never change anything" in prompts[0])
     check("lead: plain (non-JSON) output is read too", claude_lead.run_lead("x", runner=answer(LEAD_OK, as_json=False)).ok)
+    inspected = claude_lead.run_lead("x", runner=inspecting)
+    root_info = seen_roots[0] if seen_roots else {}
+    check("lead: it runs in a clean worktree of HEAD outside the repository, with no jarvis.bat or .env",
+          inspected.ok and root_info.get("exists") and root_info.get("outside") and root_info.get("committed")
+          and root_info.get("secrets") == [] and root_info.get("status") == "", str(root_info))
+    check("lead: the worktree is gone afterwards and git no longer lists it",
+          bool(root_info) and not Path(root_info["root"]).exists()
+          and str(root_info["root"]).replace("\\", "/") not in git(["worktree", "list"], clone).replace("\\", "/"))
+    not_a_repo = Path(tempfile.mkdtemp(prefix="jarvis-lead-notrepo-"))
+    try:
+        no_tree = claude_lead.run_lead("x", repo_root=not_a_repo, runner=answer(LEAD_OK))
+    finally:
+        shutil.rmtree(not_a_repo, ignore_errors=True)
+    check("lead: no clean worktree, no lead (fail closed)", no_tree.reason == "lead_failed:worktree" and no_tree.plan is None)
     bad_answers = {
         "unexpected_line": LEAD_OK + "extra words\n",
         "missing": LEAD_OK.replace("risk: low\n", ""),
@@ -852,14 +885,20 @@ def lead_flow(bot, clone: Path, status_of) -> None:
 
         for label, text in (("none", LEAD_OK.replace("kind: studyroom_content", "kind: none")
                                      .replace("owner_decision: none", "owner_decision: README는 등록된 작업 종류 밖")),
-                            ("malformed", "nonsense")):
+                            ("malformed", "nonsense SECRET-DO-NOT-SHOW from the model")):
             claude_lead._run_claude = answer(text)
             before = names()
             job = bot._run_lead_job("README 문장 고쳐줘")
             reply = bot._format_reply(job)
             check(f"lead job: {label} creates no task and says why", names() == before and job.get("task_id") is None
                   and (("Owner 결정 필요: README는 등록된 작업 종류 밖" in reply and "task를 만들지 않았습니다" in reply)
-                       if label == "none" else ("팀장 계획 실패" in reply and "lead_answer_malformed" in reply)), reply)
+                       if label == "none" else ("팀장 계획 실패" in reply and "lead_answer_malformed" in reply
+                                                and "SECRET-DO-NOT-SHOW" not in reply and "nonsense" not in reply
+                                                and "excerpt" not in job)), reply)
+        claude_lead._run_claude = lambda prompt, root: subprocess.CompletedProcess(["claude"], 1, "", "SECRET-DO-NOT-SHOW in stderr")
+        failed_reply = bot._format_reply(bot._run_lead_job("x"))
+        check("lead job: a failed lead shows only its reason code, never stderr or model text",
+              "lead_failed:exit" in failed_reply and "SECRET-DO-NOT-SHOW" not in failed_reply, failed_reply)
         claude_lead._run_claude = answer(LEAD_OK.replace("title: Studyroom", "title: daily ai radar와 Studyroom")
                                          .replace("kind: studyroom_content", "kind: daily_ai_radar"))
         before = names()
@@ -929,6 +968,9 @@ def lead_flow(bot, clone: Path, status_of) -> None:
             os.environ.pop("FAKE_LOG", None)
     finally:
         claude_lead._run_claude = real_run_claude
+        claude_lead.LEAD_REPO_ROOT = None
+        for path in secret_files:
+            path.unlink(missing_ok=True)
 
 
 def discussion_flow(bot, clone: Path, status_of) -> None:

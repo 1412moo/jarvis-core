@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-22 05:30 UTC`
-- updated_at: `2026-10-22 07:16 UTC`
+- updated_at: `2026-10-22 14:48 UTC`
 - summary: `Worker 파이프라인 앞에 팀장(Lead) 단계를 더한다. 작업 종류 표지어가 없는 /work 요청이면 읽기 전용 Claude 팀장이 저장소를 살펴 계획(작업 종류, 단계, 위험도, Owner 결정 필요 여부)을 세워 Discord에 올리고, 기존 작업 종류에 맞으면 그 종류의 TODO task를 만들어 /go를 안내하며 맞지 않으면 이유만 보고한다. 실행은 지금처럼 Owner의 /go로만 시작하고 새 비용·외부 연결은 없다.`
 - source_command: `Owner 지시: 팀장 단계 v0.1 시작 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `e069fa07b2febe80bc9de973404843713d70cbe0` (등록 시점 main HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (SOP §5 기본값 1에 Owner 결정 3으로 1회 증액, 사용 내역은 Repair 절) |
 | 배경 | Owner의 최종 목표(Discord 지시 → AI 팀장 계획·배분 → 실무·검토·수정 → 보고) 대비 현황 조사에서 가장 큰 병목이 팀장 단계 부재로 확인됨 |
 
 ## Owner 결정 (원문)
@@ -57,10 +57,32 @@
 구현 후 candidate를 만들고 Reviewer → QA → 완료 절차를 진행해 줘. 중간에 유효한 지적이 나오면 무조건 중단하기보다 현재 승인된 수정 범위와 남은 repair 예산 안에서 해결을 시도해 줘. Owner 결정이 반드시 필요한 경우에만 멈추고 이유를 설명해 줘.
 ```
 
+## Owner 결정 3: repair 예산과 자연어 연결 (원문)
+
+```text
+[Manager 질문]
+결정해 주실 것
+1. repair 예산 +1회: 위 1~3번을 고치는 데 씁니다.
+2. 자연어 지시 연결
+- A (권장): v0.2로 미룹니다.
+- B: 이번 task에 포함합니다.
+
+[Owner 답]
+1 승인, A.
+
+repair 예산을 1회 추가해 줘. 보안 관련 major 지적을 우선 해결하고, 새 candidate에서 Reviewer → QA → 완료 절차를 진행해 줘.
+
+팀장은 메인 작업 트리 대신 커밋된 파일만 있는 임시 worktree에서 실행하도록 하고, 실패 시 응답 원문은 Discord에 노출하지 말고 사유 코드만 전달해 줘. 관련 테스트도 추가해 회귀를 방지하고, SOP와 README의 실제 동작 불일치도 수정해 줘.
+
+일반 자연어 메시지 연결은 v0.2로 미뤄 줘. 이번 task에 추가하지 말고, 필요한 호출 규칙과 테스트 계약을 별도 후속 작업으로 정리해 줘.
+
+기존 승인 정책과 작업 범위를 유지하면서 진행하고, push는 하지 마.
+```
+
 ## 설계 (v0.1)
 
 1. 진입: `/work <요청>`에 작업 종류 표지어가 있으면 지금과 같다. 없으면(지금은 `unsupported_work_kind` hold) 팀장 단계로 간다. 자연어 일반 메시지의 팀장 연결은 v0.1에서 하지 않는다(자연어 처리 경로와 그 테스트 계약을 따로 바꿔야 함).
-2. 팀장 실행: 새 모듈 `orchestrator/worker/claude_lead.py`. 기존 Worker와 같은 `claude` CLI(현재 로그인, 새 비용 없음)를 `-p`로 저장소 루트에서 읽기 전용으로 부른다(Read·Grep·Glob만 허용, 편집·Bash·웹 도구 금지, plan 권한 모드, 시간 제한). 한 번에 하나만 돌고, Worker 잠금은 잡지 않는다(파일을 바꾸지 않음).
+2. 팀장 실행: 새 모듈 `orchestrator/worker/claude_lead.py`. 기존 Worker와 같은 `claude` CLI(현재 로그인, 새 비용 없음)를 `-p`로 커밋된 파일만 있는 임시 worktree에서(repair 2, 처음에는 저장소 루트) 읽기 전용으로 부른다(Read·Grep·Glob만 허용, 편집·Bash·웹 도구 금지, plan 권한 모드, 시간 제한). 한 번에 하나만 돌고, Worker 잠금은 잡지 않는다(파일을 바꾸지 않음).
 3. 팀장 출력: 정해진 필드(작업 종류 또는 none, 제목, 단계, 위험도, Owner 결정 필요 여부, Worker 지시)만 받고, 형식이 하나라도 어긋나면 실패로 본다(fail closed).
 4. 결과 처리: 작업 종류가 등록된 종류면 그 종류의 표지어를 붙인 제목으로 기존 `/task` 경로의 TODO task를 만들고 계획과 `/go <task-id>`를 Discord에 올린다. none이거나 실패면 task를 만들지 않고 이유를 보고한다. Owner 결정 필요로 표시되면 그 사유를 함께 보인다. 실행은 Owner의 `/go`로만 시작한다.
 5. (Owner 결정 2로 바뀜) 작업별 Discord 스레드에 팀장 계획, 진행, Reviewer 판정·지적 요지, Worker 수정 결과, 최종 결과를 모은다. 지적 요지와 수정 결과는 파이프라인이 이미 가진 값(Reviewer 보고의 findings 발췌, 수정 candidate의 변경 파일과 테스트 요약)만 쓰고, 알림 실패는 판정에 영향을 주지 않는다.
@@ -86,7 +108,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 
 ## 구현
 
-- `orchestrator/worker/claude_lead.py`(새 파일): 팀장 프롬프트(등록된 작업 종류와 허용 경로·테스트를 나열, 아무것도 바꾸지 않음, `jarvis.bat`·`.env` 금지, worker_request는 Owner 참고용 제안), 읽기 전용 실행(`claude -p --permission-mode plan --allowedTools Read,Grep,Glob --disallowedTools Edit,Write,NotebookEdit,Bash,WebFetch,WebSearch`, 저장소 루트, 300초), 한 번에 하나(`lead_busy`), 출력 파서(필드 6개만, 종류는 등록된 이름 또는 none, none이면 이유 필수, 위험도 low·medium·high, 단계 1~7개, 한 줄·백틱 금지, 어긋나면 `lead_answer_malformed:*`), 시간 초과·비정상 종료·예외도 실패로 돌려준다. task 제목은 "종류 표지어: 팀장 제목"이고 그 제목이 다른 종류를 고르면 만들지 않는다.
+- `orchestrator/worker/claude_lead.py`(새 파일): 팀장 프롬프트(등록된 작업 종류와 허용 경로·테스트를 나열, 아무것도 바꾸지 않음, `jarvis.bat`·`.env` 금지, worker_request는 Owner 참고용 제안), 읽기 전용 실행(`claude -p --permission-mode plan --allowedTools Read,Grep,Glob --disallowedTools Edit,Write,NotebookEdit,Bash,WebFetch,WebSearch`, 300초; repair 2부터 저장소 밖 임시 detached worktree에서 실행하고 끝나면 지우며, 만들 수 없으면 `lead_failed:worktree`), 한 번에 하나(`lead_busy`), 출력 파서(필드 6개만, 종류는 등록된 이름 또는 none, none이면 이유 필수, 위험도 low·medium·high, 단계 1~7개, 한 줄·백틱 금지, 어긋나면 `lead_answer_malformed:*`), 시간 초과·비정상 종료·예외도 실패로 돌려준다. task 제목은 "종류 표지어: 팀장 제목"이고 그 제목이 다른 종류를 고르면 만들지 않는다.
 - `orchestrator/worker/claude_worker.py`(Owner 결정 2의 최소 변경): `_report_progress`가 선택적 detail을 받아 `progress(stage, detail)`로 부를 수 있게 했고(`PROGRESS_DETAIL_STAGES`), 알림 두 곳을 더했다. Reviewer 판정 직후 `review`(PASS, 또는 판정과 이미 계산된 `reviewer_excerpt` 300자), 수정 candidate를 만든 직후 `repaired`(그 단계에서 이미 구한 변경 파일과 테스트 요약, 300자). 판정·repair·QA·반영 로직과 기존 단계 알림은 그대로이고, 알림 예외는 지금처럼 무시된다.
 - `adapters/discord/bot_minimal.py`:
   - 표지어 없는 `/work`는 hold 대신 `lead_started`를 돌려주고, `on_message`가 이벤트 루프 밖에서 `_run_lead_job`을 돌린다.
@@ -101,7 +123,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 ## Implementer 검증 (작업 트리)
 
 - 실제 `claude`로 팀장을 1회 실행했다(읽기 전용, 25초, 저장소 변경 없음): 요청 "Studyroom 용어집에 RAG 용어를 하나 추가해 줘"에 형식에 맞는 계획(studyroom_content, 단계 5개, risk low)을 냈다.
-- Worker smoke total=528 failed=0(이전 494에 34개), Discord self-check ok 109, discord-nl-intent smoke 통과, Console smoke 통과, SOP validator PASS.
+- Worker smoke total=533 failed=0(이전 494에 39개, repair 1·2의 검사 포함), Discord self-check ok 109, discord-nl-intent smoke 통과, Console smoke 통과, SOP validator PASS.
 - 사전 점검(`check_task_record`, baseline `e069fa0`): status=PASS, staged_files 7, violations 0.
 
 ## Self-review
@@ -114,7 +136,7 @@ candidate 전 1회(읽기 전용 self-reviewer, Owner 결정 2 전). major 3·mi
 
 | # | 출처 | 원문 인용 | Manager 해석과 충족 |
 | --- | --- | --- | --- |
-| A1 | Owner 결정 (원문) | "[Manager 제안]" / "첫 번째로 실행할 작업: "팀장(Lead) 단계 v0.1"" / "- 내용: Discord에 자연어로 지시하면(또는 마커 없는 /work) Claude 팀장이 읽기 전용으로 저장소를 조사해 계획을 만들고, 그 계획을 Discord에 올립니다." | 마커 없는 `/work`로 구현했다. 일반 자연어 메시지 연결은 하지 않았다(설계 1항, 자연어 처리 경로 계약 변경 필요, v0.2 후보). 팀장은 읽기 전용이고 계획을 작업 스레드에 올린다 |
+| A1 | Owner 결정 (원문) | "[Manager 제안]" / "첫 번째로 실행할 작업: "팀장(Lead) 단계 v0.1"" / "- 내용: Discord에 자연어로 지시하면(또는 마커 없는 /work) Claude 팀장이 읽기 전용으로 저장소를 조사해 계획을 만들고, 그 계획을 Discord에 올립니다." | 마커 없는 `/work`로 구현했다. 일반 자연어 메시지 연결은 Owner 결정 3(C1)에 따라 v0.2로 미뤘고 후속 작업 절에 정리했다. 팀장은 커밋된 파일만 있는 임시 worktree에서 읽기 전용으로 돌고 계획을 작업 스레드에 올린다 |
 | A2 | Owner 결정 (원문) | "  - 계획에 담는 것: 무엇을 할지, 어느 작업 종류와 경로인지, 위험도, 승인이 필요한지" / "  - 기존 작업 종류에 맞으면 그 종류로 배정하고, 맞지 않으면 이유와 함께 "새 작업 종류 필요"로 보고합니다." | 계획에 제목·단계·작업 종류·수정 허용 경로·위험도·Owner 결정 필요·제안 지시를 보인다. 맞으면 TODO task를 만들고, 맞지 않으면 팀장이 반드시 이유를 적어야 하며(없으면 형식 오류로 실패) task를 만들지 않는다 |
 | A3 | Owner 결정 (원문) | "  - Owner가 /go 한 번만 누르면 기존 Worker → Reviewer → 수정 → QA → 반영이 이어집니다." | 종단 검사로 고정했다. 이때 Worker와 Reviewer는 Owner의 `/work` 원문만 받고, 판정·repair·QA·반영 로직은 바꾸지 않았다 |
 | A4 | Owner 결정 (원문) | "  - 각 단계의 의견(팀장 계획, Reviewer 지적, Worker 수정)을 Discord 스레드에 그대로 보여 줍니다." | Owner 결정 2(B1~B4)로 구현했다: 작업 스레드에 팀장 계획, Reviewer 판정과 지적 요지, Worker 수정 결과, 재검토 판정, 최종 결과 |
@@ -123,8 +145,22 @@ candidate 전 1회(읽기 전용 self-reviewer, Owner 결정 2 전). major 3·mi
 | B2 | Owner 결정 2: 진행 표시와 스레드 (원문) | "이번 task에 `claude_worker.py`의 최소 변경을 포함해서 Reviewer의 지적 요지, Worker의 수정 진행, 재검토 결과가 Discord에 표시되도록 해 줘. 작업별 Discord 스레드에 팀장 계획부터 최종 결과까지 모으는 것도 포함해 줘." / "다만 범위를 불필요하게 넓히지는 마." / "* 기존 Worker → Reviewer → 수정 → QA → DONE 파이프라인과 승인 정책은 최대한 그대로 유지할 것." | 지적 요지·수정 진행과 결과·재검토 판정 줄과 작업 스레드를 구현했다. 판정·repair 예산·QA·반영·승인 정책(`/go`, Owner 전용)은 바꾸지 않았다. 범위는 승인된 7개 파일이다 |
 | B3 | Owner 결정 2: 진행 표시와 스레드 (원문) | "* Reviewer 지적과 수정 결과는 기존 실행 결과에서 확인 가능한 내용을 전달하고, 새로운 판단이나 결과를 만들어 내지 말 것." / "* Discord 알림 실패가 작업 자체의 성공·실패 판정을 부당하게 바꾸지 않도록 처리할 것." / "* 민감한 정보나 불필요한 전체 프롬프트를 Discord에 노출하지 말고, 지적 요지와 수정 결과만 표시할 것." | 지적 요지는 기존 `reviewer_excerpt`, 수정 결과는 그 단계의 변경 파일과 테스트 요약만 쓴다. 알림·스레드 실패는 무시되거나 채널로 대체되며 판정을 바꾸지 않는다(모든 알림 실패 검사). 프롬프트 전문은 보내지 않고 멘션은 무력화한다 |
 | B4 | Owner 결정 2: 진행 표시와 스레드 (원문) | "* 기존 테스트와 종단 테스트를 갱신해 정상 흐름, Reviewer 지적 후 수정, 재검토, 알림 실패를 검증할 것." / "* 변경 파일과 승인 범위를 확인하고, 추가 범위가 필요하면 먼저 보고할 것." / "구현 후 candidate를 만들고 Reviewer → QA → 완료 절차를 진행해 줘. 중간에 유효한 지적이 나오면 무조건 중단하기보다 현재 승인된 수정 범위와 남은 repair 예산 안에서 해결을 시도해 줘. Owner 결정이 반드시 필요한 경우에만 멈추고 이유를 설명해 줘." | `progress_flow`·`discussion_flow`·`lead_flow`로 정상 흐름, 지적 뒤 수정, 재검토, 알림 실패, 스레드를 검증한다. 추가 범위는 필요하지 않았다. 이후 절차는 candidate → Reviewer → QA → 완료로 진행한다 |
+| C1 | Owner 결정 3: repair 예산과 자연어 연결 (원문) | "[Manager 질문]" / "결정해 주실 것" / "1. repair 예산 +1회: 위 1~3번을 고치는 데 씁니다." / "2. 자연어 지시 연결" / "- A (권장): v0.2로 미룹니다." / "- B: 이번 task에 포함합니다." / "[Owner 답]" / "1 승인, A." / "repair 예산을 1회 추가해 줘. 보안 관련 major 지적을 우선 해결하고, 새 candidate에서 Reviewer → QA → 완료 절차를 진행해 줘." | repair 예산을 2로 기록하고 repair 2를 썼다. 보안 major를 먼저 고쳤고 새 candidate에서 Reviewer → QA → 완료로 진행한다 |
+| C2 | Owner 결정 3: repair 예산과 자연어 연결 (원문) | "팀장은 메인 작업 트리 대신 커밋된 파일만 있는 임시 worktree에서 실행하도록 하고, 실패 시 응답 원문은 Discord에 노출하지 말고 사유 코드만 전달해 줘. 관련 테스트도 추가해 회귀를 방지하고, SOP와 README의 실제 동작 불일치도 수정해 줘." | 팀장은 저장소 밖 임시 detached worktree(HEAD의 커밋된 파일만)에서 돌고 끝나면 지워진다. 실패는 사유 코드만 Discord에 간다. 이 둘과 비밀 파일 부재를 Worker smoke로 고정했고, SOP §10.1 진입 명령 행·팀장 문단과 README를 고쳤다 |
+| C3 | Owner 결정 3: repair 예산과 자연어 연결 (원문) | "일반 자연어 메시지 연결은 v0.2로 미뤄 줘. 이번 task에 추가하지 말고, 필요한 호출 규칙과 테스트 계약을 별도 후속 작업으로 정리해 줘." / "기존 승인 정책과 작업 범위를 유지하면서 진행하고, push는 하지 마." | 자연어 연결은 넣지 않았고, 호출 규칙·원문 보존·테스트 계약·비용을 후속 작업 절에 정리했다. 승인 정책(`/go`, Owner 전용)과 범위 7개 파일은 그대로이고 push는 하지 않는다 |
 
 ## Repair
 
 - candidate `ec97141168d243d24f2084fb8df37ede8f555da1`: Reviewer FINDINGS, minor 2건. 같은 보고에 self_deviations 1건(허용 형식 밖의 `git log` 범위 표기)이 있어 그 검토는 무효다. 두 지적은 사실이라 고쳤다. (1) README는 스레드 전송 실패 시 채널로 보낸다고 했지만 진행 줄(지적·수정 줄 포함)에는 채널 대체가 없었다. (2) 팀장 시작 안내와 README 한 줄이 계획을 "이 채널"에 올린다고 했지만 실제로는 스레드에 올린다.
 - repair 1(`repair_count=1`, Owner 결정 2의 "현재 승인된 수정 범위와 남은 repair 예산 안에서 해결" 지시): 진행 줄도 스레드 다음 채널로 보내는 `_line_sender`를 더했고(둘 다 실패한 줄만 버리고 실행은 계속), 팀장 시작 안내·README·SOP 문장을 실제 경로(스레드, 실패 시 채널)에 맞췄으며, 이 대체 경로를 Worker smoke에 검사로 더했다(total=529 failed=0).
+- candidate `d69b7bddfdfbdb43ac5f19e83169dfd09029580c`: Reviewer FINDINGS(유효, self_deviations 0). major 1: 팀장이 메인 작업 트리에서 Read·Grep·Glob을 쓰므로 추적되지 않는 `jarvis.bat`·`.env`를 읽을 수 있고, 막는 것은 프롬프트 한 줄뿐이며, 실패 시 응답 원문 300자가 Discord에 나갔다. minor 3: SOP §10.1 진입 명령 행과 README의 결과 보고 줄이 "같은 채널"이라고 했고, 자연어 연결 축소를 Owner에게 묻지 않았다.
+- repair 2(`repair_count=2`, Owner 결정 3): 팀장을 저장소 밖 임시 detached worktree(HEAD의 커밋된 파일만)에서 실행하고 끝나면 지운다(만들 수 없으면 실행하지 않음). 실패 결과에서 응답 원문 필드를 없애 Discord에는 사유 코드만 간다. 테스트: 추적되지 않는 `jarvis.bat`·`.env`를 둔 clone에서 팀장 실행 위치에 그 파일이 없고 위치가 저장소 밖이며 끝난 뒤 사라지는지, worktree를 못 만들면 실패하는지, 형식 오류·비정상 종료 때 모델 문장과 stderr가 답에 없는지(Worker smoke total=533 failed=0). SOP §10.1 진입 명령 행·팀장 문단, README의 결과 보고 줄·팀장 설명을 실제 동작에 맞췄다. 자연어 연결은 Owner 결정 3으로 v0.2에 미뤘다.
+
+## 후속 작업 (v0.2 후보, Owner 결정 3)
+
+일반 자연어 메시지를 팀장에 연결하는 일은 별도 task로 한다. 그 task가 정할 것:
+
+1. 호출 규칙: 어떤 메시지가 팀장 요청인지. 모든 대화가 팀장 실행이 되지 않도록 명시적 호출어(예: 메시지 첫머리의 "자비스," 또는 봇 멘션)만 받고, Owner 전용이며, 기존 자연어 경로(`/status`·`/report` 해석)와 겹칠 때의 우선순위를 정한다. 팀장 실행은 지금처럼 `/work`와 같은 경로(`lead_started` → `_run_lead_job`)로 보내 새 실행 경로를 만들지 않는다.
+2. 원문 보존: 호출어를 뗀 메시지 본문이 그대로 Owner 원문이 되어 task summary와 Reviewer 원문 승인 칸에 들어간다(지금 `/work` 원문과 같은 규칙).
+3. 테스트 계약: `orchestrator/discord-nl-intent/run_smoke_tests.py`가 고정한 자연어 해석기 호출 위치(봇 안에서 한 번씩)와 반환 계약을 바꾸지 않거나, 바꾼다면 그 테스트를 함께 고친다. 검사할 것: 호출어 없는 대화는 팀장을 부르지 않음, Owner가 아니면 거부, 호출어 있는 메시지는 `/work`와 같은 결과(task 생성 규칙, 원문 보존), 기존 `/status`·`/report` 자연어 해석은 그대로.
+4. 비용·안전: 팀장 1회 실행은 현재 로그인한 `claude` 사용량을 쓴다. 호출 빈도 제한(동시 1개는 이미 있음)을 둘지 정한다.

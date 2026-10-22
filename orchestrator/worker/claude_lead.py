@@ -4,8 +4,9 @@ For a /work request that names no work kind, the lead reads the repository and a
 small plan: which registered work kind fits (or none), a task title, the steps, a risk level,
 whether an Owner decision is needed, and a one-line instruction for the Worker.
 
-The lead never changes anything. It runs the same `claude` CLI the Worker uses, from the
-repository root, with only Read, Grep and Glob, in plan permission mode, under a time limit.
+The lead never changes anything. It runs the same `claude` CLI the Worker uses, in a temporary
+detached worktree of HEAD outside the repository (committed files only, so no jarvis.bat or .env),
+with only Read, Grep and Glob, in plan permission mode, under a time limit.
 It takes no Worker lock. Its answer is untrusted data: anything outside the fixed fields fails
 closed, and nothing here creates a task or starts a run. The bot does that, and a run still
 starts only with the Owner's /go.
@@ -15,8 +16,10 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +40,8 @@ STEP_PATTERN = re.compile(r"^-[ \t]+(.+)$")
 
 # One lead at a time in this process; a second request is refused rather than queued.
 _LEAD_LOCK = threading.Lock()
+# The repository the lead's clean worktree is made from; None means claude_worker.REPO_ROOT.
+LEAD_REPO_ROOT: Path | None = None
 
 
 @dataclass
@@ -54,7 +59,6 @@ class LeadResult:
     ok: bool
     reason: str = ""
     plan: LeadPlan | None = None
-    raw_excerpt: str = ""
 
 
 def lead_prompt(request: str) -> str:
@@ -175,26 +179,59 @@ def _run_claude(prompt: str, repo_root: Path) -> subprocess.CompletedProcess:
     )
 
 
+def _lead_worktree(repo_root: Path) -> Path:
+    """task-0183 repair 2: a detached worktree of HEAD outside the repository, holding committed files
+    only. Untracked files of the main tree (jarvis.bat, any .env) are not in it, so the lead's Read,
+    Grep and Glob cannot reach them whatever the model does."""
+
+    path = Path(tempfile.mkdtemp(prefix="jarvis-lead-")) / "tree"
+    claude_worker._ensure_outside_repo(path, repo_root)
+    claude_worker._git(["worktree", "add", "--detach", str(path), "HEAD"], repo_root)
+    return path
+
+
+def _remove_lead_worktree(repo_root: Path, path: Path) -> None:
+    """Remove the lead's worktree and its temporary parent. Best effort; never raises."""
+
+    try:
+        claude_worker._run(["git", "worktree", "remove", "--force", str(path)], cwd=repo_root,
+                           timeout=claude_worker.GIT_TIMEOUT_SECONDS)
+    except Exception:  # noqa: BLE001 - a leftover temp tree must not fail the lead
+        pass
+    shutil.rmtree(path.parent, ignore_errors=True)
+
+
 def run_lead(
     request: str,
     repo_root: Path | None = None,
     runner: Callable[[str, Path], subprocess.CompletedProcess] | None = None,
 ) -> LeadResult:
-    """Ask the lead once. Never raises; every failure is a LeadResult with ok False."""
+    """Ask the lead once, in a clean worktree. Never raises; every failure is a LeadResult with ok False.
+
+    The answer text never leaves this function except through a parsed plan: a failure carries only
+    its reason code (task-0183 repair 2).
+    """
 
     if not _LEAD_LOCK.acquire(blocking=False):
         return LeadResult(False, "lead_busy")
     try:
+        root = repo_root or LEAD_REPO_ROOT or claude_worker.REPO_ROOT
         try:
-            completed = (runner or _run_claude)(lead_prompt(request), repo_root or claude_worker.REPO_ROOT)
+            tree = _lead_worktree(root)
+        except Exception:  # noqa: BLE001 - no clean tree, no lead
+            return LeadResult(False, "lead_failed:worktree")
+        try:
+            completed = (runner or _run_claude)(lead_prompt(request), tree)
         except subprocess.TimeoutExpired:
             return LeadResult(False, "lead_timeout")
         except claude_worker.StageFailure as exc:
             return LeadResult(False, f"lead_failed:{exc.reason}")
         except Exception as exc:  # noqa: BLE001 - the lead never takes the bot down
             return LeadResult(False, f"lead_failed:{type(exc).__name__}")
+        finally:
+            _remove_lead_worktree(root, tree)
         if completed.returncode != 0:
-            return LeadResult(False, "lead_failed:exit", raw_excerpt=(completed.stderr or completed.stdout)[:300])
+            return LeadResult(False, "lead_failed:exit")
         text = completed.stdout
         try:
             text = str(json.loads(completed.stdout).get("result", completed.stdout))
@@ -202,7 +239,7 @@ def run_lead(
             pass
         plan, reason = parse_lead_answer(text)
         if plan is None:
-            return LeadResult(False, reason, raw_excerpt=" ".join(text.split())[:300])
+            return LeadResult(False, reason)
         return LeadResult(True, plan=plan)
     finally:
         _LEAD_LOCK.release()
