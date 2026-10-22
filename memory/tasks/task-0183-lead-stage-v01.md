@@ -2,11 +2,12 @@
 
 - id: `task-0183-lead-stage-v01`
 - title: `팀장(Lead) 단계 v0.1`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-22 05:30 UTC`
-- updated_at: `2026-10-22 16:19 UTC`
+- updated_at: `2026-10-22 16:27 UTC`
 - summary: `Worker 파이프라인 앞에 팀장(Lead) 단계를 더한다. 작업 종류 표지어가 없는 /work 요청이면 읽기 전용 Claude 팀장이 저장소를 살펴 계획(작업 종류, 단계, 위험도, Owner 결정 필요 여부)을 세워 Discord에 올리고, 기존 작업 종류에 맞으면 그 종류의 TODO task를 만들어 /go를 안내하며 맞지 않으면 이유만 보고한다. 실행은 지금처럼 Owner의 /go로만 시작하고 새 비용·외부 연결은 없다.`
+- completion_evidence: `candidate 53ba9d22ccbdea0356902679d02a0490c955f003 (baseline e069fa0, repairs 1-6, Owner decisions 2-7). Reviewer PASS, findings 0, self_deviations 0. QA PASS 35/35 in fresh worktrees: 7 scope files; claude_worker changed only in two progress reports; a real read-only lead run gave a valid Radar plan, no file change, no leftover worktree; Worker smoke 539/0 incl. finding-repair-rereview, notification failure, thread fallback, clean worktree, cleanup; self-check 109; validator PASS.`
 - source_command: `Owner 지시: 팀장 단계 v0.1 시작 (Claude Code 세션)`
 
 ## 기준선
