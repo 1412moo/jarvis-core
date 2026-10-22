@@ -836,12 +836,67 @@ def lead_flow(bot, clone: Path, status_of) -> None:
     check("lead: the worktree is gone afterwards and git no longer lists it",
           bool(root_info) and not Path(root_info["root"]).exists()
           and str(root_info["root"]).replace("\\", "/") not in git(["worktree", "list"], clone).replace("\\", "/"))
+    def lead_dirs() -> set[str]:
+        return {p.name for p in Path(tempfile.gettempdir()).glob("jarvis-lead-*") if not p.name.startswith("jarvis-lead-notrepo-")}
+
+    def worktree_records() -> list[str]:
+        records = clone / ".git" / "worktrees"
+        return sorted(p.name for p in records.iterdir()) if records.is_dir() else []
+
+    dirs_before = lead_dirs()
     not_a_repo = Path(tempfile.mkdtemp(prefix="jarvis-lead-notrepo-"))
     try:
         no_tree = claude_lead.run_lead("x", repo_root=not_a_repo, runner=answer(LEAD_OK))
     finally:
         shutil.rmtree(not_a_repo, ignore_errors=True)
-    check("lead: no clean worktree, no lead (fail closed)", no_tree.reason == "lead_failed:worktree" and no_tree.plan is None)
+    check("lead: no clean worktree, no lead (fail closed), and its temporary folder is removed",
+          no_tree.reason == "lead_failed:worktree" and no_tree.plan is None and lead_dirs() == dirs_before,
+          str(sorted(lead_dirs() - dirs_before)))
+
+    # task-0183 repair 3: `git worktree add` made the tree and registered it, then failed (as a timeout
+    # partway through would). The half-made tree, git's record of it and the temporary folder all go.
+    real_git = claude_worker._git
+    made: list[str] = []
+
+    def add_then_fail(args: list[str], cwd: Path) -> str:
+        out = real_git(args, cwd)
+        if args[:2] == ["worktree", "add"]:
+            made.append(args[3])
+            raise claude_worker.StageFailure("git", "git_failed", "simulated failure after the tree was made")
+        return out
+
+    list_before = git(["worktree", "list", "--porcelain"], clone)
+    records_before = worktree_records()
+    dirs_before = lead_dirs()
+    claude_worker._git = add_then_fail
+    try:
+        half = claude_lead.run_lead("x", runner=answer(LEAD_OK))
+    finally:
+        claude_worker._git = real_git
+    check("lead: a worktree that failed after being made is fully cleaned up (tree, git record, temp folder)",
+          half.reason == "lead_failed:worktree" and len(made) == 1 and not Path(made[0]).exists()
+          and git(["worktree", "list", "--porcelain"], clone) == list_before and worktree_records() == records_before
+          and lead_dirs() == dirs_before,
+          f"{half.reason} made={made} records={worktree_records()} new_dirs={sorted(lead_dirs() - dirs_before)}")
+
+    # The same when the folder is gone but git still lists the worktree: only that record is removed.
+    real_remove = claude_lead._remove_lead_worktree
+
+    def remove_files_only(repo_root: Path, path: Path) -> None:
+        shutil.rmtree(path.parent, ignore_errors=True)
+        claude_lead._drop_lead_registrations(repo_root, path.parent)
+
+    records_before = worktree_records()
+    claude_worker._git = add_then_fail
+    claude_lead._remove_lead_worktree = remove_files_only
+    try:
+        orphan = claude_lead.run_lead("x", runner=answer(LEAD_OK))
+    finally:
+        claude_worker._git = real_git
+        claude_lead._remove_lead_worktree = real_remove
+    check("lead: git's record of a removed lead tree is dropped, and no other worktree record is touched",
+          orphan.reason == "lead_failed:worktree" and worktree_records() == records_before
+          and git(["worktree", "list", "--porcelain"], clone) == list_before, str(worktree_records()))
     bad_answers = {
         "unexpected_line": LEAD_OK + "extra words\n",
         "missing": LEAD_OK.replace("risk: low\n", ""),

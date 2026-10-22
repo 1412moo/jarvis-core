@@ -185,13 +185,44 @@ def _lead_worktree(repo_root: Path) -> Path:
     Grep and Glob cannot reach them whatever the model does."""
 
     path = Path(tempfile.mkdtemp(prefix="jarvis-lead-")) / "tree"
-    claude_worker._ensure_outside_repo(path, repo_root)
-    claude_worker._git(["worktree", "add", "--detach", str(path), "HEAD"], repo_root)
+    try:
+        claude_worker._ensure_outside_repo(path, repo_root)
+        claude_worker._git(["worktree", "add", "--detach", str(path), "HEAD"], repo_root)
+    except BaseException:
+        # task-0183 repair 3: a failed or half-made worktree is cleaned up like a finished one.
+        _remove_lead_worktree(repo_root, path)
+        raise
     return path
 
 
+def _drop_lead_registrations(repo_root: Path, parent: Path) -> None:
+    """Remove git's record of any worktree inside `parent` whose files are gone. Only records whose
+    gitdir points into this lead's own temporary parent are touched; other worktrees are left alone."""
+
+    completed = claude_worker._run(["git", "rev-parse", "--git-common-dir"], cwd=repo_root,
+                                   timeout=claude_worker.GIT_TIMEOUT_SECONDS)
+    if completed.returncode != 0:
+        return
+    common = Path(completed.stdout.strip())
+    if not common.is_absolute():
+        common = repo_root / common
+    records = common / "worktrees"
+    if not records.is_dir():
+        return
+    own = str(parent.resolve()).replace("\\", "/").lower()
+    for record in records.iterdir():
+        gitdir = record / "gitdir"
+        try:
+            target = gitdir.read_text(encoding="utf-8").strip().replace("\\", "/").lower()
+        except OSError:
+            continue
+        if target.startswith(own + "/"):
+            shutil.rmtree(record, ignore_errors=True)
+
+
 def _remove_lead_worktree(repo_root: Path, path: Path) -> None:
-    """Remove the lead's worktree and its temporary parent. Best effort; never raises."""
+    """Remove the lead's worktree, git's record of it and its temporary parent, also when the worktree
+    was only half made. Best effort; never raises."""
 
     try:
         claude_worker._run(["git", "worktree", "remove", "--force", str(path)], cwd=repo_root,
@@ -199,6 +230,10 @@ def _remove_lead_worktree(repo_root: Path, path: Path) -> None:
     except Exception:  # noqa: BLE001 - a leftover temp tree must not fail the lead
         pass
     shutil.rmtree(path.parent, ignore_errors=True)
+    try:
+        _drop_lead_registrations(repo_root, path.parent)
+    except Exception:  # noqa: BLE001 - see above
+        pass
 
 
 def run_lead(
