@@ -311,7 +311,11 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 | 파이프라인 보호 경로 | `jarvis.bat` | `PROTECTED_PATHS` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
-| 진입 명령 | Owner 전용 `/work`, `/go`(`resume`, `accept`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
+| 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
+
+자연어 호출(task-0184): 슬래시 없는 Discord 메시지가 `자비스` 또는 `jarvis` 뒤 쉼표·콜론, 또는 이 봇의 멘션으로
+시작하면, 호출어를 뗀 본문으로 `/work <본문>`과 똑같이 처리한다(같은 Owner 권한 검사와 경로). 호출어가 없는 메시지는
+기존 자연어 해석으로 간다.
 
 팀장(Lead) 단계(task-0183): 작업 종류 표지어가 없는 `/work` 요청은 `orchestrator/worker/claude_lead.py`의
 팀장이 먼저 계획한다. 팀장은 같은 `claude` CLI를 저장소 밖의 임시 detached worktree(HEAD의 커밋된 파일만 있어

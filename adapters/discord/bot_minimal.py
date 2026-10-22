@@ -808,6 +808,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/report today - 오늘 업데이트 task 집계",
             "/retro today - 오늘 회고 요약",
             "/work <요청> - Studyroom 콘텐츠 또는 Daily AI Radar 작업 준비. 작업 종류가 없는 요청은 팀장이 읽기 전용으로 계획 (Owner)",
+            "자비스, <요청> (또는 봇 멘션 뒤 요청) - `/work <요청>`과 같음 (Owner)",
             "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
             "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
             "/go <task-id> accept - Owner 확인 대기로 멈춘 candidate를 QA 재확인 뒤 반영 (Owner)",
@@ -2289,6 +2290,33 @@ def _make_progress(task_id: str, send: Callable[[str], None]) -> Callable[..., N
             print(f"[progress] {task_id} {stage}: report failed ({type(exc).__name__})")
 
     return progress
+
+
+# task-0184: how a plain Discord message calls Jarvis: the name (Korean or English) followed by a comma
+# or a colon, at the very start. Ordinary chat, and the name anywhere else, does not.
+LEAD_CALL_PATTERN = re.compile(r"^\s*(?:자비스|jarvis)\s*[,:，：]\s*(?P<body>.*)$", re.IGNORECASE | re.DOTALL)
+
+
+def _lead_call_body(text: str, bot_user_id: int | None = None) -> str | None:
+    """task-0184: the request in a message that calls Jarvis, or None for any other message.
+
+    A call is the name followed by a comma or colon, or a mention of this bot, at the start. The rest
+    of the message, trimmed at both ends exactly as a typed /work is, is returned as the Owner's words; an empty request
+    returns "" (the /work usage reply follows). Nothing here runs or authorizes anything.
+    """
+
+    if not isinstance(text, str):
+        return None
+    stripped = text.strip()
+    if bot_user_id is not None:
+        for mention in (f"<@{bot_user_id}>", f"<@!{bot_user_id}>"):
+            if stripped.startswith(mention):
+                rest = stripped[len(mention):].lstrip(" ,:，：")
+                return rest.strip()
+    matched = LEAD_CALL_PATTERN.match(stripped)
+    if matched is None:
+        return None
+    return matched.group("body").strip()
 
 
 async def _task_thread(message: Any, name: str) -> Any:
@@ -4619,17 +4647,23 @@ async def _start_discord_bot() -> None:
 
         content = (message.content or "").strip()
         if not content.startswith("/"):
-            resolved_command = resolve_intent(content)
-            if resolved_command is None:
-                fallback_outcome = resolve_llm_fallback(content)
-                if fallback_outcome.command is not None:
-                    resolved_command = fallback_outcome.command
-                elif fallback_outcome.reply is not None:
-                    await message.reply(fallback_outcome.reply)
-                    return
-                else:
-                    return
-            content = resolved_command
+            # task-0184: a message that calls Jarvis by name (or mentions the bot) is a /work request
+            # with the rest of the message as the Owner's words; the same gate and path as a typed /work.
+            called = _lead_call_body(content, client.user.id if client.user else None)
+            if called is not None:
+                content = f"/work {called}".rstrip()
+            else:
+                resolved_command = resolve_intent(content)
+                if resolved_command is None:
+                    fallback_outcome = resolve_llm_fallback(content)
+                    if fallback_outcome.command is not None:
+                        resolved_command = fallback_outcome.command
+                    elif fallback_outcome.reply is not None:
+                        await message.reply(fallback_outcome.reply)
+                        return
+                    else:
+                        return
+                content = resolved_command
 
         if (
             not content.startswith("/help")

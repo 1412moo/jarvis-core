@@ -1213,6 +1213,52 @@ def discussion_flow(bot, clone: Path, status_of) -> None:
           good_thread.sent == ["a line"] and good_channel.sent == [] and backup.sent == ["a line"] and dropped == ["survived"])
 
 
+def call_flow(bot, clone: Path) -> None:
+    """task-0184: a plain message that calls Jarvis is a /work request; anything else is untouched."""
+
+    cases = {
+        "자비스, 리포트 문구 다듬어 줘": "리포트 문구 다듬어 줘",
+        "jarvis: fix   the   report  ": "fix   the   report",
+        "JARVIS , hi": "hi",
+        "자비스：보고서": "보고서",
+        "자비스，보고서": "보고서",
+        "<@42> 이거 해 줘": "이거 해 줘",
+        "<@!42>, 이거": "이거",
+        "자비스,": "",
+        "자비스야 안녕": None,
+        "안녕 자비스, 이거 해 줘": None,
+        "오늘 리포트 보여줘": None,
+        "자비스 상태 어때": None,
+        "<@7> 다른 봇에게": None,
+        "": None,
+    }
+    got = {text: bot._lead_call_body(text, 42) for text in cases}
+    check("call: only the name with a comma or colon, or this bot's mention, at the start is a call",
+          got == cases, str({k: v for k, v in got.items() if v != cases[k]}))
+    check("call: without the bot's id a mention is not a call, the name still is",
+          bot._lead_call_body("<@42> 이거", None) is None and bot._lead_call_body("자비스, 이거", None) == "이거")
+
+    # The call becomes `/work <body>`, so it takes the typed /work path: the lead starts with the
+    # Owner's words, nothing is created yet, and only the Owner may run it.
+    tasks_before = sorted(p.name for p in (clone / "memory" / "tasks").glob("task-*.md"))
+    body = bot._lead_call_body("자비스, README 문장 고쳐 줘", 42)
+    started = bot._run_command(f"/work {body}".rstrip())
+    check("call: the call runs exactly as a typed /work (lead started with the Owner's words, nothing created)",
+          started == {"result_type": "lead_started", "request": "README 문장 고쳐 줘"}
+          and sorted(p.name for p in (clone / "memory" / "tasks").glob("task-*.md")) == tasks_before, str(started))
+    check("call: an empty call gets the /work usage reply", bot._run_command("/work").get("reason") == "usage:/work <요청>")
+    check("call: a non-Owner call is refused by the same gate as a typed /work",
+          bot._authorize_command(f"/work {body}", "999999999999999999")[0] is False)
+
+    # on_message: the call is judged first in the non-slash branch and rewritten to /work; otherwise the
+    # existing natural-language resolvers run as before.
+    source = Path(bot.__file__).read_text(encoding="utf-8")
+    branch = source[source.index('        if not content.startswith("/"):\n'):source.index("\n        if (\n            not content.startswith")]
+    check("call: on_message judges the call before the natural-language resolvers and rewrites it to /work",
+          branch.index("_lead_call_body(content") < branch.index("resolve_intent(content)")
+          and 'content = f"/work {called}".rstrip()' in branch and "else:" in branch.split("resolve_intent(content)")[0])
+
+
 def bot_flow(clone: Path, worktrees: Path) -> None:
     """/work -> /go -> worker job through the Discord adapter, against the clone.
 
@@ -1467,6 +1513,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     # task-0183: last, so its own approval and execution audits leave the counts above alone.
     lead_flow(bot, clone, status_of)
     discussion_flow(bot, clone, status_of)
+    call_flow(bot, clone)
 
 
 def attempt_of(task_id: str, branch: str) -> int:
