@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-22 05:30 UTC`
-- updated_at: `2026-10-22 07:06 UTC`
+- updated_at: `2026-10-22 07:16 UTC`
 - summary: `Worker 파이프라인 앞에 팀장(Lead) 단계를 더한다. 작업 종류 표지어가 없는 /work 요청이면 읽기 전용 Claude 팀장이 저장소를 살펴 계획(작업 종류, 단계, 위험도, Owner 결정 필요 여부)을 세워 Discord에 올리고, 기존 작업 종류에 맞으면 그 종류의 TODO task를 만들어 /go를 안내하며 맞지 않으면 이유만 보고한다. 실행은 지금처럼 Owner의 /go로만 시작하고 새 비용·외부 연결은 없다.`
 - source_command: `Owner 지시: 팀장 단계 v0.1 시작 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `e069fa07b2febe80bc9de973404843713d70cbe0` (등록 시점 main HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 | 배경 | Owner의 최종 목표(Discord 지시 → AI 팀장 계획·배분 → 실무·검토·수정 → 보고) 대비 현황 조사에서 가장 큰 병목이 팀장 단계 부재로 확인됨 |
 
 ## Owner 결정 (원문)
@@ -123,3 +123,8 @@ candidate 전 1회(읽기 전용 self-reviewer, Owner 결정 2 전). major 3·mi
 | B2 | Owner 결정 2: 진행 표시와 스레드 (원문) | "이번 task에 `claude_worker.py`의 최소 변경을 포함해서 Reviewer의 지적 요지, Worker의 수정 진행, 재검토 결과가 Discord에 표시되도록 해 줘. 작업별 Discord 스레드에 팀장 계획부터 최종 결과까지 모으는 것도 포함해 줘." / "다만 범위를 불필요하게 넓히지는 마." / "* 기존 Worker → Reviewer → 수정 → QA → DONE 파이프라인과 승인 정책은 최대한 그대로 유지할 것." | 지적 요지·수정 진행과 결과·재검토 판정 줄과 작업 스레드를 구현했다. 판정·repair 예산·QA·반영·승인 정책(`/go`, Owner 전용)은 바꾸지 않았다. 범위는 승인된 7개 파일이다 |
 | B3 | Owner 결정 2: 진행 표시와 스레드 (원문) | "* Reviewer 지적과 수정 결과는 기존 실행 결과에서 확인 가능한 내용을 전달하고, 새로운 판단이나 결과를 만들어 내지 말 것." / "* Discord 알림 실패가 작업 자체의 성공·실패 판정을 부당하게 바꾸지 않도록 처리할 것." / "* 민감한 정보나 불필요한 전체 프롬프트를 Discord에 노출하지 말고, 지적 요지와 수정 결과만 표시할 것." | 지적 요지는 기존 `reviewer_excerpt`, 수정 결과는 그 단계의 변경 파일과 테스트 요약만 쓴다. 알림·스레드 실패는 무시되거나 채널로 대체되며 판정을 바꾸지 않는다(모든 알림 실패 검사). 프롬프트 전문은 보내지 않고 멘션은 무력화한다 |
 | B4 | Owner 결정 2: 진행 표시와 스레드 (원문) | "* 기존 테스트와 종단 테스트를 갱신해 정상 흐름, Reviewer 지적 후 수정, 재검토, 알림 실패를 검증할 것." / "* 변경 파일과 승인 범위를 확인하고, 추가 범위가 필요하면 먼저 보고할 것." / "구현 후 candidate를 만들고 Reviewer → QA → 완료 절차를 진행해 줘. 중간에 유효한 지적이 나오면 무조건 중단하기보다 현재 승인된 수정 범위와 남은 repair 예산 안에서 해결을 시도해 줘. Owner 결정이 반드시 필요한 경우에만 멈추고 이유를 설명해 줘." | `progress_flow`·`discussion_flow`·`lead_flow`로 정상 흐름, 지적 뒤 수정, 재검토, 알림 실패, 스레드를 검증한다. 추가 범위는 필요하지 않았다. 이후 절차는 candidate → Reviewer → QA → 완료로 진행한다 |
+
+## Repair
+
+- candidate `ec97141168d243d24f2084fb8df37ede8f555da1`: Reviewer FINDINGS, minor 2건. 같은 보고에 self_deviations 1건(허용 형식 밖의 `git log` 범위 표기)이 있어 그 검토는 무효다. 두 지적은 사실이라 고쳤다. (1) README는 스레드 전송 실패 시 채널로 보낸다고 했지만 진행 줄(지적·수정 줄 포함)에는 채널 대체가 없었다. (2) 팀장 시작 안내와 README 한 줄이 계획을 "이 채널"에 올린다고 했지만 실제로는 스레드에 올린다.
+- repair 1(`repair_count=1`, Owner 결정 2의 "현재 승인된 수정 범위와 남은 repair 예산 안에서 해결" 지시): 진행 줄도 스레드 다음 채널로 보내는 `_line_sender`를 더했고(둘 다 실패한 줄만 버리고 실행은 계속), 팀장 시작 안내·README·SOP 문장을 실제 경로(스레드, 실패 시 채널)에 맞췄으며, 이 대체 경로를 Worker smoke에 검사로 더했다(total=529 failed=0).

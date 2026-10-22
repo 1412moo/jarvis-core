@@ -1022,6 +1022,29 @@ def discussion_flow(bot, clone: Path, status_of) -> None:
     check("thread: if both fail, it reports False and never raises",
           asyncio.run(bot._send_safely(Target(fail=True), Target(fail=True), "result")) is False)
 
+    # Progress lines come from the Worker thread: thread first, then the channel; when both fail the
+    # error reaches the progress callback, which drops the line and lets the run go on.
+    import threading
+
+    loop = asyncio.new_event_loop()
+    runner = threading.Thread(target=loop.run_forever, daemon=True)
+    runner.start()
+    try:
+        good_thread, good_channel = Target(), Target()
+        bot._line_sender(loop, good_thread, good_channel)("a line")
+        bad_thread, backup = Target(fail=True), Target()
+        bot._line_sender(loop, bad_thread, backup)("a line")
+        dropped: list[str] = []
+        progress = bot._make_progress("task-0001-x", bot._line_sender(loop, Target(fail=True), Target(fail=True)))
+        progress("worker")
+        dropped.append("survived")
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        runner.join(timeout=5)
+        loop.close()
+    check("thread: a progress line goes to the thread, else to the channel, and a double failure is only dropped",
+          good_thread.sent == ["a line"] and good_channel.sent == [] and backup.sent == ["a line"] and dropped == ["survived"])
+
 
 def bot_flow(clone: Path, worktrees: Path) -> None:
     """/work -> /go -> worker job through the Discord adapter, against the clone.

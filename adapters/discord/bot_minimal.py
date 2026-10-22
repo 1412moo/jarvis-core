@@ -2307,6 +2307,26 @@ async def _task_thread(message: Any, name: str) -> Any:
         return channel
 
 
+def _line_sender(loop: Any, primary: Any, fallback: Any) -> Callable[[str], None]:
+    """task-0183: the send callback for progress lines, called from the Worker thread. A line goes to the
+    task thread; if that fails it goes to the channel; if that fails too, the error reaches
+    _make_progress, which drops the line and lets the run go on."""
+
+    def send(line: str) -> None:
+        targets = (primary, fallback) if fallback is not primary else (primary,)
+        for index, target in enumerate(targets):
+            future = asyncio.run_coroutine_threadsafe(target.send(line), loop)
+            try:
+                future.result(timeout=PROGRESS_SEND_TIMEOUT_SECONDS)
+                return
+            except BaseException:
+                future.cancel()
+                if index == len(targets) - 1:
+                    raise
+
+    return send
+
+
 async def _send_safely(primary: Any, fallback: Any, text: str) -> bool:
     """task-0183: send to the thread, else to the channel. Never raises; the run's result is already
     recorded, so a lost message changes nothing but the message."""
@@ -2473,7 +2493,7 @@ def _format_lead_reply(result: dict[str, Any]) -> str:
     """task-0183: the lead's start notice and its plan."""
 
     if result.get("result_type") == "lead_started":
-        return f"🧭 팀장 검토 시작: {result.get('request')}\n- 읽기 전용으로 저장소를 살펴 계획을 세웁니다. 끝나면 이 채널에 올립니다."
+        return f"🧭 팀장 검토 시작: {result.get('request')}\n- 읽기 전용으로 저장소를 살펴 계획을 세웁니다. 끝나면 이 메시지에 여는 스레드에 올립니다(스레드를 열 수 없으면 이 채널)."
     plan = result.get("plan") or {}
     if not result.get("ok") and not plan:
         excerpt = _discord_safe(result.get("excerpt") or "")
@@ -4653,13 +4673,8 @@ async def _start_discord_bot() -> None:
             channel = await _task_thread(message, f"{result['task_id']} 작업")
 
             # task-0165: progress lines from the Worker thread, sent in order to the same channel.
-            def send_line(line: str) -> None:
-                future = asyncio.run_coroutine_threadsafe(channel.send(line), loop)
-                try:
-                    future.result(timeout=PROGRESS_SEND_TIMEOUT_SECONDS)
-                except BaseException:
-                    future.cancel()
-                    raise
+            # task-0183: to the task thread, and to the channel when the thread send fails.
+            send_line = _line_sender(loop, channel, message.channel)
 
             async def _report_worker() -> None:
                 job = await asyncio.to_thread(
