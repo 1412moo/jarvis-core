@@ -2,11 +2,12 @@
 
 - id: `task-0184-nl-lead-call-v02`
 - title: `팀장 자연어 호출 v0.2`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-22 16:32 UTC`
-- updated_at: `2026-10-22 16:41 UTC`
+- updated_at: `2026-10-22 16:59 UTC`
 - summary: `Discord 일반 메시지로 팀장을 부르는 v0.2 자연어 연결이다. 메시지가 호출어(자비스, 또는 jarvis, 같은 호출어와 쉼표·콜론, 또는 봇 멘션)로 시작할 때만 호출어를 뗀 본문을 /work 본문으로 바꿔 기존 경로(Owner 권한 검사, 팀장, 원문 보존, 작업 스레드)에 넣는다. 호출어가 없는 대화는 지금처럼 기존 자연어 해석으로 간다. 자연어 해석기 호출 위치 계약은 그대로 지킨다.`
+- completion_evidence: `candidate 5bcaf74751663ad7572d4a1d315b1f15906e2073 (baseline 8616f02). Reviewer PASS, findings 0, self_deviations 0. QA PASS 23/23 in a fresh worktree: 5 scope files, resolvers untouched; 18 call inputs judged as designed (trim only); a call runs as typed /work (lead started with the Owner's words); call judged before the resolvers, Owner gate after; non-call text resolves as before; nl-intent smoke, Worker smoke 545/0, self-check 109, Console smoke, validator PASS.`
 - source_command: `Owner 지시: v0.2 자연어 연결 진행 (Claude Code 세션)`
 
 ## 기준선
