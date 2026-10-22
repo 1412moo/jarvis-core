@@ -98,7 +98,9 @@ python3 adapters/discord/bot_minimal.py
 
 ### `/work <요청>` 과 `/go <task-id>` (Jarvis v0.2, task-0142)
 Owner 전용. Studyroom 콘텐츠 수정 1종만 지원한다.
-1. `/work <요청>`: 요청에 `studyroom`(또는 `스터디룸`)이 없으면 hold. 있으면 기존 `/task` 경로로 TODO task를 만들고 계획(수정 허용 경로 `apps/studyroom/content/`, 테스트, 승인 명령)을 답한다. 아무것도 실행하지 않는다.
+1. `/work <요청>`: 요청에 작업 종류 표지어가 있으면 기존 `/task` 경로로 TODO task를 만들고 계획(수정 허용 경로, 테스트, 승인 명령)을 답한다. 아무것도 실행하지 않는다.
+   - 표지어가 없으면 팀장(Lead, task-0183)이 맡는다. 봇은 "팀장 검토 시작"을 답하고, 읽기 전용 Claude 팀장이 저장소를 살펴 계획(작업 종류, 단계, 위험도, Owner 결정 필요 여부, Worker 지시)을 세워 같은 채널에 올린다. 계획에는 수정 허용 경로도 보인다. 등록된 작업 종류면 그 종류의 TODO task(제목은 표지어 + 팀장 제목, summary는 Owner의 `/work` 원문)를 만들어 `/go <task-id>`를 안내한다. 종류가 없거나, 팀장 답이 형식에 맞지 않거나, 다른 팀장이 실행 중이거나(`lead_busy`), 제목이 다른 종류를 고르게 되거나(`lead_task_kind_conflict`), 원문이 너무 길면(`lead_request_too_long`) 아무 task도 만들지 않고 이유를 보고한다. `/go` 때 작업 종류는 제목에서 정하고, Worker와 Reviewer는 Owner의 `/work` 원문만 받는다(팀장 제안 지시는 Owner 참고용).
+   - 작업 스레드: 봇은 `/work` 메시지에 스레드를 열어 팀장 계획을 올린다. 그 스레드에서 `/go`를 보내면(또는 `/go`가 연 새 스레드에) Worker 진행, Reviewer 판정과 지적 요지, Worker 수정 결과(변경 파일·테스트 요약), 재검토 판정, 최종 결과가 모인다. 지적 요지와 수정 결과는 파이프라인 결과 값만 쓰고 프롬프트 전문은 보내지 않으며, 본문의 `@` 멘션은 무력화한다. 스레드를 열 수 없거나 스레드 전송이 실패하면 원래 채널로 보내고, 알림 실패는 작업 판정을 바꾸지 않는다.
 2. `/go <task-id>`: Owner 승인. `TODO -> DOING`(FAILED면 `FAILED -> TODO -> DOING` 재시도)과 감사 기록 후 즉시 "시작" 응답. 동시에 한 작업만 실행한다. `/work`로 만든 task(`source_command`가 `/task`)만 시작하고, 수동 task는 잠금이나 기록 변경 없이 `go_requires_worker_path`로 거부한다(task-0182).
 3. 백그라운드에서 `orchestrator/worker/claude_worker.py`가 실행된다: 저장소 밖 worktree(`C:\work\jarvis-core-worktrees\<task-id>`, `JARVIS_WORKTREE_ROOT`로 변경 가능) → Claude Code Worker(`claude -p`, Bash 없음, 파일 편집만) → 허용 경로 검사 → Studyroom smoke → candidate commit → Reviewer(`claude -p --agent reviewer`, git 읽기 명령만 허용) → 결정론적 QA → main이 baseline 그대로일 때만 ff-only 반영 → task `DONE` 기록 → checkpoint commit.
 4. 끝나면 같은 채널에 결과를 보고한다. 실패·timeout·범위 위반이면 task를 `FAILED`로 기록하고 단계, 사유, 선택지(`/go` 재시도, `/status`, 보존된 worktree·브랜치)를 보고한다.

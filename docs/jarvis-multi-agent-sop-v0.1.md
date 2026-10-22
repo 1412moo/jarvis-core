@@ -306,12 +306,27 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 
 | 항목 | 현재 값 | 코드 위치 |
 | --- | --- | --- |
-| 지원 작업 | `studyroom_content`(Studyroom 콘텐츠 수정, 표지어 studyroom·스터디룸), `daily_ai_radar`(Daily AI Radar 수정, 표지어는 앱 이름 daily ai radar·daily-ai-radar·daily_ai_radar·데일리 ai 레이더이고 radar·레이더 같은 일반 단어만으로는 고르지 않음). 표지어가 함께 있으면 표의 앞 항목(Studyroom)이 우선한다. `/work`는 표지어가 없으면 hold. `/go`는 task 제목으로 종류를 정하며 표지어가 없으면 기존처럼 studyroom_content | `WORK_KINDS` |
+| 지원 작업 | `studyroom_content`(Studyroom 콘텐츠 수정, 표지어 studyroom·스터디룸), `daily_ai_radar`(Daily AI Radar 수정, 표지어는 앱 이름 daily ai radar·daily-ai-radar·daily_ai_radar·데일리 ai 레이더이고 radar·레이더 같은 일반 단어만으로는 고르지 않음). 표지어가 함께 있으면 표의 앞 항목(Studyroom)이 우선한다. `/work`는 표지어가 없으면 팀장 단계로 간다(task-0183, 아래 팀장 문단). `/go`는 task 제목으로 종류를 정하며 표지어가 없으면 기존처럼 studyroom_content | `WORK_KINDS` |
 | Worker 변경 허용 경로 | `apps/studyroom/content/`(studyroom_content), `apps/daily-ai-radar/`(daily_ai_radar) | `allowed_prefix` |
 | 파이프라인 보호 경로 | `jarvis.bat` | `PROTECTED_PATHS` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
 | 진입 명령 | Owner 전용 `/work`, `/go`(`resume`, `accept`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 같은 채널에 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
+
+팀장(Lead) 단계(task-0183): 작업 종류 표지어가 없는 `/work` 요청은 `orchestrator/worker/claude_lead.py`의
+팀장이 먼저 계획한다. 팀장은 같은 `claude` CLI를 저장소 루트에서 읽기 전용(Read·Grep·Glob만, plan 권한 모드,
+시간 제한)으로 한 번에 하나만 실행하고, Worker 잠금을 잡지 않으며 아무것도 바꾸지 않는다. 답은 정해진 필드만
+받고 형식이 어긋나면 실패로 본다(종류가 없다는 답은 이유가 있어야 한다). 등록된 작업 종류를 고르면 봇이 그 종류의
+표지어로 시작하는 팀장 제목과, Owner가 입력한 `/work` 원문을 summary에 담은 TODO task(`source_command` `/task`)를
+만든다. 종류가 없거나, 팀장이 실패했거나, 다른 팀장이 실행 중이거나(`lead_busy`), 제목이 다른 종류를 고르게
+되거나(`lead_task_kind_conflict`), Owner 원문이 summary에 그대로 들어가지 않으면(`lead_request_too_long`)
+아무것도 만들지 않는다. 실행은 이 표의 진입 명령대로 Owner의 `/go`로만 시작하며, 그때 작업 종류는 제목에서
+정하고 Worker와 Reviewer는 Owner의 `/work` 원문만 받는다. 팀장의 계획과 제안 지시는 Owner에게 보이기만 하고
+Owner 원문 승인으로 넘기지 않는다. 팀장은 작업 종류, 허용 경로, 보호 경로, 테스트를 넓히지 않는다.
+Discord에는 작업별 스레드에 팀장 계획, 단계 진행, Reviewer 판정과 지적 요지(Reviewer 보고의 findings 발췌,
+최대 300자), Worker 수정 결과(수정 candidate의 변경 파일과 테스트 요약), 재검토 판정, 최종 결과를 올린다. 이
+알림은 파이프라인이 이미 가진 값만 전하고, 실패해도 판정·repair·QA·반영과 task 기록을 바꾸지 않는다. 스레드를
+만들 수 없으면 원래 채널로 보낸다.
 
 작업 종류의 값(종류 이름, 허용 경로, 테스트 스크립트)은 `orchestrator/worker/claude_worker.py`의
 `WORK_KINDS` 한 곳에 있고, 위 표는 종류마다 그 값을 적는다. 첫 항목 Studyroom이 기본값이며 기존

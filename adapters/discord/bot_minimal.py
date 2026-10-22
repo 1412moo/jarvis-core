@@ -74,6 +74,7 @@ WORKER_DIR = REPO_ROOT / "orchestrator" / "worker"
 if str(WORKER_DIR) not in sys.path:
     sys.path.insert(0, str(WORKER_DIR))
 import claude_worker  # noqa: E402
+import claude_lead  # noqa: E402
 import threading  # noqa: E402
 
 TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -806,7 +807,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/report - 전체 task 집계",
             "/report today - 오늘 업데이트 task 집계",
             "/retro today - 오늘 회고 요약",
-            "/work <요청> - Studyroom 콘텐츠 또는 Daily AI Radar 작업 준비 (Owner)",
+            "/work <요청> - Studyroom 콘텐츠 또는 Daily AI Radar 작업 준비. 작업 종류가 없는 요청은 팀장이 읽기 전용으로 계획 (Owner)",
             "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
             "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
             "/go <task-id> accept - Owner 확인 대기로 멈춘 candidate를 QA 재확인 뒤 반영 (Owner)",
@@ -1824,6 +1825,72 @@ def _go_work_kind(request: str) -> str:
     return (claude_worker.select_work_kind(request) or claude_worker.DEFAULT_WORK_KIND).name
 
 
+# task-0183: a task the lead created keeps the Owner's /work text in its summary, so the Worker
+# and the Reviewer get the Owner's own words, never the lead's. The lead's plan is shown only.
+LEAD_SUMMARY_PREFIX = "Owner 요청: "
+
+
+def _worker_request_for(title: str, summary: str) -> str:
+    """The request the Worker and the Reviewer get: the Owner's /work text. For a task the lead made
+    that text is in the summary (the title is the lead's); for any other task it is the title."""
+
+    if summary.startswith(LEAD_SUMMARY_PREFIX) and claude_worker.select_work_kind(title) is not None:
+        owner_text = summary[len(LEAD_SUMMARY_PREFIX):].strip()
+        if owner_text:
+            return owner_text
+    return title
+
+
+def _run_lead_job(request: str) -> dict[str, Any]:
+    """task-0183: ask the read-only lead once and, for a registered kind, create the TODO task.
+
+    Nothing runs: the Owner still starts the Worker with /go. A failed or malformed answer and a
+    plan with no kind create nothing.
+    """
+
+    summary = LEAD_SUMMARY_PREFIX + " ".join(request.split())
+    if len(summary) > 500:
+        # The Owner's words must fit the summary unchanged, or the Reviewer could not see them.
+        return {"result_type": "lead_result", "request": request, "ok": False, "reason": "lead_request_too_long"}
+    lead = claude_lead.run_lead(request)
+    result: dict[str, Any] = {"result_type": "lead_result", "request": request, "ok": lead.ok, "reason": lead.reason}
+    if not lead.ok or lead.plan is None:
+        result["excerpt"] = lead.raw_excerpt
+        return result
+    plan = lead.plan
+    result["plan"] = {
+        "kind": plan.kind,
+        "title": plan.title,
+        "steps": list(plan.steps),
+        "risk": plan.risk,
+        "owner_decision": plan.owner_decision,
+        "worker_request": plan.worker_request,
+        "allowed_path": (claude_worker.work_kind_by_name(plan.kind).allowed_prefix if plan.kind else None),
+    }
+    title = claude_lead.task_title_for(plan)
+    if title is None:
+        result["task_id"] = None
+        if plan.kind is not None:
+            # The title names another kind's marker, so /go would settle a different kind.
+            result["ok"] = False
+            result["reason"] = "lead_task_kind_conflict"
+        return result
+    draft = {
+        "title": title,
+        "status": "TODO",
+        "repo": "jarvis-core",
+        "summary": summary,
+        "source_command": "/task",
+    }
+    created = write_task_file(draft).to_dict()
+    if created.get("result_type") != "created":
+        result["ok"] = False
+        result["reason"] = f"lead_task_not_created:{created.get('reason') or created.get('result_type')}"
+        return result
+    result["task_id"] = str(created.get("task_id") or "")
+    return result
+
+
 def _run_work(command_text: str) -> dict[str, Any]:
     """Prepare one task of a registered Worker kind. Creates a TODO task; nothing runs yet."""
 
@@ -1832,7 +1899,8 @@ def _run_work(command_text: str) -> dict[str, Any]:
         return _error_payload("usage:/work <요청>")
     kind = claude_worker.select_work_kind(request)
     if kind is None:
-        return {"result_type": "hold", "reason": f"unsupported_work_kind:{'|'.join(WORK_KIND_MARKERS)}"}
+        # task-0183: no kind marker, so the read-only lead plans it in the background (on_message).
+        return {"result_type": "lead_started", "request": request}
     created = _run_task_pipeline(f"/task {request}")
     if created.get("result_type") != "success":
         return created
@@ -1889,7 +1957,7 @@ def _run_go(command_text: str) -> dict[str, Any]:
         return {
             "result_type": "work_started",
             "task_id": task_id,
-            "request": request,
+            "request": _worker_request_for(request, metadata.get("summary", "")),
             "command": command_text.strip(),
             "retry": False,
             "resume": False,
@@ -1954,7 +2022,8 @@ def _run_go(command_text: str) -> dict[str, Any]:
     return {
         "result_type": "work_started",
         "task_id": task_id,
-        "request": request,
+        # task-0183: for a task the lead made, the Owner's /work text; the kind stays the title's.
+        "request": _worker_request_for(request, metadata.get("summary", "")),
         "command": command_text.strip(),
         "retry": status == "FAILED",
         "resume": resume,
@@ -2058,6 +2127,7 @@ def _run_worker_job(
     resume: bool = False,
     accept: bool = False,
     progress: Callable[[str], None] | None = None,
+    work_kind: str | None = None,
 ) -> dict[str, Any]:
     """Run the pipeline once and record the outcome on the task. Releases the lock.
 
@@ -2067,8 +2137,10 @@ def _run_worker_job(
     task-0165: progress goes to the pipeline unchanged; it is called as each stage starts.
     """
 
-    # task-0164: the same kind _run_go settled from the task title.
-    work_kind = _go_work_kind(request)
+    # task-0164: the same kind _run_go settled from the task title. task-0183: /go passes it in,
+    # because a task the lead made hands the Worker the Owner's text, which may name no kind.
+    if work_kind is None or claude_worker.work_kind_by_name(work_kind) is None:
+        work_kind = _go_work_kind(request)
     candidate_info = {
         "result_type": "execution_candidate",
         "task_id": task_id,
@@ -2158,9 +2230,28 @@ STARTUP_CHECK_LISTED_MAX = 10
 _STARTUP_CHECK_DONE = False
 
 
-def _progress_line(task_id: str, stage: str, repairs: int) -> str | None:
+def _discord_safe(text: str) -> str:
+    """task-0183: model-written text shown in Discord never pings anyone."""
+
+    return str(text).replace("@", "@\u200b")
+
+
+def _progress_line(task_id: str, stage: str, repairs: int, detail: str | None = None) -> str | None:
     """One short line for a stage the run has entered. No mention: progress is not an escalation."""
 
+    if stage == "review" and detail:
+        # task-0183: the Reviewer's verdict and, for a finding, the excerpt the run already kept.
+        verdict, _, excerpt = detail.partition(": ")
+        if verdict == "PASS":
+            return f"✅ {task_id}: Reviewer 판정 PASS" + (f" (repair {repairs}회 뒤 재검토)" if repairs else "")
+        line = f"🗣️ {task_id}: Reviewer 판정 {_discord_safe(verdict)}"
+        return line + (f"\n- 지적 요지: {_discord_safe(excerpt)}" if excerpt else "")
+    if stage == "repaired" and detail:
+        files, _, tests = detail.partition(" | tests: ")
+        return (
+            f"🔁 {task_id}: Worker가 repair {repairs}회차 수정을 마침\n- 변경 파일: {_discord_safe(files)}"
+            + (f"\n- 테스트: {_discord_safe(tests)}" if tests else "")
+        )
     if stage == "worker":
         return f"🔧 {task_id}: Worker 실행 중"
     if stage == "resume":
@@ -2176,7 +2267,7 @@ def _progress_line(task_id: str, stage: str, repairs: int) -> str | None:
     return None
 
 
-def _make_progress(task_id: str, send: Callable[[str], None]) -> Callable[[str], None]:
+def _make_progress(task_id: str, send: Callable[[str], None]) -> Callable[..., None]:
     """The progress callback for one run: a line per stage entered, handed to `send`.
 
     A send that fails is logged with its exception type only, and the run goes on; the
@@ -2185,11 +2276,11 @@ def _make_progress(task_id: str, send: Callable[[str], None]) -> Callable[[str],
 
     repairs = 0
 
-    def progress(stage: str) -> None:
+    def progress(stage: str, detail: str | None = None) -> None:
         nonlocal repairs
         if stage == "repair":
             repairs += 1
-        line = _progress_line(task_id, stage, repairs)
+        line = _progress_line(task_id, stage, repairs, detail)
         if line is None:
             return
         try:
@@ -2198,6 +2289,35 @@ def _make_progress(task_id: str, send: Callable[[str], None]) -> Callable[[str],
             print(f"[progress] {task_id} {stage}: report failed ({type(exc).__name__})")
 
     return progress
+
+
+async def _task_thread(message: Any, name: str) -> Any:
+    """task-0183: the Discord thread a task's messages go to. A message already in a thread stays in it;
+    otherwise a thread is opened on the message. If that fails, the message's own channel is used, so
+    a thread problem never stops or changes the run."""
+
+    channel = message.channel
+    thread_type = getattr(discord, "Thread", None) if discord is not None else None
+    if thread_type is not None and isinstance(channel, thread_type):
+        return channel
+    try:
+        return await message.create_thread(name=name[:100])
+    except Exception as exc:  # noqa: BLE001 - a missing thread falls back to the channel
+        print(f"[thread] create failed ({type(exc).__name__}); using the channel")
+        return channel
+
+
+async def _send_safely(primary: Any, fallback: Any, text: str) -> bool:
+    """task-0183: send to the thread, else to the channel. Never raises; the run's result is already
+    recorded, so a lost message changes nothing but the message."""
+
+    for target in (primary, fallback) if fallback is not primary else (primary,):
+        try:
+            await target.send(text)
+            return True
+        except Exception as exc:  # noqa: BLE001 - delivery is best effort
+            print(f"[send] failed ({type(exc).__name__})")
+    return False
 
 
 def _owner_mention() -> str:
@@ -2347,6 +2467,41 @@ UNVERIFIED_SHOWN_MAX = 5
 UNVERIFIED_ENTRY_CHARS = 200
 UNVERIFIED_ENTRY_MIN_CHARS = 40
 DISCORD_MESSAGE_CHARS = 2000
+
+
+def _format_lead_reply(result: dict[str, Any]) -> str:
+    """task-0183: the lead's start notice and its plan."""
+
+    if result.get("result_type") == "lead_started":
+        return f"🧭 팀장 검토 시작: {result.get('request')}\n- 읽기 전용으로 저장소를 살펴 계획을 세웁니다. 끝나면 이 채널에 올립니다."
+    plan = result.get("plan") or {}
+    if not result.get("ok") and not plan:
+        excerpt = _discord_safe(result.get("excerpt") or "")
+        return (
+            "⚠️ 팀장 계획 실패: 아무 task도 만들지 않았습니다.\n"
+            f"- reason: `{result.get('reason')}`" + (f"\n- 응답 일부: {excerpt[:200]}" if excerpt else "")
+        )
+    plan = {key: (_discord_safe(value) if isinstance(value, str) else value) for key, value in plan.items()}
+    plan["steps"] = [_discord_safe(step) for step in plan.get("steps") or []]
+    steps = "\n".join(f"  {index}. {step}" for index, step in enumerate(plan.get("steps") or [], start=1))
+    lines = [
+        f"🧭 팀장 계획: {plan.get('title')}",
+        f"- 작업 종류: {plan.get('kind') or '없음 (등록된 작업 종류 밖)'}",
+        *([f"- 수정 허용 경로: {plan.get('allowed_path')}"] if plan.get("allowed_path") else []),
+        f"- 위험도: {plan.get('risk')}",
+        f"- 단계:\n{steps}",
+        f"- 팀장 제안 지시: {plan.get('worker_request')} (참고용, Worker는 Owner 요청 원문을 받음)",
+    ]
+    if plan.get("owner_decision"):
+        lines.append(f"- Owner 결정 필요: {plan.get('owner_decision')}")
+    if not result.get("ok"):
+        lines.append(f"⚠️ task를 만들지 못했습니다: `{result.get('reason')}`")
+    elif result.get("task_id"):
+        lines.append(f"🗂️ task 준비됨: {result.get('task_id')} — 실행하려면 `/go {result.get('task_id')}`")
+        lines.append("- 이 스레드에서 `/go`를 보내면 진행, Reviewer 판정과 지적, 수정, 결과가 여기에 모입니다.")
+    else:
+        lines.append("- 지금 Worker가 할 수 있는 작업 종류가 아니라 task를 만들지 않았습니다. 새 작업 종류가 필요하면 Owner가 정합니다.")
+    return "\n".join(lines)
 
 
 def _format_work_reply(result: dict[str, Any]) -> str:
@@ -2501,6 +2656,8 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
     result_type = pipeline_result.get("result_type")
     if result_type in ("work_planned", "work_started", "work_result"):
         return _format_work_reply(pipeline_result)
+    if result_type in ("lead_started", "lead_result"):
+        return _format_lead_reply(pipeline_result)
     if result_type == "help":
         lines = pipeline_result.get("lines") or []
         body = "\n".join(f"- {line}" for line in lines) if lines else "- (없음)"
@@ -4140,9 +4297,10 @@ def _run_self_check_suite() -> dict[str, Any]:
         and radar.get("test_command") == "-B apps/daily-ai-radar/run_smoke_tests.py"
         and studyroom.get("work_kind") == "studyroom_content"
         and studyroom.get("allowed_paths") == claude_worker.ALLOWED_PREFIX
-        and (selection.get("none") or {}).get("reason", "").startswith("unsupported_work_kind:")
+        # task-0183: no marker now goes to the read-only lead instead of being held.
+        and (selection.get("none") or {}).get("result_type") == "lead_started"
         and (selection.get("both") or {}).get("work_kind") == "studyroom_content"
-        and (selection.get("plain_words") or {}).get("reason", "").startswith("unsupported_work_kind:")
+        and (selection.get("plain_words") or {}).get("result_type") == "lead_started"
         and selection.get("go_none") == "studyroom_content"
         and selection.get("go_both") == "studyroom_content"
         and selection.get("go_plain_words") == "studyroom_content"
@@ -4491,7 +4649,8 @@ async def _start_discord_bot() -> None:
         # loop and reports to the same channel when it finishes or fails.
         if result.get("result_type") == "work_started":
             loop = asyncio.get_running_loop()
-            channel = message.channel
+            # task-0183: progress and the result go to the task's thread (the lead's, when /go was sent there).
+            channel = await _task_thread(message, f"{result['task_id']} 작업")
 
             # task-0165: progress lines from the Worker thread, sent in order to the same channel.
             def send_line(line: str) -> None:
@@ -4511,10 +4670,22 @@ async def _start_discord_bot() -> None:
                     bool(result.get("resume")),
                     bool(result.get("accept")),
                     _make_progress(str(result["task_id"]), send_line),
+                    result.get("work_kind"),
                 )
-                await message.channel.send(_format_reply(job))
+                await _send_safely(channel, message.channel, _format_reply(job))
 
             _BACKGROUND_TASKS.add(asyncio.create_task(_report_worker()))
+            return
+
+        # task-0183: the lead takes up to a few minutes, so it also runs off the event loop.
+        if result.get("result_type") == "lead_started":
+
+            async def _report_lead() -> None:
+                thread = await _task_thread(message, f"팀장: {result['request']}")
+                lead_result = await asyncio.to_thread(_run_lead_job, str(result["request"]))
+                await _send_safely(thread, message.channel, _format_reply(lead_result))
+
+            _BACKGROUND_TASKS.add(asyncio.create_task(_report_lead()))
             return
 
         # Best-effort outbound notification. Runs off the event loop so a

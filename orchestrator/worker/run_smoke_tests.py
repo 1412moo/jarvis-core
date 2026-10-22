@@ -267,19 +267,41 @@ def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: st
 def progress_flow(clone: Path, worktrees: Path) -> None:
     """task-0165: the stages run_pipeline reports, for the paths a run really takes."""
 
+    # task-0183: stage reports are progress(stage); the Reviewer verdict and a repair's result are
+    # progress(stage, detail). `stages` keeps the stage reports, `details` the detail reports.
+    details: dict[str, list[tuple[str, str]]] = {}
+
     def stages_of(name: str, **kwargs):
         stages: list[str] = []
-        r, calls, before, after = run_case(name, clone, worktrees, progress=stages.append, **kwargs)
+        details[name] = []
+
+        def record(stage: str, detail: str | None = None) -> None:
+            if detail is None:
+                stages.append(stage)
+            else:
+                details[name].append((stage, detail))
+
+        r, calls, before, after = run_case(name, clone, worktrees, progress=record, **kwargs)
         return r, calls, before, after, stages
 
     r, calls, *_, stages = stages_of("progressok", worker="ok")
     check("progress: a clean run reports worker, reviewer, qa, integrate in order and no repair",
           r.ok and stages == ["worker", "reviewer", "qa", "integrate"], f"{r.stage}:{r.reason}:{stages}")
+    check("progress: a clean run reports the Reviewer verdict PASS and no repair result",
+          details["progressok"] == [("review", "PASS")], str(details["progressok"]))
     Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
     r, calls, *_, stages = stages_of("progressrepair", worker="ok", review="once")
     check("progress: a repair is reported, then the fresh review",
           r.ok and r.repairs == 1 and stages == ["worker", "reviewer", "repair", "reviewer", "qa", "integrate"],
           f"{r.stage}:{r.reason}:{stages}")
+    repair_details = details["progressrepair"]
+    check("progress: the finding's excerpt, the repair's files and tests, then the re-review's PASS, all from the run's own values",
+          len(repair_details) == 3
+          and repair_details[0] == ("review", "FINDINGS: - {severity: major, evidence: apps/studyroom/content/glossary.json "
+                                              "adds an unsupported fact, impact: x, minimum_correction: y}")
+          and repair_details[1][0] == "repaired" and repair_details[1][1].startswith("apps/studyroom/content/glossary.json | tests: ")
+          and repair_details[1][1].endswith(r.test_summary[:300 - len("apps/studyroom/content/glossary.json | tests: ")])
+          and repair_details[2] == ("review", "PASS"), str(repair_details))
     Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
     r, calls, *_, stages = stages_of("progressretry", worker="ok", review="deviateonce")
     check("progress: an invalid-review retry is part of the same review, not a second report",
@@ -310,13 +332,18 @@ def progress_flow(clone: Path, worktrees: Path) -> None:
           and calls and calls[-1][0] is False and before == after, f"{r.reason}:{stages}")
 
     # A progress callback that always raises leaves the run exactly as it would be without one.
-    def broken(_stage: str) -> None:
+    def broken(_stage: str, _detail: str | None = None) -> None:
         raise RuntimeError("discord down")
 
     r, calls, before, after = run_case("progressbroken", clone, worktrees, worker="ok", progress=broken)
     check("progress: a failing report never fails the run (DONE, recorded, main advanced)",
           r.ok and r.stage == "done" and calls == [(True, calls[0][1])] and git(["rev-list", "--count", f"{before}..{after}"], clone) == "2",
           f"{r.stage}:{r.reason}:{calls}")
+    Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
+    r, calls, before, after = run_case("progressbrokenrepair", clone, worktrees, worker="ok", review="once", progress=broken)
+    check("progress: failing detail reports (verdict, repair result) never change a repaired run (DONE after 1 repair)",
+          r.ok and r.repairs == 1 and r.stage == "done" and calls == [(True, calls[0][1])]
+          and git(["rev-list", "--count", f"{before}..{after}"], clone) == "3", f"{r.stage}:{r.reason}:{r.repairs}:{calls}")
     r, calls, before, after = run_case("progressbrokenfail", clone, worktrees, worker="scope", progress=broken)
     check("progress: a failing report never hides a failure (scope_violation, FAILED recorded, main unchanged)",
           (not r.ok) and r.reason == "scope_violation" and calls == [(False, "scope:scope_violation")] and before == after,
@@ -749,6 +776,253 @@ def process_lock_flow(clone: Path, worktrees: Path) -> None:
           and {path: path.read_bytes() for path in tasks.glob("*.md")} == snapshot, f"{scan} | {text}")
 
 
+LEAD_OK = """kind: studyroom_content
+title: Studyroom 용어집에 RAG 용어 추가
+steps:
+- glossary.json의 기존 항목 형식을 확인한다
+- 배열 끝에 rag 항목을 추가한다
+risk: low
+owner_decision: none
+worker_request: apps/studyroom/content/glossary.json 끝에 rag 용어 항목 1개를 기존 형식으로 추가
+"""
+
+
+def lead_flow(bot, clone: Path, status_of) -> None:
+    """task-0183: the read-only lead, its answer parser and the task it hands to /go."""
+
+    import claude_lead
+
+    def answer(text: str, returncode: int = 0, as_json: bool = True):
+        out = json.dumps({"result": text}) if as_json else text
+        return lambda prompt, root: subprocess.CompletedProcess(["claude"], returncode, out, "")
+
+    prompts: list[str] = []
+
+    def recording(prompt: str, root: Path) -> subprocess.CompletedProcess:
+        prompts.append(prompt)
+        return answer(LEAD_OK)(prompt, root)
+
+    ok = claude_lead.run_lead("RAG 용어 추가", runner=recording)
+    check("lead: a well-formed answer becomes a plan", ok.ok and ok.plan is not None and ok.plan.kind == "studyroom_content"
+          and ok.plan.risk == "low" and ok.plan.owner_decision is None and len(ok.plan.steps) == 2, str(ok))
+    check("lead: the prompt names every registered kind and its path, and forbids jarvis.bat",
+          bool(prompts) and all(k.name in prompts[0] and k.allowed_prefix in prompts[0] for k in claude_worker.WORK_KINDS)
+          and "jarvis.bat" in prompts[0] and "never change anything" in prompts[0])
+    check("lead: plain (non-JSON) output is read too", claude_lead.run_lead("x", runner=answer(LEAD_OK, as_json=False)).ok)
+    bad_answers = {
+        "unexpected_line": LEAD_OK + "extra words\n",
+        "missing": LEAD_OK.replace("risk: low\n", ""),
+        "duplicate": LEAD_OK + "kind: none\n",
+        "kind": LEAD_OK.replace("kind: studyroom_content", "kind: whole_repo"),
+        "risk": LEAD_OK.replace("risk: low", "risk: tiny"),
+        "backtick": LEAD_OK.replace("RAG 용어 추가", "`RAG` 용어 추가"),
+        "no_steps": LEAD_OK.replace("- glossary.json의 기존 항목 형식을 확인한다\n- 배열 끝에 rag 항목을 추가한다\n", ""),
+        "too_many_steps": LEAD_OK.replace("steps:\n", "steps:\n" + "- step\n" * 7),
+        "none_without_reason": LEAD_OK.replace("kind: studyroom_content", "kind: none"),
+        "empty": "",
+    }
+    refused = {name: claude_lead.run_lead("x", runner=answer(text)) for name, text in bad_answers.items()}
+    check("lead: every malformed answer fails closed", all(not r.ok and r.plan is None and r.reason.startswith("lead_answer_malformed")
+          for r in refused.values()), str({k: v.reason for k, v in refused.items()}))
+
+    def timeout(prompt: str, root: Path):
+        raise subprocess.TimeoutExpired("claude", 1)
+
+    def boom(prompt: str, root: Path):
+        raise RuntimeError("x")
+
+    check("lead: timeout, non-zero exit and an exception fail closed",
+          claude_lead.run_lead("x", runner=timeout).reason == "lead_timeout"
+          and claude_lead.run_lead("x", runner=answer(LEAD_OK, returncode=1)).reason == "lead_failed:exit"
+          and claude_lead.run_lead("x", runner=boom).reason == "lead_failed:RuntimeError")
+    claude_lead._LEAD_LOCK.acquire()
+    try:
+        busy = claude_lead.run_lead("x", runner=answer(LEAD_OK))
+    finally:
+        claude_lead._LEAD_LOCK.release()
+    check("lead: one lead at a time", busy.reason == "lead_busy" and not claude_lead._LEAD_LOCK.locked())
+
+    # The bot job: a registered kind creates one TODO Worker-path task; /go hands the Worker and the
+    # Reviewer the Owner's own /work text, never the lead's; none and failures create nothing.
+    tasks_dir = clone / "memory" / "tasks"
+    real_run_claude = claude_lead._run_claude
+    try:
+        def names() -> list[str]:
+            return sorted(p.name for p in tasks_dir.glob("task-*.md"))
+
+        for label, text in (("none", LEAD_OK.replace("kind: studyroom_content", "kind: none")
+                                     .replace("owner_decision: none", "owner_decision: README는 등록된 작업 종류 밖")),
+                            ("malformed", "nonsense")):
+            claude_lead._run_claude = answer(text)
+            before = names()
+            job = bot._run_lead_job("README 문장 고쳐줘")
+            reply = bot._format_reply(job)
+            check(f"lead job: {label} creates no task and says why", names() == before and job.get("task_id") is None
+                  and (("Owner 결정 필요: README는 등록된 작업 종류 밖" in reply and "task를 만들지 않았습니다" in reply)
+                       if label == "none" else ("팀장 계획 실패" in reply and "lead_answer_malformed" in reply)), reply)
+        claude_lead._run_claude = answer(LEAD_OK.replace("title: Studyroom", "title: daily ai radar와 Studyroom")
+                                         .replace("kind: studyroom_content", "kind: daily_ai_radar"))
+        before = names()
+        conflict = bot._run_lead_job("x")
+        check("lead job: a title that would settle another kind creates nothing", names() == before
+              and conflict.get("ok") is False and conflict.get("reason") == "lead_task_kind_conflict", str(conflict))
+        before = names()
+        too_long = bot._run_lead_job("가" * 495)
+        check("lead job: an Owner request too long to keep verbatim is refused before the lead runs", names() == before
+              and too_long.get("reason") == "lead_request_too_long", str(too_long))
+
+        claude_lead._run_claude = answer(LEAD_OK)
+        job = bot._run_lead_job("RAG 용어 추가해 줘")
+        task_id = job.get("task_id") or ""
+        record = (tasks_dir / f"{task_id}.md").read_text(encoding="utf-8") if task_id else ""
+        reply = bot._format_reply(job)
+        check("lead job: a registered kind creates one TODO Worker-path task that keeps the Owner's words",
+              job.get("ok") is True and status_of(task_id) == "TODO"
+              and "- title: `studyroom: Studyroom 용어집에 RAG 용어 추가`" in record
+              and "- summary: `Owner 요청: RAG 용어 추가해 줘`" in record
+              and "- source_command: `/task`" in record, record)
+        check("lead job: the reply shows the plan, the allowed path and the /go command",
+              "🧭 팀장 계획: Studyroom 용어집에 RAG 용어 추가" in reply and "수정 허용 경로: apps/studyroom/content/" in reply
+              and "위험도: low" in reply and "1. glossary.json의 기존 항목 형식을 확인한다" in reply
+              and "Worker는 Owner 요청 원문을 받음" in reply and f"`/go {task_id}`" in reply, reply)
+        check("lead: /go gives the Owner text only for a lead task with a kind marker in its title",
+              bot._worker_request_for("studyroom: 제목", "Owner 요청: 원문") == "원문"
+              and bot._worker_request_for("studyroom: 제목", "그냥 요약") == "studyroom: 제목"
+              and bot._worker_request_for("마커 없는 제목", "Owner 요청: 원문") == "마커 없는 제목"
+              and bot._worker_request_for("studyroom: 제목", "Owner 요청:   ") == "studyroom: 제목")
+
+        # End to end: the lead's task, the Owner's /go, then Worker -> Reviewer -> QA -> main. The
+        # Worker and the Reviewer get the Owner's words; the Reviewer's verbatim approval is exactly
+        # what the Owner typed, and no lead text reaches either.
+        log = clone.parent / "lead-e2e-fake-claude.log"
+        os.environ["FAKE_LOG"] = str(log)
+        os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
+        try:
+            started = bot._run_command(f"/go {task_id}")
+            check("lead e2e: /go starts the lead's task with the Owner's words and the title's kind",
+                  started.get("result_type") == "work_started" and status_of(task_id) == "DOING"
+                  and started.get("request") == "RAG 용어 추가해 줘" and started.get("work_kind") == "studyroom_content", str(started))
+            done = bot._run_worker_job(task_id, started["request"], started["command"], work_kind=started["work_kind"])
+            seen = log.read_text(encoding="utf-8") if log.exists() else ""
+            check("lead e2e: the run reaches DONE through Reviewer and QA", done.get("ok") is True and status_of(task_id) == "DONE"
+                  and done.get("reviewer_verdict") == "PASS", f"{done.get('stage')}:{done.get('reason')}:{done.get('detail')}")
+            check("lead e2e: the Reviewer's verbatim approval is the Owner's /work text, and no lead text is passed on",
+                  "/work RAG 용어 추가해 줘\n" in seen and "Owner condition (verbatim, the only one): RAG 용어 추가해 줘\n" in seen
+                  and "glossary.json의 기존 항목 형식" not in seen and "rag 용어 항목 1개" not in seen, seen[-600:])
+
+            # A Radar plan whose Owner text names no kind still runs as Radar: /go passes the kind.
+            log.unlink(missing_ok=True)
+            claude_lead._run_claude = answer(LEAD_OK.replace("kind: studyroom_content", "kind: daily_ai_radar")
+                                             .replace("title: Studyroom 용어집에 RAG 용어 추가", "title: 보고서 문구 다듬기"))
+            radar_job = bot._run_lead_job("보고서 문구를 다듬어 줘")
+            radar_id = radar_job.get("task_id") or ""
+            os.environ["FAKE_WORKER"] = "radar"
+            radar_started = bot._run_command(f"/go {radar_id}")
+            radar_done = bot._run_worker_job(radar_id, radar_started["request"], radar_started["command"],
+                                             work_kind=radar_started["work_kind"])
+            check("lead e2e: a Radar plan runs as Radar although the Owner's words name no kind",
+                  radar_started.get("work_kind") == "daily_ai_radar" and radar_started.get("request") == "보고서 문구를 다듬어 줘"
+                  and radar_done.get("ok") is True and status_of(radar_id) == "DONE"
+                  and all(path.startswith("apps/daily-ai-radar/") for path in radar_done.get("changed_files") or [""]),
+                  f"{radar_done.get('stage')}:{radar_done.get('reason')}:{radar_done.get('changed_files')}")
+        finally:
+            os.environ.pop("FAKE_LOG", None)
+    finally:
+        claude_lead._run_claude = real_run_claude
+
+
+def discussion_flow(bot, clone: Path, status_of) -> None:
+    """task-0183: what the Owner sees in Discord while the AIs work: the Reviewer's finding, the
+    Worker's repair and the re-review, in order; a lost message never changes the run; the task
+    thread, with the channel as fallback."""
+
+    import asyncio
+
+    os.environ.pop("FAKE_LOG", None)
+    os.environ["FAKE_STATE"] = str(clone.parent / "discussion.state")
+    Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
+    task_id = bot._run_command("/work Studyroom glossary에 토론 확인 용어 추가").get("task_id", "")
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "once"
+    started = bot._run_command(f"/go {task_id}")
+    lines: list[str] = []
+    done = bot._run_worker_job(task_id, started["request"], started["command"],
+                               progress=bot._make_progress(task_id, lines.append), work_kind=started["work_kind"])
+    heads = [line.split(":", 1)[0] for line in lines]
+    finding = next((line for line in lines if line.startswith(f"🗣️ {task_id}")), "")
+    repaired = next((line for line in lines if line.startswith(f"🔁 {task_id}")), "")
+    check("discussion: Worker, review, the finding, the repair and its result, the re-review and its PASS, in order",
+          done.get("ok") is True and status_of(task_id) == "DONE" and done.get("repairs") == 1
+          and heads == [f"🔧 {task_id}", f"🔍 {task_id}", f"🗣️ {task_id}", f"🛠️ {task_id}", f"🔁 {task_id}",
+                        f"🔍 {task_id}", f"✅ {task_id}", f"🧪 {task_id}", f"📦 {task_id}"], str(lines))
+    check("discussion: the finding line shows the Reviewer's own excerpt, nothing more",
+          finding == (f"🗣️ {task_id}: Reviewer 판정 FINDINGS\n- 지적 요지: - {{severity: major, evidence: "
+                      "apps/studyroom/content/glossary.json adds an unsupported fact, impact: x, minimum_correction: y}"), finding)
+    check("discussion: the repair line shows the repaired files and the test summary only",
+          repaired.startswith(f"🔁 {task_id}: Worker가 repair 1회차 수정을 마침\n- 변경 파일: apps/studyroom/content/glossary.json\n- 테스트: ")
+          and "Owner request" not in repaired and "Rules:" not in repaired, repaired)
+    check("discussion: the re-review line says PASS after the repair",
+          f"✅ {task_id}: Reviewer 판정 PASS (repair 1회 뒤 재검토)" in lines, str(lines))
+    check("discussion: no line carries a prompt, a mention or jarvis.bat content",
+          not any(("<@" in line) or ("You are the Jarvis-Core" in line) or ("=== OWNER APPROVAL" in line) for line in lines))
+    pinged = bot._progress_line("task-0001-x", "review", 0, "FINDINGS: ping @everyone and <@123>")
+    check("discussion: a mention inside model text is neutralized", "@everyone" not in pinged and "<@123>" not in pinged
+          and "@\u200beveryone" in pinged, pinged)
+
+    # A Discord that fails every message leaves the same repaired run DONE.
+    Path(os.environ["FAKE_STATE"]).unlink(missing_ok=True)
+    lost_id = bot._run_command("/work Studyroom glossary에 알림 실패 확인 용어 추가").get("task_id", "")
+    started = bot._run_command(f"/go {lost_id}")
+
+    def down(_line: str) -> None:
+        raise ConnectionError("discord down")
+
+    lost = bot._run_worker_job(lost_id, started["request"], started["command"],
+                               progress=bot._make_progress(lost_id, down), work_kind=started["work_kind"])
+    check("discussion: every progress message failing changes nothing (repaired, DONE)",
+          lost.get("ok") is True and lost.get("repairs") == 1 and status_of(lost_id) == "DONE", f"{lost.get('stage')}:{lost.get('reason')}")
+
+    # The task thread: an existing thread is reused, a new one is opened, and a failure falls back.
+    class Target:
+        def __init__(self, fail: bool = False) -> None:
+            self.sent: list[str] = []
+            self.fail = fail
+
+        async def send(self, text: str) -> None:
+            if self.fail:
+                raise ConnectionError("down")
+            self.sent.append(text)
+
+    class Message:
+        def __init__(self, channel, thread=None, fail: bool = False) -> None:
+            self.channel, self.thread, self.fail, self.names = channel, thread, fail, []
+
+        async def create_thread(self, name: str):
+            self.names.append(name)
+            if self.fail:
+                raise PermissionError("no thread permission")
+            return self.thread
+
+    channel, thread = Target(), Target()
+    opened = Message(channel, thread)
+    failed = Message(channel, thread, fail=True)
+    long_name = "팀장: " + "가" * 200
+    check("thread: a new thread is opened on the message, its name capped at 100",
+          asyncio.run(bot._task_thread(opened, long_name)) is thread and opened.names == [long_name[:100]])
+    check("thread: a failure to open one falls back to the channel",
+          asyncio.run(bot._task_thread(failed, "x")) is channel)
+    thread_type = getattr(bot.discord, "Thread", None) if bot.discord is not None else None
+    if thread_type is not None:
+        in_thread = object.__new__(thread_type)
+        reused = Message(in_thread)
+        check("thread: a message already in a thread stays in it", asyncio.run(bot._task_thread(reused, "x")) is in_thread
+              and reused.names == [])
+    broken_thread, fine_channel = Target(fail=True), Target()
+    check("thread: a failed thread send goes to the channel", asyncio.run(bot._send_safely(broken_thread, fine_channel, "result"))
+          and fine_channel.sent == ["result"])
+    check("thread: if both fail, it reports False and never raises",
+          asyncio.run(bot._send_safely(Target(fail=True), Target(fail=True), "result")) is False)
+
+
 def bot_flow(clone: Path, worktrees: Path) -> None:
     """/work -> /go -> worker job through the Discord adapter, against the clone.
 
@@ -792,14 +1066,15 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
         meta = bot._read_task_metadata(clone / "memory" / "tasks" / f"{task_id}.md") or {}
         return meta.get("status", "")
 
+    tasks_before = sorted(p.name for p in (clone / "memory" / "tasks").glob("task-*.md"))
     hold = bot._run_command("/work README 문장 고쳐줘")
-    # task-0164: still held, and the reason now names every registered kind.
-    check("bot: non-Studyroom request is held", hold.get("result_type") == "hold"
-          and hold.get("reason", "").startswith("unsupported_work_kind:")
-          and all(name in hold.get("reason", "") for name in ("studyroom_content", "daily_ai_radar")), str(hold))
+    # task-0183: a request with no kind marker goes to the read-only lead; nothing is created yet.
+    check("bot: a request with no kind marker starts the lead and creates nothing", hold == {
+        "result_type": "lead_started", "request": "README 문장 고쳐줘"}
+          and sorted(p.name for p in (clone / "memory" / "tasks").glob("task-*.md")) == tasks_before
+          and "팀장 검토 시작" in bot._format_reply(hold), str(hold))
     plain = bot._run_command("/work radar 레이더 문구 정리")
-    check("bot: the plain words radar/레이더 do not select a kind at /work", plain.get("result_type") == "hold"
-          and plain.get("reason", "").startswith("unsupported_work_kind:"), str(plain))
+    check("bot: the plain words radar/레이더 do not select a kind at /work", plain.get("result_type") == "lead_started", str(plain))
 
     owner = "111111111111111111"
     os.environ[bot.OWNER_IDS_ENV] = owner
@@ -838,8 +1113,9 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     done = bot._run_worker_job(task_id, retry["request"], retry["command"],
                                progress=bot._make_progress(task_id, done_lines.append))
     check("bot: success reply and task DONE", done.get("ok") is True and status_of(task_id) == "DONE" and "✅" in bot._format_reply(done), f"{done.get('stage')}:{done.get('reason')}:{done.get('detail')}")
-    check("bot: a successful run reports Worker, Reviewer, QA and integrate once each, no mention",
-          [line.split(":", 1)[0] for line in done_lines] == [f"🔧 {task_id}", f"🔍 {task_id}", f"🧪 {task_id}", f"📦 {task_id}"]
+    # task-0183: plus the Reviewer's verdict line between the review and QA.
+    check("bot: a successful run reports Worker, Reviewer, its verdict, QA and integrate once each, no mention",
+          [line.split(":", 1)[0] for line in done_lines] == [f"🔧 {task_id}", f"🔍 {task_id}", f"✅ {task_id}", f"🧪 {task_id}", f"📦 {task_id}"]
           and not any("<@" in line for line in done_lines) and "<@" not in bot._format_reply(done), str(done_lines))
     check("bot: checkpoint commit tracks the task record", git(["log", "-1", "--format=%H"], clone) == done.get("checkpoint")
           and f"memory/tasks/{task_id}.md" in git(["show", "--name-only", "--format=", "HEAD"], clone)
@@ -998,6 +1274,9 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           audits.count("approval") == approvals_before + 1 and audits.count("execution") == executions_before + 1
           and execution_sources[-1] == "go" and execution_audit_errors[-1] is None)
     check("bot: accept success reply says the Reviewer was not called again", "- Reviewer: 재호출 없음 (Owner accept)" in bot._format_reply(accepted))
+    # task-0183: last, so its own approval and execution audits leave the counts above alone.
+    lead_flow(bot, clone, status_of)
+    discussion_flow(bot, clone, status_of)
 
 
 def attempt_of(task_id: str, branch: str) -> int:

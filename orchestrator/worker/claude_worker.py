@@ -1239,15 +1239,24 @@ def _integrate_and_checkpoint(
 # task-0165: the stages a run reports to its caller as it enters them, in this order.
 # "repair" and a second "reviewer" appear only when a repair really happens.
 PROGRESS_STAGES = ("worker", "resume", "reviewer", "repair", "qa", "integrate")
+# task-0183: two reports that carry a detail, both taken from values the run already has: the
+# Reviewer's verdict with its findings excerpt, and a repair candidate's files and test summary.
+PROGRESS_DETAIL_STAGES = ("review", "repaired")
 
 
-def _report_progress(progress: Callable[[str], None] | None, stage: str) -> None:
-    """task-0165: tell the caller a stage has started. A failing report never changes the run."""
+def _report_progress(progress: Callable[..., None] | None, stage: str, detail: str | None = None) -> None:
+    """task-0165: tell the caller a stage has started. A failing report never changes the run.
+
+    task-0183: a detail report calls progress(stage, detail); the stage reports keep progress(stage).
+    """
 
     if progress is None:
         return
     try:
-        progress(stage)
+        if detail is None:
+            progress(stage)
+        else:
+            progress(stage, detail)
     except Exception:  # noqa: BLE001 - reporting is best effort, the run and its record stay as they are
         pass
 
@@ -1395,6 +1404,9 @@ def _run_pipeline(
             candidate = _git(["rev-parse", "HEAD"], worktree)
             result.candidate = candidate
             result.candidates.append(candidate)
+            if parent is not None:
+                # task-0183: what the repair produced, from the scope and test steps above.
+                _report_progress(progress, "repaired", f"{', '.join(changed)} | tests: {summary}"[:300])
 
             # 7. Reviewer, pinned to the candidate, with the Owner text verbatim.
             result.stage = "reviewer"
@@ -1432,6 +1444,12 @@ def _run_pipeline(
             findings = review_text.split("findings:", 1)[-1] if "findings:" in review_text else review_text
             findings = REPORT_FIELD_END.split(findings, maxsplit=1)[0]
             result.reviewer_excerpt = " ".join(findings.split())[:300]
+            # task-0183: the verdict, with the findings excerpt when it is not a PASS.
+            _report_progress(
+                progress,
+                "review",
+                verdict if verdict == "PASS" or not result.reviewer_excerpt else f"{verdict}: {result.reviewer_excerpt}",
+            )
             if verdict == "PASS":
                 break
             if verdict != "FINDINGS":
