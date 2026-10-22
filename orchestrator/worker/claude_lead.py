@@ -83,7 +83,7 @@ def lead_prompt(request: str) -> str:
         "gets the Owner request itself.\n\n"
         "Answer with exactly this block and nothing else (no backticks):\n"
         "kind: <one of the kind names above, or none>\n"
-        "title: <one line, at most 100 characters>\n"
+        "title: <one line, at most 100 characters, no backticks>\n"
         "steps:\n"
         "- <step>\n"
         "- <step>\n"
@@ -93,9 +93,13 @@ def lead_prompt(request: str) -> str:
     )
 
 
-def _clean_line(value: str, max_chars: int) -> str | None:
+def _clean_line(value: str, max_chars: int, *, allow_backticks: bool = True) -> str | None:
+    """One non-empty line within the limit. task-0183 repair 6: backticks are refused only where the text
+    goes into a task file (the title); the steps, the suggested instruction and the Owner-decision reason
+    are only shown in Discord, so a backtick there no longer fails the plan."""
+
     value = " ".join(value.split())
-    if not value or len(value) > max_chars or "`" in value:
+    if not value or len(value) > max_chars or (not allow_backticks and "`" in value):
         return None
     return value
 
@@ -132,7 +136,7 @@ def parse_lead_answer(text: str) -> tuple[LeadPlan | None, str]:
     kind_name = fields["kind"].strip()
     if kind_name != "none" and claude_worker.work_kind_by_name(kind_name) is None:
         return None, "lead_answer_malformed:kind"
-    title = _clean_line(fields["title"], LEAD_MAX_TITLE_CHARS)
+    title = _clean_line(fields["title"], LEAD_MAX_TITLE_CHARS, allow_backticks=False)
     worker_request = _clean_line(fields["worker_request"], LEAD_MAX_LINE_CHARS)
     owner_decision = _clean_line(fields["owner_decision"], LEAD_MAX_LINE_CHARS)
     risk = fields["risk"].strip().lower()

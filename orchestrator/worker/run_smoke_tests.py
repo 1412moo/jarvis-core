@@ -968,6 +968,20 @@ def lead_flow(bot, clone: Path, status_of) -> None:
     refused = {name: claude_lead.run_lead("x", runner=answer(text)) for name, text in bad_answers.items()}
     check("lead: every malformed answer fails closed", all(not r.ok and r.plan is None and r.reason.startswith("lead_answer_malformed")
           for r in refused.values()), str({k: v.reason for k, v in refused.items()}))
+    check("lead: a backtick in the title (which goes into the task file) is still refused",
+          refused["backtick"].reason == "lead_answer_malformed:text", refused["backtick"].reason)
+    # task-0183 repair 6: the real lead wrote `WATCH` inside a step and the whole plan was refused. Backticks
+    # in the steps, the suggested instruction and the Owner-decision reason are only shown, so they pass.
+    ticked = claude_lead.run_lead("x", runner=answer(
+        LEAD_OK.replace("- 배열 끝에 rag 항목을 추가한다", "- 배열 끝에 `rag` 항목을 추가한다")
+        .replace("worker_request: apps/studyroom", "worker_request: `apps/studyroom")
+        .replace("기존 형식으로 추가", "기존 형식으로 추가`")))
+    ticked_none = claude_lead.run_lead("x", runner=answer(
+        LEAD_OK.replace("kind: studyroom_content", "kind: none").replace("owner_decision: none", "owner_decision: `README.md`는 종류 밖")))
+    check("lead: backticks in steps, the suggested instruction and the Owner-decision reason are accepted as written",
+          ticked.ok and ticked.plan.steps[1] == "배열 끝에 `rag` 항목을 추가한다"
+          and ticked.plan.worker_request.startswith("`apps/studyroom") and ticked_none.ok
+          and ticked_none.plan.owner_decision == "`README.md`는 종류 밖", f"{ticked.reason} {ticked_none.reason}")
 
     def timeout(prompt: str, root: Path):
         raise subprocess.TimeoutExpired("claude", 1)

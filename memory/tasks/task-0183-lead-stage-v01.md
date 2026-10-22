@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-22 05:30 UTC`
-- updated_at: `2026-10-22 15:30 UTC`
+- updated_at: `2026-10-22 16:19 UTC`
 - summary: `Worker 파이프라인 앞에 팀장(Lead) 단계를 더한다. 작업 종류 표지어가 없는 /work 요청이면 읽기 전용 Claude 팀장이 저장소를 살펴 계획(작업 종류, 단계, 위험도, Owner 결정 필요 여부)을 세워 Discord에 올리고, 기존 작업 종류에 맞으면 그 종류의 TODO task를 만들어 /go를 안내하며 맞지 않으면 이유만 보고한다. 실행은 지금처럼 Owner의 /go로만 시작하고 새 비용·외부 연결은 없다.`
 - source_command: `Owner 지시: 팀장 단계 v0.1 시작 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `e069fa07b2febe80bc9de973404843713d70cbe0` (등록 시점 main HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=5`, `repair_count=5` (SOP §5 기본값 1에 Owner 결정 3·4·5·6으로 1회씩 증액, 사용 내역은 Repair 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=6`, `repair_count=6` (SOP §5 기본값 1에 Owner 결정 3·4·5·6·7로 1회씩 증액, 사용 내역은 Repair 절) |
 | 배경 | Owner의 최종 목표(Discord 지시 → AI 팀장 계획·배분 → 실무·검토·수정 → 보고) 대비 현황 조사에서 가장 큰 병목이 팀장 단계 부재로 확인됨 |
 
 ## Owner 결정 (원문)
@@ -127,6 +127,18 @@ Git worktree 등록 정보는 실제 임시 폴더가 존재하지 않을 때만
 1번 승인, 다음 minor는 §8 수용으로 진행해
 ```
 
+## Owner 결정 7: QA 실패(백틱) 수정 (원문)
+
+```text
+[Manager 질문]
+선택지
+1. (권장) repair 예산을 1회 더 늘려 위 결함만 고칩니다. 새 candidate로 Reviewer → QA → 완료까지 진행합니다. 이전 결정대로 다음 Reviewer minor는 §8 수용으로 처리합니다.
+2. task-0183을 여기서 멈추고, 백틱 문제를 별도 task로 고칩니다.
+
+[Owner 답]
+repair 예산을 1회 추가 승인하고 진행하세요
+```
+
 ## 설계 (v0.1)
 
 1. 진입: `/work <요청>`에 작업 종류 표지어가 있으면 지금과 같다. 없으면(지금은 `unsupported_work_kind` hold) 팀장 단계로 간다. 자연어 일반 메시지의 팀장 연결은 v0.1에서 하지 않는다(자연어 처리 경로와 그 테스트 계약을 따로 바꿔야 함).
@@ -171,7 +183,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 ## Implementer 검증 (작업 트리)
 
 - 실제 `claude`로 팀장을 1회 실행했다(읽기 전용, 25초, 저장소 변경 없음): 요청 "Studyroom 용어집에 RAG 용어를 하나 추가해 줘"에 형식에 맞는 계획(studyroom_content, 단계 5개, risk low)을 냈다.
-- Worker smoke total=537 failed=0(이전 494에 43개, repair 1~4의 검사 포함), Discord self-check ok 109, discord-nl-intent smoke 통과, Console smoke 통과, SOP validator PASS.
+- Worker smoke total=539 failed=0(이전 494에 45개, repair 1~6의 검사 포함), Discord self-check ok 109, discord-nl-intent smoke 통과, Console smoke 통과, SOP validator PASS.
 - 사전 점검(`check_task_record`, baseline `e069fa0`): status=PASS, staged_files 7, violations 0.
 
 ## Self-review
@@ -201,6 +213,7 @@ candidate 전 1회(읽기 전용 self-reviewer, Owner 결정 2 전). major 3·mi
 | C6 | Owner 결정 5: 등록 정보는 폴더가 없을 때만 제거 (원문) | "[Manager 질문]" / "선택지" / "1. (권장) repair 예산을 1회 더 늘려 고칩니다." / "2. SOP §8에 따라 이 minor 지적을 수용하고, 같은 candidate ac136ef로 바로 QA → 완료로 갑니다." / "[Owner 답]" / "1번 승인. repair 예산을 1회 추가해 줘." / "Git worktree 등록 정보는 실제 임시 폴더가 존재하지 않을 때만 제거하도록 수정해 줘. 폴더 삭제에 실패해 실제 폴더가 남아 있다면 등록 정보를 유지하고, 정리 실패를 명확하게 기록하도록 해 줘." | repair 예산을 4로 기록하고 repair 4를 썼다. 등록 정보는 그 worktree 폴더가 없을 때만 지우고, 폴더가 남으면 등록 정보를 남긴 채 임시 폴더 삭제 실패와 등록 정보 유지를 각각 로그 줄로 남긴다 |
 | C7 | Owner 결정 5: 등록 정보는 폴더가 없을 때만 제거 (원문) | "이 조건을 검증하는 회귀 테스트를 추가해 줘. 변경 범위는 팀장 임시 worktree의 생성 실패 정리로 한정하고, 새 candidate에서 Reviewer → QA → 완료 절차를 진행해 줘." / "추가 지적이 나오더라도 승인 범위를 임의로 넓히지 말고 보고해 줘. push는 하지 마." | 검사 2개를 더했다(폴더 삭제 실패 시 등록 정보 유지·로그·다른 기록 무변경, 그 뒤 정리로 모두 사라짐). 바꾼 것은 `claude_lead.py`의 정리 함수, 그 검사, SOP 팀장 문단의 정리 문장, 이 기록뿐이다. push는 하지 않는다 |
 | C8 | Owner 결정 6: 경로 대소문자와 검사 보강, 다음 minor 수용 (원문) | "[Manager 질문]" / "선택지" / "1. (권장) repair 예산을 1회 더 늘려 두 건을 고칩니다(코드 2줄, 검사 1줄). 새 candidate로 Reviewer → QA → 완료까지 진행합니다. 반복을 끊기 위해 하나를 함께 정해 주시길 권합니다. 이번 정리 문제에서 다음 검토가 또 minor만 내면, 그 지적은 SOP §8에 따라 수용한 것으로 보고 바로 QA로 가는 것입니다." / "2. SOP §8에 따라 두 minor를 수용하고, 같은 candidate b9fb841로 바로 QA → 완료로 갑니다." / "[Owner 답]" / "1번 승인, 다음 minor는 §8 수용으로 진행해" | repair 예산을 5로 기록하고 repair 5를 썼다. 다음 검토가 minor만 내면 그 지적을 이 원문에 따라 §8 수용으로 기록하고(지적마다 이 원문을 인용) 같은 candidate로 QA를 진행한다. blocking·major는 수용하지 않는다 |
+| C9 | Owner 결정 7: QA 실패(백틱) 수정 (원문) | "[Manager 질문]" / "선택지" / "1. (권장) repair 예산을 1회 더 늘려 위 결함만 고칩니다. 새 candidate로 Reviewer → QA → 완료까지 진행합니다. 이전 결정대로 다음 Reviewer minor는 §8 수용으로 처리합니다." / "2. task-0183을 여기서 멈추고, 백틱 문제를 별도 task로 고칩니다." / "[Owner 답]" / "repair 예산을 1회 추가 승인하고 진행하세요" | repair 예산을 6으로 기록하고 repair 6을 썼다. 백틱 금지를 task 파일에 들어가는 제목에만 남겼다. 다음 Reviewer minor는 결정 6에 따라 §8 수용으로 처리한다 |
 
 ## Repair
 
@@ -214,6 +227,8 @@ candidate 전 1회(읽기 전용 self-reviewer, Owner 결정 2 전). major 3·mi
 - repair 4(`repair_count=4`, Owner 결정 5): 기록은 그 worktree 폴더가 없을 때만 지우고, 남아 있으면 기록을 유지하며 `[lead] cleanup incomplete: worktree folder … remains; its git record is kept`를 남긴다. `_remove_lead_worktree`는 임시 폴더가 남으면 `[lead] cleanup failed: temporary folder … remains`를 남긴다. 검사 2개: worktree 제거와 폴더 삭제가 모두 실패하는 경우에 tree가 남고, 기록이 유지되어 git 목록에 보이고, 두 로그 줄이 나오고, 심어 둔 다른 기록은 그대로인지; 그 뒤 정리를 다시 돌리면 tree·기록·폴더가 모두 사라지고 심어 둔 기록은 남는지(Worker smoke total=537 failed=0). SOP 팀장 문단에 이 동작을 적었다.
 - candidate `b9fb841e3609d9b7bb7db4746a9a7cd9f4582594`: Reviewer FINDINGS(유효, self_deviations 0), minor 2건: (1) 폴더 존재 확인이 소문자로 바꾼 경로로 이뤄져 대소문자를 구분하는 파일 시스템에서는 남은 폴더를 없다고 볼 수 있었다(이 PC의 Windows에서는 맞게 동작). (2) "남은 tree가 git 목록에 보인다" 검사가 목록에 "tree"라는 글자가 있는지만 보았다.
 - repair 5(`repair_count=5`, Owner 결정 6): 소문자 변환은 이 팀장 폴더인지 판정할 때만 쓰고, 존재 확인과 로그는 git이 적은 경로 그대로 쓴다. 검사는 유지된 기록의 gitdir이 남은 tree 폴더를 정확히 가리키는지와, 목록에 그 임시 폴더 이름(`jarvis-lead-*`)이 있는지로 바꿨다(Worker smoke total=537 failed=0).
+- candidate `b0a5531ad52aa99c672223a7785919c925bf467f`: Reviewer PASS(지적 0, self_deviations 0). 같은 candidate의 QA는 FAIL: 실제 `claude` 팀장 실행이 `lead_answer_malformed:steps`로 실패했다. 같은 요청으로 다시 돌려 보니 모델이 단계 안에 백틱(예: `WATCH`)을 쓴 경우에만 파서가 계획 전체를 거부했다. QA의 다른 FAIL 2건(`_run_pipeline` 비교, self-check 파싱)은 QA 스크립트 결함이었고, 스크립트를 고쳐 같은 candidate에서 둘 다 통과를 확인했다.
+- repair 6(`repair_count=6`, Owner 결정 7): 백틱 금지를 task 파일에 들어가는 제목에만 남기고, 표시만 되는 단계·제안 지시·Owner 결정 사유는 한 줄·길이 제한만 둔다. 프롬프트의 title 줄에 백틱 금지를 적었다. 검사 2개: 제목의 백틱은 여전히 거부, 단계·제안 지시·Owner 결정 사유의 백틱은 그대로 받음(Worker smoke total=539 failed=0). 같은 요청으로 실제 팀장을 3번 돌려 3번 모두 정상 계획(그중 1번은 단계에 백틱)이었고 파일 변경과 잔여물은 없었다.
 
 ## 후속 작업 (v0.2 후보, Owner 결정 3)
 
