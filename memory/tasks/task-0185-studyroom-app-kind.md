@@ -2,11 +2,12 @@
 
 - id: `task-0185-studyroom-app-kind`
 - title: `Worker 작업 종류: Studyroom 앱 전체`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-22 17:09 UTC`
-- updated_at: `2026-10-23 05:26 UTC`
+- updated_at: `2026-10-23 05:42 UTC`
 - summary: `Worker 작업 종류 studyroom_content의 허용 경로를 apps/studyroom/content/에서 Studyroom 앱 전체 apps/studyroom/으로 넓힌다. 앱 실행 스크립트 apps/studyroom/studyroom.bat은 보호 경로에 더해 Worker가 바꾸지 못하게 하고, Worker 지시에 네트워크·외부 API·새 의존성 금지와 로컬 서버 127.0.0.1 유지를 적는다. 종류 이름·표지어·테스트는 그대로다.`
+- completion_evidence: `candidate feacbb0eb093470f85e68089c51b9a09d1dc824d (baseline d8a341f, repair 1). Reviewer FINDINGS minor 1 (README wording: no-network is a Worker instruction, not a code check), accepted by the Owner under SOP 8; self_deviations 0. QA PASS 24/24 in a fresh worktree: 7 scope files, app untouched; studyroom kind is apps/studyroom/ with the launcher protected; validator PASS 172; Worker smoke 556/0; self-check 109; Studyroom smoke.`
 - source_command: `Owner 지시: 작업 종류 늘리기, Studyroom 앱 전체 선택 (Claude Code 세션)`
 
 ## 기준선
@@ -108,3 +109,25 @@ candidate 전 1회. minor 3건을 반영했다: 사전 점검 결과를 적었�
 
 - candidate `b71250f134f871600d668572ffe219465933d599`: Reviewer FINDINGS(유효, self_deviations 0), minor 1건: Daily AI Radar Worker 지시에 Studyroom 경로가 섞이지 않는지 보는 기존 검사(`orchestrator/worker/run_smoke_tests.py`)가 옛 경로 `apps/studyroom/content/`를 찾고 있어 새 경로가 섞여도 잡지 못했다. 구현 절은 허용 경로 기대값을 새 경로로 바꿨다고 했는데 이 한 곳이 빠졌다.
 - repair 1(`repair_count=1`, 기본 예산 안): 그 검사가 `apps/studyroom/`을 찾도록 바꿨다. 다른 것은 바꾸지 않았다.
+
+## Reviewer·QA 결과
+
+- candidate `feacbb0eb093470f85e68089c51b9a09d1dc824d`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: `adapters/discord/README.md`의 "Worker는 네트워크·외부 API·새 의존성을 더하지 않는다"는 문장이 코드 검사처럼 읽히지만 실제로는 Worker 지시(`prompt_note`)일 뿐이다. repair 예산(1)은 이미 썼다.
+- Owner 결정 3(아래 원문)에 따라 이 minor를 SOP §8로 수용하고 같은 candidate로 QA를 진행했다. README 문장은 고치지 않았다.
+- QA: 새 detached worktree에서 PASS 24/24(변경 파일 7개, 앱 미변경, 허용 경로·보호 경로·증거 차단, validator PASS 172, Worker smoke 556/0, self-check 109, Studyroom smoke, discord-nl-intent smoke, check_task_record, diff --check, jarvis.bat 미추적). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push는 하지 않았다.
+
+### Owner 결정 3: README minor 수용 (원문)
+
+```text
+[Manager 질문]
+결정이 필요한 것 (repair 예산 소진)
+1. (권장) repair 예산을 1회 더 승인해 주시면 README 그 한 문장을 고칩니다. 이어서 새 candidate로 Reviewer → QA → 완료까지 진행합니다.
+2. SOP §8에 따라 이 minor 지적을 수용하고 feacbb0 그대로 QA로 갑니다. README 문장은 지금대로 남습니다.
+3. task-0185를 여기서 멈춥니다.
+
+[Owner 답]
+선택지 2로 진행하세요.
+feacbb0를 그대로 QA에 넘기고, QA 통과 시 Evidence·Complete 및 완료 checkpoint와 master-plan 기록까지 진행하면 됩니다. push는 별도 승인 전까지 보류합니다.
+이번 작업은 이미 필요한 권한 확대와 보호 경로 검증을 구현했으므로, 사소한 문서 표현을 계속 수정하기보다 완료시키는 것이 좋겠습니다.
+```
