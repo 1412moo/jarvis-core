@@ -229,7 +229,7 @@
       return;
     }
 
-    const cardsHtml = list.map(item => `
+    const renderCards = items => items.map(item => `
       <div class="card glossary-card">
         <div class="card-title">${escapeHtml(item.term)}</div>
         <div class="glossary-dev">
@@ -252,8 +252,23 @@
         <h2>Glossary: 실전 개발 용어 사전</h2>
         <p>개발자 정의, 쉬운 비유, Jarvis 실제 적용 사례로 이어지는 3단계 용어집입니다.</p>
       </div>
-      <div class="cards-grid">${cardsHtml}</div>
+      <input type="search" id="glossary-search" class="glossary-search" placeholder="용어 이름이나 설명으로 검색" aria-label="용어 검색">
+      <div class="cards-grid" id="glossary-grid">${renderCards(list)}</div>
     `;
+
+    // Filter cards by term name or description
+    const searchInput = document.getElementById('glossary-search');
+    const grid = document.getElementById('glossary-grid');
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.trim().toLowerCase();
+      const filtered = query === '' ? list : list.filter(item =>
+        [item.term, item.dev_definition, item.simple_explanation, item.jarvis_example]
+          .some(field => String(field || '').toLowerCase().includes(query))
+      );
+      grid.innerHTML = filtered.length > 0
+        ? renderCards(filtered)
+        : '<p class="glossary-empty">검색어와 일치하는 용어가 없습니다.</p>';
+    });
   }
 
   // 6. Learn View & Quiz
