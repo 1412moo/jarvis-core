@@ -2,11 +2,12 @@
 
 - id: `task-0188-accept-test-line`
 - title: `accept 완료 보고의 테스트 줄`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-23 08:25 UTC`
-- updated_at: `2026-10-23 08:32 UTC`
+- updated_at: `2026-10-23 08:39 UTC`
 - summary: `Discord /go accept 완료 보고의 테스트 줄이 비어 나오는 표시 문제를 고친다. accept 경로는 Worker 단계 테스트 요약이 없고 QA가 작업 종류의 smoke test를 다시 돌리므로, 그 결과를 테스트 줄에 적는다. 판정·반영 로직은 바꾸지 않는다.`
+- completion_evidence: `candidate 55ddf78a8de2b31c5aad86243eec08c065142df1 (baseline f5f1158). Reviewer PASS, findings 0, self_deviations 0. QA PASS 22/22 in a fresh worktree: 3 scope files; only _format_work_reply changed; accept with a QA rerun shows the new test line, no rerun value claims no pass, Worker summaries kept, QA line unchanged; real accept flow reply checked; Worker smoke 559/0; self-check 109; validator PASS.`
 - source_command: `Owner 지시: accept 완료 보고 테스트 줄 수정 (Claude Code 세션)`
 
 ## 기준선
@@ -76,3 +77,10 @@ candidate 전 1회. minor 3건을 모두 반영했다: A2에 "(QA 6개로 확인
 | --- | --- | --- | --- |
 | A1 | Owner 결정 (원문) | "3. 위의 "테스트:" 빈 줄 표시 수정." / "[Owner 답]" / "3번" | accept 완료 보고의 테스트 줄만 고쳤다. 1(push)과 2(보호 장치 테스트)는 하지 않았다 |
 | A2 | Owner 결정 (원문) | "accept일 때 "테스트: accept 때 재실행 없음 (QA 6개로 확인)"처럼 표시되게 고치는 것은 작은 별도 task 후보입니다." | 문구는 예시였다. 코드를 보니 QA가 smoke test를 실제로 다시 돌리므로(`tests_rerun`) "재실행 없음" 대신 "QA에서 다시 실행해 통과"로 사실에 맞게 적었다. 근거는 `orchestrator/worker/claude_worker.py`의 `_qa_checks`가 `qa["tests_rerun"] = _run_tests(worktree)[0]`로 작업 종류의 테스트를 다시 돌리는 것이다. 예시의 "(QA 6개로 확인)"은 바로 아래 기존 QA 줄(`- QA: PASS (N개 검사)`)이 이미 보이므로 테스트 줄에서 되풀이하지 않았다 |
+
+## Reviewer·QA 결과
+
+- candidate `55ddf78a8de2b31c5aad86243eec08c065142df1`: Reviewer PASS(findings 0, self_deviations 0).
+- QA: 새 detached worktree에서 PASS 22/22(변경 파일 3개, `bot_minimal.py`에서는 `_format_work_reply`만 바뀜, QA 재실행이 있는 accept만 새 문구, 값이 없으면 통과라고 쓰지 않음, Worker 요약 유지, QA 줄 그대로, 실제 accept 흐름의 보고 검사, Worker smoke 559/0, self-check 109, validator PASS, check_task_record, diff --check, jarvis.bat 미추적). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push는 하지 않았다.
+- 실행 중인 Discord 봇은 이 변경 전에 시작한 프로세스라, 새 문구는 봇을 다시 시작한 뒤부터 나온다.
