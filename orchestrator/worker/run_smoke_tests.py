@@ -137,6 +137,25 @@ FAKE_CLAUDE = textwrap.dedent(
         # task-0185: an edit to the Studyroom app's own code, outside content/.
         with open("apps/studyroom/web/app.js", "a", encoding="utf-8", newline="\\n") as script:
             script.write("\\n// Fake Studyroom app worker note.\\n")
+    elif mode == "rcreadme":
+        # task-0189: a Research Council edit, inside that kind's allowed path, adding no forbidden text.
+        with open("apps/research-council/README.md", "a", encoding="utf-8", newline="\\n") as readme:
+            readme.write("\\nFake Research Council worker note.\\n")
+    elif mode == "rcadvisor":
+        # task-0189: the file that makes the external LLM call is protected.
+        with open("apps/research-council/research_council/openrouter_advisor.py", "a", encoding="utf-8", newline="\\n") as f:
+            f.write("\\n# fake\\n")
+    elif mode == "rcnet":
+        # task-0189: an added line that imports a network module.
+        with open("apps/research-council/run_demo.py", "a", encoding="utf-8", newline="\\n") as f:
+            f.write("\\nimport urllib.request  # fake\\n")
+    elif mode == "rclive":
+        # task-0189: an added line that selects the live mode, in upper case.
+        with open("apps/research-council/run_demo.py", "a", encoding="utf-8", newline="\\n") as f:
+            f.write("\\nMODE = LLMAugmentationMode.LIVE  # fake\\n")
+    elif mode == "rcnewfile":
+        # task-0189: a new file counts line by line too.
+        Path("apps/research-council/research_council/fetch.py").write_text("KEY = os.environ.get('X')\\n", encoding="utf-8")
     elif mode == "badjson":
         Path("apps/studyroom/content/glossary.json").write_text("{not json", encoding="utf-8")
     elif mode == "radar":
@@ -237,7 +256,7 @@ def write_task(clone: Path, task_id: str) -> None:
 
 def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: str = "pass", prepare=None,
              request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None, resume: bool = False, repair_budget: int | None = None,
-             progress=None, on_record=None):
+             progress=None, on_record=None, work_kind: str | None = None):
     os.environ["FAKE_WORKER"] = worker
     os.environ["FAKE_REVIEW"] = review
     task_id = task_id or f"task-8000-{name}"
@@ -264,11 +283,115 @@ def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: st
         resume=resume,
         repair_budget=repair_budget,
         progress=progress,
+        work_kind=work_kind,
     )
     after = git(["rev-parse", "HEAD"], clone)
     check(f"{name}: no push", git(["rev-parse", "origin/main"], clone) == origin_before and not result.pushed)
     check(f"{name}: jarvis.bat never in main index or tree", not git(["ls-files", "--", "jarvis.bat"], clone))
     return result, calls, before, after
+
+
+def research_council_flow(clone: Path, worktrees: Path, tmp: Path) -> None:
+    """task-0189: the Research Council kind, its protected files and the forbidden-addition check."""
+
+    kind = claude_worker.work_kind_by_name("research_council")
+    check("research council: the kind is registered with its path, test and markers",
+          kind is not None and kind.allowed_prefix == "apps/research-council/"
+          and kind.test_script == "apps/research-council/run_smoke_tests.py" and kind.commit_scope == "research-council"
+          and [k.name for k in claude_worker.work_kinds_for_text("Research Council README 다듬기")] == ["research_council"]
+          and [k.name for k in claude_worker.work_kinds_for_text("리서치 카운슬 문구")] == ["research_council"]
+          and claude_worker.work_kinds_for_text("research 문서 정리") == []
+          and claude_worker.WORK_KINDS[0] == claude_worker.DEFAULT_WORK_KIND, str(kind))
+    check("research council: only this kind has forbidden additions",
+          [k.name for k in claude_worker.WORK_KINDS if k.forbidden_additions] == ["research_council"])
+
+    def failing(name: str, worker: str, reason: str) -> claude_worker.WorkerRunResult:
+        r, calls, before, after = run_case(name, clone, worktrees, worker=worker, work_kind="research_council",
+                                           request="Research Council 다듬기")
+        check(f"{name}: stopped at scope/{reason}, main unchanged, failure recorded",
+              (not r.ok) and r.stage == "scope" and r.reason == reason and before == after
+              and bool(calls) and calls[-1] == (False, f"scope:{reason}"), f"{r.stage}:{r.reason}:{r.detail}")
+        return r
+
+    advisor = failing("rcadvisor", "rcadvisor", "scope_violation")
+    check("research council: the OpenRouter adapter change is named as the violation",
+          "apps/research-council/research_council/openrouter_advisor.py" in advisor.detail, advisor.detail)
+    net = failing("rcnet", "rcnet", "forbidden_addition")
+    check("research council: a network import is named with its file", net.detail == "apps/research-council/run_demo.py: urllib", net.detail)
+    live = failing("rclive", "rclive", "forbidden_addition")
+    check("research council: the live mode is caught whatever its case",
+          live.detail == "apps/research-council/run_demo.py: llmaugmentationmode.live", live.detail)
+    new = failing("rcnewfile", "rcnewfile", "forbidden_addition")
+    check("research council: a new file's lines are checked", new.detail == "apps/research-council/research_council/fetch.py: os.environ", new.detail)
+    for protected in ("apps/research-council/research_council/llm_advisor.py", "apps/research-council/.env.example"):
+        with claude_worker_kind("research_council"):
+            check(f"research council: {protected.rsplit('/', 1)[1]} is protected and kept out of Reviewer evidence",
+                  claude_worker._scope_violations([protected]) == [protected]
+                  and claude_worker._blocked_source_path(protected, "task-0001-x"))
+
+    r, calls, before, after = run_case("rcreadme", clone, worktrees, worker="rcreadme", work_kind="research_council",
+                                       request="Research Council README에 안내 문장 1개 추가")
+    check("research council: a README edit runs to DONE with the app's own smoke test (Reviewer, QA, main)",
+          r.ok and r.stage == "done" and r.work_kind == "research_council" and r.changed_files == ["apps/research-council/README.md"]
+          and "Research Council smoke tests passed" in r.test_summary and r.qa_checks.get("tests_rerun") is True
+          and r.qa_checks.get("change_set_matches") is True and git(["rev-list", "--count", f"{before}..{after}"], clone) == "2",
+          f"{r.stage}:{r.reason}:{r.detail}:{r.test_summary}")
+    with claude_worker_kind("research_council"):
+        prompt = claude_worker.worker_prompt("task-0001-x", "Research Council 다듬기")
+        meaning = claude_worker.qa_check_meanings(kind)["change_set_matches"]
+    check("research council: the Worker prompt names the path, the protected files and the refused texts",
+          "Change only files under apps/research-council/." in prompt
+          and "never wire the LIVE augmentation mode or a candidate_generator" in prompt
+          and "Never change research_council/openrouter_advisor.py, research_council/llm_advisor.py or .env.example." in prompt
+          and "The pipeline refuses any added line that holds urllib" in prompt, prompt)
+    check("research council: the QA meaning names the forbidden-addition part only for this kind",
+          meaning.endswith(", and no added line holds a text this kind forbids")
+          and "forbids" not in claude_worker.qa_check_meanings()["change_set_matches"], meaning)
+
+    # Unit level: which lines count as added, in a small repository of its own.
+    repo = tmp / "forbidden-repo"
+    repo.mkdir()
+    git(["init", "-q"], repo)
+    git(["config", "user.email", "smoke@example.invalid"], repo)
+    git(["config", "user.name", "smoke"], repo)
+    target = repo / "apps" / "research-council" / "a.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("import urllib.request\nx = 1\nmode = 'live'\ny = 2\n", encoding="utf-8")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "base"], repo)
+    base = git(["rev-parse", "HEAD"], repo)
+    with claude_worker_kind("research_council"):
+        target.write_text("y = 2\nimport urllib.request\nx = 1\nz = 3\n", encoding="utf-8")
+        kept = claude_worker._forbidden_additions(repo, base, ["apps/research-council/a.py"])
+        target.write_text("y = 2\nimport urllib.request\nimport urllib.request\nkey = getenv('K')\n", encoding="utf-8")
+        added = claude_worker._forbidden_additions(repo, base, ["apps/research-council/a.py"])
+        target.unlink()
+        deleted = claude_worker._forbidden_additions(repo, base, ["apps/research-council/a.py"])
+        target.write_text("import urllib.request\nx = 1\nmode = 'live'\ny = 2\nimport socket\n", encoding="utf-8")
+        git(["commit", "-q", "-am", "candidate"], repo)
+        candidate = git(["rev-parse", "HEAD"], repo)
+        qa = claude_worker._qa_checks(repo, repo, base, candidate, ["apps/research-council/a.py"])
+    check("forbidden additions: kept, moved and removed lines do not count", kept == [], str(kept))
+    check("forbidden additions: an extra copy of a kept line and a new line count", added == [
+        "apps/research-council/a.py: getenv", "apps/research-council/a.py: urllib"], str(added))
+    check("forbidden additions: a deleted file adds nothing", deleted == [], str(deleted))
+    check("forbidden additions: QA's change_set_matches is false for such a candidate", qa.get("change_set_matches") is False, str(qa))
+    with claude_worker_kind("studyroom_content"):
+        studyroom = claude_worker._forbidden_additions(repo, base, ["apps/research-council/a.py"])
+    check("forbidden additions: a kind without a list checks nothing", studyroom == [], str(studyroom))
+
+
+class claude_worker_kind:
+    """task-0189: run a block with one registry kind active, as run_pipeline does."""
+
+    def __init__(self, name: str) -> None:
+        self.kind = claude_worker.work_kind_by_name(name)
+
+    def __enter__(self) -> None:
+        self.token = claude_worker._ACTIVE_WORK_KIND.set(self.kind)
+
+    def __exit__(self, *exc) -> None:
+        claude_worker._ACTIVE_WORK_KIND.reset(self.token)
 
 
 def progress_flow(clone: Path, worktrees: Path) -> None:
@@ -1987,6 +2110,7 @@ def main() -> int:
               and "add no network call, external API, LLM call or new dependency" in studyroom_prompt
               and "keep the local server bound to 127.0.0.1" in studyroom_prompt
               and "never change apps/studyroom/studyroom.bat" in studyroom_prompt, studyroom_prompt)
+        research_council_flow(clone, worktrees, tmp)
         expect_fail("timeout", "timeout", "worker", "worker_timeout")
         expect_fail("workerfail", "fail", "worker", "worker_failed")
         expect_fail("tests", "badjson", "tests", "tests_failed")

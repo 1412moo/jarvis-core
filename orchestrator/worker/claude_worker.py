@@ -49,6 +49,8 @@ class WorkKind:
     test_script: str
     commit_scope: str
     prompt_note: str
+    # task-0189: texts (lower case) a line the change adds may not hold; empty for most kinds.
+    forbidden_additions: tuple[str, ...] = ()
 
     @property
     def test_command(self) -> tuple[str, ...]:
@@ -88,6 +90,46 @@ WORK_KINDS = (
             "crawler, scheduler, network call, LLM or API call, or new dependency."
         ),
     ),
+    WorkKind(
+        name="research_council",
+        # task-0189: only the app's own name selects it.
+        markers=("research council", "research-council", "research_council", "리서치 카운슬"),
+        allowed_prefix="apps/research-council/",
+        test_script="apps/research-council/run_smoke_tests.py",
+        commit_scope="research-council",
+        prompt_note=(
+            " Keep the app's existing structure and code style, keep it deterministic and keep its smoke tests"
+            " passing; add no network call, external API or LLM call, environment variable or API key read,"
+            " subprocess, or new dependency, and never wire the LIVE augmentation mode or a candidate_generator."
+            " Never change research_council/openrouter_advisor.py, research_council/llm_advisor.py or .env.example."
+            " The pipeline refuses any added line that holds urllib, http.client, an import of socket or requests,"
+            " httpx, aiohttp, websocket, subprocess, openrouter, a live mode, candidate_generator, os.environ,"
+            " getenv or api_key."
+        ),
+        # task-0189: the LIVE path reaches OpenRouter; an added line that imports a network module,
+        # names OpenRouter, selects the live mode, injects a generator or reads the environment stops
+        # the run (Owner decision: protection plus a code check).
+        forbidden_additions=(
+            "urllib",
+            "http.client",
+            "import socket",
+            "from socket",
+            "import requests",
+            "from requests",
+            "httpx",
+            "aiohttp",
+            "websocket",
+            "subprocess",
+            "openrouter",
+            "llmaugmentationmode.live",
+            '"live"',
+            "'live'",
+            "candidate_generator",
+            "os.environ",
+            "getenv",
+            "api_key",
+        ),
+    ),
 )
 DEFAULT_WORK_KIND = WORK_KINDS[0]
 # Names kept from before task-0164; they are the first (Studyroom) entry.
@@ -95,7 +137,14 @@ WORK_KIND = DEFAULT_WORK_KIND.name
 ALLOWED_PREFIX = DEFAULT_WORK_KIND.allowed_prefix
 TEST_COMMAND = DEFAULT_WORK_KIND.test_command
 # task-0185: the Studyroom launcher is inside that kind's allowed path, so it is named here too.
-PROTECTED_PATHS = frozenset({"jarvis.bat", "apps/studyroom/studyroom.bat"})
+# task-0189: so are the Research Council files that make, switch on and filter the external LLM call.
+PROTECTED_PATHS = frozenset({
+    "jarvis.bat",
+    "apps/studyroom/studyroom.bat",
+    "apps/research-council/research_council/openrouter_advisor.py",
+    "apps/research-council/research_council/llm_advisor.py",
+    "apps/research-council/.env.example",
+})
 # The kind of the run in progress; run_pipeline and accept_candidate set it, everything else reads it.
 _ACTIVE_WORK_KIND: contextvars.ContextVar[WorkKind] = contextvars.ContextVar(
     "jarvis_active_work_kind", default=DEFAULT_WORK_KIND
@@ -519,7 +568,10 @@ REPORT_FIELD_END = re.compile(r"\n\s*(?:unverified|self_deviations|note):")
 def qa_check_meanings(kind: WorkKind = DEFAULT_WORK_KIND) -> dict[str, str]:
     return {
         "head_is_candidate": "the attempt worktree HEAD is the reviewed candidate commit",
-        "change_set_matches": "baseline..candidate changes exactly the listed files, all inside the allowed path",
+        "change_set_matches": (
+            "baseline..candidate changes exactly the listed files, all inside the allowed path"
+            + (", and no added line holds a text this kind forbids" if kind.forbidden_additions else "")
+        ),
         "diff_check": "git diff --check baseline..candidate reports no whitespace errors",
         "jarvis_bat_absent": "jarvis.bat is not in the candidate tree",
         "json_valid": "every changed .json file parses as JSON",
@@ -684,6 +736,36 @@ def _scope_violations(paths: list[str]) -> list[str]:
         for p in paths
         if p in PROTECTED_PATHS or not p.startswith(_active_kind().allowed_prefix) or ".." in p.split("/")
     ]
+
+
+def _forbidden_additions(worktree: Path, baseline: str, paths: list[str]) -> list[str]:
+    """task-0189: "<path>: <text>" for each changed file whose added lines hold a text the kind forbids.
+
+    A line counts as added when the worktree file has more copies of it than the baseline file,
+    so kept, moved and removed lines never count. The match ignores case.
+    """
+
+    forbidden = _active_kind().forbidden_additions
+    if not forbidden:
+        return []
+    found = []
+    for path in paths:
+        try:
+            current = (worktree / path).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue  # a deleted file adds nothing
+        shown = _run(["git", "show", f"{baseline}:{path}"], cwd=worktree, timeout=GIT_TIMEOUT_SECONDS)
+        remaining: dict[str, int] = {}
+        for line in shown.stdout.splitlines() if shown.returncode == 0 else []:
+            remaining[line] = remaining.get(line, 0) + 1
+        for line in current:
+            if remaining.get(line, 0) > 0:
+                remaining[line] -= 1
+                continue
+            hit = next((text for text in forbidden if text in line.lower()), None)
+            if hit is not None:
+                found.append(f"{path}: {hit}")
+    return sorted(set(found))
 
 
 def _run_tests(worktree: Path) -> tuple[bool, str]:
@@ -1190,7 +1272,11 @@ def _qa_checks(repo_root: Path, worktree: Path, baseline: str, candidate: str, c
     qa: dict[str, bool] = {}
     qa["head_is_candidate"] = _git(["rev-parse", "HEAD"], worktree) == candidate
     diff_names = sorted(_git(["diff", "--name-only", baseline, candidate], repo_root).splitlines())
-    qa["change_set_matches"] = diff_names == changed and not _scope_violations(diff_names)
+    qa["change_set_matches"] = (
+        diff_names == changed
+        and not _scope_violations(diff_names)
+        and not _forbidden_additions(worktree, baseline, diff_names)
+    )
     qa["diff_check"] = _run(["git", "diff", "--check", baseline, candidate], cwd=repo_root, timeout=GIT_TIMEOUT_SECONDS).returncode == 0
     qa["jarvis_bat_absent"] = not _git(["ls-tree", "-r", "--name-only", candidate, "--", "jarvis.bat"], repo_root)
     json_ok = True
@@ -1394,6 +1480,9 @@ def _run_pipeline(
             violations = _scope_violations(changed)
             if violations:
                 raise StageFailure("scope", "scope_violation", ", ".join(violations)[:200])
+            forbidden = _forbidden_additions(worktree, baseline, changed)
+            if forbidden:
+                raise StageFailure("scope", "forbidden_addition", ", ".join(forbidden)[:200])
 
             # 5. Tests.
             result.stage = "tests"

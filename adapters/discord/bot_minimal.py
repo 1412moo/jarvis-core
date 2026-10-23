@@ -4303,13 +4303,16 @@ def _run_self_check_suite() -> dict[str, Any]:
     # lock file are never touched. No Worker, Discord or claude process is started.
     kinds = claude_worker.WORK_KINDS
     registry_ok = (
-        len(kinds) == 2
+        len(kinds) == 3
         and kinds[0] == claude_worker.DEFAULT_WORK_KIND
         and (kinds[0].name, kinds[0].allowed_prefix, kinds[0].test_script)
         # task-0185: the Studyroom kind covers the whole app.
         == ("studyroom_content", "apps/studyroom/", "apps/studyroom/run_smoke_tests.py")
         and (kinds[1].name, kinds[1].allowed_prefix, kinds[1].test_script)
         == ("daily_ai_radar", "apps/daily-ai-radar/", "apps/daily-ai-radar/run_smoke_tests.py")
+        # task-0189: Research Council, the third kind.
+        and (kinds[2].name, kinds[2].allowed_prefix, kinds[2].test_script)
+        == ("research_council", "apps/research-council/", "apps/research-council/run_smoke_tests.py")
         and claude_worker.ALLOWED_PREFIX == kinds[0].allowed_prefix
         and claude_worker.TEST_COMMAND == kinds[0].test_command
         and claude_worker.WORK_KIND == kinds[0].name
