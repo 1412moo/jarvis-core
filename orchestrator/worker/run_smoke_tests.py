@@ -1517,6 +1517,16 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           audits.count("approval") == approvals_before + 1 and audits.count("execution") == executions_before + 1
           and execution_sources[-1] == "go" and execution_audit_errors[-1] is None)
     check("bot: accept success reply says the Reviewer was not called again", "- Reviewer: 재호출 없음 (Owner accept)" in bot._format_reply(accepted))
+    # task-0188: the test line is not blank on accept; it reports the QA rerun.
+    check("bot: accept success reply's test line reports the QA rerun",
+          "- 테스트: QA에서 다시 실행해 통과 (Owner accept, Worker 단계 요약 없음)\n" in bot._format_reply(accepted)
+          and "- 테스트: \n" not in bot._format_reply(accepted), bot._format_reply(accepted))
+    check("bot: a normal success reply keeps the Worker test summary",
+          "- 테스트: 5/5 suites\n" in bot._format_reply({"ok": True, "result_type": "work_result", "task_id": owner_task,
+                                                        "test_summary": "5/5 suites", "qa_checks": {"tests_rerun": True}}))
+    check("bot: an accept reply without a QA rerun does not claim a pass",
+          "통과" not in bot._format_reply({"ok": True, "result_type": "work_result", "task_id": owner_task,
+                                          "accepted": True, "qa_checks": {}}).split("- 테스트:")[1].split("\n")[0])
     # task-0183: last, so its own approval and execution audits leave the counts above alone.
     lead_flow(bot, clone, status_of)
     discussion_flow(bot, clone, status_of)

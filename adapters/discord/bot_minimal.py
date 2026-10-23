@@ -2576,10 +2576,14 @@ def _format_work_reply(result: dict[str, Any]) -> str:
     if result.get("ok"):
         files = ", ".join(result.get("changed_files") or [])
         reviewer = "재호출 없음 (Owner accept)" if result.get("accepted") else result.get("reviewer_verdict")
+        tests = result.get("test_summary")
+        # task-0188: accept has no Worker-stage test summary; its QA reran the smoke test.
+        if not tests and result.get("accepted") and (result.get("qa_checks") or {}).get("tests_rerun") is True:
+            tests = "QA에서 다시 실행해 통과 (Owner accept, Worker 단계 요약 없음)"
         return (
             f"✅ 완료: {task_id}\n"
             f"- 변경 파일: {files}\n"
-            f"- 테스트: {result.get('test_summary')}\n"
+            f"- 테스트: {tests}\n"
             f"- Reviewer: {reviewer}\n"
             f"- QA: PASS ({len(result.get('qa_checks') or {})}개 검사)\n"
             f"- 자동 repair: {result.get('repairs', 0)}회"
