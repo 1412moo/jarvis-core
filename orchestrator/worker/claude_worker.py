@@ -62,12 +62,17 @@ WORK_KINDS = (
     WorkKind(
         name="studyroom_content",
         markers=("studyroom", "스터디룸"),
-        allowed_prefix="apps/studyroom/content/",
+        # task-0185: the whole Studyroom app (content, web page and its local server), not only content/.
+        # The app's launcher script stays out of reach through PROTECTED_PATHS.
+        allowed_prefix="apps/studyroom/",
         test_script="apps/studyroom/run_smoke_tests.py",
         commit_scope="studyroom",
         prompt_note=(
             " Keep each JSON file's existing schema and formatting "
             "(2-space indent, UTF-8, ensure_ascii off). Keep existing entries unchanged."
+            " For the app's code, keep its existing structure and code style and keep its smoke tests passing;"
+            " add no network call, external API, LLM call or new dependency, keep the local server bound to"
+            " 127.0.0.1, and never change apps/studyroom/studyroom.bat."
         ),
     ),
     WorkKind(
@@ -89,7 +94,8 @@ DEFAULT_WORK_KIND = WORK_KINDS[0]
 WORK_KIND = DEFAULT_WORK_KIND.name
 ALLOWED_PREFIX = DEFAULT_WORK_KIND.allowed_prefix
 TEST_COMMAND = DEFAULT_WORK_KIND.test_command
-PROTECTED_PATHS = frozenset({"jarvis.bat"})
+# task-0185: the Studyroom launcher is inside that kind's allowed path, so it is named here too.
+PROTECTED_PATHS = frozenset({"jarvis.bat", "apps/studyroom/studyroom.bat"})
 # The kind of the run in progress; run_pipeline and accept_candidate set it, everything else reads it.
 _ACTIVE_WORK_KIND: contextvars.ContextVar[WorkKind] = contextvars.ContextVar(
     "jarvis_active_work_kind", default=DEFAULT_WORK_KIND

@@ -306,9 +306,9 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 
 | 항목 | 현재 값 | 코드 위치 |
 | --- | --- | --- |
-| 지원 작업 | `studyroom_content`(Studyroom 콘텐츠 수정, 표지어 studyroom·스터디룸), `daily_ai_radar`(Daily AI Radar 수정, 표지어는 앱 이름 daily ai radar·daily-ai-radar·daily_ai_radar·데일리 ai 레이더이고 radar·레이더 같은 일반 단어만으로는 고르지 않음). 표지어가 함께 있으면 표의 앞 항목(Studyroom)이 우선한다. `/work`는 표지어가 없으면 팀장 단계로 간다(task-0183, 아래 팀장 문단). `/go`는 task 제목으로 종류를 정하며 표지어가 없으면 기존처럼 studyroom_content | `WORK_KINDS` |
-| Worker 변경 허용 경로 | `apps/studyroom/content/`(studyroom_content), `apps/daily-ai-radar/`(daily_ai_radar) | `allowed_prefix` |
-| 파이프라인 보호 경로 | `jarvis.bat` | `PROTECTED_PATHS` |
+| 지원 작업 | `studyroom_content`(Studyroom 앱 수정: 콘텐츠·웹 화면·로컬 서버, task-0185부터 앱 전체, 표지어 studyroom·스터디룸), `daily_ai_radar`(Daily AI Radar 수정, 표지어는 앱 이름 daily ai radar·daily-ai-radar·daily_ai_radar·데일리 ai 레이더이고 radar·레이더 같은 일반 단어만으로는 고르지 않음). 표지어가 함께 있으면 표의 앞 항목(Studyroom)이 우선한다. `/work`는 표지어가 없으면 팀장 단계로 간다(task-0183, 아래 팀장 문단). `/go`는 task 제목으로 종류를 정하며 표지어가 없으면 기존처럼 studyroom_content | `WORK_KINDS` |
+| Worker 변경 허용 경로 | `apps/studyroom/`(studyroom_content), `apps/daily-ai-radar/`(daily_ai_radar) | `allowed_prefix` |
+| 파이프라인 보호 경로 | `jarvis.bat`, `apps/studyroom/studyroom.bat` | `PROTECTED_PATHS` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
 | 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |

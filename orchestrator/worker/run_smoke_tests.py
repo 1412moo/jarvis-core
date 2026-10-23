@@ -130,6 +130,13 @@ FAKE_CLAUDE = textwrap.dedent(
         Path("docs/should-not-change.md").write_text("x\\n", encoding="utf-8")
     elif mode == "jarvisbat":
         Path("jarvis.bat").write_text("echo x\\n", encoding="utf-8")
+    elif mode == "studyroombat":
+        # task-0185: the Studyroom launcher is inside the kind's path but protected.
+        Path("apps/studyroom/studyroom.bat").write_text("echo x\\n", encoding="utf-8")
+    elif mode == "appcode":
+        # task-0185: an edit to the Studyroom app's own code, outside content/.
+        with open("apps/studyroom/web/app.js", "a", encoding="utf-8", newline="\\n") as script:
+            script.write("\\n// Fake Studyroom app worker note.\\n")
     elif mode == "badjson":
         Path("apps/studyroom/content/glossary.json").write_text("{not json", encoding="utf-8")
     elif mode == "radar":
@@ -1046,7 +1053,7 @@ def lead_flow(bot, clone: Path, status_of) -> None:
               and "- summary: `Owner 요청: RAG 용어 추가해 줘`" in record
               and "- source_command: `/task`" in record, record)
         check("lead job: the reply shows the plan, the allowed path and the /go command",
-              "🧭 팀장 계획: Studyroom 용어집에 RAG 용어 추가" in reply and "수정 허용 경로: apps/studyroom/content/" in reply
+              "🧭 팀장 계획: Studyroom 용어집에 RAG 용어 추가" in reply and "수정 허용 경로: apps/studyroom/\n" in reply
               and "위험도: low" in reply and "1. glossary.json의 기존 항목 형식을 확인한다" in reply
               and "Worker는 Owner 요청 원문을 받음" in reply and f"`/go {task_id}`" in reply, reply)
         check("lead: /go gives the Owner text only for a lead task with a kind marker in its title",
@@ -1957,6 +1964,19 @@ def main() -> int:
 
         expect_fail("scope", "scope", "scope", "scope_violation")
         expect_fail("jarvisbat", "jarvisbat", "scope", "scope_violation")
+        # task-0185: the Studyroom kind covers the whole app, except its protected launcher.
+        bat = expect_fail("studyroombat", "studyroombat", "scope", "scope_violation")
+        check("studyroom app: the launcher change is named as the violation", "apps/studyroom/studyroom.bat" in bat.detail, bat.detail)
+        r, calls, before, after = run_case("appcode", clone, worktrees, worker="appcode")
+        check("studyroom app: an edit to the app's code runs to DONE (Reviewer, QA, main)",
+              r.ok and r.stage == "done" and r.changed_files == ["apps/studyroom/web/app.js"]
+              and git(["rev-list", "--count", f"{before}..{after}"], clone) == "2", f"{r.stage}:{r.reason}:{r.changed_files}")
+        studyroom_prompt = claude_worker.worker_prompt("task-0001-x", "studyroom 화면 다듬기")
+        check("studyroom app: the Worker prompt names the whole app and its new limits",
+              "Change only files under apps/studyroom/." in studyroom_prompt
+              and "add no network call, external API, LLM call or new dependency" in studyroom_prompt
+              and "keep the local server bound to 127.0.0.1" in studyroom_prompt
+              and "never change apps/studyroom/studyroom.bat" in studyroom_prompt, studyroom_prompt)
         expect_fail("timeout", "timeout", "worker", "worker_timeout")
         expect_fail("workerfail", "fail", "worker", "worker_failed")
         expect_fail("tests", "badjson", "tests", "tests_failed")

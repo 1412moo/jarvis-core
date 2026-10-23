@@ -4302,7 +4302,8 @@ def _run_self_check_suite() -> dict[str, Any]:
         len(kinds) == 2
         and kinds[0] == claude_worker.DEFAULT_WORK_KIND
         and (kinds[0].name, kinds[0].allowed_prefix, kinds[0].test_script)
-        == ("studyroom_content", "apps/studyroom/content/", "apps/studyroom/run_smoke_tests.py")
+        # task-0185: the Studyroom kind covers the whole app.
+        == ("studyroom_content", "apps/studyroom/", "apps/studyroom/run_smoke_tests.py")
         and (kinds[1].name, kinds[1].allowed_prefix, kinds[1].test_script)
         == ("daily_ai_radar", "apps/daily-ai-radar/", "apps/daily-ai-radar/run_smoke_tests.py")
         and claude_worker.ALLOWED_PREFIX == kinds[0].allowed_prefix

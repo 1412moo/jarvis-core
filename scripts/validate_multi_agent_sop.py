@@ -1402,7 +1402,7 @@ def _run_negative_mutation_checks(
         (
             "pipeline_scope_prefix_changed",
             SOP_PATH,
-            "| `apps/studyroom/content/`(studyroom_content),",
+            "| `apps/studyroom/`(studyroom_content),",
             "| `apps/other/`(studyroom_content),",
             "pipeline_scope_parity",
         ),
