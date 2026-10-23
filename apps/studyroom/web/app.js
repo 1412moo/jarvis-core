@@ -15,8 +15,35 @@
     cache: {}
   };
 
+  const THEME_STORAGE_KEY = 'studyroom_theme';
+
   const appView = document.getElementById('app-view');
   const navTabs = document.querySelectorAll('.nav-tab');
+  const themeToggle = document.getElementById('theme-toggle');
+
+  // Theme: dark is the default; the chosen mode is kept in LocalStorage
+  function loadTheme() {
+    try {
+      return localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark';
+    } catch (e) {
+      return 'dark';
+    }
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (themeToggle) {
+      themeToggle.textContent = theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환';
+    }
+  }
+
+  function toggleTheme() {
+    const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch (e) {}
+  }
 
   // Helper: Fetch JSON with in-memory caching
   async function loadData(key) {
@@ -471,6 +498,11 @@
   }
 
   // Initialize
+  applyTheme(loadTheme());
+  if (themeToggle) {
+    themeToggle.addEventListener('click', toggleTheme);
+  }
+
   navTabs.forEach(btn => {
     btn.addEventListener('click', () => {
       switchTab(btn.dataset.tab);
