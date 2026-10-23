@@ -1392,7 +1392,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           f"{radar_done.get('stage')}:{radar_done.get('reason')}:{radar_done.get('detail')}")
     check("radar: the Worker prompt and the Reviewer call carry the Radar path and test command",
           "Change only files under apps/daily-ai-radar/." in radar_worker_prompt
-          and "apps/studyroom/content/" not in radar_worker_prompt
+          and "apps/studyroom/" not in radar_worker_prompt
           and "the test command (-B apps/daily-ai-radar/run_smoke_tests.py)" in radar_text
           and "expected under apps/daily-ai-radar/ and none is jarvis.bat" in radar_text)
     check("radar: the Radar smoke test ran on the candidate, before and in QA",

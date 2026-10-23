@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-22 17:09 UTC`
-- updated_at: `2026-10-23 05:19 UTC`
+- updated_at: `2026-10-23 05:26 UTC`
 - summary: `Worker 작업 종류 studyroom_content의 허용 경로를 apps/studyroom/content/에서 Studyroom 앱 전체 apps/studyroom/으로 넓힌다. 앱 실행 스크립트 apps/studyroom/studyroom.bat은 보호 경로에 더해 Worker가 바꾸지 못하게 하고, Worker 지시에 네트워크·외부 API·새 의존성 금지와 로컬 서버 127.0.0.1 유지를 적는다. 종류 이름·표지어·테스트는 그대로다.`
 - source_command: `Owner 지시: 작업 종류 늘리기, Studyroom 앱 전체 선택 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `d8a341f408cccab15c9c969959be4715de058b57` (등록 시점 main HEAD, task-0184 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -103,3 +103,8 @@ candidate 전 1회. minor 3건을 반영했다: 사전 점검 결과를 적었�
 | A2 | Owner 결정 (원문) | "[Manager 질문]" / "Worker가 새로 작업할 수 있게 할 앱을 골라 주세요. (Jarvis Console은 task 상태와 승인을 다루는 코드라 후보에서 뺐습니다)" / "- Studyroom 앱 전체 (권장): 지금은 apps/studyroom/content/만 됩니다. 앱 코드까지 넓힙니다. 테스트 1초, 외부 연결 없음, 위험 낮음." / "[Owner 답]" / "Studyroom 앱 전체 (권장)" | 기존 `studyroom_content`의 허용 경로를 `apps/studyroom/`으로 넓혔다. 실행 스크립트 보호, 127.0.0.1 고정, 네트워크·외부 API·LLM·새 의존성 금지는 Owner 원문에 없는 Manager의 추가 안전 제한이다. `studyroom.bat`은 `jarvis.bat`과 같은 이유(실행 스크립트)로 막았고, 나머지는 원문의 "외부 연결 없음"이 넓힌 뒤에도 유지되게 하려는 것이다 |
 | A3 | Owner 결정 (원문) | "- Research Council (권장): apps/research-council/. 테스트 25초. 단 OpenRouter API 호출 코드(openrouter_advisor.py)가 있어, 그 파일은 Worker가 못 바꾸게 막고 네트워크·API 추가 금지 규칙을 넣습니다." / "- Hermes Manager Pilot: apps/hermes-manager-pilot/. 테스트 64초. 승인 바인딩·증거 수집 같은 관리용 코드가 있어 위험이 중간입니다." | Owner가 고르지 않았으므로 두 앱은 열지 않았다 |
 | A4 | Owner 결정 2: validator 음성 테스트 한 줄 (원문) | "[Manager 질문]" / "결정이 필요한 것: validator 한 줄 (범위 밖)" / "- validator scripts/validate_multi_agent_sop.py의 음성 테스트 하나가 SOP 표의 옛 문구 `apps/studyroom/content/`(studyroom_content)를 그대로 찾습니다." / "- 고치는 방법은 테스트가 찾는 문구 한 줄을 `apps/studyroom/`(studyroom_content)로 바꾸는 것입니다. 검사의 의미(경로를 바꾸면 잡아내는지)는 그대로입니다." / "1. (권장) validator의 그 한 줄을 이번 범위에 넣어 고치고, self-review → candidate → Reviewer → QA → 완료까지 진행합니다." / "2. 범위를 넓히지 않고 task-0185를 멈춥니다." / "[Owner 답]" / "1번으로 진행해" | validator에서는 그 한 줄만 바꿨다. 변조 문구와 기대 오류는 그대로이고 음성 테스트 172개가 모두 오류를 잡는다 |
+
+## Repair
+
+- candidate `b71250f134f871600d668572ffe219465933d599`: Reviewer FINDINGS(유효, self_deviations 0), minor 1건: Daily AI Radar Worker 지시에 Studyroom 경로가 섞이지 않는지 보는 기존 검사(`orchestrator/worker/run_smoke_tests.py`)가 옛 경로 `apps/studyroom/content/`를 찾고 있어 새 경로가 섞여도 잡지 못했다. 구현 절은 허용 경로 기대값을 새 경로로 바꿨다고 했는데 이 한 곳이 빠졌다.
+- repair 1(`repair_count=1`, 기본 예산 안): 그 검사가 `apps/studyroom/`을 찾도록 바꿨다. 다른 것은 바꾸지 않았다.
