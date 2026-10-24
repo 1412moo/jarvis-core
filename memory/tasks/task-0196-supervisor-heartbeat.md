@@ -152,5 +152,5 @@ candidate 전 1회. minor 5건을 모두 반영했다.
   - 검사를 만드는 중 한 번 실패했다. 비교 기준 시각이 밀리초까지 있고 상태 파일은 초 단위라 경계에서 9.x초가 나왔다. 상태 파일의 시작 시각과 비교하도록 검사를 고쳤다(코드 결함 아님).
 - 다시 돌린 결과: 구문 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 13/13을 두 번 연속, 실제 `-Status`는 앞과 같았다(감시자 35140, 봇 34260, 경고 없음). 검증 절의 12/12는 첫 candidate 기준이다.
 - candidate `48643057ca9d79fbaefba0a29f742b7473493584`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: 오래된 heartbeat 경고 조건에 종료 표시 확인이 없어, 정상 종료나 `-Stop`으로 종료가 기록된 뒤 상태 파일의 pid를 다른 프로세스가 다시 쓰면 `-Status`가 살아 있는 감시자가 멈춘 것처럼 거짓 경고를 띄운다. 기본 예산을 다 써서 Owner에게 올렸다(Owner 결정 2).
-- repair 2(`repair_count=2`, Owner가 1회 추가): 그 경고 조건에 `-not $state.ended`를 더했다. smoke `no_stale_warning_after_end`를 더했다(살아 있는 pid와 3시간 전 heartbeat의 종료 기록은 경고가 없고, 같은 기록에 종료 표시가 없으면 오래된 heartbeat 경고가 뜸).
+- repair 2(`repair_count=2`, Owner가 1회 추가): 그 경고 조건에 `-not $state.ended`를 더했다. README의 경고 설명도 "살아 있고 종료 기록이 없는 감시자"로 고쳤다. smoke `no_stale_warning_after_end`를 더했다(살아 있는 pid와 3시간 전 heartbeat의 종료 기록은 경고가 없고, 같은 기록에 종료 표시가 없으면 오래된 heartbeat 경고가 뜸).
 - 다시 돌린 결과: 구문 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 14/14를 두 번 연속, 실제 `-Status`는 앞과 같았다(감시자 35140, 봇 34260, 경고 없음).
