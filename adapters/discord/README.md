@@ -52,6 +52,21 @@ python3 adapters/discord/bot_minimal.py
 
 기본적으로 `adapters/discord/.env`를 자동 로드한다.
 
+### 4) 상시 실행 (Windows, task-0194)
+Claude 세션이나 터미널과 무관하게 봇을 띄워 두려면 `scripts/discord_bot_service.ps1`을 쓴다(Windows PowerShell 5.1).
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/discord_bot_service.ps1 -Register   # 로그인 때 자동 실행 작업 등록
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/discord_bot_service.ps1 -Start      # 지금 시작
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/discord_bot_service.ps1 -Status     # 등록·프로세스·로그 위치
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/discord_bot_service.ps1 -Stop       # 감시자와 봇 종료
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/discord_bot_service.ps1 -Unregister # 등록 해제
+```
+- `-Register`는 현재 사용자의 로그인 때 `-Run`(감시 루프)을 실행하는 작업 스케줄러 작업 `JarvisDiscordBot`을 현재 사용자·제한 권한으로 만든다. 설계상 관리자 권한 없이 등록되고 `-WindowStyle Hidden`으로 창을 숨기지만, 로그인 때 콘솔 창이 잠깐 보일 수 있다. 두 가지는 실제 등록 때 확인한다.
+- 감시 루프는 로그온 세션마다 하나만 돈다(같은 사용자가 세션을 둘 쓰면 감시자도 둘일 수 있다). 다른 `bot_minimal.py` 봇 프로세스(`--self-check` 계열 제외)가 이미 있으면 새 봇을 띄우지 않고 기다린다. 봇이 끝나면 10초부터 두 배씩 최대 300초 기다렸다가 다시 띄우고, 10분 넘게 돈 뒤 끝났으면 대기를 처음으로 되돌린다.
+- 로그는 저장소 밖 `%LOCALAPPDATA%\jarvis-core\logs`에 남는다. 감시자 줄은 `discord-bot.log`(5MB를 넘으면 `.1`로 한 번 돌림)에 바로 쌓이고, 실행 중인 봇의 출력은 `discord-bot.out.log`·`discord-bot.err.log`에 쌓였다가 봇이 끝나거나 다음에 띄우기 전에 `discord-bot.log`로 옮겨진다. 실행 중의 두 파일은 돌리지 않는다. 스크립트는 토큰을 읽거나 쓰지 않고, 봇이 `.env`에서 직접 읽는다.
+- `-SelfTest`는 아무것도 띄우지 않고 저장소·봇 파일·python·로그 폴더를 확인한다. `-SmokeTest`는 임시 폴더에서 대역 봇으로 감시 루프(실행, 두 번째 감시자 거절, 이미 떠 있는 봇이 있으면 띄우지 않음, 재시작 대기, 로그 돌림)를 확인한다. 둘 다 Discord에 접속하지 않고 작업도 등록하지 않는다.
+- `jarvis.bat`이 봇을 띄우는지는 확인하지 않았다. 감시 루프는 먼저 떠 있는 봇을 보면 두 번째를 띄우지 않지만, 감시 루프의 봇이 떠 있는 동안 다른 경로(손으로 실행, `jarvis.bat` 등)로 봇을 또 띄우는 것은 막지 못한다. 그때는 `-Status`로 봇 프로세스가 둘인지 확인한다.
+
 ---
 
 ## 동작 규칙
