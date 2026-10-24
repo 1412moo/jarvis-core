@@ -33,6 +33,8 @@ Out of scope for this pass:
 
 ## Local Usage
 
+Run the commands in this section from the repository root.
+
 Run the default capsule sample:
 
 ```powershell
