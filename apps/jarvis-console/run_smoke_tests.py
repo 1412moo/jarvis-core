@@ -498,7 +498,7 @@ def _test_create_local_task_vertical_slice() -> None:
             "title": "오늘 장보기 목록 정리해줘 우유와 계란을 확인해줘",
             "summary": "오늘 장보기 목록 정리해줘 우유와 계란을 확인해줘",
             "status": "TODO",
-            "local_destination": "memory/tasks/task-0001-task.md",
+            "local_destination": "memory/tasks/task-0001-list-cleanup.md",
         }
         assert preview["raw_transcript_saved"] is False
         assert not list(tasks_dir.iterdir())
@@ -533,13 +533,13 @@ def _test_create_local_task_vertical_slice() -> None:
             "created_at",
             "next_recommended_action",
         }
-        assert receipt["task_id"] == "task-0001-task"
+        assert receipt["task_id"] == "task-0001-list-cleanup"
         assert receipt["title"] == preview["preview"]["title"]
         assert receipt["status"] == "TODO"
-        assert receipt["storage_location"] == "memory/tasks/task-0001-task.md"
+        assert receipt["storage_location"] == "memory/tasks/task-0001-list-cleanup.md"
         assert receipt["created_at"]
         assert receipt["next_recommended_action"]
-        task_path = tasks_dir / "task-0001-task.md"
+        task_path = tasks_dir / "task-0001-list-cleanup.md"
         assert task_path.is_file()
         task_text = task_path.read_text(encoding="utf-8")
         assert f"- title: `{receipt['title']}`" in task_text
@@ -569,7 +569,7 @@ def _test_create_local_task_vertical_slice() -> None:
         )
         assert collision_status == HTTPStatus.OK
         assert collision_preview["preview"]["local_destination"] == (
-            "memory/tasks/task-0002-task.md"
+            "memory/tasks/task-0002-cleanup.md"
         )
         collision_confirm_status, collision_confirmed = (
             run_web_app.confirm_create_local_task(
@@ -582,7 +582,7 @@ def _test_create_local_task_vertical_slice() -> None:
             )
         )
         assert collision_confirm_status == HTTPStatus.OK
-        assert collision_confirmed["receipt"]["task_id"] == "task-0002-task"
+        assert collision_confirmed["receipt"]["task_id"] == "task-0002-cleanup"
 
         expired_status, expired_preview = run_web_app.preview_create_local_task(
             {"transcript": "만료 확인 작업"},

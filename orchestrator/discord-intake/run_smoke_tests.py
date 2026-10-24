@@ -165,6 +165,64 @@ def _metadata_boundary_cases() -> list[dict[str, object]]:
     return results
 
 
+def _slug_cases() -> list[dict[str, object]]:
+    """task-0193: task id slugs from Korean titles through the Korean word table."""
+
+    import re
+    import tempfile
+
+    from task_file_writer import MAX_TASK_ID_CHARS, TASK_FILE_PATTERN, _slugify, write_task_file
+
+    def old_slug(title: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", title.strip().lower()).strip("-") or "task"
+
+    expected = {
+        "스터디룸 용어집에 '작업 스레드' 용어 1개 추가해줘": "studyroom-glossary-task-thread-term-1-add",
+        "스터디룸 용어집 수정": "studyroom-glossary-fix",
+        "Task Thread 용어 추가": "task-thread-term-add",
+        "리서치 카운슬 README에 안내 문장 1개 추가해줘": "research-council-readme-guide-sentence-1-add",
+        "daily ai radar 보고서 문구 다듬기": "daily-ai-radar-report-wording-polish",
+        "스터디룸 Glossary 탭에 용어 검색창을 추가해줘": "studyroom-glossary-tab-term-search-box-add",
+        "안녕하세요 반가워요": "task",
+        # A Worker task title always holds its kind's marker, so the kind name stays when nothing else is known.
+        "스터디룸 안녕하세요": "studyroom",
+        "데일리 AI 레이더 안녕하세요": "daily-ai-radar",
+        "리서치 카운슬 반가워요": "research-council",
+    }
+    results: list[dict[str, object]] = []
+    for title, slug in expected.items():
+        actual = _slugify(title)
+        results.append({"name": f"slug:{title}", "expected": slug, "actual": actual, "passed": actual == slug})
+    english = ["Update README", "report-system-improvement", "Fix the CSS of v2.1 (urgent)", "   ", "Jarvis v0.2 Claude worker e2e"]
+    same = [(t, old_slug(t), _slugify(t)) for t in english]
+    results.append({"name": "slug: titles without Hangul keep the old slug", "actual": same,
+                    "passed": all(old == new for _, old, new in same)})
+    long_titles = ["A very long english title that keeps going on and on beyond the limit of sixty characters",
+                   "스터디룸 용어집 용어 추가 수정 삭제 변경 개선 정리 문구 문장 안내 설명 검색 버튼 화면 스레드 작업 보고서",
+                   "x" * 120,
+                   "스터디룸 용어집 용어 추가 수정 삭제 리서치 카운슬"]
+    long_slugs = [_slugify(t) for t in long_titles]
+    kept_whole = long_slugs[3] == "studyroom-glossary-term-add-fix-remove"  # never "...-research"
+    results.append({"name": "slug: a long title stays within 60 characters, cut at a word boundary", "actual": long_slugs,
+                    "passed": all(len(f"task-9999-{s}") <= MAX_TASK_ID_CHARS for s in long_slugs)
+                    and long_slugs[0] == "a-very-long-english-title-that-keeps-going-on-and"
+                    and not long_slugs[1].endswith("-") and long_slugs[2] == "x" * 50 and kept_whole})
+    every = list(expected) + english + long_titles
+    results.append({"name": "slug: every slug makes a valid task file name",
+                    "passed": all(TASK_FILE_PATTERN.fullmatch(f"task-0001-{_slugify(t)}.md") for t in every)})
+    with tempfile.TemporaryDirectory() as tmp:
+        title = "스터디룸 용어집에 '작업 스레드' 용어 1개 추가해줘"
+        draft = {"title": title, "repo": "jarvis-core", "summary": "s", "status": "TODO", "source_command": "/task"}
+        first, second = write_task_file(draft, Path(tmp)).to_dict(), write_task_file(draft, Path(tmp)).to_dict()
+        text = Path(first.get("file_path", "")).read_text(encoding="utf-8") if first.get("file_path") else ""
+        results.append({"name": "slug: the same title twice makes two ids, and the file keeps the title as written",
+                        "actual": [first.get("task_id"), second.get("task_id")],
+                        "passed": first.get("task_id") == "task-0001-studyroom-glossary-task-thread-term-1-add"
+                        and second.get("task_id") == "task-0002-studyroom-glossary-task-thread-term-1-add"
+                        and f"- title: `{title}`" in text})
+    return results
+
+
 def _repository_task_validation_cases() -> list[dict[str, object]]:
     """task-0054: validate the real records under memory/tasks, not a fixture.
 
@@ -222,6 +280,7 @@ def main() -> None:
 
     results = [_run_case(*case) for case in cases]
     results.extend(_metadata_boundary_cases())
+    results.extend(_slug_cases())
     results.extend(_repository_task_validation_cases())
     failed = [result for result in results if not result["passed"]]
 

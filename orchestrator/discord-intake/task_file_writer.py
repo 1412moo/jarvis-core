@@ -31,6 +31,95 @@ DEFAULT_TASKS_DIR = Path("memory/tasks")
 DEFAULT_STATUS = "TODO"
 FALLBACK_SLUG = "task"
 MAX_TASK_NUMBER = 9999
+# task-0193: "task-####-" plus the slug stays within MAX_TASK_ID_CHARS.
+MAX_TASK_ID_CHARS = 60
+MAX_SLUG_CHARS = MAX_TASK_ID_CHARS - len("task-0000-")
+HANGUL_PATTERN = re.compile(r"[가-힣]")
+# task-0193: Korean words common in Owner requests, mapped to one English slug word each. The
+# work kind names (studyroom, research-council, daily-ai-radar) are here, so a Worker task title,
+# which always holds its kind's marker, keeps the kind name even when no other word is known.
+# Multi-word phrases are first joined into their one-word table entry, so their English word
+# (with its hyphen) stays one word.
+KOREAN_PHRASES = (
+    ("데일리 ai 레이더", "데일리ai레이더"),
+    ("리서치 카운슬", "리서치카운슬"),
+    ("다크 모드", "다크모드"),
+    ("라이트 모드", "라이트모드"),
+)
+KOREAN_WORDS = {
+    "스터디룸": "studyroom",
+    "데일리ai레이더": "daily-ai-radar",
+    "리서치카운슬": "research-council",
+    "레이더": "radar",
+    "용어집": "glossary",
+    "용어": "term",
+    "추가": "add",
+    "수정": "fix",
+    "삭제": "remove",
+    "변경": "change",
+    "개선": "improve",
+    "정리": "cleanup",
+    "다듬": "polish",
+    "문구": "wording",
+    "문장": "sentence",
+    "안내": "guide",
+    "설명": "description",
+    "검색창": "search-box",
+    "검색": "search",
+    "다크모드": "dark-mode",
+    "라이트모드": "light-mode",
+    "모드": "mode",
+    "버튼": "button",
+    "화면": "screen",
+    "탭": "tab",
+    "스레드": "thread",
+    "쓰레드": "thread",
+    "작업": "task",
+    "보고서": "report",
+    "보고": "report",
+    "리포트": "report",
+    "테스트": "test",
+    "문서": "docs",
+    "기록": "record",
+    "퀴즈": "quiz",
+    "학습": "learn",
+    "카드": "card",
+    "목록": "list",
+    "상단": "top",
+    "하단": "bottom",
+    "색상": "color",
+    "저장": "save",
+    "표시": "display",
+    "오류": "error",
+    "버그": "bug",
+    "포트": "port",
+    "옵션": "option",
+    "실행": "run",
+    "스크립트": "script",
+    "기능": "feature",
+    "페이지": "page",
+    "링크": "link",
+    "제목": "title",
+    "요약": "summary",
+    "레이아웃": "layout",
+    "스타일": "style",
+    "글꼴": "font",
+    "정렬": "sort",
+    "필터": "filter",
+    "새로고침": "refresh",
+    "결과": "result",
+    "채널": "channel",
+    "팀장": "lead",
+    "승인": "approval",
+    "검토": "review",
+    "리뷰": "review",
+    "개념": "concept",
+    "예시": "example",
+    "항목": "item",
+    "번역": "translate",
+    "리드미": "readme",
+}
+KOREAN_WORDS_LONGEST_FIRST = tuple(sorted(KOREAN_WORDS, key=len, reverse=True))
 MAX_TITLE_CHARS = 120
 MAX_REPO_CHARS = 80
 MAX_SUMMARY_CHARS = 500
@@ -169,9 +258,68 @@ def _utc_now() -> str:
 
 def _slugify(title: str) -> str:
     lowered = title.strip().lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", lowered)
-    slug = slug.strip("-")
-    return slug or FALLBACK_SLUG
+    if HANGUL_PATTERN.search(lowered):
+        slug = _korean_slug(lowered)
+    else:
+        slug = re.sub(r"[^a-z0-9]+", "-", lowered)
+        slug = slug.strip("-")
+    return _cap_slug(slug) or FALLBACK_SLUG
+
+
+def _korean_slug(lowered: str) -> str:
+    """task-0193: an ASCII slug for a title with Hangul, from the Korean word table.
+
+    Multi-word phrases are first joined into one table entry. Then each piece is read from the
+    left: the longest table entry at the current position becomes its English word, ASCII letters
+    and digits are kept, and anything else (particles, endings, words not in the table) is
+    dropped. A word is kept only the first time it appears, and only whole words that fit in
+    MAX_SLUG_CHARS are kept.
+    """
+
+    text = lowered
+    for phrase, joined in KOREAN_PHRASES:
+        text = text.replace(phrase, joined)
+    words: list[str] = []
+    for piece in re.split(r"[^a-z0-9가-힣]+", text):
+        index, ascii_run = 0, ""
+        while index < len(piece):
+            match = next((k for k in KOREAN_WORDS_LONGEST_FIRST if piece.startswith(k, index)), None)
+            if match is not None or not ("a" <= piece[index] <= "z" or "0" <= piece[index] <= "9"):
+                if ascii_run:
+                    words.append(ascii_run)
+                    ascii_run = ""
+                if match is not None:
+                    words.append(KOREAN_WORDS[match])
+                    index += len(match)
+                else:
+                    index += 1
+                continue
+            ascii_run += piece[index]
+            index += 1
+        if ascii_run:
+            words.append(ascii_run)
+    unique: list[str] = []
+    for word in words:
+        if word in unique:
+            continue
+        # Whole table words only, so research-council or dark-mode is never cut in the middle.
+        if unique and len("-".join([*unique, word])) > MAX_SLUG_CHARS:
+            break
+        unique.append(word)
+    return "-".join(unique)
+
+
+def _cap_slug(slug: str) -> str:
+    """task-0193: keep the whole id within MAX_TASK_ID_CHARS, cutting at the last hyphen that fits.
+
+    A Korean title's slug is already built from whole table words (see _korean_slug); this cut
+    matters for titles without Hangul, whose words are the hyphen-separated pieces.
+    """
+
+    if len(slug) <= MAX_SLUG_CHARS:
+        return slug
+    cut = slug[: MAX_SLUG_CHARS + 1].rsplit("-", 1)[0] if "-" in slug[: MAX_SLUG_CHARS + 1] else ""
+    return (cut or slug[:MAX_SLUG_CHARS]).strip("-")
 
 
 def _metadata_text_error(
