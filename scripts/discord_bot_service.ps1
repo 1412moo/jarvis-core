@@ -260,6 +260,29 @@ if ($SmokeTest) {
         $results["no_second_bot"] = ($log3 -match "a bot is already running \(pid \d+") -and ($log3 -notmatch "bot started")
         $first.WaitForExit(40000) | Out-Null
 
+        # 3b. A bot that ends is started again after the first wait (10 s), and its output stays in the log.
+        $logs4 = Join-Path $tmp "logs4"
+        & $ps -NoProfile -ExecutionPolicy Bypass -File $self -Run -BotScript $quick -LogDir $logs4 -MaxLaunches 2 -InstanceName ($name + "c")
+        $log4 = Get-Content -Raw -Path (Join-Path $logs4 "discord-bot.log")
+        $results["restarts_after_exit"] = ($log4 -match "restarting in 10 s") -and ($log4 -match "bot started \(pid \d+, launch 2\)") `
+            -and ([regex]::Matches($log4, "standin bot ran in ").Count -eq 2)
+
+        # 3c. A supervisor killed while holding the mutex leaves it abandoned; the next one takes it over.
+        $logs5 = Join-Path $tmp "logs5"
+        $log5 = Join-Path $logs5 "discord-bot.log"
+        $victim = Start-Process -FilePath $ps -PassThru -WindowStyle Hidden -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$self`"", "-Run", "-BotScript", "`"$slow`"", "-LogDir", "`"$logs5`"", "-MaxLaunches", "1", "-InstanceName", ($name + "d"))
+        $deadline = (Get-Date).AddSeconds(15)
+        while ((Get-Date) -lt $deadline -and -not ((Test-Path $log5) -and ((Get-Content -Raw -Path $log5) -match "bot started"))) {
+            Start-Sleep -Milliseconds 300
+        }
+        Stop-Process -Id $victim.Id -Force
+        & $ps -NoProfile -ExecutionPolicy Bypass -File $self -Run -BotScript $slow -LogDir $logs5 -MaxLaunches 1 -InstanceName ($name + "d")
+        $text5 = Get-Content -Raw -Path $log5
+        $results["abandoned_mutex_taken_over"] = ([regex]::Matches($text5, "supervisor started").Count -eq 2) -and ($text5 -notmatch "another supervisor is running")
+        foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like "*$slow*" })) {
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+
         # 4. The restart wait doubles from 10 s up to 300 s and starts over after a long run.
         $d = 0; $seen = @()
         foreach ($ran in @(1, 1, 1, 1, 1, 1, 1, 700, 1)) { $d = Get-RestartDelay $d $ran; $seen += $d }

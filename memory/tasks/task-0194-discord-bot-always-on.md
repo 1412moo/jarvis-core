@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 11:03 UTC`
-- updated_at: `2026-10-24 11:11 UTC`
+- updated_at: `2026-10-24 11:17 UTC`
 - summary: `Discord 봇이 Claude 세션과 무관하게 늘 떠 있게 한다. 저장소에 PowerShell 실행 스크립트 하나를 두어 저장소 위치를 스스로 찾고, 봇이 이미 떠 있으면 두 번째를 띄우지 않고, 봇이 죽으면 잠시 뒤 다시 띄우고, 로그는 저장소 밖 LOCALAPPDATA에 남긴다. Windows 로그인 때 이 스크립트를 창 없이 띄우는 작업 스케줄러 등록·해제·상태 명령도 넣는다. 실제 등록은 완료 뒤 Owner 확인을 받고 한다.`
 - source_command: `Owner 지시: 봇 상시 실행, 작업 스케줄러 방식 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `6e68844bc477cf7f9d1e02a591142f4d48c9b5c3` (등록 시점 main HEAD, task-0193까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -93,10 +93,11 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 | # | 출처 | 원문 인용 | Manager 해석과 충족 |
 | --- | --- | --- | --- |
 | A1 | Owner 결정 (원문) | "1번 봇 상시 실행 진행해" / "작업 스케줄러 등록 (권장)" | 작업 스케줄러 방식의 실행 스크립트를 만들었다. 다른 방식(시작 프로그램 폴더)은 쓰지 않았다 |
-| A2 | Owner 결정 (원문) | "어느 방식이든 저장소에 PowerShell 실행 스크립트를 하나 두고(저장소 위치를 스스로 찾음, 데스크톱 전용 경로 없음), 봇이 이미 떠 있으면 두 번째는 띄우지 않고, 봇이 죽으면 잠시 뒤 다시 띄우며, 로그는 저장소 밖(%LOCALAPPDATA%)에 남깁니다." | 조건마다 확인한 검사: 스크립트 하나(`scripts/discord_bot_service.ps1`), 저장소 위치를 스스로 찾음(`-SelfTest`의 repo_root, smoke의 runs_from_repo_root), 데스크톱 전용 경로 없음(smoke의 no_fixed_paths_or_token), 두 번째 봇을 띄우지 않음(smoke의 no_second_bot, second_supervisor_ends), 죽으면 다시 띄움(smoke의 restart_delays와 launch_logged), 로그는 저장소 밖(`-SelfTest`의 log_dir_outside_repo). 이미 떠 있는 봇 확인은 띄우기 직전에만 하므로, 감시 루프의 봇이 떠 있는 동안 다른 경로로 띄운 봇은 막지 못한다(README에 적음) |
+| A2 | Owner 결정 (원문) | "어느 방식이든 저장소에 PowerShell 실행 스크립트를 하나 두고(저장소 위치를 스스로 찾음, 데스크톱 전용 경로 없음), 봇이 이미 떠 있으면 두 번째는 띄우지 않고, 봇이 죽으면 잠시 뒤 다시 띄우며, 로그는 저장소 밖(%LOCALAPPDATA%)에 남깁니다." | 조건마다 확인한 검사: 스크립트 하나(`scripts/discord_bot_service.ps1`), 저장소 위치를 스스로 찾음(`-SelfTest`의 repo_root, smoke의 runs_from_repo_root), 데스크톱 전용 경로 없음(smoke의 no_fixed_paths_or_token), 두 번째 봇을 띄우지 않음(smoke의 no_second_bot, second_supervisor_ends), 죽으면 다시 띄움(smoke의 restarts_after_exit: 실제로 봇이 끝난 뒤 10초 기다려 두 번째로 띄움, restart_delays: 대기 계산), 로그는 저장소 밖(`-SelfTest`의 log_dir_outside_repo). 이미 떠 있는 봇 확인은 띄우기 직전에만 하므로, 감시 루프의 봇이 떠 있는 동안 다른 경로로 띄운 봇은 막지 못한다(README에 적음) |
 | A3 | Owner 결정 (원문) | "토큰은 지금처럼 adapters/discord/.env에서 봇이 직접 읽습니다." | 스크립트는 토큰과 `.env`를 다루지 않는다(검사로 확인) |
 | A4 | Owner 결정 (원문) | "Windows 로그인 때 스크립트를 창 없이 띄우는 작업을 현재 사용자 권한으로 등록합니다(관리자 권한 불필요). 등록·해제 명령도 스크립트에 넣습니다. 등록 자체는 이 PC의 설정 변경이라 제가 실행하기 전에 한 번 더 확인받습니다." | `-Register`·`-Unregister`를 넣었다. 등록은 현재 사용자·제한 권한(`RunLevel Limited`)이라 설계상 관리자 권한이 필요 없고, 창은 `-WindowStyle Hidden`으로 숨긴다. 다만 등록을 이 task에서 하지 않아 두 가지 모두 실제로는 확인하지 않았고, 숨긴 powershell도 로그인 때 콘솔 창이 잠깐 보일 수 있다. 완료 뒤 Owner 확인을 받고 등록할 때 확인한다 |
 | A5 | Owner 결정 (원문) | "`jarvis.bat`은 건드리지 않습니다." | `jarvis.bat`은 읽지도 바꾸지도 않았다 |
+| A6 | Owner 결정 (원문) | "Discord에서 언제든 시키려면 봇이 세션과 무관하게 떠 있어야 합니다." / "이 PC에 자동 실행을 등록하는 일이라 승인이 필요하고, 비용은 들지 않습니다." | 등록하면 작업 스케줄러가 로그인 때 감시 루프를 띄우므로 Claude 세션과 무관하게 돈다(등록 뒤 확인). 스크립트는 Windows 기본 기능(작업 스케줄러, PowerShell)과 이미 쓰던 python만 쓰고 유료 서비스나 외부 호출을 더하지 않는다. 등록은 승인 조건대로 완료 뒤 따로 확인받는다 |
 
 ## Self-review
 
@@ -108,3 +109,9 @@ candidate 전 1회. major 1건, minor 5건을 모두 반영했다.
 4. smoke 1번 주석은 저장소 루트 실행을 확인한다고 했지만 검사하지 않았다. 대역 봇이 작업 폴더를 출력하게 하고 `runs_from_repo_root` 검사를 더했다(smoke 7/7).
 5. A2의 "네 조건"을 조건별 검사로 풀어 적었다.
 6. 사전 점검 결과를 검증 절에 적었다.
+
+## Repair
+
+- candidate `9298d6070e86a7587b2052f0df341fe5e9adc593`: Reviewer FINDINGS(유효, self_deviations 0), minor 2건. (1) A2가 "죽으면 다시 띄움"을 smoke로 확인했다고 적었지만 smoke 감시자는 모두 `-MaxLaunches 1`이라 다시 띄우는 경로(대기, 두 번째 실행)를 돌린 적이 없다. (2) Manager 요약이 승인 조건 "세션과 무관하게 떠 있어야", "비용은 들지 않습니다"를 다루지 않는다.
+- repair 1(`repair_count=1`, 기본 예산 안): `-SmokeTest`에 시나리오 두 개를 더했다. `restarts_after_exit`(`-MaxLaunches 2`로 봇이 끝나면 10초 뒤 두 번째로 띄우고 두 실행의 출력이 모두 로그에 남음), `abandoned_mutex_taken_over`(봇을 띄운 감시자를 강제로 끝낸 뒤 같은 이름의 새 감시자가 거절되지 않고 시작함, Reviewer가 미확인으로 남긴 항목). A2를 실제 검사로 고쳤고 A6 행을 더했다. README의 smoke 설명도 고쳤다.
+- 다시 돌린 결과: 구문 분석 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 9/9(약 34초), `-Status`는 작업 미등록·실제 봇 1개 그대로. 위 검증 절의 7/7은 첫 candidate 기준이다.
