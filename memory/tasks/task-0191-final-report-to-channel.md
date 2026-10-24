@@ -2,11 +2,12 @@
 
 - id: `task-0191-final-report-to-channel`
 - title: `Worker 최종 보고는 채널로`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 06:17 UTC`
-- updated_at: `2026-10-24 06:26 UTC`
+- updated_at: `2026-10-24 06:49 UTC`
 - summary: `Discord /go Worker 실행의 최종 결과 보고(완료, 실패, Owner 판단 필요)를 작업 스레드가 아니라 채널에 보낸다. /go가 스레드 안에서 왔으면 그 스레드의 상위 채널이다. 채널 전송이 실패하면 작업 스레드로 보낸다. 단계 진행 줄과 팀장 계획은 지금처럼 스레드에 남는다. 판정·반영 로직은 바꾸지 않는다.`
+- completion_evidence: `candidate 8de3f9ad65855bfa8385909f99ef2a3d7fec8e42 (baseline c642bde). Reviewer PASS, findings 0, self_deviations 0. QA PASS 20/20 in a fresh worktree (one QA script expectation fix, rerun): 5 scope files; only the old comment and send line removed; channel message to channel, thread to parent, unknown parent keeps the thread, channel failure falls back to the thread; lead result unchanged; Worker smoke 595/0; self-check 109; validator PASS. Live Discord delivery not tested.`
 - source_command: `Owner 지시: 최종 보고를 채널로 (Claude Code 세션)`
 
 ## 기준선
@@ -71,3 +72,10 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 ## Self-review
 
 candidate 전 1회. minor 3건을 모두 반영했다: 결과도 스레드로 간다고 적힌 task-0183 주석 한 줄을 고치고 owned 범위에 그 주석을 적었다. README에서 최종 결과의 옛 대체 경로를 뺐다. 설계 3항과 A2의 "문구와 동작이 맞는다"를 `/go`를 채널에서 보낸 경우로 좁혔다. 고친 뒤 다시 돌린 결과: Worker smoke total=595 failed=0, validator PASS, 사전 점검 PASS(staged_files 5, violations 0).
+
+## Reviewer·QA 결과
+
+- candidate `8de3f9ad65855bfa8385909f99ef2a3d7fec8e42`: Reviewer PASS(findings 0, self_deviations 0).
+- QA: 새 detached worktree에서 첫 실행 19/20. 실패 1개는 QA 스크립트 결함이었다(`on_message`가 `_start_discord_bot` 안에 있어 바깥 함수도 바뀐 것으로 잡히는데 기대값에 넣지 않음). 지운 줄이 옛 주석과 옛 전송 줄 2개뿐이라는 검사는 첫 실행에서 이미 통과했다. 소스는 바꾸지 않고 기대값만 고쳐 같은 candidate에서 다시 돌려 PASS 20/20(변경 파일 5개, 독립 판정: 채널 메시지는 채널, 스레드는 상위 채널, 상위 채널 없음·읽기 실패는 스레드, 채널 실패 시 스레드, 헬퍼는 보내지 않음, 팀장 결과 경로 그대로, Worker smoke 595/0, self-check 109, validator PASS, SOP·README 문구, check_task_record, diff --check, jarvis.bat 미추적). worktree는 매번 지웠다.
+- 실제 Discord 전송은 확인하지 않았다. 봇을 다시 시작한 뒤 Owner의 다음 `/go`로 확인한다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push와 봇 재시작은 하지 않았다.
