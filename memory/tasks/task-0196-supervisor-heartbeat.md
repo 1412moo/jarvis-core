@@ -2,11 +2,12 @@
 
 - id: `task-0196-supervisor-heartbeat`
 - title: `봇 감시자 heartbeat`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 15:37 UTC`
-- updated_at: `2026-10-24 16:17 UTC`
+- updated_at: `2026-10-24 16:20 UTC`
 - summary: `봇 감시자(scripts/discord_bot_service.ps1 -Run)가 언제 끝났는지 알 수 있게 한다. 감시자가 주기적으로 heartbeat 줄을 로그에 남기고 상태 파일(pid, 시작, 마지막 heartbeat, 봇 pid, 정상 종료 여부)을 갱신하며, 정상 종료 때 그 사실을 남긴다. -Status는 마지막 heartbeat 시각과, 감시자 없이 봇만 도는 경우, 감시자가 기록 없이 끝난 경우, heartbeat가 오래된 경우를 경고한다. 감시자 찾기는 같은 인스턴스 이름의 감시자로 좁힌다.`
+- completion_evidence: `candidate 71da49416ae12f66c6268e8ffc935318d2a17751 (baseline bc40e1b, repair 2 of budget 2). Reviewer FINDINGS minor 1 (README smoke list omits one scenario), accepted under SOP 8 per Owner decision 2; self_deviations 0. QA PASS 23/23 in a fresh worktree: 3 scope files; ASCII, parse 0; SelfTest PASS; SmokeTest 14/14; real Status finds the scheduled supervisor and bot with no warning, unchanged after smoke; record check PASS.`
 - source_command: `Owner 지시: 감시자 heartbeat 보강 (Claude Code 세션)`
 
 ## 기준선
@@ -154,3 +155,10 @@ candidate 전 1회. minor 5건을 모두 반영했다.
 - candidate `48643057ca9d79fbaefba0a29f742b7473493584`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: 오래된 heartbeat 경고 조건에 종료 표시 확인이 없어, 정상 종료나 `-Stop`으로 종료가 기록된 뒤 상태 파일의 pid를 다른 프로세스가 다시 쓰면 `-Status`가 살아 있는 감시자가 멈춘 것처럼 거짓 경고를 띄운다. 기본 예산을 다 써서 Owner에게 올렸다(Owner 결정 2).
 - repair 2(`repair_count=2`, Owner가 1회 추가): 그 경고 조건에 `-not $state.ended`를 더했다. README의 경고 설명도 "살아 있고 종료 기록이 없는 감시자"로 고쳤다. 이 한 줄을 더한 커밋(`c0e8e95`)은 사전 점검이 updated_at 미갱신으로 BLOCKED였는데 명령을 이어 붙여 커밋까지 진행됐다. 다음 커밋에서 updated_at을 갱신했고, 그 뒤로는 점검 PASS를 확인한 다음에만 커밋했다. smoke `no_stale_warning_after_end`를 더했다(살아 있는 pid와 3시간 전 heartbeat의 종료 기록은 경고가 없고, 같은 기록에 종료 표시가 없으면 오래된 heartbeat 경고가 뜸).
 - 다시 돌린 결과: 구문 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 14/14를 두 번 연속, 실제 `-Status`는 앞과 같았다(감시자 35140, 봇 34260, 경고 없음).
+
+## Reviewer·QA 결과
+
+- candidate `71da49416ae12f66c6268e8ffc935318d2a17751`(repair 2와 기록 후속 두 커밋): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: README의 `-SmokeTest` 목록에 repair 2 시나리오 `no_stale_warning_after_end`(종료 기록 뒤 pid가 재사용돼도 오래된 heartbeat 경고 없음)가 빠졌다. Repair 절은 repair 2가 README의 경고 설명만 바꿨다고 적었다.
+- Owner 결정 2의 "다음 Reviewer 검토에서 minor만 다시 나오면 추가 repair 없이 SOP §8에 따라 수용하고 QA로 진행하도록 결정."에 따라 이 minor를 SOP §8로 수용하고 같은 candidate로 QA를 진행했다. README 목록의 누락은 이 기록으로 남긴다.
+- QA: 새 detached worktree에서 PASS 23/23(변경 파일 3개, 다른 코드 미변경, ASCII·구문 오류 0, 고정 경로·토큰 처리 없음, 등록 설정 문구 그대로, `-Stop`은 감시자 먼저, worktree의 `-SelfTest` PASS, 실제 `-Status`가 작업 Running·작업 스케줄러 감시자와 봇을 찾고 경고 없음, `-SmokeTest` 14/14 뒤에도 실제 감시자·봇 그대로, 인자 없으면 사용법, README의 heartbeat·상태 파일·경고·`-Stop` 기록 문구, check_task_record, validator, check_no_secrets는 그 검사 파일 자신의 예시만, diff --check, jarvis.bat 미추적). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. Owner 결정 2의 "완료 후에만 push 및 감시자 재시작 여부를 판단."에 따라 push와 감시자 재시작은 하지 않았다. 지금 작업 스케줄러로 도는 감시자(pid 35140)는 이 변경 전 코드라 heartbeat와 상태 파일을 쓰지 않는다. 다시 시작해야 적용된다.
