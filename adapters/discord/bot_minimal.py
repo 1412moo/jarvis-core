@@ -2335,6 +2335,21 @@ async def _task_thread(message: Any, name: str) -> Any:
         return channel
 
 
+def _result_channel(message: Any) -> Any:
+    """task-0191: where a /go run's final result goes: the channel, not the task thread. A /go sent in
+    a thread reports to that thread's parent channel; if the parent cannot be read, to the thread."""
+
+    channel = message.channel
+    thread_type = getattr(discord, "Thread", None) if discord is not None else None
+    if thread_type is not None and isinstance(channel, thread_type):
+        try:
+            parent = channel.parent
+        except Exception:  # noqa: BLE001 - an unreadable parent keeps the thread
+            parent = None
+        return parent if parent is not None else channel
+    return channel
+
+
 def _line_sender(loop: Any, primary: Any, fallback: Any) -> Callable[[str], None]:
     """task-0183: the send callback for progress lines, called from the Worker thread. A line goes to the
     task thread; if that fails it goes to the channel; if that fails too, the error reaches
@@ -4710,7 +4725,8 @@ async def _start_discord_bot() -> None:
         # loop and reports to the same channel when it finishes or fails.
         if result.get("result_type") == "work_started":
             loop = asyncio.get_running_loop()
-            # task-0183: progress and the result go to the task's thread (the lead's, when /go was sent there).
+            # task-0183: progress goes to the task's thread (the lead's, when /go was sent there).
+            # task-0191: the final result goes to the channel (see _report_worker below).
             channel = await _task_thread(message, f"{result['task_id']} 작업")
 
             # task-0165: progress lines from the Worker thread, sent in order to the same channel.
@@ -4728,7 +4744,8 @@ async def _start_discord_bot() -> None:
                     _make_progress(str(result["task_id"]), send_line),
                     result.get("work_kind"),
                 )
-                await _send_safely(channel, message.channel, _format_reply(job))
+                # task-0191: the final result goes to the channel; the task thread is the fallback.
+                await _send_safely(_result_channel(message), channel, _format_reply(job))
 
             _BACKGROUND_TASKS.add(asyncio.create_task(_report_worker()))
             return

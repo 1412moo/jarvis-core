@@ -1332,6 +1332,33 @@ def discussion_flow(bot, clone: Path, status_of) -> None:
         reused = Message(in_thread)
         check("thread: a message already in a thread stays in it", asyncio.run(bot._task_thread(reused, "x")) is in_thread
               and reused.names == [])
+    # task-0191: the final result goes to the channel; a /go sent in a thread reports to its parent.
+    check("result channel: a message in a channel reports to that channel", bot._result_channel(opened) is channel)
+    if thread_type is not None:
+        class ParentThread(thread_type):
+            parent = property(lambda self: self._parent)
+
+        class BrokenThread(thread_type):
+            @property
+            def parent(self):
+                raise RuntimeError("no guild")
+
+        child = object.__new__(ParentThread)
+        child._parent = channel
+        orphan = object.__new__(ParentThread)
+        orphan._parent = None
+        broken = object.__new__(BrokenThread)
+        check("result channel: a message in a thread reports to the thread's parent channel",
+              bot._result_channel(Message(child)) is channel)
+        check("result channel: a thread whose parent is unknown or unreadable keeps the thread",
+              bot._result_channel(Message(orphan)) is orphan and bot._result_channel(Message(broken)) is broken)
+    bot_source = Path(bot.__file__).read_text(encoding="utf-8")
+    check("result channel: the /go result is sent to the result channel first, the task thread second",
+          bot_source.count("await _send_safely(_result_channel(message), channel, _format_reply(job))") == 1
+          and "await _send_safely(channel, message.channel, _format_reply(job))" not in bot_source)
+    report_channel, task_thread = Target(fail=True), Target()
+    check("result channel: a failed channel send falls back to the task thread",
+          asyncio.run(bot._send_safely(report_channel, task_thread, "done")) and task_thread.sent == ["done"])
     broken_thread, fine_channel = Target(fail=True), Target()
     check("thread: a failed thread send goes to the channel", asyncio.run(bot._send_safely(broken_thread, fine_channel, "result"))
           and fine_channel.sent == ["result"])
