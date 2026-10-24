@@ -365,6 +365,14 @@ def research_council_flow(clone: Path, worktrees: Path, tmp: Path) -> None:
         kept = claude_worker._forbidden_additions(repo, base, ["apps/research-council/a.py"])
         target.write_text("y = 2\nimport urllib.request\nimport urllib.request\nkey = getenv('K')\n", encoding="utf-8")
         added = claude_worker._forbidden_additions(repo, base, ["apps/research-council/a.py"])
+        # task-0189 repair 1: import forms the plain texts missed, and words that must still pass.
+        forms = {}
+        for label, line in (("comma socket", "import os, socket"), ("comma requests", "import json, requests"),
+                            ("from http", "from http import client"), ("continued", "    socket,"),
+                            ("call", "r = requests.get(u)"), ("dunder", "m = __import__('so' + 'cket')"),
+                            ("ordinary", "evidence_requests = follow_up_requests + 1  # evidence requests")):
+            target.write_text(f"y = 2\n{line}\n", encoding="utf-8")
+            forms[label] = claude_worker._forbidden_additions(repo, base, ["apps/research-council/a.py"])
         target.unlink()
         deleted = claude_worker._forbidden_additions(repo, base, ["apps/research-council/a.py"])
         target.write_text("import urllib.request\nx = 1\nmode = 'live'\ny = 2\nimport socket\n", encoding="utf-8")
@@ -374,6 +382,10 @@ def research_council_flow(clone: Path, worktrees: Path, tmp: Path) -> None:
     check("forbidden additions: kept, moved and removed lines do not count", kept == [], str(kept))
     check("forbidden additions: an extra copy of a kept line and a new line count", added == [
         "apps/research-council/a.py: getenv", "apps/research-council/a.py: urllib"], str(added))
+    a_py = "apps/research-council/a.py: "
+    check("forbidden additions: comma, from-http, continued, call and __import__ forms are caught (repair 1)", forms == {
+        "comma socket": [a_py + "socket"], "comma requests": [a_py + "import requests"], "from http": [a_py + "from network module"],
+        "continued": [a_py + "socket"], "call": [a_py + "requests call"], "dunder": [a_py + "__import__"], "ordinary": []}, str(forms))
     check("forbidden additions: a deleted file adds nothing", deleted == [], str(deleted))
     check("forbidden additions: QA's change_set_matches is false for such a candidate", qa.get("change_set_matches") is False, str(qa))
     with claude_worker_kind("studyroom_content"):

@@ -49,8 +49,9 @@ class WorkKind:
     test_script: str
     commit_scope: str
     prompt_note: str
-    # task-0189: texts (lower case) a line the change adds may not hold; empty for most kinds.
-    forbidden_additions: tuple[str, ...] = ()
+    # task-0189: (label, regex) pairs a line the change adds may not match (searched in the
+    # lower-cased line); empty for most kinds.
+    forbidden_additions: tuple[tuple[str, str], ...] = ()
 
     @property
     def test_command(self) -> tuple[str, ...]:
@@ -102,32 +103,35 @@ WORK_KINDS = (
             " passing; add no network call, external API or LLM call, environment variable or API key read,"
             " subprocess, or new dependency, and never wire the LIVE augmentation mode or a candidate_generator."
             " Never change research_council/openrouter_advisor.py, research_council/llm_advisor.py or .env.example."
-            " The pipeline refuses any added line that holds urllib, http.client, an import of socket or requests,"
-            " httpx, aiohttp, websocket, subprocess, openrouter, a live mode, candidate_generator, os.environ,"
-            " getenv or api_key."
+            " The pipeline refuses any added line that holds urllib, http.client, the word socket, an import from"
+            " http or of requests, a requests call, httpx, aiohttp, websocket, __import__, importlib, subprocess,"
+            " openrouter, a live mode, candidate_generator, os.environ, getenv or api_key."
         ),
         # task-0189: the LIVE path reaches OpenRouter; an added line that imports a network module,
         # names OpenRouter, selects the live mode, injects a generator or reads the environment stops
-        # the run (Owner decision: protection plus a code check).
+        # the run (Owner decision: protection plus a code check). Each entry is (label, regex), searched
+        # in the lower-cased line. "requests" alone is a common word here (evidence requests), so only
+        # its import and call forms count.
         forbidden_additions=(
-            "urllib",
-            "http.client",
-            "import socket",
-            "from socket",
-            "import requests",
-            "from requests",
-            "httpx",
-            "aiohttp",
-            "websocket",
-            "subprocess",
-            "openrouter",
-            "llmaugmentationmode.live",
-            '"live"',
-            "'live'",
-            "candidate_generator",
-            "os.environ",
-            "getenv",
-            "api_key",
+            ("urllib", r"urllib"),
+            ("http.client", r"http\.client"),
+            ("socket", r"\bsocket\b"),
+            ("import requests", r"\bimport\b.*\brequests\b"),
+            ("from network module", r"^\s*from\s+(?:http|requests|socket|httpx|aiohttp|websockets?)\b"),
+            ("requests call", r"\brequests\.(?:get|post|put|patch|delete|head|options|request|session)\b"),
+            ("httpx", r"httpx"),
+            ("aiohttp", r"aiohttp"),
+            ("websocket", r"websocket"),
+            ("__import__", r"__import__"),
+            ("importlib", r"importlib"),
+            ("subprocess", r"subprocess"),
+            ("openrouter", r"openrouter"),
+            ("llmaugmentationmode.live", r"llmaugmentationmode\.live"),
+            ('"live"', r"[\"']live[\"']"),
+            ("candidate_generator", r"candidate_generator"),
+            ("os.environ", r"os\.environ"),
+            ("getenv", r"getenv"),
+            ("api_key", r"api_key"),
         ),
     ),
 )
@@ -739,13 +743,14 @@ def _scope_violations(paths: list[str]) -> list[str]:
 
 
 def _forbidden_additions(worktree: Path, baseline: str, paths: list[str]) -> list[str]:
-    """task-0189: "<path>: <text>" for each changed file whose added lines hold a text the kind forbids.
+    """task-0189: "<path>: <label>" for each changed file whose added lines match a text the kind forbids.
 
     A line counts as added when the worktree file has more copies of it than the baseline file,
-    so kept, moved and removed lines never count. The match ignores case.
+    so kept, moved and removed lines never count. The match ignores case. The check is line by
+    line, so it sees the words of an import split over lines one line at a time.
     """
 
-    forbidden = _active_kind().forbidden_additions
+    forbidden = [(label, re.compile(pattern)) for label, pattern in _active_kind().forbidden_additions]
     if not forbidden:
         return []
     found = []
@@ -762,7 +767,7 @@ def _forbidden_additions(worktree: Path, baseline: str, paths: list[str]) -> lis
             if remaining.get(line, 0) > 0:
                 remaining[line] -= 1
                 continue
-            hit = next((text for text in forbidden if text in line.lower()), None)
+            hit = next((label for label, pattern in forbidden if pattern.search(line.lower())), None)
             if hit is not None:
                 found.append(f"{path}: {hit}")
     return sorted(set(found))

@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-23 09:51 UTC`
-- updated_at: `2026-10-23 10:09 UTC`
+- updated_at: `2026-10-24 05:15 UTC`
 - summary: `Worker 작업 종류 research_council을 더한다(허용 경로 apps/research-council/, 테스트 그 앱의 smoke test). 외부 LLM 호출 파일 openrouter_advisor.py, LIVE 모드 스위치와 검증 필터가 있는 llm_advisor.py, .env.example은 보호 경로로 막고, Worker 지시에 네트워크·외부 API·LLM·새 의존성 금지를 적는다. 더해 이 종류의 변경이 네트워크 모듈, openrouter, LIVE 모드 연결, 환경 변수·API 키 읽기 같은 금지 문구를 새 줄로 들여오면 scope 단계와 QA에서 자동으로 멈추는 코드 검사를 넣는다.`
 - source_command: `Owner 지시: Research Council 작업 종류 추가, 보호 + 코드 검사 선택 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `27827adaeec9949575cdeffa5e4d13da437511bd` (등록 시점 main HEAD, task-0188까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -80,7 +80,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 | # | 출처 | 원문 인용 | Manager 해석과 충족 |
 | --- | --- | --- | --- |
 | A1 | Owner 결정 (원문) | "다음은 Research Council 작업 종류 추가하자" | `research_council` 종류를 세 번째 항목으로 더했다. 다른 종류와 기본 종류는 그대로다 |
-| A2 | Owner 결정 (원문) | "- 보호 + 코드 검사 추가: 1번에 더해, Worker 변경에 네트워크 import나 openrouter·LIVE 연결이 새로 들어오면 QA에서 자동으로 실패시키는 검사를 claude_worker.py에 추가합니다. 더 안전하지만 Worker 판정 로직을 바꾸는 더 큰 작업입니다." / "[Owner 답]" / "보호 + 코드 검사 추가" | 1번 내용(보호 파일 3개, Worker 지시)을 모두 넣었다. 검사는 QA에서 실패시키고, 같은 검사를 더 이른 scope 단계에도 걸어 테스트·Reviewer 전에 멈추게 했다. 금지 문구 가운데 Owner 원문에 이름이 없는 것은 Manager의 추가이고 근거는 이렇다. candidate_generator는 LIVE 모드가 호출 함수를 받는 자리(`llm_advisor.py`의 `LLMAdvisorConfig.candidate_generator`)라 LIVE 연결의 일부다. os.environ·getenv·api_key는 `openrouter_advisor.py`가 API 키를 환경 변수에서 읽는 방식이라 키를 끌어오는 경로다. subprocess는 외부 명령(curl 등)으로 네트워크를 우회하는 경로다. socket·requests는 다른 이름(`evidence_requests` 등)에 흔히 들어 있어 `import`·`from` 형태만 막는다. 모두 더 좁히는 쪽이며 Worker 권한을 넓히지 않는다 |
+| A2 | Owner 결정 (원문) | "- 보호 + 코드 검사 추가: 1번에 더해, Worker 변경에 네트워크 import나 openrouter·LIVE 연결이 새로 들어오면 QA에서 자동으로 실패시키는 검사를 claude_worker.py에 추가합니다. 더 안전하지만 Worker 판정 로직을 바꾸는 더 큰 작업입니다." / "[Owner 답]" / "보호 + 코드 검사 추가" | 1번 내용(보호 파일 3개, Worker 지시)을 모두 넣었다. 검사는 QA에서 실패시키고, 같은 검사를 더 이른 scope 단계에도 걸어 테스트·Reviewer 전에 멈추게 했다. 금지 문구 가운데 Owner 원문에 이름이 없는 것은 Manager의 추가이고 근거는 이렇다. candidate_generator는 LIVE 모드가 호출 함수를 받는 자리(`llm_advisor.py`의 `LLMAdvisorConfig.candidate_generator`)라 LIVE 연결의 일부다. os.environ·getenv·api_key는 `openrouter_advisor.py`가 API 키를 환경 변수에서 읽는 방식이라 키를 끌어오는 경로다. subprocess는 외부 명령(curl 등)으로 네트워크를 우회하는 경로다. requests는 다른 이름(`evidence_requests` 등)과 문장(evidence requests)에 흔히 들어 있어 import가 있는 줄과 `requests.get` 같은 호출만 막는다(repair 1에서 정규식으로 바꿨다). 모두 더 좁히는 쪽이며 Worker 권한을 넓히지 않는다 |
 | A3 | Owner 결정 (원문) | "- 두 파일 보호 + 지시 (권장): openrouter_advisor.py, llm_advisor.py, .env.example을 보호 경로로 막고, Worker 지시에 네트워크·외부 API·LLM·새 의존성 금지와 LIVE 모드 연결 금지를 적습니다." | 세 파일을 `PROTECTED_PATHS`에 넣었고 Worker 지시에 금지와 보호 파일을 적었다 |
 | A4 | Owner 결정 (원문) | "판정 로직은 바꾸지 않습니다." / "다른 실행 스크립트에 LIVE를 연결하는 변경은 Reviewer가 보는 지시 수준입니다." / "[Owner 답]" / "보호 + 코드 검사 추가" | 이 두 문장은 1번 선택지의 설명이다. Owner가 고른 2번은 "1번에 더해" 판정 로직을 바꾸는 검사를 넣는 선택이므로, 이 두 조건은 2번으로 대체됐다고 본다. 그래서 scope 단계와 QA 판정을 바꿨고, 다른 실행 스크립트에 LIVE를 연결하는 새 줄도 지시가 아니라 코드 검사로 막는다 |
 
@@ -93,3 +93,9 @@ candidate 전 1회. minor 3건을 모두 반영했다.
 3. SOP 행과 Worker 지시는 socket·requests를 담은 줄이면 다 거절한다고 읽혔지만, 코드는 `import`·`from` 형태만 막는다. 코드는 그대로 두고 SOP 행과 Worker 지시를 코드에 맞게 고쳤다.
 
 고친 뒤 다시 돌린 결과: Worker smoke total=589 failed=0, Discord self-check ok 109, validator PASS(negative_checks 172, 실패 0). 사전 점검도 다시 PASS(staged_files 6, violations 0).
+
+## Repair
+
+- candidate `b1951c7adc86abf54235828c0dcfe72127dfd975`: Reviewer 보고가 금지된 명령 옵션(`git grep -i`)을 self_deviations에 적어 SOP상 무효 검토다. 그 보고의 minor 지적 1건은 Manager가 직접 확인해 사실이었다: 금지 문구를 단순 문자열로 비교해 `import os, socket`, `import json, requests`, `from http import client`, 여러 줄로 나눈 import가 통과했다. Owner 원문의 "네트워크 import나 openrouter·LIVE 연결이 새로 들어오면 QA에서 자동으로 실패"와 맞지 않으므로 무효 검토의 재실행(retry) 대신 repair로 고쳤다.
+- repair 1(`repair_count=1`, 기본 예산 안): `forbidden_additions`를 (이름, 정규식) 쌍으로 바꿔 소문자로 바꾼 줄에서 찾는다. 낱말 socket, import가 있는 줄의 requests, `from http`·`from requests` 같은 네트워크 모듈 import, `requests.get` 같은 호출, `__import__`·importlib을 더해 19개다. 보고 사유에는 항목 이름이 나온다. Worker 지시와 SOP §10.1 행을 같은 규칙으로 고쳤고, 위 형태들이 잡히고 흔한 낱말은 통과하는 검사 1개를 더했다. 구현 절의 "금지 문구 18개"는 첫 candidate 기준 기록이다.
+- 다시 돌린 결과: Worker smoke total=590 failed=0, Discord self-check ok 109, validator PASS(negative_checks 172, 실패 0).
