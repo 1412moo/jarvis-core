@@ -2,11 +2,12 @@
 
 - id: `task-0194-discord-bot-always-on`
 - title: `Discord 봇 상시 실행`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 11:03 UTC`
-- updated_at: `2026-10-24 11:17 UTC`
+- updated_at: `2026-10-24 11:20 UTC`
 - summary: `Discord 봇이 Claude 세션과 무관하게 늘 떠 있게 한다. 저장소에 PowerShell 실행 스크립트 하나를 두어 저장소 위치를 스스로 찾고, 봇이 이미 떠 있으면 두 번째를 띄우지 않고, 봇이 죽으면 잠시 뒤 다시 띄우고, 로그는 저장소 밖 LOCALAPPDATA에 남긴다. Windows 로그인 때 이 스크립트를 창 없이 띄우는 작업 스케줄러 등록·해제·상태 명령도 넣는다. 실제 등록은 완료 뒤 Owner 확인을 받고 한다.`
+- completion_evidence: `candidate 78c5911618fe03d6654ac5f60fbbc14cace86e61 (baseline 6e68844, repair 1). Reviewer PASS, findings 0, self_deviations 0. QA PASS 22/22 in a fresh worktree: 3 scope files; ASCII script, parse errors 0, no fixed path or token handling; register settings as stated; SelfTest PASS from the worktree; Status changed nothing; SmokeTest 9/9 with the real bot untouched; check_no_secrets only its own fixtures. Scheduled task not registered yet.`
 - source_command: `Owner 지시: 봇 상시 실행, 작업 스케줄러 방식 (Claude Code 세션)`
 
 ## 기준선
@@ -115,3 +116,9 @@ candidate 전 1회. major 1건, minor 5건을 모두 반영했다.
 - candidate `9298d6070e86a7587b2052f0df341fe5e9adc593`: Reviewer FINDINGS(유효, self_deviations 0), minor 2건. (1) A2가 "죽으면 다시 띄움"을 smoke로 확인했다고 적었지만 smoke 감시자는 모두 `-MaxLaunches 1`이라 다시 띄우는 경로(대기, 두 번째 실행)를 돌린 적이 없다. (2) Manager 요약이 승인 조건 "세션과 무관하게 떠 있어야", "비용은 들지 않습니다"를 다루지 않는다.
 - repair 1(`repair_count=1`, 기본 예산 안): `-SmokeTest`에 시나리오 두 개를 더했다. `restarts_after_exit`(`-MaxLaunches 2`로 봇이 끝나면 10초 뒤 두 번째로 띄우고 두 실행의 출력이 모두 로그에 남음), `abandoned_mutex_taken_over`(봇을 띄운 감시자를 강제로 끝낸 뒤 같은 이름의 새 감시자가 거절되지 않고 시작함, Reviewer가 미확인으로 남긴 항목). A2를 실제 검사로 고쳤고 A6 행을 더했다. README의 smoke 설명도 고쳤다.
 - 다시 돌린 결과: 구문 분석 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 9/9(약 34초), `-Status`는 작업 미등록·실제 봇 1개 그대로. 위 검증 절의 7/7은 첫 candidate 기준이다.
+
+## Reviewer·QA 결과
+
+- candidate `78c5911618fe03d6654ac5f60fbbc14cace86e61`(repair 1): Reviewer PASS(findings 0, self_deviations 0). Reviewer가 미확인으로 남긴 것 가운데 등록 뒤에 볼 항목: 실제 등록의 관리자 권한·창·로그인 시작·세션 밖 실행, 작업의 실패 재시작(RestartCount 3)이 `-Stop`으로 끝낸 감시자를 다시 띄우는지, `-Stop`이 감시자가 띄우지 않은 봇(지금 세션에서 띄운 봇 등)까지 끝낸다는 점.
+- QA: 새 detached worktree에서 PASS 22/22(변경 파일 3개, 다른 코드 미변경, ASCII·구문 오류 0, 고정 경로·토큰 처리 없음, 등록 설정 문구, `-Stop`은 감시자 먼저, worktree 자신의 저장소 루트로 `-SelfTest` PASS, `-Status`는 작업 미등록 그대로이고 실제 봇을 찾음, `-SmokeTest` 9/9 뒤에도 실제 봇은 그대로 하나, 인자 없으면 사용법과 종료 코드 2, README 문구, check_task_record, validator, check_no_secrets는 그 검사 파일 자신의 예시만, diff --check, jarvis.bat 미추적). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push, 작업 스케줄러 등록, 지금 세션 봇의 교체는 하지 않았다(Owner 확인 대기).
