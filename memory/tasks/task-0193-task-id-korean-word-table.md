@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 07:43 UTC`
-- updated_at: `2026-10-24 08:56 UTC`
+- updated_at: `2026-10-24 10:01 UTC`
 - summary: `한글 제목으로 만든 task의 ID가 task-0192-1처럼 내용을 알 수 없게 되는 문제를 고친다. writer의 slug 생성에 한영 단어표를 더해 등록된 한글 낱말은 조사가 붙어도 표준 영문으로 바꾸고, 영문은 유지하고, 중복은 없애고, ID 전체를 60자 안으로 줄인다. 작업 종류 이름은 단어표에 들어 있어 남고, 결과가 비면 기존 예비값 task를 쓴다. 한글이 없는 제목은 기존과 같다. ID 형식과 제목·본문은 바꾸지 않는다.`
 - source_command: `Owner 지시: task ID 이름 개선, 1안 기본 2안 예비 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `52eb55474525bb05faac0d91d8e095f24ac806e4` (등록 시점 main HEAD, task-0192까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (기본 1에 Owner 결정 4로 1회 추가, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -87,6 +87,21 @@ task-0192-studyroom-glossary-task-thread-term-add-1
 1번으로 진행해
 ```
 
+## Owner 결정 4: repair 예산 추가와 반복 중단 규칙 (원문)
+
+```text
+[Manager 질문]
+결정이 필요한 것
+1. (권장) repair 예산을 1회 추가합니다.
+   - 영문 여러 낱말 표지어(`daily ai radar`, `daily-ai-radar`, `daily_ai_radar`, `research council` 등)도 한 낱말로 묶어 종류 이름이 늘 하나로 남게 하고, 검사를 1개 더합니다.
+   - 반복을 끊기 위해, 다음 검토가 또 minor만 내면 SOP §8로 수용하고 바로 QA로 가는 것도 함께 정해 주세요.
+2. SOP §8로 이 minor를 수용하고 `d9acdaf` 그대로 QA로 갑니다. 이 예외는 완료 기록에 한계로 적습니다.
+3. task-0193을 여기서 멈춥니다.
+
+[Owner 답]
+1번으로 진행해
+```
+
 ## 설계
 
 1. `orchestrator/discord-intake/task_file_writer.py`의 `_slugify`와 새 도우미 `_korean_slug`·`_cap_slug`, 단어표·상수만 바꾼다. 한글이 없는 제목은 지금 결과를 그대로 쓰고, 길이만 줄인다(아래 4).
@@ -119,7 +134,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 - `apps/jarvis-console/run_smoke_tests.py`(Owner 결정 2): Console 로컬 task 만들기 검사가 한글 제목의 옛 ID(`task-0001-task`, `task-0002-task`)를 기대하던 6줄을 새 ID(`task-0001-list-cleanup`, `task-0002-cleanup`)로 바꿨다. Console 코드는 바꾸지 않았다.
 - `docs/task-model.md`: 1절 slug 규칙에 한 줄.
 - Console 충돌 검사: Console 검사의 두 번째 제목("내일 일정 정리")은 예전에 첫 제목과 같은 slug `task`가 되어 번호 충돌 회피를 보였다. 이제 slug가 달라(`cleanup`) 그 검사는 번호가 이어지는 것만 본다. 같은 slug의 충돌 회피는 discord-intake `_slug_cases`의 같은 제목 반복 사례가 확인한다.
-- 작업 종류 예비 규칙(2안): writer의 입력(title, repo, summary, source_command)에는 작업 종류가 없다. 대신 Worker task 제목에는 늘 종류 표지어가 들어 있다: `/work` 표지어 경로는 Owner 요청에 표지어가 있어야 그 종류의 task를 만들고 그 요청이 제목이 되며(`orchestrator/discord-intake/task_draft_builder.py`의 `"title": request`), 팀장 경로의 제목은 `orchestrator/worker/claude_lead.py`의 `task_title_for`가 종류의 첫 표지어로 시작하게 만든다. 표지어는 영문이거나 단어표에 있는 한글(스터디룸, 리서치 카운슬, 데일리 ai 레이더)이므로 Worker task의 slug에는 종류 이름이 늘 남는다(검사: "스터디룸 안녕하세요" → `studyroom`, "데일리 AI 레이더 안녕하세요" → `daily-ai-radar`, "리서치 카운슬 반가워요" → `research-council`). Worker task가 아닌 제목(Console 로컬 task, 수동 `/task`)에는 작업 종류가 없어서, 표의 낱말이 하나도 없으면 기존 예비값 `task`가 된다. 한계: 표지어가 제목 끝에 있고 앞 낱말만으로 50자가 차면 종류 이름이 잘릴 수 있다.
+- 작업 종류 예비 규칙(2안): writer의 입력(title, repo, summary, source_command)에는 작업 종류가 없다. 대신 Worker task 제목에는 늘 종류 표지어가 들어 있다: `/work` 표지어 경로는 Owner 요청에 표지어가 있어야 그 종류의 task를 만들고 그 요청이 제목이 되며(`orchestrator/discord-intake/task_draft_builder.py`의 `"title": request`), 팀장 경로의 제목은 `orchestrator/worker/claude_lead.py`의 `task_title_for`가 종류의 첫 표지어로 시작하게 만든다. 표지어는 영문이거나 단어표에 있는 한글(스터디룸, 리서치 카운슬, 데일리 ai 레이더)이고, 여러 낱말 표지어는 영문 형태(daily ai radar, research council 등)까지 한 낱말로 먼저 묶으므로(repair 2) Worker task의 slug에는 종류 이름이 한 낱말로 남는다(검사: "스터디룸 안녕하세요" → `studyroom`, "데일리 AI 레이더 안녕하세요" → `daily-ai-radar`, "리서치 카운슬 반가워요" → `research-council`). Worker task가 아닌 제목(Console 로컬 task, 수동 `/task`)에는 작업 종류가 없어서, 표의 낱말이 하나도 없으면 기존 예비값 `task`가 된다. 한계: 표지어가 제목 끝에 있고 앞 낱말만으로 50자가 차면 종류 이름이 잘릴 수 있다.
 
 ## Implementer 검증 (작업 트리)
 
@@ -140,6 +155,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 | A7 | Owner 결정 (원문) | "task-0192-studyroom-glossary-task-thread-term-add-1" | 숫자는 제목에 나온 순서대로 남아 실제 결과는 `studyroom-glossary-task-thread-term-1-add`다(Manager 질문의 예시와 같음). Owner의 예시는 모양을 보여 준 것으로 보고 순서를 바꾸지 않았다 |
 | A8 | Owner 결정 3: 작업 종류 예비 규칙의 차이 수용 (원문) | "1. (권장) 지금 방식을 받아들입니다. Worker task는 종류 이름이 늘 남고, 종류가 없는 task는 `task`가 됩니다. 이 차이는 작업 기록에 그대로 적어 두었습니다. 바로 candidate → Reviewer → QA → 완료로 갑니다." / "[Owner 답]" / "1번으로 진행해" | A3의 차이를 Owner가 받아들였다. writer 입력과 봇 코드는 바꾸지 않았다. A6과 A8의 흐름대로 self-review, candidate, Reviewer, QA를 거쳐 완료한다 |
 | A9 | Owner 결정 (원문) | "우선 1안과 2안을 결합한 설계를 승인하고, writer의 변경 범위만 검토하는 작업으로 진행하는 것을 추천합니다." / "이 변경은 task 파일을 생성하는 기준 코드에 영향을 주므로, writer 수정에 대한 Owner 승인을 받은 뒤 진행하는 것이 맞습니다." | 코드 변경은 writer(`task_file_writer.py`)뿐이다. writer 밖의 변경은 테스트·문서·기록이고, 등록 범위 밖이던 Console 테스트 6줄은 Owner 결정 2로 넣었다. writer 수정은 이 원문(1안·2안 결합 설계 승인)으로 시작했고, 설계와 다른 점(작업 종류 예비 규칙)은 Owner 결정 3으로 다시 승인받았다 |
+| A10 | Owner 결정 4: repair 예산 추가와 반복 중단 규칙 (원문) | "- 영문 여러 낱말 표지어(`daily ai radar`, `daily-ai-radar`, `daily_ai_radar`, `research council` 등)도 한 낱말로 묶어 종류 이름이 늘 하나로 남게 하고, 검사를 1개 더합니다." / "- 반복을 끊기 위해, 다음 검토가 또 minor만 내면 SOP §8로 수용하고 바로 QA로 가는 것도 함께 정해 주세요." / "[Owner 답]" / "1번으로 진행해" | repair 예산을 2로 기록하고 repair 2를 썼다. 영문 여러 낱말 표지어 6가지를 한 낱말로 묶었고 검사 2개(중복 뒤의 daily ai radar, research_council)를 더했다. Owner가 1번을 골랐으므로 다음 검토가 minor만 내면 SOP §8로 수용하고 같은 candidate로 QA를 진행한다. blocking·major는 수용하지 않는다. 남은 한계는 50자 상한(표지어가 제목 끝에 있고 앞 낱말로 상한이 찰 때) 하나다 |
 
 ## Self-review
 
@@ -156,3 +172,6 @@ candidate 전 1회. major 1건, minor 5건.
 
 - candidate `7c9662359144b94e53f16d623450c98a4f371313`: Reviewer FINDINGS(유효, self_deviations 0), minor 1건: Manager 요약이 Owner 원문의 두 문장("writer의 변경 범위만 검토하는 작업으로 진행", "writer 수정에 대한 Owner 승인을 받은 뒤 진행")을 다루지 않고, A6·A8의 인용이 흐름 문장(Reviewer·QA·완료까지 진행) 앞에서 끊긴다.
 - repair 1(`repair_count=1`, 기본 예산 안): 기록만 고쳤다. A9 행을 더해 두 문장을 인용하고 충족 방식을 적었고, A6·A8 인용에 흐름 문장을 더했다. 코드와 테스트는 바꾸지 않았다.
+- candidate `d9acdafc67a06b9cb66e48ea1cf0fdca2c056e9c`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: 영문 여러 낱말 표지어(daily ai radar, research council)는 낱말별로 나뉘어 중복 제거나 상한에 따로 걸려, 한글 제목에서 종류 이름이 깨질 수 있다(예: "AI 버튼 daily ai radar 추가" → `ai-button-daily-radar-add`). 기록은 종류 이름이 "늘" 남는다고 적었고 한계는 상한 하나만 밝혔다. 기본 예산을 다 써서 Owner에게 올렸다(Owner 결정 4).
+- repair 2(`repair_count=2`, Owner가 1회 추가): `KOREAN_PHRASES`에 영문 여러 낱말 표지어 6가지(daily ai radar, daily-ai-radar, daily_ai_radar, research council, research-council, research_council)를 더해 표의 한 낱말로 먼저 묶는다. 그 사례는 이제 `ai-button-daily-ai-radar-add`다. 검사 2개를 더했다. 모든 표지어 뒤에 모르는 낱말을 붙이거나 앞에 중복 낱말을 두어도 종류 이름이 한 낱말로 남는 것을 손으로도 확인했다.
+- 다시 돌린 결과: discord-intake smoke total=184 failed=0(첫 candidate의 182에 2개), Worker smoke total=595 failed=0, Discord self-check ok 109, Console smoke passed, discord-nl-intent smoke failed 0, validator PASS. 위 검증 절의 182는 첫 candidate 기준이다.

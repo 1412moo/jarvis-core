@@ -43,6 +43,14 @@ HANGUL_PATTERN = re.compile(r"[가-힣]")
 KOREAN_PHRASES = (
     ("데일리 ai 레이더", "데일리ai레이더"),
     ("리서치 카운슬", "리서치카운슬"),
+    # task-0193 repair 2: the English multi-word kind markers too, so duplicate removal or the
+    # length cap can never split the kind name.
+    ("daily ai radar", "데일리ai레이더"),
+    ("daily-ai-radar", "데일리ai레이더"),
+    ("daily_ai_radar", "데일리ai레이더"),
+    ("research council", "리서치카운슬"),
+    ("research-council", "리서치카운슬"),
+    ("research_council", "리서치카운슬"),
     ("다크 모드", "다크모드"),
     ("라이트 모드", "라이트모드"),
 )

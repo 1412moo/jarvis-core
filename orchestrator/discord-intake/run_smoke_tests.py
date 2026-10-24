@@ -188,6 +188,9 @@ def _slug_cases() -> list[dict[str, object]]:
         "스터디룸 안녕하세요": "studyroom",
         "데일리 AI 레이더 안녕하세요": "daily-ai-radar",
         "리서치 카운슬 반가워요": "research-council",
+        # repair 2: an English multi-word marker in a Korean title stays one word, even after a duplicate.
+        "AI 버튼 daily ai radar 추가": "ai-button-daily-ai-radar-add",
+        "council 문구 research_council 수정": "council-wording-research-council-fix",
     }
     results: list[dict[str, object]] = []
     for title, slug in expected.items():
