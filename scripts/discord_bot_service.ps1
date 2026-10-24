@@ -122,6 +122,13 @@ function Read-SupervisorState {
     try { return (Get-Content -Raw -Path $StateFile -Encoding UTF8 | ConvertFrom-Json) } catch { return $null }
 }
 
+function Update-Alive([hashtable]$State) {
+    # task-0196 repair 1: every state write by a live supervisor also marks it alive, so a bot that
+    # ends quickly or a restart wait never leaves last_heartbeat behind.
+    $State.last_heartbeat = Get-UtcStamp
+    Write-SupervisorState $State
+}
+
 function Write-Heartbeat([hashtable]$State, [string]$BotPid) {
     $State.last_heartbeat = Get-UtcStamp
     $State.bot_pid = $BotPid
@@ -159,7 +166,7 @@ function Invoke-Supervisor {
         $env:PYTHONIOENCODING = "utf-8"
         $state = @{ pid = $PID; started = (Get-UtcStamp); last_heartbeat = (Get-UtcStamp); bot_pid = ""; launches = 0;
                     heartbeat_seconds = $HeartbeatSeconds; ended = $false; ended_at = "" }
-        Write-SupervisorState $state
+        Update-Alive $state
         Write-ServiceLog "supervisor started (pid $PID, repo $RepoRoot, heartbeat every $HeartbeatSeconds s)"
         $delay = 0
         $launches = 0
@@ -174,7 +181,7 @@ function Invoke-Supervisor {
                     Write-ServiceLog "a bot is already running (pid $otherPids); not starting another"
                     $announced = $otherPids
                     $state.bot_pid = "external:$otherPids"
-                    Write-SupervisorState $state
+                    Update-Alive $state
                 }
                 if ($MaxLaunches -gt 0) { return 0 }
                 Start-Sleep -Seconds ([Math]::Min($ExternalBotPollSeconds, $HeartbeatSeconds))
@@ -191,17 +198,25 @@ function Invoke-Supervisor {
             $launches += 1
             $state.launches = $launches
             $state.bot_pid = [string]$bot.Id
-            Write-SupervisorState $state
+            Update-Alive $state
+            $lastBeat = Get-Date
             Write-ServiceLog "bot started (pid $($bot.Id), launch $launches)"
             # task-0196: wait in heartbeat-sized steps so the log shows the supervisor is alive.
             while (-not $bot.WaitForExit($HeartbeatSeconds * 1000)) { Write-Heartbeat $state ([string]$bot.Id); $lastBeat = Get-Date }
             $ran = ((Get-Date) - $started).TotalSeconds
             Save-PreviousOutput
             Write-ServiceLog ("bot ended (exit " + $bot.ExitCode + ", ran " + [int]$ran + "s)")
+            $state.bot_pid = ""
+            Update-Alive $state
             if ($MaxLaunches -gt 0 -and $launches -ge $MaxLaunches) { return 0 }
             $delay = Get-RestartDelay $delay $ran
             Write-ServiceLog "restarting in $delay s"
-            Start-Sleep -Seconds $delay
+            # task-0196 repair 1: a long restart wait keeps writing heartbeats too.
+            $until = (Get-Date).AddSeconds($delay)
+            while ((Get-Date) -lt $until) {
+                Start-Sleep -Seconds ([Math]::Max(1, [Math]::Min($HeartbeatSeconds, [int][Math]::Ceiling(($until - (Get-Date)).TotalSeconds))))
+                if (((Get-Date) - $lastBeat).TotalSeconds -ge $HeartbeatSeconds) { Write-Heartbeat $state "none (restarting)"; $lastBeat = Get-Date }
+            }
         }
     }
     finally {
@@ -380,6 +395,16 @@ if ($SmokeTest) {
         foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like "*$slow*" })) {
             Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
         }
+
+        # 3c2. A bot that ends at once still refreshes the record, and the restart wait writes heartbeats.
+        $logs9 = Join-Path $tmp "logs9"
+        & $ps -NoProfile -ExecutionPolicy Bypass -File $self -Run -BotScript $quick -LogDir $logs9 -MaxLaunches 2 -InstanceName ($name + "h") -HeartbeatSeconds 3
+        $log9 = Get-Content -Raw -Path (Join-Path $logs9 "discord-bot.log")
+        $state9 = Get-Content -Raw -Path (Join-Path $logs9 "supervisor-$($name)h.json") | ConvertFrom-Json
+        # Both stamps are whole seconds; the 10 s restart wait lies between the start and the last mark.
+        $beat9 = (ConvertFrom-UtcStamp ([string]$state9.last_heartbeat)) - (ConvertFrom-UtcStamp ([string]$state9.started))
+        $results["short_bot_keeps_heartbeat"] = ([regex]::Matches($log9, "heartbeat \(supervisor pid \d+, bot pid none \(restarting\)").Count -ge 2) `
+            -and ($state9.launches -eq 2) -and ($beat9.TotalSeconds -ge 10)
 
         # 3d. Heartbeats while the bot runs, the state file, and a recorded normal end.
         $mid = Join-Path $tmp "standin_mid_bot.py"

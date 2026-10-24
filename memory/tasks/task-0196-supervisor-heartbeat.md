@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 15:37 UTC`
-- updated_at: `2026-10-24 15:44 UTC`
+- updated_at: `2026-10-24 15:52 UTC`
 - summary: `봇 감시자(scripts/discord_bot_service.ps1 -Run)가 언제 끝났는지 알 수 있게 한다. 감시자가 주기적으로 heartbeat 줄을 로그에 남기고 상태 파일(pid, 시작, 마지막 heartbeat, 봇 pid, 정상 종료 여부)을 갱신하며, 정상 종료 때 그 사실을 남긴다. -Status는 마지막 heartbeat 시각과, 감시자 없이 봇만 도는 경우, 감시자가 기록 없이 끝난 경우, heartbeat가 오래된 경우를 경고한다. 감시자 찾기는 같은 인스턴스 이름의 감시자로 좁힌다.`
 - source_command: `Owner 지시: 감시자 heartbeat 보강 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `bc40e1b3a92e5a0e22f80f62bc93dd7fdaaa1e53` (등록 시점 main HEAD, task-0195까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -98,7 +98,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 
 | # | 출처 | 원문 인용 | Manager 해석과 충족 |
 | --- | --- | --- | --- |
-| A1 | Owner 결정 (원문) | "- 감시자가 주기적으로 살아 있다는 줄(heartbeat)을 로그에 남기게 합니다. 그러면 언제 끝났는지 알 수 있습니다." / "[Owner 답]" / "감시자 heartbeat 보강 task로 진행해" | 10분마다 heartbeat 줄과 상태 파일을 남기고 정상 종료를 기록한다. 강제로 끝나면 마지막 heartbeat로 끝난 시각의 범위(최대 10분)를 안다 |
+| A1 | Owner 결정 (원문) | "- 감시자가 주기적으로 살아 있다는 줄(heartbeat)을 로그에 남기게 합니다. 그러면 언제 끝났는지 알 수 있습니다." / "[Owner 답]" / "감시자 heartbeat 보강 task로 진행해" | 10분마다 heartbeat 줄과 상태 파일을 남기고 정상 종료를 기록한다. repair 1부터 봇 실행·종료·재시작 대기 중에도 살아 있다는 표시를 갱신해, 봇이 금방 끝나 재시작을 되풀이해도 heartbeat가 끊기지 않는다. 강제로 끝나면 마지막 heartbeat로 끝난 시각의 범위(한 간격, 기본 10분)를 안다 |
 | A2 | Owner 결정 (원문) | "- `-Status`에 \"봇은 있는데 감시자는 없음\" 같은 경고를 띄웁니다." | 그 경고와 함께, 기록 없이 끝난 감시자와 heartbeat가 오래된 감시자 경고도 띄운다. smoke로 앞의 두 경고를 확인했다 |
 | A3 | Owner 결정 (원문) | "- 원하시면 이 원인 확인과 보강을 task로 진행하겠습니다." | 원인 확인: 로그, 작업 스케줄러 정보, 저장소의 프로세스 종료 코드를 봤지만 원인을 찾지 못했다(원인 조사 절). 보강은 위와 같다 |
 | A4 | Owner 결정 (원문) | "- `-Status`에 "봇은 있는데 감시자는 없음" 같은 경고를 띄웁니다." | 설계 3(감시자 찾기를 같은 인스턴스로 좁힘)은 이 경고를 위한 수단이다. smoke의 대역 감시자가 실제 감시자로 세어지면 "감시자 없음" 경고가 맞게 뜨지 않는다. 그 결과 `-Stop`이 끝내는 감시자도 같은 인스턴스로 좁아진다. 기본 인스턴스(작업 스케줄러가 띄운 감시자)는 예전과 같이 찾는다(실제 `-Status`로 확인). 같은 이유로 `-Stop`이 종료를 대신 기록하게 했다. 이것이 없으면 정상 정지도 "기록 없이 끝남"으로 보인다 |
@@ -114,3 +114,16 @@ candidate 전 1회. minor 5건을 모두 반영했다.
 5. 계획에 있던 `-SelfTest` 결과가 검증 절에 없었다. 적었다(PASS).
 
 고친 뒤 구문 오류 0, ASCII 밖 바이트 0, `-SelfTest` PASS, `-SmokeTest` 12/12, 실제 `-Status`는 앞과 같았다(감시자 35140, 봇 34260, 경고 없음).
+
+## Repair
+
+- candidate `18b6cd65a6c1944ac0d54b1abf1b5440a008dcd6`: Reviewer FINDINGS(유효, self_deviations 0).
+  - (major) `last_heartbeat`는 봇이 간격보다 오래 돌 때의 `WaitForExit` 루프에서만 바뀌었다. 봇이 간격보다 빨리 끝나 재시작을 되풀이하면(대기 최대 300초) heartbeat가 전혀 갱신되지 않아, 살아 있는 감시자를 `-Status`가 "heartbeat 없음"으로 경고했을 것이다. 문제를 살필 때가 바로 그런 때다.
+  - (minor) README가 pid 재사용 한계와 강제 종료 시각의 범위를 말하지 않았다.
+- repair 1(`repair_count=1`, 기본 예산 안):
+  - 새 함수 `Update-Alive`를 더했다. 감시자가 상태 파일을 쓰는 곳(시작, 다른 봇 안내, 봇 실행, 그리고 새로 더한 봇 종료)에서 `last_heartbeat`를 갱신한다.
+  - 재시작 대기를 간격 단위로 나눠 자며, 간격이 지나면 heartbeat 줄("bot pid none (restarting)")을 쓴다. 봇을 띄운 시각부터 `WaitForExit` 간격을 다시 센다.
+  - smoke `short_bot_keeps_heartbeat`를 더했다(바로 끝나는 대역 봇, heartbeat 3초, 두 번 실행: 재시작 대기 중 heartbeat 줄 2개 이상, 실행 횟수 2, 마지막 표시가 시작보다 10초 이상 뒤).
+  - README에 두 한계와 "경고가 없다고 살아 있다는 증거는 아님"을 적었다.
+  - 검사를 만드는 중 한 번 실패했다. 비교 기준 시각이 밀리초까지 있고 상태 파일은 초 단위라 경계에서 9.x초가 나왔다. 상태 파일의 시작 시각과 비교하도록 검사를 고쳤다(코드 결함 아님).
+- 다시 돌린 결과: 구문 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 13/13을 두 번 연속, 실제 `-Status`는 앞과 같았다(감시자 35140, 봇 34260, 경고 없음). 검증 절의 12/12는 첫 candidate 기준이다.
