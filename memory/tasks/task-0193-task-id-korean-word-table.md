@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 07:43 UTC`
-- updated_at: `2026-10-24 08:51 UTC`
+- updated_at: `2026-10-24 08:56 UTC`
 - summary: `한글 제목으로 만든 task의 ID가 task-0192-1처럼 내용을 알 수 없게 되는 문제를 고친다. writer의 slug 생성에 한영 단어표를 더해 등록된 한글 낱말은 조사가 붙어도 표준 영문으로 바꾸고, 영문은 유지하고, 중복은 없애고, ID 전체를 60자 안으로 줄인다. 작업 종류 이름은 단어표에 들어 있어 남고, 결과가 비면 기존 예비값 task를 쓴다. 한글이 없는 제목은 기존과 같다. ID 형식과 제목·본문은 바꾸지 않는다.`
 - source_command: `Owner 지시: task ID 이름 개선, 1안 기본 2안 예비 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `52eb55474525bb05faac0d91d8e095f24ac806e4` (등록 시점 main HEAD, task-0192까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -136,9 +136,10 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 | A3 | Owner 결정 (원문) | "- 변환 결과가 비어 있으면 작업 종류 이름을 사용합니다." / "- 기존 ID와 감사 기록 형식은 변경하지 않습니다." / "중요한 점: 이번 개선은 ID 생성 규칙만 바꾸고, task 파일의 실제 제목과 본문은 그대로 유지해야 합니다." | 원문과 다른 점이 있다: writer는 작업 종류를 입력으로 받지 않으므로 "결과가 비면 종류 이름"을 그대로 구현하지 않았다. 대신 작업 종류가 있는 task(Worker task)의 제목에는 늘 종류 표지어가 있고 그 표지어가 단어표에 있어, 종류 이름이 결과에 늘 들어간다(구현 절의 근거와 검사). 작업 종류가 없는 task는 표의 낱말이 없으면 `task`가 된다. writer 입력에 종류를 더하는 방식은 봇 코드까지 바뀌어 이번 범위에 넣지 않았다. 이미 있는 ID, `TASK_ID_PATTERN`들, 감사 기록 형식은 바꾸지 않았다. 파일 제목·본문은 그대로이며 검사로 확인했다 |
 | A4 | Owner 결정 (원문) | "- 한글 제목: 스터디룸 용어집 수정 → task-0193-studyroom-glossary-..." / "- 영문 제목: Update README → 기존 영문 ID 생성 동작 유지" / "- 한영 혼합 제목: Task Thread 용어 추가 → 영문 단어 보존 및 한글 변환" / "- 표에 없는 한글 제목: 빈 ID가 되지 않고 예비 규칙 적용" / "- 긴 제목: 60자 제한 준수" / "- 동일한 제목이 반복될 때: 기존처럼 고유한 ID 생성" | 여섯 사례를 모두 `_slug_cases`에 넣었다. 영문 제목은 기존 식과 같은 결과다. 다만 50자를 넘는 영문 slug는 60자 제한으로 이제 잘린다 |
 | A5 | Owner 결정 (원문) | "제 판단으로는 팀장 출력 형식까지 바꾸는 3안은 지금 도입할 필요가 없습니다." | 팀장 코드와 답 형식은 바꾸지 않았다 |
-| A6 | Owner 결정 2: Console 테스트 기대 ID 6줄 (원문) | "1. (권장) `apps/jarvis-console/run_smoke_tests.py`의 기대 ID 6줄만 이번 범위에 넣어 고칩니다. Console 코드는 바꾸지 않습니다." / "[Owner 답]" / "1번으로 진행해" | 그 테스트 파일의 기대 ID 6줄만 바꿨고 Console 코드는 그대로다. Console smoke가 통과한다 |
+| A6 | Owner 결정 2: Console 테스트 기대 ID 6줄 (원문) | "1. (권장) `apps/jarvis-console/run_smoke_tests.py`의 기대 ID 6줄만 이번 범위에 넣어 고칩니다. Console 코드는 바꾸지 않습니다. 이어서 self-review → candidate → Reviewer → QA → 완료까지 진행합니다." / "[Owner 답]" / "1번으로 진행해" | 그 테스트 파일의 기대 ID 6줄만 바꿨고 Console 코드는 그대로다. Console smoke가 통과한다 |
 | A7 | Owner 결정 (원문) | "task-0192-studyroom-glossary-task-thread-term-add-1" | 숫자는 제목에 나온 순서대로 남아 실제 결과는 `studyroom-glossary-task-thread-term-1-add`다(Manager 질문의 예시와 같음). Owner의 예시는 모양을 보여 준 것으로 보고 순서를 바꾸지 않았다 |
-| A8 | Owner 결정 3: 작업 종류 예비 규칙의 차이 수용 (원문) | "1. (권장) 지금 방식을 받아들입니다. Worker task는 종류 이름이 늘 남고, 종류가 없는 task는 `task`가 됩니다." / "[Owner 답]" / "1번으로 진행해" | A3의 차이를 Owner가 받아들였다. writer 입력과 봇 코드는 바꾸지 않았다 |
+| A8 | Owner 결정 3: 작업 종류 예비 규칙의 차이 수용 (원문) | "1. (권장) 지금 방식을 받아들입니다. Worker task는 종류 이름이 늘 남고, 종류가 없는 task는 `task`가 됩니다. 이 차이는 작업 기록에 그대로 적어 두었습니다. 바로 candidate → Reviewer → QA → 완료로 갑니다." / "[Owner 답]" / "1번으로 진행해" | A3의 차이를 Owner가 받아들였다. writer 입력과 봇 코드는 바꾸지 않았다. A6과 A8의 흐름대로 self-review, candidate, Reviewer, QA를 거쳐 완료한다 |
+| A9 | Owner 결정 (원문) | "우선 1안과 2안을 결합한 설계를 승인하고, writer의 변경 범위만 검토하는 작업으로 진행하는 것을 추천합니다." / "이 변경은 task 파일을 생성하는 기준 코드에 영향을 주므로, writer 수정에 대한 Owner 승인을 받은 뒤 진행하는 것이 맞습니다." | 코드 변경은 writer(`task_file_writer.py`)뿐이다. writer 밖의 변경은 테스트·문서·기록이고, 등록 범위 밖이던 Console 테스트 6줄은 Owner 결정 2로 넣었다. writer 수정은 이 원문(1안·2안 결합 설계 승인)으로 시작했고, 설계와 다른 점(작업 종류 예비 규칙)은 Owner 결정 3으로 다시 승인받았다 |
 
 ## Self-review
 
@@ -150,3 +151,8 @@ candidate 전 1회. major 1건, minor 5건.
 4. 하이픈 낱말이 자르는 지점에서 중간에 잘릴 수 있었다. 한글 제목은 단어표 낱말 단위로 담도록 코드를 고쳤다. 이 검사를 더하다가, 여러 낱말 표현이 `research-council`로 바뀐 뒤 하이픈에서 다시 나뉘는 결함을 찾아 함께 고쳤다(붙여 쓴 표제어로 먼저 합침).
 5. Console 충돌 검사의 의미가 바뀐 점을 구현 절에 적었다.
 6. Owner 예시의 숫자 위치와 실제 결과가 다른 점을 A7에 적었다.
+
+## Repair
+
+- candidate `7c9662359144b94e53f16d623450c98a4f371313`: Reviewer FINDINGS(유효, self_deviations 0), minor 1건: Manager 요약이 Owner 원문의 두 문장("writer의 변경 범위만 검토하는 작업으로 진행", "writer 수정에 대한 Owner 승인을 받은 뒤 진행")을 다루지 않고, A6·A8의 인용이 흐름 문장(Reviewer·QA·완료까지 진행) 앞에서 끊긴다.
+- repair 1(`repair_count=1`, 기본 예산 안): 기록만 고쳤다. A9 행을 더해 두 문장을 인용하고 충족 방식을 적었고, A6·A8 인용에 흐름 문장을 더했다. 코드와 테스트는 바꾸지 않았다.
