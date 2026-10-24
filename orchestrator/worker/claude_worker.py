@@ -103,9 +103,12 @@ WORK_KINDS = (
             " passing; add no network call, external API or LLM call, environment variable or API key read,"
             " subprocess, or new dependency, and never wire the LIVE augmentation mode or a candidate_generator."
             " Never change research_council/openrouter_advisor.py, research_council/llm_advisor.py or .env.example."
-            " The pipeline refuses any added line that holds urllib, http.client, the word socket, an import from"
-            " http or of requests, a requests call, httpx, aiohttp, websocket, __import__, importlib, subprocess,"
-            " openrouter, a live mode, candidate_generator, os.environ, getenv or api_key."
+            " The pipeline refuses any added line that holds urllib, http.client, the word socket, an import of or"
+            " from http or requests, a requests call, httpx, aiohttp, websocket, a standard-library network module"
+            " (ftplib, smtplib, imaplib, poplib, telnetlib, xmlrpc, ssl and the like), an asyncio connection call,"
+            " __import__, importlib, subprocess, openrouter, a live mode, candidate_generator, os.environ, getenv"
+            " or api_key. That list is fixed and is not full network isolation; anything else still falls under"
+            " the rules above."
         ),
         # task-0189: the LIVE path reaches OpenRouter; an added line that imports a network module,
         # names OpenRouter, selects the live mode, injects a generator or reads the environment stops
@@ -118,6 +121,10 @@ WORK_KINDS = (
             ("socket", r"\bsocket\b"),
             ("import requests", r"\bimport\b.*\brequests\b"),
             ("from network module", r"^\s*from\s+(?:http|requests|socket|httpx|aiohttp|websockets?)\b"),
+            # task-0189 repair 2: the http package itself and the other standard-library network modules.
+            ("import http", r"^\s*import\s+.*\bhttp\b"),
+            ("stdlib network module", r"\b(?:ftplib|smtplib|smtpd|imaplib|poplib|nntplib|telnetlib|xmlrpc|ssl|socketserver)\b"),
+            ("asyncio network call", r"\b(?:open_connection|open_unix_connection|start_server|create_connection)\b"),
             ("requests call", r"\brequests\.(?:get|post|put|patch|delete|head|options|request|session)\b"),
             ("httpx", r"httpx"),
             ("aiohttp", r"aiohttp"),

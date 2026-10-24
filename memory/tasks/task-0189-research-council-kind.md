@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-23 09:51 UTC`
-- updated_at: `2026-10-24 05:15 UTC`
+- updated_at: `2026-10-24 05:27 UTC`
 - summary: `Worker 작업 종류 research_council을 더한다(허용 경로 apps/research-council/, 테스트 그 앱의 smoke test). 외부 LLM 호출 파일 openrouter_advisor.py, LIVE 모드 스위치와 검증 필터가 있는 llm_advisor.py, .env.example은 보호 경로로 막고, Worker 지시에 네트워크·외부 API·LLM·새 의존성 금지를 적는다. 더해 이 종류의 변경이 네트워크 모듈, openrouter, LIVE 모드 연결, 환경 변수·API 키 읽기 같은 금지 문구를 새 줄로 들여오면 scope 단계와 QA에서 자동으로 멈추는 코드 검사를 넣는다.`
 - source_command: `Owner 지시: Research Council 작업 종류 추가, 보호 + 코드 검사 선택 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `27827adaeec9949575cdeffa5e4d13da437511bd` (등록 시점 main HEAD, task-0188까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (기본 1에 Owner 결정 2로 1회 추가, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -30,6 +30,35 @@ Research Council 작업 종류에서 외부 API(OpenRouter) 연결을 어디까�
 
 [Owner 답]
 보호 + 코드 검사 추가
+```
+
+## Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문)
+
+```text
+[Manager 질문]
+결정이 필요한 것
+1. (권장) repair 예산을 1회 추가합니다.
+   - http 패키지 import와 위 표준 라이브러리 네트워크 모듈을 막는 규칙, 그리고 `import http.server`·`import ftplib` 검사를 넣습니다.
+   - 작업 기록과 SOP에 "정해진 목록이고, 목록 밖은 Worker 지시와 Reviewer 몫"이라고 분명히 적습니다.
+   - 반복을 끊기 위해 하나를 함께 정해 주세요: 다음 검토가 또 minor만 내면 SOP §8로 수용하고 바로 QA로 갑니다.
+2. SOP §8에 따라 이 minor를 수용하고 `144601a` 그대로 QA로 갑니다. 남은 틈은 Reviewer 몫으로 남고, 기록에도 그 한계를 적습니다(checkpoint 때).
+3. task-0189를 여기서 멈춥니다.
+
+[Owner 답]
+1번을 선택하되, 다음 검토의 반복 조건까지 명확히 정하는 것을 추천합니다.
+이유는 두 가지입니다.
+첫째, 지금 문제는 단순히 네트워크 모듈 몇 개를 빠뜨린 것뿐 아니라, 정해진 금지 목록이 모든 네트워크 접근을 차단하는 것처럼 작업 기록에 표현될 수 있다는 점입니다. 실제 방어 범위와 문서의 표현을 일치시켜야 합니다.
+둘째, 그렇다고 네트워크 모듈을 계속 하나씩 추가하는 방식으로 무한 수정하는 것도 비효율적입니다. 이번에 대표적인 누락 항목을 보완하고, 금지 목록 방식의 한계를 명시한 다음 검토 절차를 정리하는 편이 낫습니다.
+단, 표준 라이브러리의 네트워크 모듈을 막는다고 모든 네트워크 접근이 차단되는 것은 아닙니다. 따라서 이 작업을 완전한 네트워크 격리로 간주해서는 안 됩니다.
+3. 다음작업 어떻게하면 좋을지
+다음 순서로 진행하는 것이 좋겠습니다.
+
+1. repair 예산 1회 추가 — 이번에 발견된 대표적인 누락을 보완합니다.
+2. 검사와 문서 수정 — `import http.server`, `import ftplib` 등의 검사를 추가하고, 목록 밖의 모듈은 Worker 지시와 Reviewer 검토 대상임을 명시합니다.
+3. 반복 중단 규칙 확정 — 다음 검토에서 다시 minor만 나오면, 새로운 중대 문제가 없는 한 SOP §8에 따라 수용하고 QA로 넘어갑니다.
+4. QA 후 결과 확인 — QA 결과를 확인하고, push는 별도 승인 전까지 보류합니다.
+
+핵심은 이번에 발견된 허점은 보완하되, minor 지적이 반복된다는 이유만으로 끝없이 수정을 반복하지 않는 것입니다. 봇은 현재 상태를 유지하면 됩니다.
 ```
 
 ## 설계
@@ -83,6 +112,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 | A2 | Owner 결정 (원문) | "- 보호 + 코드 검사 추가: 1번에 더해, Worker 변경에 네트워크 import나 openrouter·LIVE 연결이 새로 들어오면 QA에서 자동으로 실패시키는 검사를 claude_worker.py에 추가합니다. 더 안전하지만 Worker 판정 로직을 바꾸는 더 큰 작업입니다." / "[Owner 답]" / "보호 + 코드 검사 추가" | 1번 내용(보호 파일 3개, Worker 지시)을 모두 넣었다. 검사는 QA에서 실패시키고, 같은 검사를 더 이른 scope 단계에도 걸어 테스트·Reviewer 전에 멈추게 했다. 금지 문구 가운데 Owner 원문에 이름이 없는 것은 Manager의 추가이고 근거는 이렇다. candidate_generator는 LIVE 모드가 호출 함수를 받는 자리(`llm_advisor.py`의 `LLMAdvisorConfig.candidate_generator`)라 LIVE 연결의 일부다. os.environ·getenv·api_key는 `openrouter_advisor.py`가 API 키를 환경 변수에서 읽는 방식이라 키를 끌어오는 경로다. subprocess는 외부 명령(curl 등)으로 네트워크를 우회하는 경로다. requests는 다른 이름(`evidence_requests` 등)과 문장(evidence requests)에 흔히 들어 있어 import가 있는 줄과 `requests.get` 같은 호출만 막는다(repair 1에서 정규식으로 바꿨다). 모두 더 좁히는 쪽이며 Worker 권한을 넓히지 않는다 |
 | A3 | Owner 결정 (원문) | "- 두 파일 보호 + 지시 (권장): openrouter_advisor.py, llm_advisor.py, .env.example을 보호 경로로 막고, Worker 지시에 네트워크·외부 API·LLM·새 의존성 금지와 LIVE 모드 연결 금지를 적습니다." | 세 파일을 `PROTECTED_PATHS`에 넣었고 Worker 지시에 금지와 보호 파일을 적었다 |
 | A4 | Owner 결정 (원문) | "판정 로직은 바꾸지 않습니다." / "다른 실행 스크립트에 LIVE를 연결하는 변경은 Reviewer가 보는 지시 수준입니다." / "[Owner 답]" / "보호 + 코드 검사 추가" | 이 두 문장은 1번 선택지의 설명이다. Owner가 고른 2번은 "1번에 더해" 판정 로직을 바꾸는 검사를 넣는 선택이므로, 이 두 조건은 2번으로 대체됐다고 본다. 그래서 scope 단계와 QA 판정을 바꿨고, 다른 실행 스크립트에 LIVE를 연결하는 새 줄도 지시가 아니라 코드 검사로 막는다 |
+| A5 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "1. repair 예산 1회 추가 — 이번에 발견된 대표적인 누락을 보완합니다." / "2. 검사와 문서 수정 — `import http.server`, `import ftplib` 등의 검사를 추가하고, 목록 밖의 모듈은 Worker 지시와 Reviewer 검토 대상임을 명시합니다." / "3. 반복 중단 규칙 확정 — 다음 검토에서 다시 minor만 나오면, 새로운 중대 문제가 없는 한 SOP §8에 따라 수용하고 QA로 넘어갑니다." / "따라서 이 작업을 완전한 네트워크 격리로 간주해서는 안 됩니다." | repair 예산을 2로 기록하고 repair 2를 썼다. http 패키지 import, 표준 라이브러리 네트워크 모듈, asyncio 연결 호출 규칙과 그 검사를 넣었다. SOP §10.1 행, Discord README, Worker 지시에 정해진 목록이며 완전한 네트워크 격리가 아니고 목록 밖은 Worker 지시와 Reviewer 몫이라고 적었다. 다음 검토가 minor만 내면 이 원문에 따라 §8로 수용하고 같은 candidate로 QA를 진행한다. blocking·major는 수용하지 않는다 |
 
 ## Self-review
 
@@ -99,3 +129,6 @@ candidate 전 1회. minor 3건을 모두 반영했다.
 - candidate `b1951c7adc86abf54235828c0dcfe72127dfd975`: Reviewer 보고가 금지된 명령 옵션(`git grep -i`)을 self_deviations에 적어 SOP상 무효 검토다. 그 보고의 minor 지적 1건은 Manager가 직접 확인해 사실이었다: 금지 문구를 단순 문자열로 비교해 `import os, socket`, `import json, requests`, `from http import client`, 여러 줄로 나눈 import가 통과했다. Owner 원문의 "네트워크 import나 openrouter·LIVE 연결이 새로 들어오면 QA에서 자동으로 실패"와 맞지 않으므로 무효 검토의 재실행(retry) 대신 repair로 고쳤다.
 - repair 1(`repair_count=1`, 기본 예산 안): `forbidden_additions`를 (이름, 정규식) 쌍으로 바꿔 소문자로 바꾼 줄에서 찾는다. 낱말 socket, import가 있는 줄의 requests, `from http`·`from requests` 같은 네트워크 모듈 import, `requests.get` 같은 호출, `__import__`·importlib을 더해 19개다. 보고 사유에는 항목 이름이 나온다. Worker 지시와 SOP §10.1 행을 같은 규칙으로 고쳤고, 위 형태들이 잡히고 흔한 낱말은 통과하는 검사 1개를 더했다. 구현 절의 "금지 문구 18개"는 첫 candidate 기준 기록이다.
 - 다시 돌린 결과: Worker smoke total=590 failed=0, Discord self-check ok 109, validator PASS(negative_checks 172, 실패 0).
+- candidate `144601a4c4570f5c527bd9f3ae1e5e7f68e423df`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: 정해진 목록이라 `import http`·`import http.server`·`import http as h`와 ftplib·smtplib·xmlrpc·ssl·imaplib·poplib 같은 표준 라이브러리 네트워크 모듈, asyncio 연결 호출이 통과하고, Repair 절이 틈이 다 닫힌 것처럼 읽힌다. 기본 예산을 다 써서 Owner에게 올렸다(Owner 결정 2).
+- repair 2(`repair_count=2`, Owner가 1회 추가): 규칙 3개(`import http`, 표준 라이브러리 네트워크 모듈, asyncio 연결 호출)를 더해 22개가 됐다. 검사에 `import http.server`, `import http as h`, `import ftplib`, `from ssl import ...`, `asyncio.open_connection`과 걸리지 않아야 할 낱말 줄을 더했다. SOP §10.1 행, Discord README, Worker 지시에 정해진 목록이며 완전한 네트워크 격리가 아니라고 적었다. 위 repair 1 항목의 "19개"는 그 시점 기준이다.
+- 다시 돌린 결과: Worker smoke total=590 failed=0(검사 수는 그대로, 기존 형태 검사에 사례를 더함), Discord self-check ok 109, validator PASS(negative_checks 172, 실패 0).
