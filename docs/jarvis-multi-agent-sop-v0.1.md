@@ -320,7 +320,7 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 
 팀장(Lead) 단계(task-0183): 작업 종류 표지어가 없는 `/work` 요청은 `orchestrator/worker/claude_lead.py`의
 팀장이 먼저 계획한다. 팀장은 같은 `claude` CLI를 저장소 밖의 임시 detached worktree(HEAD의 커밋된 파일만 있어
-`jarvis.bat`·`.env` 같은 추적되지 않는 파일이 없음)에서 읽기 전용(Read·Grep·Glob만, plan 권한 모드, 시간 제한)으로
+`jarvis.bat`·`.env` 같은 추적되지 않는 파일이 없음)에서 읽기 전용(Read·Grep·Glob만, plan 권한 모드, 시간 제한. task-0195부터 `--tools`로 이 세 도구만 보이고 `--strict-mcp-config`로 MCP 서버를 싣지 않음)으로
 한 번에 하나만 실행하고, worktree를 만들 수 없으면 실행하지 않는다. worktree와 그 git 등록 정보, 임시 폴더는 끝나면 지우고,
 만들다 실패해도 지운다. 폴더를 지우지 못하면 그 git 등록 정보는 남겨 목록에 계속 보이게 하고 정리 실패를
 로그로 남긴다. 다른 worktree의 등록 정보는 건드리지 않는다. 팀장이 실패하면 Discord에는 사유 코드만

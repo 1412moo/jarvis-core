@@ -2108,6 +2108,52 @@ def owner_review_replies(results: dict[str, dict]) -> None:
             "`/status task-8000-x` 상태 확인 · 직접 개입(worktree W)"))
 
 
+def tool_allowlist_checks() -> None:
+    """task-0195: each claude call names the only built-in tools it may see and loads no MCP server."""
+
+    import claude_lead
+
+    calls: list[list[str]] = []
+
+    def fake_run(args, *, cwd, timeout, stdin_text=None):
+        calls.append(list(args))
+        return subprocess.CompletedProcess(args, 0, json.dumps({"result": "verdict: PASS"}), "")
+
+    def tools_of(args: list[str]) -> str | None:
+        return args[args.index("--tools") + 1] if "--tools" in args else None
+
+    real_run, real_command = claude_worker._run, claude_worker._claude_command
+    claude_worker._run = fake_run
+    claude_worker._claude_command = lambda: ["claude"]
+    try:
+        claude_worker._run_worker(Path("."), "prompt")
+        claude_worker._run_reviewer(Path("."), "call")
+        claude_lead._run_claude("prompt", Path("."))
+    finally:
+        claude_worker._run, claude_worker._claude_command = real_run, real_command
+    worker, reviewer, lead = calls
+    check("tools: the Worker sees only Read, Edit, Write, Glob, Grep and no MCP server",
+          tools_of(worker) == "Read,Edit,Write,Glob,Grep" and "--strict-mcp-config" in worker
+          and "--mcp-config" not in worker, str(worker))
+    check("tools: the Reviewer sees only Read, Grep, Glob, Bash and no MCP server",
+          tools_of(reviewer) == "Read,Grep,Glob,Bash" and "--strict-mcp-config" in reviewer
+          and "--mcp-config" not in reviewer, str(reviewer))
+    check("tools: the lead sees only Read, Grep, Glob and no MCP server",
+          tools_of(lead) == "Read,Grep,Glob" and "--strict-mcp-config" in lead and "--mcp-config" not in lead, str(lead))
+    check("tools: the earlier permission flags are unchanged",
+          worker[worker.index("--permission-mode") + 1] == "acceptEdits"
+          and worker[worker.index("--allowedTools") + 1] == claude_worker.WORKER_ALLOWED_TOOLS
+          and worker[worker.index("--disallowedTools") + 1] == claude_worker.WORKER_DISALLOWED_TOOLS
+          and reviewer[reviewer.index("--allowedTools") + 1:] == list(claude_worker.REVIEWER_ALLOWED_TOOLS)
+          and lead[lead.index("--permission-mode") + 1] == "plan"
+          and lead[lead.index("--allowedTools") + 1] == claude_lead.LEAD_ALLOWED_TOOLS
+          and lead[lead.index("--disallowedTools") + 1] == claude_lead.LEAD_DISALLOWED_TOOLS)
+    check("tools: every allowlisted tool is also a visible tool",
+          set(claude_worker.WORKER_ALLOWED_TOOLS.split(",")) <= set(claude_worker.WORKER_TOOLS.split(","))
+          and set(claude_lead.LEAD_ALLOWED_TOOLS.split(",")) <= set(claude_lead.LEAD_TOOLS.split(","))
+          and {t.split("(")[0] for t in claude_worker.REVIEWER_ALLOWED_TOOLS} <= set(claude_worker.REVIEWER_TOOLS.split(",")))
+
+
 def main() -> int:
     # task-0159: failure details can carry emoji from bot replies; a cp949 pipe could not
     # print them and the run stopped before the remaining FAIL lines and the summary.
@@ -2121,6 +2167,7 @@ def main() -> int:
         clone, fake_dir = make_env(tmp)
         os.environ["PATH"] = str(fake_dir) + os.pathsep + os.environ["PATH"]
         worktrees = tmp / "worktrees"
+        tool_allowlist_checks()
 
         r, calls, before, after = run_case("success", clone, worktrees, worker="ok")
         check("success: ok and stage done", r.ok and r.stage == "done", f"{r.stage}:{r.reason}:{r.detail}")

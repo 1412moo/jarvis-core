@@ -559,6 +559,10 @@ REPAIR_BUDGET = max(0, min(REPAIR_BUDGET_MAX, int(os.environ.get("JARVIS_REPAIR_
 
 WORKER_ALLOWED_TOOLS = "Read,Edit,Write,Glob,Grep"
 WORKER_DISALLOWED_TOOLS = "Bash,NotebookEdit,WebFetch,WebSearch"
+# task-0195: --allowedTools only pre-approves tools and hides none, so each call also names the only
+# built-in tools it may see (--tools) and loads no MCP server (--strict-mcp-config without --mcp-config).
+WORKER_TOOLS = "Read,Edit,Write,Glob,Grep"
+REVIEWER_TOOLS = "Read,Grep,Glob,Bash"
 REVIEWER_ALLOWED_TOOLS = (
     "Read",
     "Grep",
@@ -1071,6 +1075,9 @@ def _run_worker(worktree: Path, prompt: str) -> None:
                 WORKER_ALLOWED_TOOLS,
                 "--disallowedTools",
                 WORKER_DISALLOWED_TOOLS,
+                "--tools",
+                WORKER_TOOLS,
+                "--strict-mcp-config",
             ],
             cwd=worktree,
             timeout=WORKER_TIMEOUT_SECONDS,
@@ -1087,7 +1094,8 @@ def _run_reviewer(repo_root: Path, call: str) -> tuple[str, str]:
 
     try:
         review = _run(
-            [*_claude_command(), "-p", "--agent", "reviewer", "--output-format", "json", "--allowedTools", *REVIEWER_ALLOWED_TOOLS],
+            [*_claude_command(), "-p", "--agent", "reviewer", "--output-format", "json", "--tools", REVIEWER_TOOLS,
+             "--strict-mcp-config", "--allowedTools", *REVIEWER_ALLOWED_TOOLS],
             cwd=repo_root,
             timeout=REVIEWER_TIMEOUT_SECONDS,
             stdin_text=call,

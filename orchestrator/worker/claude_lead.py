@@ -31,6 +31,8 @@ import claude_worker  # noqa: E402
 LEAD_TIMEOUT_SECONDS = 300
 LEAD_ALLOWED_TOOLS = "Read,Grep,Glob"
 LEAD_DISALLOWED_TOOLS = "Edit,Write,NotebookEdit,Bash,WebFetch,WebSearch"
+# task-0195: the only built-in tools the lead may see; no MCP server is loaded.
+LEAD_TOOLS = "Read,Grep,Glob"
 LEAD_RISKS = ("low", "medium", "high")
 LEAD_MAX_STEPS = 7
 LEAD_MAX_TITLE_CHARS = 100
@@ -176,6 +178,9 @@ def _run_claude(prompt: str, repo_root: Path) -> subprocess.CompletedProcess:
             LEAD_ALLOWED_TOOLS,
             "--disallowedTools",
             LEAD_DISALLOWED_TOOLS,
+            "--tools",
+            LEAD_TOOLS,
+            "--strict-mcp-config",
         ],
         cwd=repo_root,
         timeout=LEAD_TIMEOUT_SECONDS,
