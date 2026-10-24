@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 15:37 UTC`
-- updated_at: `2026-10-24 15:52 UTC`
+- updated_at: `2026-10-24 16:16 UTC`
 - summary: `봇 감시자(scripts/discord_bot_service.ps1 -Run)가 언제 끝났는지 알 수 있게 한다. 감시자가 주기적으로 heartbeat 줄을 로그에 남기고 상태 파일(pid, 시작, 마지막 heartbeat, 봇 pid, 정상 종료 여부)을 갱신하며, 정상 종료 때 그 사실을 남긴다. -Status는 마지막 heartbeat 시각과, 감시자 없이 봇만 도는 경우, 감시자가 기록 없이 끝난 경우, heartbeat가 오래된 경우를 경고한다. 감시자 찾기는 같은 인스턴스 이름의 감시자로 좁힌다.`
 - source_command: `Owner 지시: 감시자 heartbeat 보강 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `bc40e1b3a92e5a0e22f80f62bc93dd7fdaaa1e53` (등록 시점 main HEAD, task-0195까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (기본 1에 Owner 결정 2로 1회 추가, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -34,6 +34,29 @@
 감시자 heartbeat 보강 task로 진행해
 ```
 
+## Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문)
+
+```text
+[Manager 질문]
+결정이 필요한 것
+1. (권장) repair 예산을 1회 추가합니다.
+   - 그 조건 하나를 더하고, 종료 기록 뒤 pid가 재사용돼도 거짓 경고가 없음을 확인하는 검사를 넣습니다.
+   - 반복을 끊기 위해, 다음 검토가 또 minor만 내면 SOP §8로 수용하고 바로 QA로 가는 것도 함께 정해 주세요.
+2. SOP §8로 이 minor를 수용하고 `4864305` 그대로 QA로 갑니다. 이 거짓 경고 가능성은 완료 기록과 README 한계에 적습니다.
+3. task-0196을 여기서 멈춥니다.
+
+[Owner 답]
+repair 예산 1회 추가.
+
+종료 기록이 있는 PID에 대해 오래된 heartbeat 경고가 발생하지 않도록 수정하고 회귀 테스트 추가.
+
+다음 Reviewer 검토에서 minor만 다시 나오면 추가 repair 없이 SOP §8에 따라 수용하고 QA로 진행하도록 결정.
+
+QA 통과 후 Evidence와 Complete 단계로 진행.
+
+완료 후에만 push 및 감시자 재시작 여부를 판단.
+```
+
 ## 원인 조사 (등록 전, 읽기만)
 
 - 감시 로그(`%LOCALAPPDATA%\jarvis-core\logs\discord-bot.log`)에는 `2026-10-24 11:42:29 UTC`의 "supervisor started (pid 16392)", "bot started (pid 36080)" 다음 줄이 `14:57:24 UTC`의 새 감시자 시작이다. 그 사이 감시자의 줄은 없다.
@@ -50,7 +73,7 @@
 2. `-Status`: 상태 파일의 마지막 heartbeat 시각과 경과 시간을 보이고 경고를 붙인다.
    - 봇은 있는데 감시자가 없음: 봇이 끝나도 다시 띄우지 않는다는 경고.
    - 상태 파일의 감시자 pid가 살아 있지 않은데 정상 종료 표시가 없음: 기록 없이 끝났다는 경고와 마지막 heartbeat 시각.
-   - 감시자는 살아 있는데 마지막 heartbeat가 간격의 두 배(기본 1200초)를 넘게 지남: 멈춘 것 같다는 경고.
+   - 감시자는 살아 있는데 마지막 heartbeat가 간격의 두 배(기본 1200초)를 넘게 지남: 멈춘 것 같다는 경고. 종료 표시가 있는 기록에는 띄우지 않는다(repair 2).
 3. 감시자 찾기(`-Status`, `-Stop`)를 같은 인스턴스 이름의 감시자로 좁힌다(기본 이름은 `-InstanceName`을 주지 않은 감시자). 그래야 smoke의 대역 감시자와 실제 감시자가 섞이지 않는다.
 4. `-SmokeTest`: heartbeat 줄과 상태 파일, 정상 종료 표시, 감시자를 강제로 끝낸 뒤의 `-Status` 경고(감시자 없음, 기록 없이 끝남)를 확인하는 시나리오를 더한다.
 5. README의 상시 실행 절에 heartbeat, 상태 파일, 경고를 적는다.
@@ -102,6 +125,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 | A2 | Owner 결정 (원문) | "- `-Status`에 \"봇은 있는데 감시자는 없음\" 같은 경고를 띄웁니다." | 그 경고와 함께, 기록 없이 끝난 감시자와 heartbeat가 오래된 감시자 경고도 띄운다. smoke로 앞의 두 경고를 확인했다 |
 | A3 | Owner 결정 (원문) | "- 원하시면 이 원인 확인과 보강을 task로 진행하겠습니다." | 원인 확인: 로그, 작업 스케줄러 정보, 저장소의 프로세스 종료 코드를 봤지만 원인을 찾지 못했다(원인 조사 절). 보강은 위와 같다 |
 | A4 | Owner 결정 (원문) | "- `-Status`에 "봇은 있는데 감시자는 없음" 같은 경고를 띄웁니다." | 설계 3(감시자 찾기를 같은 인스턴스로 좁힘)은 이 경고를 위한 수단이다. smoke의 대역 감시자가 실제 감시자로 세어지면 "감시자 없음" 경고가 맞게 뜨지 않는다. 그 결과 `-Stop`이 끝내는 감시자도 같은 인스턴스로 좁아진다. 기본 인스턴스(작업 스케줄러가 띄운 감시자)는 예전과 같이 찾는다(실제 `-Status`로 확인). 같은 이유로 `-Stop`이 종료를 대신 기록하게 했다. 이것이 없으면 정상 정지도 "기록 없이 끝남"으로 보인다 |
+| A5 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "종료 기록이 있는 PID에 대해 오래된 heartbeat 경고가 발생하지 않도록 수정하고 회귀 테스트 추가." / "다음 Reviewer 검토에서 minor만 다시 나오면 추가 repair 없이 SOP §8에 따라 수용하고 QA로 진행하도록 결정." / "QA 통과 후 Evidence와 Complete 단계로 진행." / "완료 후에만 push 및 감시자 재시작 여부를 판단." | repair 예산을 2로 기록하고 repair 2를 썼다. 오래된 heartbeat 경고에 종료 표시 확인을 더했고 회귀 검사를 넣었다. 다음 검토가 minor만 내면 SOP §8로 수용하고 같은 candidate로 QA, Evidence, Complete를 진행한다. push와 감시자 재시작은 완료 뒤 따로 판단한다 |
 
 ## Self-review
 
@@ -127,3 +151,6 @@ candidate 전 1회. minor 5건을 모두 반영했다.
   - README에 두 한계와 "경고가 없다고 살아 있다는 증거는 아님"을 적었다.
   - 검사를 만드는 중 한 번 실패했다. 비교 기준 시각이 밀리초까지 있고 상태 파일은 초 단위라 경계에서 9.x초가 나왔다. 상태 파일의 시작 시각과 비교하도록 검사를 고쳤다(코드 결함 아님).
 - 다시 돌린 결과: 구문 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 13/13을 두 번 연속, 실제 `-Status`는 앞과 같았다(감시자 35140, 봇 34260, 경고 없음). 검증 절의 12/12는 첫 candidate 기준이다.
+- candidate `48643057ca9d79fbaefba0a29f742b7473493584`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: 오래된 heartbeat 경고 조건에 종료 표시 확인이 없어, 정상 종료나 `-Stop`으로 종료가 기록된 뒤 상태 파일의 pid를 다른 프로세스가 다시 쓰면 `-Status`가 살아 있는 감시자가 멈춘 것처럼 거짓 경고를 띄운다. 기본 예산을 다 써서 Owner에게 올렸다(Owner 결정 2).
+- repair 2(`repair_count=2`, Owner가 1회 추가): 그 경고 조건에 `-not $state.ended`를 더했다. smoke `no_stale_warning_after_end`를 더했다(살아 있는 pid와 3시간 전 heartbeat의 종료 기록은 경고가 없고, 같은 기록에 종료 표시가 없으면 오래된 heartbeat 경고가 뜸).
+- 다시 돌린 결과: 구문 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 14/14를 두 번 연속, 실제 `-Status`는 앞과 같았다(감시자 35140, 봇 34260, 경고 없음).

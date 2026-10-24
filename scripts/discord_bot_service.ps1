@@ -302,7 +302,8 @@ if ($Status) {
         if (-not $alive -and -not $state.ended) {
             Write-Output "WARNING: the last supervisor (pid $($state.pid)) ended without recording it; it was last seen at $($state.last_heartbeat)"
         }
-        if ($alive -and $age -gt (2 * [int]$state.heartbeat_seconds)) {
+        # task-0196 repair 2: an ended supervisor's pid may belong to another process now; no stale warning then.
+        if ($alive -and -not $state.ended -and $age -gt (2 * [int]$state.heartbeat_seconds)) {
             Write-Output "WARNING: the supervisor (pid $($state.pid)) has not written a heartbeat for $age s"
         }
     } else {
@@ -448,6 +449,20 @@ if ($SmokeTest) {
         $results["stop_records_the_end"] = ($stopOut -match "stopped supervisor $($stopped.Id)") -and ($stopOut -match "stopped bot") `
             -and ($state8.ended -eq $true) -and ($state8.ended_by -eq "-Stop") -and ($status8 -notmatch "WARNING") `
             -and ((Get-Content -Raw -Path $log8) -match "supervisor stopped by -Stop")
+
+        # 3g. An ended record whose pid is alive again (reused) and whose heartbeat is old gives no warning;
+        #     the same record without the end mark does warn.
+        $logs10 = Join-Path $tmp "logs10"
+        New-Item -ItemType Directory -Path $logs10 | Out-Null
+        $file10 = Join-Path $logs10 "supervisor-$($name)i.json"
+        $old = (Get-Date).ToUniversalTime().AddHours(-3).ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $record10 = @{ pid = $PID; started = $old; last_heartbeat = $old; bot_pid = ""; launches = 1; heartbeat_seconds = 600; ended = $true; ended_at = $old }
+        ($record10 | ConvertTo-Json -Compress) | Set-Content -Path $file10 -Encoding UTF8
+        $status10 = (& $ps -NoProfile -ExecutionPolicy Bypass -File $self -Status -BotScript $quick -LogDir $logs10 -InstanceName ($name + "i")) -join "`n"
+        $record10.ended = $false
+        ($record10 | ConvertTo-Json -Compress) | Set-Content -Path $file10 -Encoding UTF8
+        $status10b = (& $ps -NoProfile -ExecutionPolicy Bypass -File $self -Status -BotScript $quick -LogDir $logs10 -InstanceName ($name + "i")) -join "`n"
+        $results["no_stale_warning_after_end"] = ($status10 -notmatch "WARNING") -and ($status10b -match "has not written a heartbeat")
 
         # 4. The restart wait doubles from 10 s up to 300 s and starts over after a long run.
         $d = 0; $seen = @()
