@@ -2,11 +2,12 @@
 
 - id: `task-0189-research-council-kind`
 - title: `Worker 작업 종류: Research Council`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-23 09:51 UTC`
-- updated_at: `2026-10-24 05:27 UTC`
+- updated_at: `2026-10-24 05:43 UTC`
 - summary: `Worker 작업 종류 research_council을 더한다(허용 경로 apps/research-council/, 테스트 그 앱의 smoke test). 외부 LLM 호출 파일 openrouter_advisor.py, LIVE 모드 스위치와 검증 필터가 있는 llm_advisor.py, .env.example은 보호 경로로 막고, Worker 지시에 네트워크·외부 API·LLM·새 의존성 금지를 적는다. 더해 이 종류의 변경이 네트워크 모듈, openrouter, LIVE 모드 연결, 환경 변수·API 키 읽기 같은 금지 문구를 새 줄로 들여오면 scope 단계와 QA에서 자동으로 멈추는 코드 검사를 넣는다.`
+- completion_evidence: `candidate c7c139343dc8dc27f5c18c88061110d1339c7e98 (baseline 27827ad, repair 2 of budget 2). Reviewer FINDINGS minor 2 (summary rows), accepted under SOP 8 per Owner decision 2; self_deviations 0. QA PASS 36/36 in a fresh worktree (one QA script name fix, rerun): 6 scope files; research_council kind, 3 protected files, forbidden-addition stop in scope and QA; import forms caught, ordinary words pass; Worker smoke 590/0; self-check 109; validator PASS; app smoke.`
 - source_command: `Owner 지시: Research Council 작업 종류 추가, 보호 + 코드 검사 선택 (Claude Code 세션)`
 
 ## 기준선
@@ -132,3 +133,10 @@ candidate 전 1회. minor 3건을 모두 반영했다.
 - candidate `144601a4c4570f5c527bd9f3ae1e5e7f68e423df`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: 정해진 목록이라 `import http`·`import http.server`·`import http as h`와 ftplib·smtplib·xmlrpc·ssl·imaplib·poplib 같은 표준 라이브러리 네트워크 모듈, asyncio 연결 호출이 통과하고, Repair 절이 틈이 다 닫힌 것처럼 읽힌다. 기본 예산을 다 써서 Owner에게 올렸다(Owner 결정 2).
 - repair 2(`repair_count=2`, Owner가 1회 추가): 규칙 3개(`import http`, 표준 라이브러리 네트워크 모듈, asyncio 연결 호출)를 더해 22개가 됐다. 검사에 `import http.server`, `import http as h`, `import ftplib`, `from ssl import ...`, `asyncio.open_connection`과 걸리지 않아야 할 낱말 줄을 더했다. SOP §10.1 행, Discord README, Worker 지시에 정해진 목록이며 완전한 네트워크 격리가 아니라고 적었다. 위 repair 1 항목의 "19개"는 그 시점 기준이다.
 - 다시 돌린 결과: Worker smoke total=590 failed=0(검사 수는 그대로, 기존 형태 검사에 사례를 더함), Discord self-check ok 109, validator PASS(negative_checks 172, 실패 0).
+
+## Reviewer·QA 결과
+
+- candidate `c7c139343dc8dc27f5c18c88061110d1339c7e98`(repair 2): Reviewer FINDINGS(유효, self_deviations 0), minor 2건. 둘 다 Manager 요약 표가 Owner 결정 2의 두 문장을 인용하지 않았다는 지적이다: "4. QA 후 결과 확인 — QA 결과를 확인하고, push는 별도 승인 전까지 보류합니다."와 "봇은 현재 상태를 유지하면 됩니다."
+- Owner 결정 2의 "3. 반복 중단 규칙 확정 — 다음 검토에서 다시 minor만 나오면, 새로운 중대 문제가 없는 한 SOP §8에 따라 수용하고 QA로 넘어갑니다."에 따라 두 minor를 SOP §8로 수용하고 같은 candidate로 QA를 진행했다. 두 조건의 충족은 여기 적는다: push는 하지 않았고(별도 승인 대기), 실행 중인 Discord 봇은 이 task 동안 다시 시작하지 않았다(그래서 봇은 이 변경 전 코드로 돌고 있고, 새 작업 종류는 봇을 다시 시작한 뒤부터 Discord에서 쓸 수 있다).
+- QA: 새 detached worktree에서 첫 실행 34/36. 실패 2개는 QA 스크립트 결함이었다(scope 단계가 있는 함수 이름을 `run_pipeline`으로 잘못 적음, 실제는 `_run_pipeline`). 소스는 바꾸지 않고 스크립트만 고쳐 같은 candidate에서 다시 돌려 PASS 36/36(변경 파일 6개, 앱·validator 미변경, 바뀐 함수와 모듈 값이 계획대로, `_run_pipeline`에는 forbidden_addition 정지만 추가, 종류·보호 경로·scope·증거 차단·QA 키 6개·표지어, 독립 판정(흔한 낱말 통과, import·CRLF·API_KEY·"LIVE"·repair 1·repair 2 형태 거절), SOP·README의 한계 문장, Worker smoke 590/0, self-check 109, validator PASS 172, Research Council smoke, check_task_record, diff --check, jarvis.bat 미추적). worktree는 매번 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push는 하지 않았다.
