@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 15:37 UTC`
-- updated_at: `2026-10-24 16:16 UTC`
+- updated_at: `2026-10-24 16:17 UTC`
 - summary: `봇 감시자(scripts/discord_bot_service.ps1 -Run)가 언제 끝났는지 알 수 있게 한다. 감시자가 주기적으로 heartbeat 줄을 로그에 남기고 상태 파일(pid, 시작, 마지막 heartbeat, 봇 pid, 정상 종료 여부)을 갱신하며, 정상 종료 때 그 사실을 남긴다. -Status는 마지막 heartbeat 시각과, 감시자 없이 봇만 도는 경우, 감시자가 기록 없이 끝난 경우, heartbeat가 오래된 경우를 경고한다. 감시자 찾기는 같은 인스턴스 이름의 감시자로 좁힌다.`
 - source_command: `Owner 지시: 감시자 heartbeat 보강 (Claude Code 세션)`
 
@@ -152,5 +152,5 @@ candidate 전 1회. minor 5건을 모두 반영했다.
   - 검사를 만드는 중 한 번 실패했다. 비교 기준 시각이 밀리초까지 있고 상태 파일은 초 단위라 경계에서 9.x초가 나왔다. 상태 파일의 시작 시각과 비교하도록 검사를 고쳤다(코드 결함 아님).
 - 다시 돌린 결과: 구문 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 13/13을 두 번 연속, 실제 `-Status`는 앞과 같았다(감시자 35140, 봇 34260, 경고 없음). 검증 절의 12/12는 첫 candidate 기준이다.
 - candidate `48643057ca9d79fbaefba0a29f742b7473493584`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: 오래된 heartbeat 경고 조건에 종료 표시 확인이 없어, 정상 종료나 `-Stop`으로 종료가 기록된 뒤 상태 파일의 pid를 다른 프로세스가 다시 쓰면 `-Status`가 살아 있는 감시자가 멈춘 것처럼 거짓 경고를 띄운다. 기본 예산을 다 써서 Owner에게 올렸다(Owner 결정 2).
-- repair 2(`repair_count=2`, Owner가 1회 추가): 그 경고 조건에 `-not $state.ended`를 더했다. README의 경고 설명도 "살아 있고 종료 기록이 없는 감시자"로 고쳤다. smoke `no_stale_warning_after_end`를 더했다(살아 있는 pid와 3시간 전 heartbeat의 종료 기록은 경고가 없고, 같은 기록에 종료 표시가 없으면 오래된 heartbeat 경고가 뜸).
+- repair 2(`repair_count=2`, Owner가 1회 추가): 그 경고 조건에 `-not $state.ended`를 더했다. README의 경고 설명도 "살아 있고 종료 기록이 없는 감시자"로 고쳤다. 이 한 줄을 더한 커밋(`c0e8e95`)은 사전 점검이 updated_at 미갱신으로 BLOCKED였는데 명령을 이어 붙여 커밋까지 진행됐다. 다음 커밋에서 updated_at을 갱신했고, 그 뒤로는 점검 PASS를 확인한 다음에만 커밋했다. smoke `no_stale_warning_after_end`를 더했다(살아 있는 pid와 3시간 전 heartbeat의 종료 기록은 경고가 없고, 같은 기록에 종료 표시가 없으면 오래된 heartbeat 경고가 뜸).
 - 다시 돌린 결과: 구문 오류 0, ASCII 밖 바이트 0, `-SmokeTest` PASS 14/14를 두 번 연속, 실제 `-Status`는 앞과 같았다(감시자 35140, 봇 34260, 경고 없음).
