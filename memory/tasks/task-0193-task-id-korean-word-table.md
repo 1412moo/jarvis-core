@@ -2,11 +2,12 @@
 
 - id: `task-0193-task-id-korean-word-table`
 - title: `task ID 한영 단어표`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 07:43 UTC`
-- updated_at: `2026-10-24 10:01 UTC`
+- updated_at: `2026-10-24 10:19 UTC`
 - summary: `한글 제목으로 만든 task의 ID가 task-0192-1처럼 내용을 알 수 없게 되는 문제를 고친다. writer의 slug 생성에 한영 단어표를 더해 등록된 한글 낱말은 조사가 붙어도 표준 영문으로 바꾸고, 영문은 유지하고, 중복은 없애고, ID 전체를 60자 안으로 줄인다. 작업 종류 이름은 단어표에 들어 있어 남고, 결과가 비면 기존 예비값 task를 쓴다. 한글이 없는 제목은 기존과 같다. ID 형식과 제목·본문은 바꾸지 않는다.`
+- completion_evidence: `candidate 6fcae50b69cb92643432206953d5b642fcc2117a (baseline 52eb554, repair 2 of budget 2). Reviewer FINDINGS minor 2 (record counts, fused ASCII marker limit), accepted under SOP 8 per Owner decision 4; self_deviations 0. QA PASS 25/25 in a fresh worktree: 5 scope files; writer changes only _slugify and new helpers; 500 ASCII titles keep the old slug; 1300 random titles valid within 60; Owner cases, kind markers and repair cases; Console 6 lines; all suites pass.`
 - source_command: `Owner 지시: task ID 이름 개선, 1안 기본 2안 예비 (Claude Code 세션)`
 
 ## 기준선
@@ -175,3 +176,12 @@ candidate 전 1회. major 1건, minor 5건.
 - candidate `d9acdafc67a06b9cb66e48ea1cf0fdca2c056e9c`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: 영문 여러 낱말 표지어(daily ai radar, research council)는 낱말별로 나뉘어 중복 제거나 상한에 따로 걸려, 한글 제목에서 종류 이름이 깨질 수 있다(예: "AI 버튼 daily ai radar 추가" → `ai-button-daily-radar-add`). 기록은 종류 이름이 "늘" 남는다고 적었고 한계는 상한 하나만 밝혔다. 기본 예산을 다 써서 Owner에게 올렸다(Owner 결정 4).
 - repair 2(`repair_count=2`, Owner가 1회 추가): `KOREAN_PHRASES`에 영문 여러 낱말 표지어 6가지(daily ai radar, daily-ai-radar, daily_ai_radar, research council, research-council, research_council)를 더해 표의 한 낱말로 먼저 묶는다. 그 사례는 이제 `ai-button-daily-ai-radar-add`다. 검사 2개를 더했다. 모든 표지어 뒤에 모르는 낱말을 붙이거나 앞에 중복 낱말을 두어도 종류 이름이 한 낱말로 남는 것을 손으로도 확인했다.
 - 다시 돌린 결과: discord-intake smoke total=184 failed=0(첫 candidate의 182에 2개), Worker smoke total=595 failed=0, Discord self-check ok 109, Console smoke passed, discord-nl-intent smoke failed 0, validator PASS. 위 검증 절의 182는 첫 candidate 기준이다.
+
+## Reviewer·QA 결과
+
+- candidate `6fcae50b69cb92643432206953d5b642fcc2117a`(repair 2): Reviewer FINDINGS(유효, self_deviations 0), minor 2건.
+  1. 구현 절의 "여러 낱말 표현 4개", "`_slug_cases` 14개"는 첫 candidate 기준 숫자다. 최종 candidate는 `KOREAN_PHRASES` 10개(한글·모드 표현 4개와 repair 2의 영문 표지어 6개), `_slug_cases` 16개(기대 slug 12개와 묶음 검사 4개)다.
+  2. 두 번째 한계: 종류 선택은 표지어가 글자 안에 들어 있기만 하면 되는데(`studyroom2`, `studyrooms`도 Studyroom), slug는 이어진 영문·숫자를 한 낱말로 두므로 그런 제목의 slug는 `studyroom2`처럼 붙은 낱말이 된다. 종류 이름이 별도 낱말로 남지 않는 경우는 50자 상한과 이것 두 가지다.
+- Owner 결정 4의 "반복을 끊기 위해, 다음 검토가 또 minor만 내면 SOP §8로 수용하고 바로 QA로 가는 것도 함께 정해 주세요."와 Owner 답 "1번으로 진행해"에 따라 두 minor를 SOP §8로 수용하고 같은 candidate로 QA를 진행했다. 위 두 항목이 그 기록이다.
+- QA: 새 detached worktree에서 PASS 25/25(변경 파일 5개, writer는 `_slugify`와 새 도우미·상수·표만 바뀜, Console 테스트는 기대 ID 6줄만, 한글 없는 무작위 제목 500개는 옛 slug와 같음, 무작위 제목 1300개가 모두 ID 형식과 60자 안, Owner 사례·작업 종류 예비·repair 2 사례, 모든 종류 표지어 뒤에 모르는 낱말이 와도 종류 이름이 남음, preview와 write의 ID가 같음, 같은 제목 반복은 고유 ID, 제목 원문 유지, `TASK_ID_PATTERN`을 가진 네 파일 미변경, discord-intake smoke 184/0, Worker smoke 595/0, self-check 109, Console smoke, discord-nl-intent smoke, validator PASS, check_task_record, diff --check, jarvis.bat 미추적). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push와 봇 재시작은 하지 않았다. 실행 중인 봇은 이 변경 전 코드라, 새 ID 규칙은 봇을 다시 시작한 뒤 만들어지는 task부터 적용된다.
