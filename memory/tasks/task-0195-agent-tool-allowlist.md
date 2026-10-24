@@ -2,11 +2,12 @@
 
 - id: `task-0195-agent-tool-allowlist`
 - title: `에이전트 호출 도구 명시 목록`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-24 14:16 UTC`
-- updated_at: `2026-10-24 14:26 UTC`
+- updated_at: `2026-10-24 14:36 UTC`
 - summary: `Worker, Reviewer, 팀장의 claude 호출이 쓸 수 있는 도구를 명시 목록으로 줄인다. 지금은 --allowedTools가 묻지 않고 허용할 도구만 정하고 다른 도구를 숨기지 않아, 실험에서 Worker에게 33개 도구(Task, CronCreate, RemoteTrigger, PushNotification, claude.ai Docs MCP 등)가 보였다. 호출마다 --tools로 기본 도구를 정하고 --strict-mcp-config로 MCP 서버를 빼서 Worker 5개, Reviewer 4개, 팀장 3개만 보이게 한다.`
+- completion_evidence: `candidate 9c61c26662092b0d1792cc39b96ceb6c723310d3 (baseline ac912fb). Reviewer PASS, findings 0, self_deviations 0. QA PASS 22/22 in a fresh worktree: 6 scope files; only the three call functions and new tool constants changed; exact Worker, Reviewer and lead argument lists; real claude runs of those calls saw only the named tools (5, 4, 3) and no MCP server; Worker smoke 600/0; self-check 109; validator PASS.`
 - source_command: `Owner 지시: Worker 도구 범위 보강 (Claude Code 세션)`
 
 ## 기준선
@@ -89,3 +90,9 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 ## Self-review
 
 candidate 전 1회. minor 1건(A1이 "작은 별도 task"와 "먼저" 조건을 해석하지 않음)을 반영해 A1에 한 문장을 더했다. 코드와 문서에는 지적이 없었다. 사전 점검(`check_task_record`, baseline `ac912fb`): status=PASS, staged_files 6, violations 0.
+
+## Reviewer·QA 결과
+
+- candidate `9c61c26662092b0d1792cc39b96ceb6c723310d3`: Reviewer PASS(findings 0, self_deviations 0).
+- QA: 새 detached worktree에서 PASS 22/22(변경 파일 6개, 두 파일에서 바뀐 함수는 세 호출 함수뿐이고 새 상수만 더해짐, Worker·Reviewer·팀장 인자 목록이 정확히 설계대로이고 Reviewer의 여러 값 `--allowedTools`가 마지막, `REVIEWER_TOOLS`가 reviewer 에이전트 정의의 tools 줄과 같음, 실제 claude로 그 세 인자 목록을 출력 형식만 바꿔 돌려 Worker 5개·Reviewer 4개·팀장 3개 도구만 보이고 MCP 서버 0개·정상 응답, Worker smoke 600/0과 도구 검사 5개, self-check 109, validator PASS, check_task_record, diff --check, jarvis.bat 미추적). worktree와 임시 폴더는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push와 봇 재시작은 하지 않았다. 지금 작업 스케줄러로 도는 봇은 이 변경 전 코드라, 새 도구 목록은 봇을 `-Stop`·`-Start`로 다시 시작한 뒤의 Worker·팀장 실행부터 적용된다.
