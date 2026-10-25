@@ -2,11 +2,12 @@
 
 - id: `task-0199-worker-usage-record`
 - title: `Worker 경로 사용량 기록`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-25 16:53 UTC`
-- updated_at: `2026-10-25 17:26 UTC`
+- updated_at: `2026-10-25 17:37 UTC`
 - summary: `Discord Worker 경로에서 Worker와 Reviewer의 claude 실행 결과에 이미 있는 사용량(API 환산 비용, 토큰, 시간, 턴 수)을 버리지 않고 남긴다. 실행마다 저장소 밖 사용량 로그(JSON 한 줄)에 쓰고, 실행 결과에 담아 Discord 완료·실패 보고에 한 줄로 보인다. 프롬프트와 답 내용은 남기지 않는다. 판정·repair·QA·반영 로직과 task 기록 형식은 바꾸지 않는다. SOP 경량화 파일럿 측정 대상 2/3이다.`
+- completion_evidence: `candidate 200e1f78ba8090c3b72c4efbc96a6fc017914f50 (baseline e50b59a). Reviewer PASS, findings 0, self_deviations 0. QA PASS 33/33 in a fresh worktree: 5 scope files; only the stated functions and constants changed; usage_of keeps only the numeric fields, wrong types None, no answer text in the log; no record outside a run; a log write failure keeps the run; reply line and unknown time; smoke 617/0 and self-check 109 leave the real log untouched.`
 - source_command: `Owner 지시: Worker 비용 기록 (Claude Code 세션)`
 
 ## 기준선
@@ -103,3 +104,24 @@ candidate 전 1회. minor 6건을 모두 반영했다.
 6. 검사 개수의 내역(직접 13개, `run_case` 기본 4개)을 적었다.
 
 - 고친 뒤: Worker smoke total=617 failed=0, Discord self-check ok 109, validator PASS. 사전 점검(`--require-quotes`, baseline `e50b59a`): status=PASS, staged_files 5, violations 0, 미인용 0.
+
+## Reviewer·QA 결과
+
+- candidate `200e1f78ba8090c3b72c4efbc96a6fc017914f50`: Reviewer PASS(findings 0, self_deviations 0). Reviewer가 미확인으로 남긴 것 가운데 Discord self-check가 실제 사용량 로그를 쓰는지는 QA에서 실행으로 확인했다(쓰지 않음).
+- QA: 새 detached worktree에서 PASS 33/33(변경 파일 5개, 바뀐 함수·상수는 적은 것뿐, `usage_of`가 숫자 필드만 남기고 잘못된 타입은 None, 로그에 답 내용 없음, 실행 밖 호출은 기록 없음, 로그 쓰기 실패에도 실행이 그대로, 보고 줄·시간 정보 없음, Worker smoke 617/0과 Discord self-check 109가 실제 로그를 건드리지 않음, 이 기록은 `--require-quotes`로 PASS, validator, check_no_secrets, diff --check, jarvis.bat 미추적). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push와 봇 재시작은 하지 않았다(사용량 줄은 봇을 다시 켜야 실제 보고에 나온다).
+
+## 파일럿 측정 (2/3)
+
+| 항목 | 값 |
+| --- | --- |
+| 요약 표 | `--emit-table`로 생성, 8행, 미인용 0 |
+| 커밋 | candidate 한 커밋, `commit_candidate.py --require-quotes`(점검 PASS 뒤 커밋) |
+| self-review | 1회, 지적 6건(모두 minor: A4 해석 표시, 시간 정보 없음의 "0초", 실패 보고 줄 위치 문구, 로그 필드 누락 문구, 실패 횟수, 검사 개수 내역). 모두 candidate 전에 반영 |
+| Reviewer 실행 | 1회, PASS, 지적 0 |
+| 지적 유형 | Reviewer: 없음. self-review: 실제 결함 1(시간 정보 없음), 해석 표시 1, 기록 문구 4 |
+| Owner 원문 누락 지적 | 0건 |
+| repair | 0회 |
+| QA 실행 | 1회(재실행 없음) |
+| 사고 | 없음. 사전 점검 경고 1건(owned 행의 백틱 안 `WorkerRunResult.usage`를 경로로 읽음)을 candidate 전에 백틱을 빼서 없앴다 |
+| self-review 사용량(API 환산 추정) | 약 $0.41, 59초 |
