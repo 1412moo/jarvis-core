@@ -135,11 +135,19 @@ def check(record: str, baseline: str, repo: Path = ROOT, require_quotes: bool = 
         result.error = "worker_path_record: Worker-path records are written by the pipeline and are not checked here"
         return result
     # --no-renames: a moved file is listed at both paths whatever diff.renames says (repair 2).
-    diff = _git(["diff", "--cached", "--name-only", "--no-renames", baseline], repo)
+    # task-0198: -z keeps a path with non-ASCII bytes, quotes or backslashes as it is; the default
+    # output C-quotes it, and the quoted name matched no owned entry.
+    diff = _git(["diff", "--cached", "--name-only", "--no-renames", "-z", baseline], repo)
     if diff.returncode != 0:
         result.error = f"baseline_unreadable: {diff.stderr.decode('utf-8', 'replace').strip()[:200]}"
         return result
-    result.staged_files = sorted(p for p in diff.stdout.decode("utf-8").splitlines() if p)
+    try:
+        names = diff.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        # -z gives a path's raw bytes; one that is not UTF-8 is an input error, not a traceback.
+        result.error = "staged_path_not_utf8: a staged path is not valid UTF-8"
+        return result
+    result.staged_files = sorted(p for p in names.split("\0") if p)
 
     # C1 canonical parser.
     _, error = _transition_metadata(raw, name)
@@ -318,6 +326,20 @@ def _run_self_test() -> tuple[int, list[str]]:
         expect("a \"*\" pattern in owned covers no file (Reviewer 1)",
                codes(result) == ["C3"] and "docs/notes.txt" in result.violations[0]["problem"], result.violations)
         _git(["rm", "-q", "--cached", "--", "docs/notes.txt"], repo)
+
+        # task-0198: a non-ASCII path (Korean, with a space) is read as its real name, not git's quoted form.
+        write("docs/guide/한글 안내.md", "k\n")
+        stage("docs/guide/한글 안내.md")
+        result = check(record, baseline, repo)
+        expect("a Korean path inside an owned directory passes C3", exit_code(result) == EXIT_PASS
+               and "docs/guide/한글 안내.md" in result.staged_files, (result.staged_files, result.violations))
+        write("한글 메모.txt", "m\n")
+        stage("한글 메모.txt")
+        result = check(record, baseline, repo)
+        expect("a Korean path outside owned is C3 under its real name",
+               codes(result) == ["C3"] and "한글 메모.txt" in result.violations[0]["problem"]
+               and "\\3" not in result.violations[0]["problem"], result.violations)
+        _git(["rm", "-q", "--cached", "--", "한글 메모.txt", "docs/guide/한글 안내.md"], repo)
 
         # Reviewer 2: moving an unowned file into an owned directory still reports the source path,
         # with diff.renames on or off.
