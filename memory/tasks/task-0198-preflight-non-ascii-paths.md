@@ -2,11 +2,12 @@
 
 - id: `task-0198-preflight-non-ascii-paths`
 - title: `사전 점검의 한글 경로`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-25 15:38 UTC`
-- updated_at: `2026-10-25 15:42 UTC`
+- updated_at: `2026-10-25 15:44 UTC`
 - summary: `사전 점검 check_task_record.py의 스테이징 목록이 git 기본 출력(ASCII 밖 문자·따옴표·역슬래시가 든 경로를 따옴표와 8진수로 바꿈)을 그대로 읽어, 한글 이름 파일을 owned 행에 없는 파일로 보고 C3로 막는 문제를 고친다. 목록을 -z(NUL 구분)로 읽는다. SOP 경량화 파일럿의 측정 대상 첫 task다.`
+- completion_evidence: `candidate a061ebc82fb931e1d3dff3a10bb1f816aa717fca (baseline b5f3794). Reviewer PASS, findings 0, self_deviations 0. QA PASS 13/13 in a fresh worktree: 2 scope files; only check() and the self-test changed; -z with NUL split and a non-UTF-8 error; self-tests 20 and 12; a Korean path outside owned is C3 by its real name, inside passes, and the commit guard commits it; record passes with --require-quotes.`
 - source_command: `Owner 지시: C3 한글 경로 수정 (Claude Code 세션)`
 
 ## 기준선
@@ -96,3 +97,24 @@ candidate 전 1회. major 1건, minor 3건을 모두 반영했다.
 
 - 사전 점검(`check_task_record --require-quotes`, baseline `b5f3794`): status=PASS, staged_files 2, violations 0, quote_check_unquoted 0.
 - 경위: 위 1~3을 기록에 넣는 스크립트가 A6 문구 불일치로 실패했는데, 명령을 `;`로 이어 두어 `commit_candidate.py`가 그대로 실행됐다. 사전 점검은 정당하게 PASS였기 때문에(새 파일인 기록은 C4 대상이 아님) 4번의 코드 수정과 반영 전 기록으로 커밋 `4fe57e0`이 만들어졌다. 다음 커밋에서 이 기록 보완을 더했다. 커밋 보호 스크립트는 점검을 통과한 것만 커밋하지만, 기록이 의도한 내용인지는 보지 않는다(파일럿 측정 메모).
+
+## Reviewer·QA 결과
+
+- candidate `a061ebc82fb931e1d3dff3a10bb1f816aa717fca`: Reviewer PASS(findings 0, self_deviations 0). Reviewer가 미확인으로 남긴 것 가운데 UTF-8이 아닌 경로의 오류 분기는 이 PC에서 만들 수 없어 실행으로는 확인하지 못했다(코드로만 확인).
+- QA: 새 detached worktree에서 PASS 13/13(변경 파일 2개, 바뀐 함수는 `check()`와 자체 검사뿐, `-z`·NUL 분할·UTF-8 오류 분기, 자체 검사 20개와 커밋 보호 12개, 별도 임시 저장소에서 owned 밖 한글 경로는 원래 이름으로 C3·owned 안 한글·공백 경로는 통과·그 상태로 커밋 보호가 커밋함, 이 기록은 `--require-quotes`로 PASS, validator, diff --check, jarvis.bat 미추적). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push는 하지 않았다.
+
+## 파일럿 측정 (1/3)
+
+| 항목 | 값 |
+| --- | --- |
+| 요약 표 | `--emit-table`로 생성, 11행, 미인용 0 |
+| 커밋 | candidate 두 커밋 모두 `commit_candidate.py --require-quotes`(둘 다 점검 PASS 뒤 커밋) |
+| self-review | 1회, 지적 4건(major 1: 검증 근거가 무의미, minor 3: 변경 크기 문구, 요약 표의 조건을 제목으로 적음, UTF-8 아닌 경로 예외). 모두 candidate 전에 반영 |
+| Reviewer 실행 | 1회, PASS, 지적 0 |
+| 지적 유형 | Reviewer: 없음. self-review: 실제 결함 1(UTF-8 예외), 검증 근거 1, 기록 문구 2 |
+| Owner 원문 누락 지적 | 0건 |
+| repair | 0회 |
+| QA 실행 | 1회(재실행 없음) |
+| 사고 | 기록 보완 스크립트 실패 뒤 `;`로 이어진 커밋 보호 실행으로 보완 전 기록이 커밋됨(`4fe57e0`). 커밋 보호는 점검 통과만 보고 기록 내용의 의도는 보지 않는다 |
+| self-review 사용량(API 환산 추정) | 약 $0.33, 51초 |
