@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -186,6 +187,63 @@ def select_work_kind(text: str) -> WorkKind | None:
 
 def _active_kind() -> WorkKind:
     return _ACTIVE_WORK_KIND.get()
+
+
+# task-0199: what each claude call of a run reported about itself (cost, time, turns, tokens).
+# run_pipeline gives every run its own (task id, list); calls outside a run record nothing.
+_ACTIVE_USAGE: contextvars.ContextVar[tuple[str, list[dict]] | None] = contextvars.ContextVar(
+    "jarvis_active_usage", default=None
+)
+USAGE_LOG = Path(os.environ.get("JARVIS_USAGE_LOG") or Path(os.environ.get("LOCALAPPDATA") or Path.home())
+                 / "jarvis-core" / "logs" / "agent-usage.jsonl")
+USAGE_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+
+
+def usage_of(stage: str, stdout: str, returncode: int) -> dict:
+    """The numbers a `claude -p --output-format json` reply holds about the call, and nothing else.
+
+    No prompt, answer or file text is kept. A reply that is not JSON, or lacks a field, gives None
+    for that field. total_cost_usd is the CLI's API-price estimate, not a charge on a subscription.
+    """
+
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        data = None
+    data = data if isinstance(data, dict) else {}
+    tokens = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+
+    def number(value: object) -> float | int | None:
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    entry = {
+        "stage": stage,
+        "cost_usd": number(data.get("total_cost_usd")),
+        "duration_ms": number(data.get("duration_ms")),
+        "num_turns": number(data.get("num_turns")),
+        "is_error": data.get("is_error") if isinstance(data.get("is_error"), bool) else None,
+        "returncode": returncode,
+    }
+    entry.update({name: number(tokens.get(name)) for name in USAGE_TOKEN_FIELDS})
+    return entry
+
+
+def _note_usage(stage: str, stdout: str, returncode: int) -> None:
+    """Add a call's usage to the active run and append it to USAGE_LOG; never changes the run."""
+
+    active = _ACTIVE_USAGE.get()
+    if active is None:
+        return
+    task_id, entries = active
+    entry = usage_of(stage, stdout, returncode)
+    entries.append(entry)
+    line = {"at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "task_id": task_id, **entry}
+    try:
+        USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with USAGE_LOG.open("a", encoding="utf-8") as log:
+            log.write(json.dumps(line, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        print(f"[usage] log write failed ({type(exc).__name__}); the run goes on", file=sys.stderr)
 
 
 # task-0164: one Worker run per machine, across bot processes. The lock is an OS file lock on a
@@ -637,6 +695,8 @@ class WorkerRunResult:
     # task-0170: named files left out of the Reviewer evidence (counts only, never the paths).
     evidence_blocked: int = 0
     evidence_truncated: int = 0
+    # task-0199: one usage_of() entry per Worker and Reviewer call of this run, in call order.
+    usage: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -1085,6 +1145,7 @@ def _run_worker(worktree: Path, prompt: str) -> None:
         )
     except subprocess.TimeoutExpired:
         raise StageFailure("worker", "worker_timeout", f"{WORKER_TIMEOUT_SECONDS}s")
+    _note_usage("worker", completed.stdout, completed.returncode)
     if completed.returncode != 0:
         raise StageFailure("worker", "worker_failed", (completed.stderr or completed.stdout).strip()[:200])
 
@@ -1102,6 +1163,7 @@ def _run_reviewer(repo_root: Path, call: str) -> tuple[str, str]:
         )
     except subprocess.TimeoutExpired:
         raise StageFailure("reviewer", "reviewer_timeout", f"{REVIEWER_TIMEOUT_SECONDS}s")
+    _note_usage("reviewer", review.stdout, review.returncode)
     text = review.stdout
     try:
         text = str(json.loads(review.stdout).get("result", review.stdout))
@@ -1411,6 +1473,8 @@ def run_pipeline(
     if kind is None:
         return _unknown_kind_result(task_id, str(work_kind), record_result)
     token = _ACTIVE_WORK_KIND.set(kind)
+    usage: list[dict] = []
+    usage_token = _ACTIVE_USAGE.set((task_id, usage))
     try:
         result = _run_pipeline(
             task_id=task_id,
@@ -1424,8 +1488,10 @@ def run_pipeline(
             progress=progress,
         )
     finally:
+        _ACTIVE_USAGE.reset(usage_token)
         _ACTIVE_WORK_KIND.reset(token)
     result.work_kind = kind.name
+    result.usage = usage
     return result
 
 

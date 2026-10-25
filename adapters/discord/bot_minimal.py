@@ -2566,6 +2566,25 @@ def _format_lead_reply(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _usage_line(result: dict[str, Any]) -> str:
+    """task-0199: one line on what the run's Worker and Reviewer calls reported, or "" when none ran."""
+
+    usage = [u for u in result.get("usage") or [] if isinstance(u, dict)]
+    if not usage:
+        return ""
+    parts = []
+    for stage, label in (("worker", "Worker"), ("reviewer", "Reviewer")):
+        calls = [u for u in usage if u.get("stage") == stage]
+        if calls:
+            costs = [u.get("cost_usd") for u in calls if isinstance(u.get("cost_usd"), (int, float))]
+            cost = f" ${sum(costs):.2f}" if costs else " 비용 정보 없음"
+            parts.append(f"{label} {len(calls)}회{cost}")
+    durations = [u.get("duration_ms") for u in usage if isinstance(u.get("duration_ms"), (int, float))]
+    # No duration at all is unknown time, not zero seconds.
+    total = f"합계 {sum(durations) / 1000:.0f}초" if durations else "합계 시간 정보 없음"
+    return f"- 사용량(API 환산 추정): {', '.join(parts)}, {total}"
+
+
 def _format_work_reply(result: dict[str, Any]) -> str:
     result_type = result.get("result_type")
     task_id = result.get("task_id", "")
@@ -2605,7 +2624,8 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             + (f" / resume: {result.get('resumed_from')}" if result.get("resumed_from") else "")
             + "\n"
             f"- candidate: {str(result.get('candidate'))[:7]} / checkpoint: {str(result.get('checkpoint'))[:7]}\n"
-            "- push: 하지 않음"
+            + (f"{_usage_line(result)}\n" if _usage_line(result) else "")
+            + "- push: 하지 않음"
         )
     pending_at = -1
     # task-0165: every failure reply mentions the Owner, and a stop that waits for an Owner
@@ -2629,6 +2649,8 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         lines.append("- main 반영 뒤 기록 단계에서 실패했습니다. 확인이 필요합니다. push는 없습니다.")
     else:
         lines.append("- main은 변경되지 않았고 push도 없습니다.")
+    if _usage_line(result):
+        lines.append(_usage_line(result))
     # task-0151: while the task still holds the record accept needs, the accept choice is always
     # offered. It is placed before the owner review lines are sized (repair 1), so those lines
     # narrow or collapse to make room for it, never the other way round.

@@ -2108,6 +2108,67 @@ def owner_review_replies(results: dict[str, dict]) -> None:
             "`/status task-8000-x` 상태 확인 · 직접 개입(worktree W)"))
 
 
+def usage_checks(clone: Path, worktrees: Path, tmp: Path) -> None:
+    """task-0199: the usage each Worker and Reviewer call reports is kept, and nothing else."""
+
+    if str(REPO_ROOT / "adapters" / "discord") not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT / "adapters" / "discord"))
+    import bot_minimal as bot
+
+    sample = json.dumps({"type": "result", "is_error": False, "duration_ms": 13831, "num_turns": 3, "result": "SECRET ANSWER",
+                         "total_cost_usd": 0.2893, "usage": {"input_tokens": 6, "output_tokens": 120,
+                                                            "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 50}})
+    entry = claude_worker.usage_of("worker", sample, 0)
+    check("usage: the numbers of a real-shape reply are kept", entry == {
+        "stage": "worker", "cost_usd": 0.2893, "duration_ms": 13831, "num_turns": 3, "is_error": False, "returncode": 0,
+        "input_tokens": 6, "output_tokens": 120, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 50}, entry)
+    check("usage: no answer text is kept", "SECRET" not in json.dumps(entry))
+    empty = claude_worker.usage_of("reviewer", "not json", 1)
+    check("usage: a reply that is not JSON gives empty values", empty["stage"] == "reviewer" and empty["returncode"] == 1
+          and all(empty[k] is None for k in ("cost_usd", "duration_ms", "num_turns", "is_error", "input_tokens")), empty)
+    odd = claude_worker.usage_of("worker", json.dumps({"total_cost_usd": True, "usage": "x", "duration_ms": "5"}), 0)
+    check("usage: a field of the wrong type is left empty", odd["cost_usd"] is None and odd["duration_ms"] is None
+          and odd["input_tokens"] is None, odd)
+    claude_worker._note_usage("worker", sample, 0)
+    check("usage: a call outside a run records nothing", not claude_worker.USAGE_LOG.exists())
+
+    log = claude_worker.USAGE_LOG
+    request = "Studyroom glossary에 용어 1개 추가 USAGE-PROMPT-MARK"
+    r, calls, before, after = run_case("usage", clone, worktrees, worker="ok", request=request)
+    lines = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+    mine = [x for x in lines if x.get("task_id") == "task-8000-usage"]
+    check("usage: one run logs its Worker and Reviewer calls with the task id, in order",
+          r.ok and [x["stage"] for x in mine] == ["worker", "reviewer"] and [u["stage"] for u in r.usage] == ["worker", "reviewer"]
+          and all(x.get("at") for x in mine), (r.stage, r.reason, mine))
+    check("usage: the log holds no prompt or answer text", "USAGE-PROMPT-MARK" not in log.read_text(encoding="utf-8")
+          and "edited" not in log.read_text(encoding="utf-8"))
+
+    real_log = claude_worker.USAGE_LOG
+    claude_worker.USAGE_LOG = tmp  # a directory: every write fails
+    try:
+        r2, calls2, before2, after2 = run_case("usagefail", clone, worktrees, worker="ok")
+    finally:
+        claude_worker.USAGE_LOG = real_log
+    check("usage: a log write failure changes nothing in the run", r2.ok and r2.stage == "done" and len(r2.usage) == 2,
+          f"{r2.stage}:{r2.reason}")
+
+    base = {"result_type": "work_result", "task_id": "task-8000-x", "changed_files": ["a"], "test_summary": "5/5",
+            "reviewer_verdict": "PASS", "qa_checks": {"a": True}, "repairs": 0, "candidate": "c" * 40, "checkpoint": "d" * 40}
+    usage = [dict(entry), dict(entry, stage="reviewer", cost_usd=0.5, duration_ms=2000), dict(entry, stage="reviewer", cost_usd=None)]
+    text = bot._format_reply(dict(base, ok=True, usage=usage))
+    check("usage: the success reply has one usage line before the push line",
+          "- 사용량(API 환산 추정): Worker 1회 $0.29, Reviewer 2회 $0.50, 합계 30초\n- push: 하지 않음" in text, text)
+    check("usage: without usage the success reply has no usage line", "사용량" not in bot._format_reply(dict(base, ok=True)))
+    failed = bot._format_reply(dict(base, ok=False, stage="tests", reason="tests_failed", detail="x", usage=usage[:1],
+                                    worktree="W"))
+    check("usage: a failure reply shows the usage of the calls that ran",
+          "- 사용량(API 환산 추정): Worker 1회 $0.29, 합계 14초" in failed, failed)
+    nocost = bot._format_reply(dict(base, ok=True, usage=[dict(entry, cost_usd=None)]))
+    check("usage: a call without a cost says so", "Worker 1회 비용 정보 없음" in nocost, nocost)
+    notime = bot._format_reply(dict(base, ok=True, usage=[dict(entry, duration_ms=None)]))
+    check("usage: no duration at all is unknown time, not 0 seconds", "합계 시간 정보 없음" in notime and "합계 0초" not in notime, notime)
+
+
 def tool_allowlist_checks() -> None:
     """task-0195: each claude call names the only built-in tools it may see and loads no MCP server."""
 
@@ -2168,6 +2229,9 @@ def main() -> int:
         os.environ["PATH"] = str(fake_dir) + os.pathsep + os.environ["PATH"]
         worktrees = tmp / "worktrees"
         tool_allowlist_checks()
+        # task-0199: the smoke never writes the real usage log.
+        claude_worker.USAGE_LOG = tmp / "agent-usage.jsonl"
+        usage_checks(clone, worktrees, tmp)
 
         r, calls, before, after = run_case("success", clone, worktrees, worker="ok")
         check("success: ok and stage done", r.ok and r.stage == "done", f"{r.stage}:{r.reason}:{r.detail}")
