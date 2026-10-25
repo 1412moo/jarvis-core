@@ -95,6 +95,12 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
   `owned` 행과 staged 파일, `updated_at`, 파일 끝 줄바꿈)을 먼저 고친다(task-0171). 같은 출력의
   승인 원문 인용 목록(task-0169)은 Manager의 참고 자료이며 종료 코드에 영향을 주지 않고,
   이 검사는 Reviewer의 조건 대조나 판정을 대신하지 않는다.
+- 파일럿(task-0197): task-0197 다음의 수동 task 3건에 적용한다. `python -B scripts/check_summary_quotes.py --emit-table <기록>`은 Owner
+  원문 문장마다 한 행인 Manager 요약 표 뼈대를 출력한다(Manager는 해석 칸만 채움).
+  `python -B scripts/commit_candidate.py --record <기록> --baseline <baseline> --message-file <파일> --require-quotes`는
+  위 점검이 PASS이고 미인용 문장이 없을 때만 candidate를 커밋한다. 그 3건의 기록 끝에는 Reviewer 실행 횟수,
+  지적 유형(실제 결함·기록 문구), repair 수를 남긴다. 파일럿 동안 위의 필수 절차와 기본 종료 코드 기준은
+  그대로이며, 3건 뒤 Owner가 두 도구의 고정 여부를 정한다.
 
 ### Implementer
 

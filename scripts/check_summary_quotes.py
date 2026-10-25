@@ -148,6 +148,41 @@ def check_text(text: str, record: str = "<text>") -> Report:
     return report
 
 
+def owner_sentences(text: str) -> list[Sentence]:
+    """task-0197: every Owner sentence of the verbatim blocks, in record order, each once."""
+
+    seen: set[str] = set()
+    found: list[Sentence] = []
+    for heading, body in _sections(text.splitlines()):
+        if not is_verbatim_heading(heading):
+            continue
+        for sentence in _fenced_sentences(heading, body):
+            if sentence.text not in seen:
+                seen.add(sentence.text)
+                found.append(sentence)
+    return found
+
+
+def summary_table(text: str) -> list[str]:
+    """task-0197: a Manager summary table skeleton with one row per Owner sentence.
+
+    The Manager fills only the last column, so no sentence can be left out; check_text then
+    finds every sentence quoted. A pipe in a sentence is escaped for the table, and
+    normalize() undoes that escape when the summary is checked.
+    """
+
+    rows = [
+        "각 행의 \"출처\" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.",
+        "",
+        "| # | 출처 | 원문 인용 | Manager 해석과 충족 |",
+        "| --- | --- | --- | --- |",
+    ]
+    for number, sentence in enumerate(owner_sentences(text), start=1):
+        quoted = sentence.text.replace("|", "\\|")
+        rows.append(f"| A{number} | {sentence.section} | \"{quoted}\" |  |")
+    return rows
+
+
 def check_record(path: Path) -> Report:
     try:
         text = path.read_text(encoding="utf-8")
@@ -233,6 +268,16 @@ def _run_self_test() -> tuple[int, list[str]]:
     report = check_text("## Owner verbatim approval\n\n```text\nShip it only after QA.\n```\n\n## Manager 요약\n\nnone\n")
     expect("an English verbatim heading counts", report.verbatim_sections == 1 and len(report.unquoted or []) == 1, report.to_dict())
 
+    # task-0197: the generated table quotes every Owner sentence, a piped one included.
+    piped = "## Owner 결정 (원문)\n\n```text\n선택지 A | B 중 A로 진행한다.\n두 번째 조건 문장입니다.\n```\n"
+    table = summary_table(piped)
+    expect("the table has one row per Owner sentence", len([r for r in table if r.startswith("| A")]) == 2, table)
+    filled = piped + "\n## Manager 요약\n\n" + "\n".join(table) + "\n"
+    expect("a record with the generated table has no unquoted sentence", not check_text(filled).unquoted, check_text(filled).to_dict())
+    expect("the fixture table covers its four sentences", len(owner_sentences(_FIXTURE)) == 4, owner_sentences(_FIXTURE))
+    expect("a record without Owner text gives an empty table body",
+           [r for r in summary_table("## 구현\n\n없음\n") if r.startswith("| A")] == [])
+
     report = check_record(Path("does-not-exist-task-record.md"))
     expect("unreadable record is an error", report.error.startswith("unreadable"), report.error)
     return checks, failures
@@ -266,6 +311,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("record", nargs="?", help="task record path, e.g. memory/tasks/<task-id>.md")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     parser.add_argument("--self-test", action="store_true", help="run the built-in fixtures instead of a record")
+    parser.add_argument("--emit-table", action="store_true",
+                        help="print a Manager summary table skeleton, one row per Owner sentence (task-0197); writes nothing")
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -279,6 +326,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if failures else 0
     if not args.record:
         parser.error("a task record path is required (or --self-test)")
+
+    if args.emit_table:
+        try:
+            text = Path(args.record).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"error=unreadable: {type(exc).__name__}")
+            return EXIT_ERROR
+        print("\n".join(summary_table(text)))
+        return EXIT_ALL_QUOTED
 
     report = check_record(Path(args.record))
     if args.json:

@@ -12,8 +12,10 @@ record as it is staged, so the Manager fixes them before the candidate exists:
   directory ending in "/"); the record itself is always allowed
 - C4 when the record differs from HEAD, its updated_at differs too (task-model §7)
 - C5 the record ends with a newline, as the canonical writer writes it
-- C6 the task-0169 verbatim quote check, printed for the Manager; it never changes the
-  exit code, because its list mixes conditions with headings
+- C6 the task-0169 verbatim quote check, printed for the Manager; by default it never changes
+  the exit code, because its list mixes conditions with headings. With --require-quotes
+  (task-0197 pilot) an unquoted sentence is a C6 violation; a summary table made with
+  `check_summary_quotes.py --emit-table` quotes every sentence, headings included
 
 Exit code 0: no violation. 1: a violation; the Manager does not make the candidate
 (SOP §3). 2: the input cannot be checked (not staged, Worker-path record, git error).
@@ -114,7 +116,7 @@ def _console_view(file_name: str, text: str) -> dict | None:
     return run_web_app.parse_task_view_text(file_name, text)
 
 
-def check(record: str, baseline: str, repo: Path = ROOT) -> Result:
+def check(record: str, baseline: str, repo: Path = ROOT, require_quotes: bool = False) -> Result:
     result = Result(record=record.replace("\\", "/"), baseline=baseline)
     rel = result.record
     name = rel.rsplit("/", 1)[-1]
@@ -184,11 +186,15 @@ def check(record: str, baseline: str, repo: Path = ROOT) -> Result:
     if not raw.endswith(b"\n"):
         result.add("C5", "the record does not end with a newline", "add a newline after the last line")
 
-    # C6 task-0169 quote check, advice only.
+    # C6 task-0169 quote check, advice only unless require_quotes (task-0197 pilot).
     quotes = check_summary_quotes.check_text(text, record=rel)
     result.quote_unquoted = [f"{s.line}: {s.text}" for s in quotes.unquoted or []]
     if quotes.error:
         result.warnings.append(f"quote check: {quotes.error}")
+    if require_quotes and (quotes.error or result.quote_unquoted):
+        result.add("C6", f"the Manager summary does not quote {len(result.quote_unquoted)} Owner sentence(s)"
+                   + (f" ({quotes.error})" if quotes.error else ""),
+                   "rebuild the summary table with check_summary_quotes.py --emit-table and fill the last column")
     return result
 
 
@@ -213,7 +219,7 @@ def _print(result: Result) -> None:
         print(f"  fix: {v['fix']}")
     for w in result.warnings:
         print(f"WARNING {w}")
-    print(f"quote_check_unquoted={len(result.quote_unquoted)} (advice only, see check_summary_quotes.py)")
+    print(f"quote_check_unquoted={len(result.quote_unquoted)} (advice only unless --require-quotes, see check_summary_quotes.py)")
     for line in result.quote_unquoted:
         print(f"  quote: {line}")
     print("status=" + ("BLOCKED" if result.violations else "PASS"))
@@ -373,6 +379,13 @@ def _run_self_test() -> tuple[int, list[str]]:
         result = check(record, baseline, repo)
         expect("T8 an unquoted Owner sentence is advice only",
                exit_code(result) == EXIT_PASS and bool(result.quote_unquoted), asdict(result))
+        result = check(record, baseline, repo, require_quotes=True)
+        expect("T9 with require_quotes an unquoted Owner sentence is C6",
+               codes(result) == ["C6"] and exit_code(result) == EXIT_VIOLATION, result.violations)
+        write(record, _GOOD.replace("updated_at: `2026-10-19 10:00 UTC`", "updated_at: `2026-10-19 13:00 UTC`"))
+        stage(record)
+        result = check(record, baseline, repo, require_quotes=True)
+        expect("T10 with require_quotes a fully quoted summary passes", exit_code(result) == EXIT_PASS, result.violations)
 
         write(record, _GOOD.replace("- source_command: `Owner 요청`", "- source_command: `/task`"))
         stage(record)
@@ -396,6 +409,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", help="the task's baseline commit (the record's 기준선)")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
     parser.add_argument("--self-test", action="store_true", help="run the built-in cases in a temporary repository")
+    parser.add_argument("--require-quotes", action="store_true",
+                        help="task-0197 pilot: an Owner sentence the Manager summary does not quote is a C6 violation")
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -410,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.record or not args.baseline:
         parser.error("a task record path and --baseline are required (or --self-test)")
 
-    result = check(args.record, args.baseline)
+    result = check(args.record, args.baseline, require_quotes=args.require_quotes)
     if args.json:
         print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
     else:
