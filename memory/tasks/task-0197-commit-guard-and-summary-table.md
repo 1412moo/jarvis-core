@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-25 14:06 UTC`
-- updated_at: `2026-10-25 14:13 UTC`
+- updated_at: `2026-10-25 14:16 UTC`
 - summary: `SOP 경량화 파일럿 A4와 A1. A4: 사전 점검이 PASS일 때만 커밋하는 scripts/commit_candidate.py를 더한다. A1: check_summary_quotes.py에 Owner 원문 문장마다 한 행인 Manager 요약 표 뼈대를 출력하는 옵션을, check_task_record.py에 미인용 문장이 있으면 위반으로 막는 선택 옵션을 더한다. 기존 기본 동작과 SOP의 필수 절차는 바꾸지 않고, 다음 수동 task 3건에 시험 적용해 효과를 잰다.`
 - source_command: `Owner 지시: SOP 경량화 파일럿 A4와 A1 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `5df264578c090b39e66b30950326b46295b2be54` (등록 시점 main HEAD, task-0196까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -86,7 +86,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 | A6 | Owner 결정 (원문) | "A4: 사전 점검 BLOCKED인데 커밋됨 (task-0180, 0181, 0196) → 점검 PASS일 때만 커밋하는 스크립트 하나로 고정" | `commit_candidate.py`가 점검 PASS일 때만 커밋한다. 이 task의 candidate를 이 스크립트로 커밋한다. A8의 시험 적용 문장에 따라 A4도 파일럿이며, SOP에서는 다음 수동 task 3건에 적용하고 두 도구의 고정 여부는 3건 뒤 Owner가 정한다(SOP 파일럿 항목) |
 | A7 | Owner 결정 (원문) | "파일럿 1 (기록 형식, 정책 변경 없음)" | 제목 줄. 기존 기본 동작과 SOP 필수 절차를 바꾸지 않아 정책 변경이 없다 |
 | A8 | Owner 결정 (원문) | "다음 수동 task 3건에 A4(커밋 보호)와 A1(요약 자동 생성)을 시험 적용합니다." | 다음 수동 task 3건(이 task 제외)에서 두 도구를 쓴다. 이 기록에만 두지 않고 SOP 파일럿 항목에 "task-0197 다음의 수동 task 3건에 적용"으로 적어 그 3건의 규칙이 되게 했다 |
-| A9 | Owner 결정 (원문) | "Reviewer 횟수, 지적 유형, repair 수를 task-0183~0196과 비교합니다." | SOP 파일럿 항목에 그 3건의 기록 끝에 Reviewer 실행 횟수, 지적 유형, repair 수를 남긴다고 적었다. 0183~0196과의 비교는 3건 뒤 Owner 보고에서 한다 |
+| A9 | Owner 결정 (원문) | "Reviewer 횟수, 지적 유형, repair 수를 task-0183~0196과 비교합니다." | SOP 파일럿 항목에 그 3건의 기록 끝에 Reviewer 실행 횟수, 지적 유형, repair 수를 남긴다고 적었고, repair 1부터 3건 뒤 Manager가 그 값을 task-0183~0196과 비교해 보고한 다음 Owner가 고정 여부를 정한다는 단계도 SOP에 적었다 |
 | A10 | Owner 결정 (원문) | "단, A1을 SOP에 고정하려면 Owner 승인이 필요하고, 시험 적용 자체도 승인 뒤에 합니다." | SOP에는 파일럿 항목만 더했고, 고정 여부는 파일럿 3건 뒤 Owner가 정한다고 적었다. 시험 적용은 이 승인으로 시작한다 |
 | A11 | Owner 결정 (원문) | "[Owner 답]" | Owner 답의 표지. 해석할 조건이 아니다 |
 | A12 | Owner 결정 (원문) | "A4랑 A1 파일럿부터 task로 진행해" | 이 task로 A4와 A1 파일럿을 함께 진행한다 |
@@ -101,3 +101,8 @@ candidate 전 1회. major 1건, minor 3건을 모두 반영했다.
 4. 사전 점검 결과를 적었다.
 
 - 사전 점검(`check_task_record --require-quotes`, baseline `5df2645`): status=PASS, staged_files 5, violations 0, quote_check_unquoted 0.
+
+## Repair
+
+- candidate `d6dd37708985ea680b006d98547311efaa68004f`: Reviewer FINDINGS(유효, self_deviations 0), minor 1건: Owner 원문의 "Reviewer 횟수, 지적 유형, repair 수를 task-0183~0196과 비교합니다."가 SOP 파일럿 항목에 없고 이 기록(A9)에만 있어, 3건 뒤 Owner 결정 전의 비교 단계가 규칙이 되지 않는다.
+- repair 1(`repair_count=1`, 기본 예산 안): SOP 파일럿 항목의 마지막 문장을 "3건 뒤 Manager가 그 측정값을 task-0183~0196과 비교해 보고하고 Owner가 두 도구의 고정 여부를 정한다"로 고쳤고 A9 해석을 맞췄다. 코드는 바꾸지 않았다. 커밋은 다시 `commit_candidate.py --require-quotes`로 했다.

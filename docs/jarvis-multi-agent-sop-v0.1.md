@@ -100,7 +100,7 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
   `python -B scripts/commit_candidate.py --record <기록> --baseline <baseline> --message-file <파일> --require-quotes`는
   위 점검이 PASS이고 미인용 문장이 없을 때만 candidate를 커밋한다. 그 3건의 기록 끝에는 Reviewer 실행 횟수,
   지적 유형(실제 결함·기록 문구), repair 수를 남긴다. 파일럿 동안 위의 필수 절차와 기본 종료 코드 기준은
-  그대로이며, 3건 뒤 Owner가 두 도구의 고정 여부를 정한다.
+  그대로이며, 3건 뒤 Manager가 그 측정값을 task-0183~0196과 비교해 보고하고 Owner가 두 도구의 고정 여부를 정한다.
 
 ### Implementer
 
