@@ -2,11 +2,12 @@
 
 - id: `task-0197-commit-guard-and-summary-table`
 - title: `커밋 보호와 요약 표 생성 파일럿`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-25 14:06 UTC`
-- updated_at: `2026-10-25 14:41 UTC`
+- updated_at: `2026-10-25 14:45 UTC`
 - summary: `SOP 경량화 파일럿 A4와 A1. A4: 사전 점검이 PASS일 때만 커밋하는 scripts/commit_candidate.py를 더한다. A1: check_summary_quotes.py에 Owner 원문 문장마다 한 행인 Manager 요약 표 뼈대를 출력하는 옵션을, check_task_record.py에 미인용 문장이 있으면 위반으로 막는 선택 옵션을 더한다. 기존 기본 동작과 SOP의 필수 절차는 바꾸지 않고, 다음 수동 task 3건에 시험 적용해 효과를 잰다.`
+- completion_evidence: `candidate 577f67a9657791885959df6545215a7d52c7daf8 (baseline 5df2645, repair 2 of budget 2). Reviewer FINDINGS minor 2 (one git-error exit code, stale counts in the record), accepted under SOP 8 per Owner decision 2; self_deviations 0. QA PASS 20/20 in a fresh worktree: 5 scope files; self-tests 12, 20, 18; no manual record gets C6 by default; this record passes with --require-quotes; emit-table 20 rows; guard refuses with nothing staged.`
 - source_command: `Owner 지시: SOP 경량화 파일럿 A4와 A1 (Claude Code 세션)`
 
 ## 기준선
@@ -131,3 +132,13 @@ candidate 전 1회. major 1건, minor 3건을 모두 반영했다.
 - repair 2(`repair_count=2`, Owner가 1회 추가): 스테이징 목록을 `-z`(NUL 구분)로 받고, 작업 트리 차이는 경로 지정 없이 `git diff --name-only -z` 전체를 받아 스테이징 목록과 겹치는 것만 본다. 자체 검사에 한글과 공백이 든 경로(`docs/guide/안내 문서.md`)를 스테이징한 뒤 작업 트리를 바꾸면 그 경로 이름으로 거절되는 경우와, 다시 스테이징하면 그 거절 이유가 사라지는 경우를 더했다(12/12).
 - 이 검사를 만들다 같은 종류의 한계를 `check_task_record.py`의 C3(owned 행 대조)에서 찾았다. C3도 스테이징 목록을 따옴표 이름으로 읽어 한글 경로를 owned 행에 없는 파일로 보고 막는다. 막는 쪽(fail-closed)이라 안전 구멍은 아니고, Owner 결정 2의 "이 결함만 고칩니다" 범위 밖이라 고치지 않았다. 한글 경로 파일을 바꾸는 task는 C3 때문에 사전 점검과 커밋 보호를 통과하지 못하므로 후속 task 후보다.
 - 다시 돌린 결과: 세 스크립트의 `--self-test` PASS(12, 20, 18), SOP validator PASS.
+
+## Reviewer·QA 결과
+
+- candidate `577f67a9657791885959df6545215a7d52c7daf8`(repair 2): Reviewer FINDINGS(유효, self_deviations 0), minor 2건.
+  1. `commit_candidate.py`의 `git diff --cached --check` 단계에서 git 자체가 실패해도(공백 오류가 아닌 실패) 오류 표지 없는 거절이 되어, 문서의 "2: git 오류"와 달리 종료 코드 1로 끝난다. 커밋은 일어나지 않는다(fail-closed).
+  2. 구현 절과 Implementer 검증 절의 "자체 검사 10개", "10/10"은 첫 candidate 기준이다. 최종 candidate는 12개(repair 2의 한글·공백 경로 두 경우 포함)이고 Repair 절에 적혀 있다.
+- Owner 결정 2의 "다음 검토가 또 minor만 내면 SOP §8로 수용하고 QA로 가는 것도 함께 정해 주세요."와 Owner 답 "1번으로 진행해"에 따라 두 minor를 SOP §8로 수용하고 같은 candidate로 QA를 진행했다. 위 두 항목이 그 기록이다.
+- QA: 새 detached worktree에서 PASS 20/20(변경 파일 5개, 두 기존 스크립트에서 바뀐 함수가 계획한 것뿐, 세 `--self-test` PASS(12, 20, 18), 수동 기록 전부에서 옵션 없이 C6 0건, 이 기록은 `--require-quotes`로 미인용 0 PASS, `--emit-table`이 20행을 내고 파일을 쓰지 않음, 스테이징 없으면 거절하고 커밋 없음, 인자 없으면 종료 코드 2, 스테이징·push 코드 없음, SOP 파일럿 문구, validator, check_task_record, diff --check, jarvis.bat 미추적). worktree는 지웠다.
+- 파일럿 첫 사용 기록(이 task, 측정 대상 3건에는 들지 않음): candidate와 repair 두 번 모두 `commit_candidate.py --require-quotes`로 커밋했고 세 번 다 점검 PASS 뒤 커밋됐다. 요약 표는 `--emit-table`로 두 번 만들었고 미인용은 0이었다. Reviewer 실행 3회, 지적은 모두 minor였다: 실제 결함 2건(경로 따옴표 fail-open, 공백 검사 단계의 종료 코드), 기록·SOP 문구 2건(비교 단계 누락, 첫 candidate 기준 개수). Owner 원문을 요약이 빠뜨렸다는 지적은 0건이었다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push는 하지 않았다.
