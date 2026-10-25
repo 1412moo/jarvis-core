@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-25 14:06 UTC`
-- updated_at: `2026-10-25 14:16 UTC`
+- updated_at: `2026-10-25 14:41 UTC`
 - summary: `SOP 경량화 파일럿 A4와 A1. A4: 사전 점검이 PASS일 때만 커밋하는 scripts/commit_candidate.py를 더한다. A1: check_summary_quotes.py에 Owner 원문 문장마다 한 행인 Manager 요약 표 뼈대를 출력하는 옵션을, check_task_record.py에 미인용 문장이 있으면 위반으로 막는 선택 옵션을 더한다. 기존 기본 동작과 SOP의 필수 절차는 바꾸지 않고, 다음 수동 task 3건에 시험 적용해 효과를 잰다.`
 - source_command: `Owner 지시: SOP 경량화 파일럿 A4와 A1 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `5df264578c090b39e66b30950326b46295b2be54` (등록 시점 main HEAD, task-0196까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, 사용 내역은 Repair 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (기본 1에 Owner 결정 2로 1회 추가, 사용 내역은 Repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -30,6 +30,19 @@ A4: 사전 점검 BLOCKED인데 커밋됨 (task-0180, 0181, 0196) → 점검 PAS
 
 [Owner 답]
 A4랑 A1 파일럿부터 task로 진행해
+```
+
+## Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문)
+
+```text
+[Manager 질문]
+결정이 필요한 것
+1. (권장) repair 예산을 1회 추가해 이 결함만 고칩니다(`-z` 처리와 한글 경로 회귀 검사). 다음 검토가 또 minor만 내면 SOP §8로 수용하고 QA로 가는 것도 함께 정해 주세요.
+2. SOP §8로 이 minor를 수용하고 `ca6cf36` 그대로 QA로 갑니다. 한글 경로 한계는 완료 기록과 스크립트 설명에 적고, 고치는 일은 후속 task로 둡니다.
+3. task-0197을 여기서 멈춥니다.
+
+[Owner 답]
+1번으로 진행해
 ```
 
 ## 설계
@@ -90,6 +103,14 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `START TASK
 | A10 | Owner 결정 (원문) | "단, A1을 SOP에 고정하려면 Owner 승인이 필요하고, 시험 적용 자체도 승인 뒤에 합니다." | SOP에는 파일럿 항목만 더했고, 고정 여부는 파일럿 3건 뒤 Owner가 정한다고 적었다. 시험 적용은 이 승인으로 시작한다 |
 | A11 | Owner 결정 (원문) | "[Owner 답]" | Owner 답의 표지. 해석할 조건이 아니다 |
 | A12 | Owner 결정 (원문) | "A4랑 A1 파일럿부터 task로 진행해" | 이 task로 A4와 A1 파일럿을 함께 진행한다 |
+| A13 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "[Manager 질문]" | 질문의 표지. 해석할 조건이 아니다 |
+| A14 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "결정이 필요한 것" | 제목 줄. 해석할 조건이 아니다 |
+| A15 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "(권장) repair 예산을 1회 추가해 이 결함만 고칩니다(`-z` 처리와 한글 경로 회귀 검사)." | repair 예산을 2로 기록하고 repair 2를 썼다. `-z` 처리와 한글·공백 경로 회귀 검사를 넣었다. 같은 종류의 C3 한계는 범위 밖이라 고치지 않고 Repair 절에 후속 후보로 적었다 |
+| A16 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "다음 검토가 또 minor만 내면 SOP §8로 수용하고 QA로 가는 것도 함께 정해 주세요." | 다음 Reviewer 검토가 minor만 내면 SOP §8로 수용하고 같은 candidate로 QA를 진행한다. blocking·major는 수용하지 않는다 |
+| A17 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "SOP §8로 이 minor를 수용하고 `ca6cf36` 그대로 QA로 갑니다." | 고르지 않은 선택지다 |
+| A18 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "한글 경로 한계는 완료 기록과 스크립트 설명에 적고, 고치는 일은 후속 task로 둡니다." | 고르지 않은 선택지다. 다만 C3의 같은 한계는 이 기록에 적었다 |
+| A19 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "task-0197을 여기서 멈춥니다." | 고르지 않은 선택지다 |
+| A20 | Owner 결정 2: repair 예산 추가와 반복 중단 규칙 (원문) | "1번으로 진행해" | 1번을 따랐다 |
 
 ## Self-review
 
@@ -106,3 +127,7 @@ candidate 전 1회. major 1건, minor 3건을 모두 반영했다.
 
 - candidate `d6dd37708985ea680b006d98547311efaa68004f`: Reviewer FINDINGS(유효, self_deviations 0), minor 1건: Owner 원문의 "Reviewer 횟수, 지적 유형, repair 수를 task-0183~0196과 비교합니다."가 SOP 파일럿 항목에 없고 이 기록(A9)에만 있어, 3건 뒤 Owner 결정 전의 비교 단계가 규칙이 되지 않는다.
 - repair 1(`repair_count=1`, 기본 예산 안): SOP 파일럿 항목의 마지막 문장을 "3건 뒤 Manager가 그 측정값을 task-0183~0196과 비교해 보고하고 Owner가 두 도구의 고정 여부를 정한다"로 고쳤고 A9 해석을 맞췄다. 코드는 바꾸지 않았다. 커밋은 다시 `commit_candidate.py --require-quotes`로 했다.
+- candidate `ca6cf3697566beb069fcb640bccbe1be49df74c6`(repair 1): Reviewer FINDINGS(유효, self_deviations 0), minor 1건: `commit_candidate.py`가 `git diff --cached --name-only`의 출력을 그대로 경로로 다시 넘겼다. git 기본 설정은 ASCII 밖 문자·따옴표·역슬래시가 든 경로를 따옴표와 8진수로 바꿔 출력하는데, 그 이름은 어떤 파일과도 맞지 않아 "스테이징 내용과 작업 트리가 같은가" 검사가 아무것도 비교하지 않고 통과했다(fail-open). 기본 예산을 다 써서 Owner에게 올렸다(Owner 결정 2).
+- repair 2(`repair_count=2`, Owner가 1회 추가): 스테이징 목록을 `-z`(NUL 구분)로 받고, 작업 트리 차이는 경로 지정 없이 `git diff --name-only -z` 전체를 받아 스테이징 목록과 겹치는 것만 본다. 자체 검사에 한글과 공백이 든 경로(`docs/guide/안내 문서.md`)를 스테이징한 뒤 작업 트리를 바꾸면 그 경로 이름으로 거절되는 경우와, 다시 스테이징하면 그 거절 이유가 사라지는 경우를 더했다(12/12).
+- 이 검사를 만들다 같은 종류의 한계를 `check_task_record.py`의 C3(owned 행 대조)에서 찾았다. C3도 스테이징 목록을 따옴표 이름으로 읽어 한글 경로를 owned 행에 없는 파일로 보고 막는다. 막는 쪽(fail-closed)이라 안전 구멍은 아니고, Owner 결정 2의 "이 결함만 고칩니다" 범위 밖이라 고치지 않았다. 한글 경로 파일을 바꾸는 task는 C3 때문에 사전 점검과 커밋 보호를 통과하지 못하므로 후속 task 후보다.
+- 다시 돌린 결과: 세 스크립트의 `--self-test` PASS(12, 20, 18), SOP validator PASS.

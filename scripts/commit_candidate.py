@@ -44,18 +44,22 @@ def _git(args: list[str], repo: Path) -> subprocess.CompletedProcess:
 def refusals(record: str, baseline: str, repo: Path = ROOT, require_quotes: bool = False) -> list[str]:
     """Every reason not to commit now; an empty list means the commit may go ahead."""
 
-    staged = _git(["diff", "--cached", "--name-only"], repo)
+    # task-0197 repair 2: -z keeps a path with non-ASCII bytes, quotes or backslashes as it is; the
+    # default output C-quotes it, and a quoted name matches no file, so a comparison would skip it.
+    staged = _git(["diff", "--cached", "--name-only", "-z"], repo)
     if staged.returncode != 0:
         return [f"{ERROR_PREFIX}git diff --cached failed: {staged.stderr.strip()[:200]}"]
-    paths = [p for p in staged.stdout.splitlines() if p.strip()]
+    paths = [p for p in staged.stdout.split("\0") if p]
     if not paths:
         return ["nothing is staged"]
     reasons = []
-    worktree = _git(["diff", "--name-only", "--", *paths], repo)
+    # Every working-tree difference, then only the staged paths: no pathspec that could match nothing.
+    worktree = _git(["diff", "--name-only", "-z"], repo)
     if worktree.returncode != 0:
         # A failed comparison must not read as "no difference".
         reasons.append(f"{ERROR_PREFIX}git diff failed: {worktree.stderr.strip()[:200]}")
-    unstaged = [p for p in worktree.stdout.splitlines() if p.strip()]
+    staged_set = set(paths)
+    unstaged = [p for p in worktree.stdout.split("\0") if p and p in staged_set]
     if unstaged:
         reasons.append("staged files differ from the working tree (stage them again): " + ", ".join(unstaged))
     whitespace = _git(["diff", "--cached", "--check"], repo)
@@ -154,6 +158,26 @@ def _run_self_test() -> tuple[int, list[str]]:
                .stdout.split()) == sorted([record, tool]))
         expect("nothing is left staged or pushed", _git(["diff", "--cached", "--name-only"], repo).stdout.strip() == ""
                and _git(["remote"], repo).stdout.strip() == "")
+
+        # repair 2: a staged path with Korean letters that differs from the working tree is still refused.
+        korean = "docs/guide/안내 문서.md"  # inside an owned directory of the sample record, with a space
+        (repo / "docs" / "guide").mkdir(parents=True)
+        (repo / korean).write_text("v1\n", encoding="utf-8", newline="\n")
+        (repo / record).write_text(good.replace("updated_at: `2026-10-19 10:00 UTC`", "updated_at: `2026-10-19 12:00 UTC`"),
+                                   encoding="utf-8", newline="\n")
+        _git(["add", record, korean], repo)
+        (repo / korean).write_text("v2 after staging\n", encoding="utf-8", newline="\n")
+        before_korean = head()
+        code, out = commit(record, baseline, str(message), repo)
+        expect("a non-ASCII staged path that differs from the working tree is refused",
+               code == EXIT_REFUSED and head() == before_korean and any(korean in r for r in out), out)
+        _git(["add", korean], repo)
+        code, out = commit(record, baseline, str(message), repo)
+        # check_task_record's C3 still reads git's quoted name for such a path and refuses it (fails closed;
+        # outside this pilot's scope), so only the working-tree reason is checked to be gone here.
+        expect("once staged again the working-tree reason is gone",
+               not any("differ from the working tree" in r for r in out), out)
+        _git(["reset", "-q"], repo)
 
         # An input error of the preflight (here a Worker-path record) is an error exit, not a plain refusal.
         (repo / record).write_text(good.replace("- source_command: `Owner 요청`", "- source_command: `/task`"),
