@@ -2,11 +2,12 @@
 
 - id: `task-0204-pilot-wording-cleanup`
 - title: `pilot 표기 5곳 정리`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-27 14:24 UTC`
-- updated_at: `2026-10-27 14:26 UTC`
+- updated_at: `2026-10-27 14:28 UTC`
 - summary: `task-0203에서 SOP 필수 절차로 고정된 두 도구의 코드에 남은 task-0197 pilot 표기 5곳(check_task_record.py 17·197·435행, commit_candidate.py 1·177행)을 지금 상태에 맞게 고친다. 주석·docstring·옵션 도움말 문구만 바꾸고 동작과 검사는 바꾸지 않는다. commit_candidate.py 177행 주석은 task-0198 이전의 C3 동작을 설명하고 있어 사실에 맞게 고친다.`
+- completion_evidence: `candidate fb4c5e021001e2ea2d931e2c0f45501b8df01328 (baseline 53deb37). Reviewer PASS, findings 0, self_deviations 0. QA PASS 16/16 in a fresh worktree: 3 scope files; token comparison shows only strings and comments changed, only the baseline lines named in the record; no pilot wording left in the three scripts; --help shows the new text; three self-tests, the record preflight with --require-quotes and the validator pass.`
 - source_command: `Owner 지시: pilot 표기 5곳 정리 (Claude Code 세션)`
 
 ## 기준선
@@ -86,3 +87,10 @@ candidate 전 1회(사전 점검 `--require-quotes` PASS, staged 3, 위반 0, �
 2. owned 행의 줄 번호가 실제로 바뀐 줄(docstring 줄바꿈 재조정으로 `check_task_record.py` 18행, 두 줄 주석인 `commit_candidate.py` 176행)을 다 덮지 못했다. baseline 기준 범위로 고치고 A2에 같은 기준을 밝혔다.
 
 - self-review 사용량(API 환산 추정): 약 $0.28, 41초.
+
+## Reviewer·QA 결과
+
+- candidate `fb4c5e021001e2ea2d931e2c0f45501b8df01328`: Reviewer PASS(findings 0, self_deviations 0). Reviewer는 토큰 비교를 diff 읽기로만 확인했고, QA가 실제로 다시 실행했다.
+- QA: 새 detached worktree에서 PASS 16/16(변경 파일 3개, 두 스크립트의 토큰 비교 동일, 바뀐 줄이 기록의 baseline 줄 범위 안, 세 스크립트에 pilot 0건, `--help`의 새 도움말, 세 `--self-test`, 이 기록 `--require-quotes` 사전 점검, validator, diff --check, jarvis.bat 미추적). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push는 하지 않았다.
+- 측정(참고): Reviewer 1회 PASS, repair 0, QA 1회, self-review 1회(minor 2).
