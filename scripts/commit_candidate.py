@@ -1,4 +1,4 @@
-"""Commit the staged change set only when the task record preflight passes (task-0197 pilot).
+"""Commit the staged change set only when the task record preflight passes (task-0197; required since task-0203).
 
 A manual SOP candidate is made after `check_task_record.py` reports PASS (SOP section 3). Running
 the check and the commit as two shell steps let a BLOCKED preflight slip into a commit when the
@@ -173,8 +173,8 @@ def _run_self_test() -> tuple[int, list[str]]:
                code == EXIT_REFUSED and head() == before_korean and any(korean in r for r in out), out)
         _git(["add", korean], repo)
         code, out = commit(record, baseline, str(message), repo)
-        # check_task_record's C3 still reads git's quoted name for such a path and refuses it (fails closed;
-        # outside this pilot's scope), so only the working-tree reason is checked to be gone here.
+        # Only the working-tree reason is checked to be gone here; how check_task_record matches such a
+        # path to the record's owned entries is its own concern (task-0198).
         expect("once staged again the working-tree reason is gone",
                not any("differ from the working tree" in r for r in out), out)
         _git(["reset", "-q"], repo)

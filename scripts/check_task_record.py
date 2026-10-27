@@ -14,8 +14,9 @@ record as it is staged, so the Manager fixes them before the candidate exists:
 - C5 the record ends with a newline, as the canonical writer writes it
 - C6 the task-0169 verbatim quote check, printed for the Manager; by default it never changes
   the exit code, because its list mixes conditions with headings. With --require-quotes
-  (task-0197 pilot) an unquoted sentence is a C6 violation; a summary table made with
-  `check_summary_quotes.py --emit-table` quotes every sentence, headings included
+  (task-0197, required by the SOP since task-0203) an unquoted sentence is a C6 violation;
+  a summary table made with `check_summary_quotes.py --emit-table` quotes every sentence,
+  headings included
 
 Exit code 0: no violation. 1: a violation; the Manager does not make the candidate
 (SOP §3). 2: the input cannot be checked (not staged, Worker-path record, git error).
@@ -194,7 +195,7 @@ def check(record: str, baseline: str, repo: Path = ROOT, require_quotes: bool = 
     if not raw.endswith(b"\n"):
         result.add("C5", "the record does not end with a newline", "add a newline after the last line")
 
-    # C6 task-0169 quote check, advice only unless require_quotes (task-0197 pilot).
+    # C6 task-0169 quote check, advice only unless require_quotes (task-0197; the SOP requires it since task-0203).
     quotes = check_summary_quotes.check_text(text, record=rel)
     result.quote_unquoted = [f"{s.line}: {s.text}" for s in quotes.unquoted or []]
     if quotes.error:
@@ -432,7 +433,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
     parser.add_argument("--self-test", action="store_true", help="run the built-in cases in a temporary repository")
     parser.add_argument("--require-quotes", action="store_true",
-                        help="task-0197 pilot: an Owner sentence the Manager summary does not quote is a C6 violation")
+                        help="an Owner sentence the Manager summary does not quote is a C6 violation "
+                             "(task-0197; required by the SOP since task-0203)")
     args = parser.parse_args(argv)
 
     if args.self_test:
