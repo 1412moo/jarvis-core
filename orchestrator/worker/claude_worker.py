@@ -12,6 +12,9 @@ task-0151: accept_candidate() takes a candidate preserved at qa_unverified_owner
 the Owner sends `/go <id> accept`: the six QA checks again, then the same integrate and
 checkpoint steps. The Reviewer is not called again.
 
+task-0201: run_report() answers a read-only request (READ_ONLY_MARKERS) with one Worker call that
+can only read, then records DONE and commits the task record. No candidate, Reviewer, QA or merge.
+
 Boundaries, all enforced here rather than trusted to the model:
 - The worker runs in a worktree outside the repository, never in the main tree.
 - The worker has no Bash: it can read and edit files, nothing else.
@@ -187,6 +190,21 @@ def select_work_kind(text: str) -> WorkKind | None:
 
 def _active_kind() -> WorkKind:
     return _ACTIVE_WORK_KIND.get()
+
+
+# task-0201: the fixed phrases that make a request a read-only check and report (Owner decision:
+# chosen by the /work text). Matched like the kind markers: lower-cased, whitespace runs as one space.
+READ_ONLY_MARKERS = (
+    "수정하지 마", "수정하지 말", "수정 금지", "고치지 마", "고치지 말", "변경하지 마", "변경하지 말", "변경 금지",
+    "보고만", "확인만", "읽기 전용", "read-only", "read only", "readonly",
+)
+
+
+def is_read_only_request(text: str) -> bool:
+    """task-0201: the request asks only for a check and a report, never a change."""
+
+    lowered = " ".join(text.lower().split())
+    return any(marker in lowered for marker in READ_ONLY_MARKERS)
 
 
 # task-0199: what each claude call of a run reported about itself (cost, time, turns, tokens).
@@ -620,6 +638,12 @@ WORKER_DISALLOWED_TOOLS = "Bash,NotebookEdit,WebFetch,WebSearch"
 # task-0195: --allowedTools only pre-approves tools and hides none, so each call also names the only
 # built-in tools it may see (--tools) and loads no MCP server (--strict-mcp-config without --mcp-config).
 WORKER_TOOLS = "Read,Edit,Write,Glob,Grep"
+# task-0201: a read-only report run sees only the reading tools, in plan permission mode (as the lead).
+REPORT_TOOLS = "Read,Grep,Glob"
+REPORT_DISALLOWED_TOOLS = "Edit,Write,NotebookEdit,Bash,WebFetch,WebSearch"
+# task-0201: the full answer of a report run, outside the repository (Discord gets the front part).
+REPORT_DIR = Path(os.environ.get("JARVIS_REPORT_DIR") or Path(os.environ.get("LOCALAPPDATA") or Path.home())
+                  / "jarvis-core" / "reports")
 REVIEWER_TOOLS = "Read,Grep,Glob,Bash"
 REVIEWER_ALLOWED_TOOLS = (
     "Read",
@@ -697,6 +721,10 @@ class WorkerRunResult:
     evidence_truncated: int = 0
     # task-0199: one usage_of() entry per Worker and Reviewer call of this run, in call order.
     usage: list[dict] = field(default_factory=list)
+    # task-0201: a read-only report run, its answer (untrusted model text) and the file holding it.
+    read_only: bool = False
+    report: str = ""
+    report_path: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -866,6 +894,24 @@ def worker_prompt(task_id: str, request: str) -> str:
         "- Never read, open or change jarvis.bat or any .env file.\n"
         "- Do not run commands, do not commit, do not push. Only edit files.\n"
         "- When done, reply with one short line naming the file(s) you changed."
+    )
+
+
+def report_prompt(task_id: str, request: str) -> str:
+    """task-0201: the read-only Worker's instructions. Its answer goes to the Owner as written."""
+
+    return (
+        f"You are the Jarvis-Core read-only checker for {task_id}.\n"
+        f"Owner request (verbatim): {request}\n\n"
+        "Rules:\n"
+        "- Only read. Do not create, change or delete any file, even if the request seems to ask for it.\n"
+        "- Answer the request from the repository files. Name the file (and line, where it helps) for each fact. "
+        "Say plainly when something cannot be confirmed from the files. Do not invent facts.\n"
+        "- Task records under memory/tasks and design documents are history: cite them as what the record says, "
+        "never as current rules. Describe current behavior only from source code.\n"
+        "- Never read or open jarvis.bat or any .env file.\n"
+        "- Reply in the language of the request, concisely (aim for under 1200 characters), "
+        "with the conclusion first."
     )
 
 
@@ -1825,6 +1871,181 @@ def _accept_candidate(
             record_result(False, f"{result.stage}:{result.reason}")
         except Exception:  # noqa: BLE001
             pass
+    _end_run_marker(run_marker)
+    return result
+
+
+def _run_report_worker(worktree: Path, prompt: str) -> str:
+    """task-0201: one read-only Worker call; returns its answer text."""
+
+    try:
+        completed = _run(
+            [
+                *_claude_command(),
+                "-p",
+                "--output-format",
+                "json",
+                "--permission-mode",
+                "plan",
+                "--allowedTools",
+                REPORT_TOOLS,
+                "--disallowedTools",
+                REPORT_DISALLOWED_TOOLS,
+                "--tools",
+                REPORT_TOOLS,
+                "--strict-mcp-config",
+            ],
+            cwd=worktree,
+            timeout=WORKER_TIMEOUT_SECONDS,
+            stdin_text=prompt,
+        )
+    except subprocess.TimeoutExpired:
+        raise StageFailure("worker", "worker_timeout", f"{WORKER_TIMEOUT_SECONDS}s")
+    _note_usage("worker", completed.stdout, completed.returncode)
+    if completed.returncode != 0:
+        raise StageFailure("worker", "worker_failed", (completed.stderr or completed.stdout).strip()[:200])
+    text = completed.stdout
+    try:
+        data = json.loads(completed.stdout)
+        if isinstance(data, dict) and isinstance(data.get("result"), str):
+            text = data["result"]
+    except json.JSONDecodeError:
+        pass
+    text = text.strip()
+    if not text:
+        raise StageFailure("worker", "report_empty")
+    return text
+
+
+def run_report(
+    *,
+    task_id: str,
+    request: str,
+    repo_root: Path = REPO_ROOT,
+    worktree_root: Path | None = None,
+    record_result: Callable[[bool, str], tuple[bool, str]] | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> WorkerRunResult:
+    """task-0201: one read-only check and report. Never raises.
+
+    The Worker reads a detached worktree of HEAD (committed files only) with Read, Grep and Glob.
+    No candidate, Reviewer, QA or integration: the answer goes to the Owner marked unverified. A
+    changed file fails the run; no change is the expected outcome. Only the task record is committed.
+    """
+
+    usage: list[dict] = []
+    usage_token = _ACTIVE_USAGE.set((task_id, usage))
+    try:
+        result = _run_report(
+            task_id=task_id,
+            request=request,
+            repo_root=repo_root,
+            worktree_root=worktree_root or WORKTREE_ROOT,
+            record_result=record_result,
+            progress=progress,
+        )
+    finally:
+        _ACTIVE_USAGE.reset(usage_token)
+    result.usage = usage
+    return result
+
+
+def _run_report(
+    *,
+    task_id: str,
+    request: str,
+    repo_root: Path,
+    worktree_root: Path,
+    record_result: Callable[[bool, str], tuple[bool, str]] | None,
+    progress: Callable[[str], None] | None,
+) -> WorkerRunResult:
+    result = WorkerRunResult(task_id=task_id, read_only=True)
+    run_marker: _RunMarker | None = None
+    worktree: Path | None = None
+    keep_worktree = False
+    task_file = f"memory/tasks/{task_id}.md"
+    try:
+        # 1. The same preflight as a Worker run.
+        result.stage = "preflight"
+        if _git(["symbolic-ref", "--short", "HEAD"], repo_root) != "main":
+            raise StageFailure("preflight", "main_not_checked_out")
+        if _main_tracked_changes(repo_root, task_id):
+            raise StageFailure("preflight", "main_tree_dirty")
+        baseline = _git(["rev-parse", "HEAD"], repo_root)
+        result.baseline = baseline
+
+        # 2. A detached worktree under the next attempt name, with the run marker (task-0167).
+        result.stage = "worktree"
+        attempt = max(_existing_attempts(repo_root, worktree_root, task_id), default=0) + 1
+        name = _attempt_name(task_id, attempt)
+        path = worktree_root / name
+        result.worktree = str(path)
+        _ensure_outside_repo(path, repo_root)
+        worktree_root.mkdir(parents=True, exist_ok=True)
+        run_marker = _start_run_marker(path, task_id)
+        _git(["worktree", "add", "--detach", str(path), baseline], repo_root)
+        worktree = path
+
+        # 3. The read-only Worker.
+        result.stage = "worker"
+        _report_progress(progress, "worker")
+        answer = _run_report_worker(path, report_prompt(task_id, request))
+
+        # 4. Nothing may have changed; the worktree is kept for the Owner when something did.
+        result.stage = "scope"
+        changed = _changed_paths(path)
+        if changed:
+            result.changed_files = changed
+            keep_worktree = True
+            raise StageFailure("scope", "report_changed_files", ", ".join(changed)[:200])
+        result.report = answer
+
+        # 5. The full answer outside the repository; a failed write never fails the run.
+        result.stage = "report"
+        try:
+            REPORT_DIR.mkdir(parents=True, exist_ok=True)
+            target = REPORT_DIR / f"{name}.md"
+            target.write_text(answer + "\n", encoding="utf-8")
+            result.report_path = str(target)
+        except OSError as exc:
+            print(f"[report] file write failed ({type(exc).__name__}); the run goes on", file=sys.stderr)
+
+        # 6. Task result (DOING -> DONE) and a checkpoint commit of the task record only.
+        result.stage = "checkpoint"
+        if _git(["symbolic-ref", "--short", "HEAD"], repo_root) != "main":
+            raise StageFailure("checkpoint", "main_not_checked_out")
+        if _main_tracked_changes(repo_root, task_id):
+            raise StageFailure("checkpoint", "main_tree_dirty")
+        if record_result is not None:
+            applied, why = record_result(True, f"read-only report of {len(answer)} chars, no files changed")
+            if not applied:
+                raise StageFailure("checkpoint", "task_result_not_recorded", why)
+        if (repo_root / task_file).exists():
+            _git(["add", "--", task_file], repo_root)
+            _git(["commit", "-q", "-m", f"docs(tasks): record {task_id} Jarvis read-only report", "--", task_file], repo_root)
+        result.checkpoint = _git(["rev-parse", "HEAD"], repo_root)
+        result.ok = True
+        result.stage = "done"
+    except StageFailure as failure:
+        result.stage = failure.stage
+        result.reason = failure.reason
+        result.detail = failure.detail
+    except Exception as exc:  # noqa: BLE001 - the Owner must always get a report
+        result.reason = "unexpected_error"
+        result.detail = f"{type(exc).__name__}: {exc}"[:200]
+    if not result.ok and record_result is not None:
+        try:
+            record_result(False, f"{result.stage}:{result.reason}")
+        except Exception:  # noqa: BLE001
+            pass
+    if worktree is not None and not keep_worktree:
+        try:
+            removed = _run(["git", "worktree", "remove", "--force", str(worktree)], cwd=repo_root,
+                           timeout=GIT_TIMEOUT_SECONDS).returncode == 0
+        except Exception:  # noqa: BLE001 - a leftover tree must not change the result
+            removed = False
+        if not removed:
+            print(f"[report] worktree {worktree} could not be removed; it stays listed", file=sys.stderr)
     _end_run_marker(run_marker)
     return result
 

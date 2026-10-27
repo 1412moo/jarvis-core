@@ -119,6 +119,15 @@ FAKE_CLAUDE = textwrap.dedent(
         print(json.dumps({"result": f"candidate_hash: x\\nverdict: {verdict}\\n{body}\\nunverified: []\\nself_deviations: []"}))
         sys.exit(3 if mode == "crashfindings" else 0)
     mode = os.environ.get("FAKE_WORKER", "ok")
+    if mode.startswith("report"):
+        # task-0201: a read-only report run, which must arrive read-only (plan mode, reading tools only).
+        if args[args.index("--permission-mode") + 1] != "plan" or args[args.index("--tools") + 1] != "Read,Grep,Glob":
+            sys.exit(5)
+        if mode == "reportedit":
+            Path("apps/studyroom/report-note.md").write_text("x\\n", encoding="utf-8")
+        answer = "" if mode == "reportempty" else os.environ.get("FAKE_REPORT", "보고: 일치합니다.")
+        print(json.dumps({"result": answer, "total_cost_usd": 0.1, "duration_ms": 3000}))
+        sys.exit(0)
     if mode == "timeout":
         time.sleep(30)
     if mode == "fail":
@@ -1700,6 +1709,77 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     lead_flow(bot, clone, status_of)
     discussion_flow(bot, clone, status_of)
     call_flow(bot, clone)
+    report_bot_flow(bot, clone, status_of)
+
+
+def report_bot_flow(bot, clone: Path, status_of) -> None:
+    """task-0201: a read-only /work through the adapter: plan, /go, the report reply and its record."""
+
+    real_dir = claude_worker.REPORT_DIR
+    claude_worker.REPORT_DIR = clone.parent / "bot-reports"
+    try:
+        planned = bot._run_command("/work Studyroom glossary 용어가 기록과 맞는지 확인만 해줘. 파일은 수정하지 마.")
+        task_id = planned.get("task_id", "")
+        plan_text = bot._format_reply(planned)
+        check("report bot: a read-only /work makes a TODO task shown as read-only", planned.get("result_type") == "work_planned"
+              and planned.get("read_only") is True and status_of(task_id) == "TODO" and "읽기 전용 확인·보고" in plan_text
+              and "Reviewer·QA 없음" in plan_text and f"/go {task_id}" in plan_text and "수정 허용" not in plan_text, plan_text)
+        nokind = bot._run_command("/work README 규칙 보고만 해줘")
+        check("report bot: without a kind marker it still makes a read-only task, not a lead plan",
+              nokind.get("result_type") == "work_planned" and nokind.get("read_only") is True, str(nokind))
+
+        os.environ["FAKE_WORKER"], os.environ["FAKE_REPORT"] = "reportempty", ""
+        started = bot._run_command(f"/go {task_id}")
+        check("report bot: /go starts a read-only run", started.get("result_type") == "work_started" and started.get("read_only") is True
+              and status_of(task_id) == "DOING" and "읽기 전용 확인 시작" in bot._format_reply(started), str(started))
+        failed = bot._run_worker_job(task_id, started["request"], started["command"], False, False, None,
+                                     started.get("work_kind"), True)
+        reply = bot._format_reply(failed)
+        check("report bot: a failed read-only run is FAILED, offers a rerun and no resume", status_of(task_id) == "FAILED"
+              and "report_empty" in reply and f"`/go {task_id}` 다시 실행" in reply and "resume" not in reply
+              and "직접 확인" not in reply, reply)
+        check("report bot: resume is refused for a read-only task",
+              bot._run_command(f"/go {task_id} resume").get("reason") == "resume_not_for_read_only")
+
+        os.environ["FAKE_WORKER"], os.environ["FAKE_REPORT"] = "report", "일치합니다. @everyone glossary.json:346"
+        again = bot._run_command(f"/go {task_id}")
+        done = bot._run_worker_job(task_id, again["request"], again["command"], False, False, None, again.get("work_kind"), True)
+        text = bot._format_reply(done)
+        check("report bot: a successful read-only run is DONE and reports the answer, unverified, without pinging",
+              done.get("ok") is True and status_of(task_id) == "DONE" and text.startswith(f"📝 보고 (읽기 전용, 파일 변경 없음): {task_id}")
+              and "일치합니다. @\u200beveryone glossary.json:346" in text and "검증 안 된 Worker 답" in text
+              and "- 사용량(API 환산 추정): Worker 1회 $0.10, 합계 3초" in text and text.endswith("push: 하지 않음")
+              and "전문:" not in text and "저장하지 못했습니다" not in text, text)
+        check("report bot: its checkpoint commit holds only the task record",
+              git(["show", "--name-only", "--format=", "HEAD"], clone).split() == [f"memory/tasks/{task_id}.md"])
+
+        long_answer = "가" * 2500
+        cut = bot._format_reply(dict(done, report=long_answer, report_path="C:/r/x.md"))
+        check("report bot: a long answer is cut to one message and names the full file",
+              len(cut) <= bot.DISCORD_MESSAGE_CHARS and "Discord 길이 제한으로 잘림" in cut and "- 전문: C:/r/x.md" in cut
+              and cut.endswith("push: 하지 않음"), str(len(cut)))
+        nofile = bot._format_reply(dict(done, report="@" * 2500, report_path=""))
+        check("report bot: a long answer without its file says so and stays within one message",
+              len(nofile) <= bot.DISCORD_MESSAGE_CHARS and "- 전문 파일을 저장하지 못했습니다." in nofile and "@@" not in nofile
+              and "Discord 길이 제한으로 잘림" in nofile, str(len(nofile)))
+        short = bot._format_reply(dict(done, report="짧은 답", report_path=""))
+        check("report bot: a short answer without its file also says the file was not saved",
+              "- 전문 파일을 저장하지 못했습니다." in short and "잘림" not in short, short)
+        real_meta = bot._read_task_metadata
+        bot._read_task_metadata = lambda path: {"title": "Studyroom glossary 용어 정리"}
+        try:
+            mismatch = bot._run_command("/work Studyroom 용어 확인만 해줘")
+        finally:
+            bot._read_task_metadata = real_meta
+        check("report bot: a title that is no longer read-only is refused, never run as an edit",
+              mismatch.get("result_type") == "error" and mismatch.get("reason") == "read_only_title_mismatch", str(mismatch))
+        changed = bot._format_reply({"result_type": "work_result", "task_id": task_id, "ok": False, "read_only": True, "stage": "scope",
+                                     "reason": "report_changed_files", "worktree": "W"})
+        check("report bot: a changed-file failure points at the kept worktree", "직접 확인(worktree W)" in changed, changed)
+    finally:
+        claude_worker.REPORT_DIR = real_dir
+        os.environ.pop("FAKE_REPORT", None)
+        os.environ["FAKE_WORKER"] = "ok"
 
 
 def attempt_of(task_id: str, branch: str) -> int:
@@ -2169,6 +2249,90 @@ def usage_checks(clone: Path, worktrees: Path, tmp: Path) -> None:
     check("usage: no duration at all is unknown time, not 0 seconds", "합계 시간 정보 없음" in notime and "합계 0초" not in notime, notime)
 
 
+def report_flow(clone: Path, worktrees: Path, tmp: Path) -> None:
+    """task-0201: a read-only check runs one reading Worker, reports its answer and commits only the record."""
+
+    check("report: the read-only phrases are recognised, spacing and case aside", all(claude_worker.is_read_only_request(t) for t in (
+        "Studyroom 용어 확인하고 불일치는 보고만 해줘. 파일은 수정하지 마.", "glossary  수정   금지", "README 읽기 전용으로 봐줘",
+        "Check the SOP, READ-ONLY", "그 표 확인만 해줘")))
+    check("report: a change request is not read-only", not any(claude_worker.is_read_only_request(t) for t in (
+        "Studyroom glossary에 용어 1개 추가", "README 문장 고쳐줘", "보고서 문구 수정해줘", "Daily AI Radar 보고서 문구")))
+
+    real_dir = claude_worker.REPORT_DIR
+    claude_worker.REPORT_DIR = tmp / "reports"
+    origin = git(["rev-parse", "origin/main"], clone)
+
+    def run(name: str, worker: str, answer: str = "보고: 일치합니다."):
+        os.environ["FAKE_WORKER"], os.environ["FAKE_REPORT"] = worker, answer
+        task_id = f"task-8000-{name}"
+        write_task(clone, task_id)
+        git(["add", "--", f"memory/tasks/{task_id}.md"], clone)
+        git(["commit", "-q", "-m", f"add {task_id}"], clone)
+        calls: list[tuple[bool, str]] = []
+        stages: list[str] = []
+
+        def record(success: bool, summary: str) -> tuple[bool, str]:
+            calls.append((success, summary))
+            if success:
+                with open(clone / "memory" / "tasks" / f"{task_id}.md", "a", encoding="utf-8") as f:
+                    f.write("- status: `DONE`\n")
+            return True, ""
+
+        before = git(["rev-parse", "HEAD"], clone)
+        r = claude_worker.run_report(task_id=task_id, request=f"{name} 확인만 해줘", repo_root=clone, worktree_root=worktrees,
+                                     record_result=record, progress=stages.append)
+        return r, calls, stages, before, git(["rev-parse", "HEAD"], clone)
+
+    try:
+        r, calls, stages, before, after = run("reportok", "report", "보고: 일치합니다. @everyone 확인")
+        check("report: success with the answer, read-only and done", r.ok and r.stage == "done" and r.read_only
+              and r.report == "보고: 일치합니다. @everyone 확인", f"{r.stage}:{r.reason}:{r.detail}")
+        check("report: the full answer is saved outside the repository", Path(r.report_path).read_text(encoding="utf-8")
+              == r.report + "\n" and Path(r.report_path).parent == tmp / "reports", r.report_path)
+        check("report: recorded as success once, with no candidate or review", calls == [(True, calls[0][1])] and not r.candidate
+              and not r.reviewer_verdict and not r.qa_checks and "no files changed" in calls[0][1], str(calls))
+        check("report: one checkpoint commit holding only the task record",
+              git(["rev-list", "--count", f"{before}..{after}"], clone) == "1" and r.checkpoint == after
+              and git(["show", "--name-only", "--format=", after], clone).split() == ["memory/tasks/task-8000-reportok.md"])
+        check("report: the worktree, its marker and any branch are gone", not Path(r.worktree).exists()
+              and not claude_worker.worker_marker_path(Path(r.worktree)).exists()
+              and not git(["branch", "--list", "jarvis/task-8000-reportok"], clone)
+              and r.worktree.replace("\\", "/") not in git(["worktree", "list", "--porcelain"], clone).replace("\\", "/"))
+        check("report: only the Worker stage is reported, one usage entry, no push", stages == ["worker"]
+              and [u["stage"] for u in r.usage] == ["worker"] and git(["rev-parse", "origin/main"], clone) == origin)
+
+        r, calls, stages, before, after = run("reportedit", "reportedit")
+        check("report: a changed file fails the run and keeps the worktree", not r.ok and (r.stage, r.reason) == (
+            "scope", "report_changed_files") and r.changed_files == ["apps/studyroom/report-note.md"]
+              and Path(r.worktree).exists() and calls == [(False, "scope:report_changed_files")] and before == after,
+              f"{r.stage}:{r.reason}:{calls}")
+        git(["worktree", "remove", "--force", r.worktree], clone)
+
+        r, calls, stages, before, after = run("reportempty", "reportempty")
+        check("report: an empty answer fails and the worktree is removed", not r.ok and (r.stage, r.reason) == ("worker", "report_empty")
+              and not Path(r.worktree).exists() and calls == [(False, "worker:report_empty")] and before == after,
+              f"{r.stage}:{r.reason}")
+
+        readme = clone / "README.md"
+        original = readme.read_bytes()
+        readme.write_bytes(original + b"dirty\n")
+        try:
+            r, calls, stages, before, after = run("reportdirty", "report")
+        finally:
+            readme.write_bytes(original)
+        check("report: a dirty main stops before any worktree or Worker", not r.ok and (r.stage, r.reason) == (
+            "preflight", "main_tree_dirty") and not r.worktree and not r.usage and before == after, f"{r.stage}:{r.reason}")
+
+        claude_worker.REPORT_DIR = Path(__file__)  # an existing file: the report folder cannot be made
+        r, calls, stages, before, after = run("reportnofile", "report")
+        check("report: a failed report file write still reports and records", r.ok and r.report and not r.report_path
+              and calls and calls[0][0] is True, f"{r.stage}:{r.reason}")
+    finally:
+        claude_worker.REPORT_DIR = real_dir
+        os.environ.pop("FAKE_REPORT", None)
+        os.environ["FAKE_WORKER"] = "ok"
+
+
 def tool_allowlist_checks() -> None:
     """task-0195: each claude call names the only built-in tools it may see and loads no MCP server."""
 
@@ -2232,6 +2396,7 @@ def main() -> int:
         # task-0199: the smoke never writes the real usage log.
         claude_worker.USAGE_LOG = tmp / "agent-usage.jsonl"
         usage_checks(clone, worktrees, tmp)
+        report_flow(clone, worktrees, tmp)
 
         r, calls, before, after = run_case("success", clone, worktrees, worker="ok")
         check("success: ok and stage done", r.ok and r.stage == "done", f"{r.stage}:{r.reason}:{r.detail}")

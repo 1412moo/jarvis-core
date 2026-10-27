@@ -306,16 +306,17 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 ### 10.1 현재 실행 범위 (v0.2, 일반 규칙 아님)
 
 아래 값은 task-0142 Owner 승인이 정하고 task-0164 Owner 승인이 Daily AI Radar 작업 종류와 프로세스 간
-잠금으로, task-0189 Owner 승인이 Research Council 작업 종류와 그 추가 금지 문구 검사로 넓힌 현재 실행 범위다. 범위를 넓히거나 바꾸려면
+잠금으로, task-0189 Owner 승인이 Research Council 작업 종류와 그 추가 금지 문구 검사로, task-0201 Owner 승인이 읽기 전용 확인·보고 실행으로 넓힌 현재 실행 범위다. 범위를 넓히거나 바꾸려면
 새 Owner 승인과 이 표의 갱신이 필요하며, 다른 작업이나 저장소 전체의 규칙으로
 해석하지 않는다.
 
 | 항목 | 현재 값 | 코드 위치 |
 | --- | --- | --- |
-| 지원 작업 | `studyroom_content`(Studyroom 앱 수정: 콘텐츠·웹 화면·로컬 서버, task-0185부터 앱 전체, 표지어 studyroom·스터디룸), `daily_ai_radar`(Daily AI Radar 수정, 표지어는 앱 이름 daily ai radar·daily-ai-radar·daily_ai_radar·데일리 ai 레이더이고 radar·레이더 같은 일반 단어만으로는 고르지 않음), `research_council`(Research Council 수정, task-0189부터, 표지어는 앱 이름 research council·research-council·research_council·리서치 카운슬). 표지어가 함께 있으면 표의 앞 항목(Studyroom)이 우선한다. `/work`는 표지어가 없으면 팀장 단계로 간다(task-0183, 아래 팀장 문단). `/go`는 task 제목으로 종류를 정하며 표지어가 없으면 기존처럼 studyroom_content | `WORK_KINDS` |
+| 지원 작업 | `studyroom_content`(Studyroom 앱 수정: 콘텐츠·웹 화면·로컬 서버, task-0185부터 앱 전체, 표지어 studyroom·스터디룸), `daily_ai_radar`(Daily AI Radar 수정, 표지어는 앱 이름 daily ai radar·daily-ai-radar·daily_ai_radar·데일리 ai 레이더이고 radar·레이더 같은 일반 단어만으로는 고르지 않음), `research_council`(Research Council 수정, task-0189부터, 표지어는 앱 이름 research council·research-council·research_council·리서치 카운슬). 표지어가 함께 있으면 표의 앞 항목(Studyroom)이 우선한다. `/work`는 표지어가 없으면 팀장 단계로 간다(task-0183, 아래 팀장 문단. 읽기 전용 문구가 있으면 팀장 없이 아래 읽기 전용 행). `/go`는 task 제목으로 종류를 정하며 표지어가 없으면 기존처럼 studyroom_content | `WORK_KINDS` |
 | Worker 변경 허용 경로 | `apps/studyroom/`(studyroom_content), `apps/daily-ai-radar/`(daily_ai_radar), `apps/research-council/`(research_council) | `allowed_prefix` |
 | 파이프라인 보호 경로 | `jarvis.bat`, `apps/studyroom/studyroom.bat`, `apps/research-council/research_council/openrouter_advisor.py`, `apps/research-council/research_council/llm_advisor.py`, `apps/research-council/.env.example` | `PROTECTED_PATHS` |
 | 추가 금지 문구 | research_council만(task-0189): 변경 파일에서 기준선에 없던 새 줄이 네트워크 모듈(urllib, http.client, httpx, aiohttp, websocket, 낱말 socket, `from http`·`from requests` 같은 네트워크 모듈 import, requests는 낱말이 흔해서 `import`가 있는 줄과 `requests.get` 같은 호출만, `import http`·`import http.server` 같은 http 패키지 import, ftplib·smtplib·imaplib·poplib·telnetlib·xmlrpc·ssl 같은 표준 라이브러리 네트워크 모듈, asyncio의 `open_connection` 같은 연결 호출), `__import__`·importlib, subprocess, openrouter, LIVE 모드 선택, candidate_generator, 환경 변수·API 키 읽기(os.environ, getenv, api_key)를 담으면(대소문자 무시, 항목마다 정규식) scope 단계에서 `forbidden_addition`으로 멈추고 QA의 `change_set_matches`도 거짓이다. 남아 있거나 옮긴 줄과 지운 줄은 보지 않는다. 한 줄씩 보므로 여러 줄로 나눈 import는 줄마다 위 규칙으로 판정한다. 이 목록은 정해진 목록이며 완전한 네트워크 격리가 아니다. 목록 밖의 네트워크 접근은 Worker 지시와 Reviewer 검토가 맡는다. 다른 종류는 목록이 비어 있다 | `forbidden_additions`, `_forbidden_additions` |
+| 읽기 전용 확인·보고 | task-0201부터. 요청(`/go`에서는 task 제목)에 정해진 문구(수정하지 마, 수정하지 말, 수정 금지, 고치지 마, 고치지 말, 변경하지 마, 변경하지 말, 변경 금지, 보고만, 확인만, 읽기 전용, read-only, read only, readonly. 소문자로, 공백을 하나로 줄여 봄)가 있으면 작업 종류 표지어와 관계없이 읽기 전용 실행이다. 아래 읽기 전용 문단 | `READ_ONLY_MARKERS`, `run_report` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar), `apps/research-council/run_smoke_tests.py`(research_council) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
 | 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
@@ -324,7 +325,7 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 시작하면, 호출어를 뗀 본문으로 `/work <본문>`과 똑같이 처리한다(같은 Owner 권한 검사와 경로). 호출어가 없는 메시지는
 기존 자연어 해석으로 간다.
 
-팀장(Lead) 단계(task-0183): 작업 종류 표지어가 없는 `/work` 요청은 `orchestrator/worker/claude_lead.py`의
+팀장(Lead) 단계(task-0183): 작업 종류 표지어가 없는 `/work` 요청은(읽기 전용 문구가 있는 요청은 제외, 아래 읽기 전용 문단) `orchestrator/worker/claude_lead.py`의
 팀장이 먼저 계획한다. 팀장은 같은 `claude` CLI를 저장소 밖의 임시 detached worktree(HEAD의 커밋된 파일만 있어
 `jarvis.bat`·`.env` 같은 추적되지 않는 파일이 없음)에서 읽기 전용(Read·Grep·Glob만, plan 권한 모드, 시간 제한. task-0195부터 `--tools`로 이 세 도구만 보이고 `--strict-mcp-config`로 MCP 서버를 싣지 않음)으로
 한 번에 하나만 실행하고, worktree를 만들 수 없으면 실행하지 않는다. worktree와 그 git 등록 정보, 임시 폴더는 끝나면 지우고,
@@ -344,6 +345,17 @@ Discord에는 작업별 스레드에 팀장 계획, 단계 진행, Reviewer 판�
 상위 채널이고, 상위 채널을 알 수 없거나 채널 전송이 실패하면 작업 스레드로 보낸다. 이 알림은 파이프라인이 이미 가진
 값만 전하고, 실패해도 판정·repair·QA·반영과 task 기록을 바꾸지 않는다. 스레드를 만들 수 없거나 스레드 전송이
 실패하면 원래 채널로 보낸다.
+
+읽기 전용 확인·보고(task-0201): `/work` 요청에 위 표의 읽기 전용 문구가 있으면 팀장을 거치지 않고 TODO task를
+만들고, 작업 준비 메시지에 읽기 전용이라고 보인다. Owner의 `/go`로만 시작하며 같은 잠금과 승인 전이·감사를 쓴다. 실행은
+Worker 실행과 같은 preflight 뒤 저장소 밖에 attempt 이름의 detached worktree(브랜치 없음)를 만들고 실행 표지(13항)를 둔 채,
+Worker를 Read·Grep·Glob만 보이는 plan 권한 모드로 한 번 부른다. 답이 비면 `report_empty`, worktree에 바뀐 파일이 있으면
+`report_changed_files`로 실패하고(이때만 worktree를 남김), 바뀐 파일이 없는 것이 정상이다. candidate, Reviewer, QA,
+ff-only 반영은 없다(Owner 결정: 검증 없이 보고). 성공하면 답 전문을 저장소 밖 보고 파일(`%LOCALAPPDATA%\jarvis-core\reports\<attempt>.md`,
+쓰기 실패는 실행을 바꾸지 않음)에 쓰고, `DOING→DONE` 실행 결과 기록과 task 기록 한 파일만 담는 checkpoint commit을 한 뒤
+worktree를 지운다. 결과는 채널에 "검증 안 된 Worker 답"으로 보내며, 답은 멘션을 무력화하고 한 메시지에 맞게 잘라 잘렸으면
+전문 파일 경로를 적는다. 읽기 전용 task에는 `resume`을 거절하고(`resume_not_for_read_only`) 다시 실행은 `/go`다. 이 실행은
+10.2의 candidate·Reviewer·QA·반영 규칙(1~9항, 12항)의 대상이 아니다. 실패 기록(`DOING→FAILED`)은 11항을 따르되 worktree는 `report_changed_files`일 때만 남기고(11항의 시도 보존 대신), recover는 13항을 따른다.
 
 작업 종류의 값(종류 이름, 허용 경로, 테스트 스크립트)은 `orchestrator/worker/claude_worker.py`의
 `WORK_KINDS` 한 곳에 있고, 위 표는 종류마다 그 값을 적는다. 첫 항목 Studyroom이 기본값이며 기존

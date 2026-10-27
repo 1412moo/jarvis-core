@@ -1898,6 +1898,18 @@ def _run_work(command_text: str) -> dict[str, Any]:
     request = command_text.strip()[len("/work"):].strip()
     if not request:
         return _error_payload("usage:/work <요청>")
+    if claude_worker.is_read_only_request(request):
+        # task-0201: a read-only check needs no kind and no lead plan. The plan reply is judged from
+        # the created title, the same text /go judges, so both always agree.
+        created = _run_task_pipeline(f"/task {request}")
+        if created.get("result_type") != "success":
+            return created
+        task_id = created["task_id"]
+        title = (_read_task_metadata(REPO_ROOT / "memory" / "tasks" / f"{task_id}.md") or {}).get("title", "")
+        if not claude_worker.is_read_only_request(title):
+            # Not expected (the title is the /work text); never fall back to an editing plan the lead skipped.
+            return {"result_type": "error", "reason": "read_only_title_mismatch", "task_id": task_id}
+        return {"result_type": "work_planned", "task_id": task_id, "request": request, "read_only": True}
     kind = claude_worker.select_work_kind(request)
     if kind is None:
         # task-0183: no kind marker, so the read-only lead plans it in the background (on_message).
@@ -1944,6 +1956,8 @@ def _run_go(command_text: str) -> dict[str, Any]:
     request = metadata.get("title", "")
     # task-0164: the kind is settled from the title before anything is locked or written.
     work_kind = _go_work_kind(request)
+    # task-0201: so is a read-only check, from the same title.
+    read_only = claude_worker.is_read_only_request(request)
     if len(parts) == 3 and parts[2] == "accept":
         if status != "FAILED":
             return _error_payload(f"accept_requires_failed:{status or 'unknown'}")
@@ -1991,6 +2005,9 @@ def _run_go(command_text: str) -> dict[str, Any]:
         return _error_payload(f"status_not_startable:{status or 'unknown'}")
     if resume and status != "FAILED":
         return _error_payload(f"resume_requires_failed:{status}")
+    if resume and read_only:
+        # task-0201: a read-only attempt leaves no changes to carry over; a plain /go runs it again.
+        return _error_payload("resume_not_for_read_only")
     # task-0182: only a task /work made (source_command /task) runs as a Worker job. A manual
     # SOP task never does, so it stays out of the Worker pipeline and Close (task-0180) never
     # meets one mid-run. Nothing is locked or written before this refusal.
@@ -2029,6 +2046,7 @@ def _run_go(command_text: str) -> dict[str, Any]:
         "retry": status == "FAILED",
         "resume": resume,
         "work_kind": work_kind,
+        "read_only": read_only,
         "audit_error": audit_error,
     }
 
@@ -2129,8 +2147,11 @@ def _run_worker_job(
     accept: bool = False,
     progress: Callable[[str], None] | None = None,
     work_kind: str | None = None,
+    read_only: bool = False,
 ) -> dict[str, Any]:
     """Run the pipeline once and record the outcome on the task. Releases the lock.
+
+    task-0201: with read_only (settled by /go from the task title), run claude_worker.run_report.
 
     task-0151: with accept, run claude_worker.accept_candidate instead. The Owner approval
     transition and its audit happen inside it, only after the QA checks passed again.
@@ -2199,6 +2220,14 @@ def _run_worker_job(
                 repo_root=REPO_ROOT,
                 record_result=record,
                 work_kind=work_kind,
+                progress=progress,
+            )
+        elif read_only:
+            outcome = claude_worker.run_report(
+                task_id=task_id,
+                request=request,
+                repo_root=REPO_ROOT,
+                record_result=record,
                 progress=progress,
             )
         else:
@@ -2588,6 +2617,15 @@ def _usage_line(result: dict[str, Any]) -> str:
 def _format_work_reply(result: dict[str, Any]) -> str:
     result_type = result.get("result_type")
     task_id = result.get("task_id", "")
+    if result_type == "work_planned" and result.get("read_only"):
+        return (
+            f"🗂️ 작업 준비됨 (읽기 전용): {task_id}\n"
+            f"- 요청: {result.get('request')}\n"
+            "- 작업 종류: 읽기 전용 확인·보고\n"
+            "- Worker: Claude Code 1개, 읽기 도구만(Read·Grep·Glob), 임시 worktree, 파일 수정 없음\n"
+            "- 성공 시: 답을 이 채널에 보고(검증 안 된 Worker 답, Reviewer·QA 없음) → task 기록만 checkpoint commit (push 없음)\n"
+            f"승인하려면 `/go {task_id}`"
+        )
     if result_type == "work_planned":
         return (
             f"🗂️ 작업 준비됨: {task_id}\n"
@@ -2606,7 +2644,11 @@ def _format_work_reply(result: dict[str, Any]) -> str:
                 "끝나면 이 채널에 보고합니다."
             )
         retry = " (resume)" if result.get("resume") else (" (재시도)" if result.get("retry") else "")
+        if result.get("read_only"):
+            return f"▶️ 승인됨{retry}: {task_id} → 읽기 전용 확인 시작. 끝나면 이 채널에 보고합니다."
         return f"▶️ 승인됨{retry}: {task_id} → Claude Worker 시작. 끝나면 이 채널에 보고합니다."
+    if result.get("ok") and result.get("read_only"):
+        return _report_reply(result)
     if result.get("ok"):
         files = ", ".join(result.get("changed_files") or [])
         reviewer = "재호출 없음 (Owner accept)" if result.get("accepted") else result.get("reviewer_verdict")
@@ -2645,7 +2687,9 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         lines.append("- Reviewer 지적이 변경 파일과 무관해 Worker가 고칠 수 없습니다. Owner 결정이 필요합니다.")
     if result.get("reason") == "qa_unverified_owner_review":
         pending_at = len(lines)
-    if result.get("stage") == "checkpoint":
+    if result.get("stage") == "checkpoint" and result.get("read_only"):
+        lines.append("- 기록 단계에서 실패했습니다. 확인이 필요합니다. 반영할 변경은 없고 push도 없습니다.")
+    elif result.get("stage") == "checkpoint":
         lines.append("- main 반영 뒤 기록 단계에서 실패했습니다. 확인이 필요합니다. push는 없습니다.")
     else:
         lines.append("- main은 변경되지 않았고 push도 없습니다.")
@@ -2659,10 +2703,15 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         if result.get("reason") == "qa_unverified_owner_review" or result.get("accept_retryable")
         else ""
     )
-    lines.append(
-        f"다음 선택지: `/go {task_id}` 처음부터 재시도 · `/go {task_id} resume` 이 시도에서 이어가기 · "
-        f"{accept}`/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
-    )
+    if result.get("read_only"):
+        # task-0201: nothing to resume or accept; the worktree is kept only when files changed.
+        kept = f" · 직접 확인(worktree {result.get('worktree')})" if result.get("reason") == "report_changed_files" else ""
+        lines.append(f"다음 선택지: `/go {task_id}` 다시 실행 · `/status {task_id}` 상태 확인{kept}")
+    else:
+        lines.append(
+            f"다음 선택지: `/go {task_id}` 처음부터 재시도 · `/go {task_id} resume` 이 시도에서 이어가기 · "
+            f"{accept}`/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
+        )
     if pending_at >= 0:
         # task-0150: the same pending rule the pipeline stopped on, never a copy of it.
         pending = claude_worker.unverified_pending(list(result.get("reviewer_unverified") or []))
@@ -2670,6 +2719,29 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             len(result.get("qa_checks") or {}), pending, len("\n".join(lines))
         )
     return "\n".join(lines)
+
+
+REPORT_CUT_NOTE = "\n…(Discord 길이 제한으로 잘림)"
+
+
+def _report_reply(result: dict[str, Any]) -> str:
+    """task-0201: a read-only run's answer, made safe and cut to fit one message with its lines."""
+
+    task_id = result.get("task_id", "")
+    answer = _discord_safe(str(result.get("report") or ""))
+    head = f"📝 보고 (읽기 전용, 파일 변경 없음): {task_id}"
+    path = str(result.get("report_path") or "")
+    tail = ["- 검증 안 된 Worker 답입니다(Reviewer·QA 없음).", *([] if path else ["- 전문 파일을 저장하지 못했습니다."])]
+    room = DISCORD_MESSAGE_CHARS - len(head) - 1
+    usage = _usage_line(result)
+    closing = [*([usage] if usage else []), f"- checkpoint: {str(result.get('checkpoint'))[:7]} / push: 하지 않음"]
+    full = "\n".join([head, answer, *tail, *closing])
+    if len(full) <= DISCORD_MESSAGE_CHARS:
+        return full
+    if path:
+        tail.append(f"- 전문: {path}")
+    room -= sum(len(line) + 1 for line in (*tail, *closing)) + len(REPORT_CUT_NOTE)
+    return "\n".join([head, answer[:max(0, room)] + REPORT_CUT_NOTE, *tail, *closing])
 
 
 def _owner_review_lines(qa_count: int, pending: list[str], rest: int) -> list[str]:
@@ -4765,6 +4837,7 @@ async def _start_discord_bot() -> None:
                     bool(result.get("accept")),
                     _make_progress(str(result["task_id"]), send_line),
                     result.get("work_kind"),
+                    bool(result.get("read_only")),
                 )
                 # task-0191: the final result goes to the channel; the task thread is the fallback.
                 await _send_safely(_result_channel(message), channel, _format_reply(job))
