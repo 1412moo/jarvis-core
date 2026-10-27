@@ -2,11 +2,12 @@
 
 - id: `task-0203-fix-pilot-tools`
 - title: `파일럿 도구 A1·A4 정식 절차 고정`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-27 13:25 UTC`
-- updated_at: `2026-10-27 13:30 UTC`
+- updated_at: `2026-10-27 13:56 UTC`
 - summary: `SOP 경량화 파일럿(task-0197) 3건 뒤 Owner 결정에 따라 A1(요약 표 생성)과 A4(커밋 보호)를 정식 절차로 고정한다. SOP Manager 절의 사전 점검을 미인용 0 필수(--require-quotes)로, candidate와 repair candidate 커밋을 commit_candidate.py로만 하도록, Manager 요약 표는 --emit-table 뼈대로 만들도록 바꾸고 파일럿 측정 의무는 끝낸다. self-review와 Reviewer 호출 skill의 사전 점검 명령도 같은 옵션으로 맞춘다. 코드는 바꾸지 않는다.`
+- completion_evidence: `candidate c39f4043b8943b97d0ce3c24b1f2437f52573613 (baseline d198722, repair 1). Fresh Reviewer FINDINGS minor 1 (record did not name the --require-quotes help string at check_task_record.py:435 as keeping the pilot wording), accepted by the Owner under SOP section 8. QA PASS 20/20 in a fresh worktree: 4 scope files; SOP changes inside the Manager section; skills run the same preflight; commands match the scripts; self-tests and validator pass; no code changed.`
 - source_command: `Owner 지시: A1·A4 정식 절차 고정 (Claude Code 세션)`
 
 ## 기준선
@@ -97,3 +98,20 @@ candidate 전 1회(사전 점검 `--require-quotes` PASS 뒤). 지적 5건(모�
 
 - candidate `3d662323b060631b721cadc9c9da352e1d0e3bff`: Reviewer FINDINGS, minor 1건, self_deviations 0. 설계 3이 pilot 표기가 남은 코드로 `check_task_record.py`만 들었는데 `scripts/commit_candidate.py` 1행과 177행에도 남아 있다.
 - repair 1(`repair_count=1`, 기본 예산 안): 설계 3에 `commit_candidate.py`의 두 곳을 더했다. 기록만 바꿨고 코드는 그대로다.
+
+## Reviewer 2차와 Owner 수용 (SOP §8)
+
+- candidate `c39f4043b8943b97d0ce3c24b1f2437f52573613`(repair 1 뒤): fresh Reviewer FINDINGS, minor 1건, self_deviations 0. 설계 3은 `check_task_record.py`의 pilot 표기가 docstring과 주석에만 남았다고 했지만 435행 `--require-quotes` 옵션의 도움말(`--help`에 보임)에도 "task-0197 pilot"이 있고, 197행 주석 인용의 `require_quotes`를 `--require-quotes`로 옮겨 적었다. Manager가 코드에서 확인했다. repair 예산(1)을 이미 써서 Owner에게 선택지(1 예산 +1로 기록 보완, 2 §8로 수용, 3 코드 표기 정리 범위 확대)를 물었다.
+- Owner 수용 원문:
+
+```text
+2번으로 진행
+```
+
+- 수용은 이 candidate에만 효력이 있다. 지적은 기록 문구이며 동작과 SOP 규칙은 바꾸지 않는다. 남은 정정: 코드의 "pilot" 표기는 `check_task_record.py` 17·197·435행과 `commit_candidate.py` 1·177행이고, 197행 주석의 실제 문구는 "advice only unless require_quotes (task-0197 pilot)"이다. 코드 표기 정리는 후속 후보로 남긴다.
+
+## QA·완료
+
+- QA: 새 detached worktree에서 PASS 20/20(변경 파일 4개, SOP 변경이 모두 Manager 절 안, 새 필수 명령 세 가지와 이전 파일럿 항목 삭제, 두 skill의 같은 사전 점검, 실제 스크립트 옵션과 일치, `--emit-table` 4행, 세 `--self-test`, 이 기록 `--require-quotes` PASS, 코드·validator·agent 정의 불변, validator, diff --check, 제어 문자 없음, jarvis.bat 미추적). 첫 실행은 QA 스크립트의 skill 변경 줄 수 기준(6, 실제는 의도한 7줄)이 틀려 1건 실패했고, 스크립트만 고쳐 같은 candidate에서 다시 실행했다(retry, source 변경 없음). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push는 하지 않았다.
+- 측정(파일럿 의무는 끝났지만 참고로): Reviewer 2회(minor 1 → repair 1 → minor 1, Owner §8 수용), repair 1, QA 2회 실행, self-review 1회(minor 5).
