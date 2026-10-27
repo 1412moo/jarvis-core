@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-27 13:25 UTC`
-- updated_at: `2026-10-27 13:28 UTC`
+- updated_at: `2026-10-27 13:30 UTC`
 - summary: `SOP 경량화 파일럿(task-0197) 3건 뒤 Owner 결정에 따라 A1(요약 표 생성)과 A4(커밋 보호)를 정식 절차로 고정한다. SOP Manager 절의 사전 점검을 미인용 0 필수(--require-quotes)로, candidate와 repair candidate 커밋을 commit_candidate.py로만 하도록, Manager 요약 표는 --emit-table 뼈대로 만들도록 바꾸고 파일럿 측정 의무는 끝낸다. self-review와 Reviewer 호출 skill의 사전 점검 명령도 같은 옵션으로 맞춘다. 코드는 바꾸지 않는다.`
 - source_command: `Owner 지시: A1·A4 정식 절차 고정 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `d1987222e81dd9278583c33b505f73508e0d961a` (등록 시점 main HEAD, task-0202 checkpoint까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값. Reviewer 1차 minor 1건 repair) |
 
 ## Owner 결정 (원문)
 
@@ -39,7 +39,7 @@ d198722 push를 승인하고, A1·A4도 정식 절차로 고정한다
    - 사전 점검 항목: 명령을 `python -B scripts/check_task_record.py memory/tasks/<task-id>.md --baseline <baseline> --require-quotes`로 바꾸고, Owner 원문 문장이 Manager 요약에 그대로 인용되지 않으면 위반(종료 코드 0이 아님)이라고 적는다(task-0203). 이 검사가 Reviewer의 조건 대조를 대신하지 않는다는 문장은 둔다.
    - 파일럿 항목을 정식 항목으로 바꾼다: Manager 요약 표는 `check_summary_quotes.py --emit-table <기록>`의 뼈대로 만들고 해석 칸만 채운다(A1). candidate와 repair candidate는 `commit_candidate.py --record <기록> --baseline <baseline> --message-file <파일> --require-quotes`로만 커밋하고, 직접 `git commit`으로 candidate를 만들지 않는다(A4). 파일럿 측정 의무는 끝났다고 적고, 측정 결과 위치(task-0201 기록)를 남긴다.
 2. 두 skill의 사전 점검 명령에 `--require-quotes`를 더한다. Reviewer 호출 skill에는 그 점검이 PASS면 인용 목록이 비어 있다는 구절을 더한다(self-review 4). 그 밖의 skill 내용은 바꾸지 않는다.
-3. 코드, validator, agent 정의, Reviewer 판정 기준은 바꾸지 않는다. `check_task_record.py`의 docstring과 주석에 남은 "task-0197 pilot"·"advice only unless --require-quotes" 표기는 코드가 deny 범위라 그대로 두며, 옵션 동작은 같다. DONE checkpoint와 master-plan 커밋은 이번 규칙의 대상(candidate)이 아니므로 그대로 둔다.
+3. 코드, validator, agent 정의, Reviewer 판정 기준은 바꾸지 않는다. `check_task_record.py`의 docstring과 주석에 남은 "task-0197 pilot"·"advice only unless --require-quotes" 표기와 `scripts/commit_candidate.py`의 모듈 docstring(1행 "(task-0197 pilot)")·177행 주석("this pilot's scope")은 코드가 deny 범위라 그대로 두며, 옵션 동작은 같다(repair 1에서 `commit_candidate.py`를 더함). DONE checkpoint와 master-plan 커밋은 이번 규칙의 대상(candidate)이 아니므로 그대로 둔다.
 
 ## 범위
 
@@ -92,3 +92,8 @@ candidate 전 1회(사전 점검 `--require-quotes` PASS 뒤). 지적 5건(모�
 
 - 고친 뒤: SOP validator PASS, 세 스크립트 `--self-test` PASS.
 - self-review 사용량(API 환산 추정): 약 $0.32, 63초.
+
+## Reviewer 1차와 repair 1
+
+- candidate `3d662323b060631b721cadc9c9da352e1d0e3bff`: Reviewer FINDINGS, minor 1건, self_deviations 0. 설계 3이 pilot 표기가 남은 코드로 `check_task_record.py`만 들었는데 `scripts/commit_candidate.py` 1행과 177행에도 남아 있다.
+- repair 1(`repair_count=1`, 기본 예산 안): 설계 3에 `commit_candidate.py`의 두 곳을 더했다. 기록만 바꿨고 코드는 그대로다.
