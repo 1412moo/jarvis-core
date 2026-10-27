@@ -112,12 +112,13 @@ Quote the approval exactly. Never paraphrase, reflow, or summarize it.
 
 ## Step 3 — check the summary against the approval
 
-First run `python -B scripts/check_task_record.py memory/tasks/<task-id>.md --baseline <baseline>`
-(task-0171). The script reads the index and HEAD, not the hash, so its result
+First run `python -B scripts/check_task_record.py memory/tasks/<task-id>.md --baseline <baseline> --require-quotes`
+(task-0171; `--require-quotes` since task-0203). The script reads the index and HEAD, not the hash, so its result
 describes the candidate only when HEAD is the candidate hash and nothing is staged;
 otherwise the preflight is BLOCKED. Any non-zero exit (`status=BLOCKED` or
 `status=ERROR`) is a BLOCKED preflight: name its violations or error and do not
-assemble the call. Copy its quote list into the report as is
+assemble the call. With `--require-quotes` a passing preflight leaves this list empty, since any
+unquoted sentence blocks it. Copy its quote list into the report as is
 (task-0169): it lists every Owner verbatim sentence that the Manager summary does
 not quote word for word. That list is a mechanical aid: it neither replaces the
 comparison below nor decides that a listed sentence is a condition.

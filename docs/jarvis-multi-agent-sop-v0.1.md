@@ -90,17 +90,18 @@ repair·retry와 pass/fail 판단은 계속 Manager가 소유한다. nested spaw
   결정을 받는다. 그 질문과 답도 원문 그대로 task 기록에 남긴다.
 - Reviewer assignment에는 Manager 요약과 함께 Owner 승인 원문을 전달한다.
 - candidate(repair candidate 포함)를 커밋하기 전에 변경 파일과 task 기록을 stage한 상태로
-  `python -B scripts/check_task_record.py memory/tasks/<task-id>.md --baseline <baseline>`을
+  `python -B scripts/check_task_record.py memory/tasks/<task-id>.md --baseline <baseline> --require-quotes`를
   실행하고, 종료 코드가 0이 아니면 candidate를 만들지 않고 출력된 위반(파서·Console 읽기,
-  `owned` 행과 staged 파일, `updated_at`, 파일 끝 줄바꿈)을 먼저 고친다(task-0171). 같은 출력의
-  승인 원문 인용 목록(task-0169)은 Manager의 참고 자료이며 종료 코드에 영향을 주지 않고,
-  이 검사는 Reviewer의 조건 대조나 판정을 대신하지 않는다.
-- 파일럿(task-0197): task-0197 다음의 수동 task 3건에 적용한다. `python -B scripts/check_summary_quotes.py --emit-table <기록>`은 Owner
-  원문 문장마다 한 행인 Manager 요약 표 뼈대를 출력한다(Manager는 해석 칸만 채움).
-  `python -B scripts/commit_candidate.py --record <기록> --baseline <baseline> --message-file <파일> --require-quotes`는
-  위 점검이 PASS이고 미인용 문장이 없을 때만 candidate를 커밋한다. 그 3건의 기록 끝에는 Reviewer 실행 횟수,
-  지적 유형(실제 결함·기록 문구), repair 수를 남긴다. 파일럿 동안 위의 필수 절차와 기본 종료 코드 기준은
-  그대로이며, 3건 뒤 Manager가 그 측정값을 task-0183~0196과 비교해 보고하고 Owner가 두 도구의 고정 여부를 정한다.
+  `owned` 행과 staged 파일, `updated_at`, 파일 끝 줄바꿈, Manager 요약에 그대로 인용되지 않은
+  Owner 원문 문장)을 먼저 고친다(task-0171, 미인용 문장은 task-0203부터 위반). 이 검사는 Reviewer의
+  조건 대조나 판정을 대신하지 않는다.
+- Manager 요약 표는 `python -B scripts/check_summary_quotes.py --emit-table <기록>`이 출력하는 뼈대(Owner
+  원문 문장마다 한 행)로 만들고 Manager는 해석 칸만 채운다(task-0203. task-0197 파일럿의 A1 요약 표 생성).
+- candidate와 repair candidate는
+  `python -B scripts/commit_candidate.py --record <기록> --baseline <baseline> --message-file <파일> --require-quotes`로만
+  커밋한다. 이 스크립트는 위 점검이 PASS일 때만 커밋하며, 직접 `git commit`으로 candidate를 만들지 않는다
+  (task-0203. task-0197 파일럿의 A4 커밋 보호). 두 도구는 task-0197 파일럿(task-0198·0199·0201, 측정과 비교는 task-0201 기록) 뒤 Owner 결정으로
+  고정됐고 파일럿 측정 의무는 끝났다.
 
 ### Implementer
 

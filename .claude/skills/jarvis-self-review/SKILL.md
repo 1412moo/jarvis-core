@@ -28,7 +28,7 @@ Implementer can fix, before the candidate exists, what the Reviewer would otherw
 
 Stop and report when any is false:
 
-1. `python -B scripts/check_task_record.py memory/tasks/$0.md --baseline $1` exits 0.
+1. `python -B scripts/check_task_record.py memory/tasks/$0.md --baseline $1 --require-quotes` exits 0 (task-0203).
 2. `git diff --name-only` prints nothing for the staged files: the working tree equals the index,
    so the self-reviewer's Read shows the staged content.
 3. The task record has no `## Self-review` section yet (once per task).
