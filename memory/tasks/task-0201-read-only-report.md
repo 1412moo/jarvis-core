@@ -2,11 +2,12 @@
 
 - id: `task-0201-read-only-report`
 - title: `읽기 전용 확인·보고 작업`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-27 10:55 UTC`
-- updated_at: `2026-10-27 11:32 UTC`
+- updated_at: `2026-10-27 11:43 UTC`
 - summary: `Discord /work 요청에 정해진 읽기 전용 문구(수정하지 마, 수정 금지, 보고만, 확인만, 읽기 전용 등)가 있으면 읽기 전용 확인·보고 작업으로 만든다. /go 뒤 Worker는 Read·Grep·Glob만으로 임시 worktree에서 답하고, 답을 검증 안 된 Worker 답으로 채널에 보고한다. 파일이 바뀌면 실패, 바뀐 파일이 없어도 성공이다. 긴 답은 잘라 보내고 전문은 저장소 밖 파일에 둔다. Reviewer·QA·main 반영은 없고 task 기록만 checkpoint한다. SOP 경량화 파일럿 측정 대상 3/3이다.`
+- completion_evidence: `candidate c0626d978f6a9130918032d4d82537c6dbd88b20 (baseline f3bd53b, repair 1 after Reviewer minors 3). Reviewer PASS, findings 0, self_deviations 0. QA PASS 30/30 in a fresh worktree: 6 scope files, only the stated definitions; SOP edits inside 10.1; plan mode with Read,Grep,Glob only, edits and Bash disallowed, no MCP; replies fit one message, never ping, name the file; smoke 642/0 and self-check 109 leave the real reports and usage log untouched.`
 - source_command: `Owner 지시: 읽기 전용 확인·보고 작업 (Claude Code 세션)`
 
 ## 기준선
@@ -142,3 +143,36 @@ candidate 전 1회(사전 점검 `--require-quotes` PASS, staged 6, 위반 0, �
   3. `read_only_title_mismatch` 때 만든 TODO task가 남아 `/go`하면 수정 작업으로 도는데, 기록은 그런 task가 생기지 않는다고 적었다. 기록 설계 2와 코드 주석을 실제대로 고치고, 사유 코드에 task ID를 붙였다(검사에 TODO로 남는 것까지 확인).
 - Reviewer 미확인 가운데 읽기 전용 호출의 `--disallowedTools`·`--strict-mcp-config`는 가짜 claude가 함께 확인하게 했다(아니면 종료 코드 5).
 - 고친 뒤: Worker smoke total=642 failed=0, Discord self-check ok 109, validator PASS.
+
+## Reviewer·QA 결과
+
+- candidate `c0626d978f6a9130918032d4d82537c6dbd88b20`(repair 1 뒤): fresh Reviewer PASS(findings 0, self_deviations 0). Reviewer 미확인 가운데 실제 claude의 plan 모드 동작과 Discord 실제 표시는 이번에 확인하지 않았다(가짜 claude로만 검사). 읽기 전용 DOING task의 recover는 기존 13항 경로를 그대로 쓰며 따로 실행해 보지 않았다.
+- QA: 새 detached worktree에서 PASS 30/30(변경 파일 6개, 바뀐 정의가 적은 것뿐이고 파이프라인·accept·팀장·Worker 호출은 그대로, SOP 변경이 모두 10.1 안, 읽기 전용 호출 인자, 답 추출과 빈 답 실패, 보고 문구가 어떤 길이에서도 한 메시지 안이고 멘션 없음·잘림 표시·전문 경로·저장 실패 표시, 실패 선택지, Worker smoke 642/0과 self-check 109가 실제 보고 폴더·사용량 로그를 건드리지 않음, `--require-quotes` 기록 점검, validator, check_no_secrets, diff --check, 제어 문자 없음, jarvis.bat·task-0200 기록 미추적). 첫 실행은 QA 스크립트의 출력 인코딩(cp949) 오류로 중간에 멈춰, 스크립트만 고쳐 같은 candidate에서 다시 실행했다(retry, source 변경 없음). worktree는 지웠다.
+- Console Evidence 기록 후 Complete(DOING → DONE)로 닫았다. Console은 끝난 뒤 껐다. push와 봇 재시작은 하지 않았다(읽기 전용 실행은 봇을 다시 켜야 Discord에서 쓸 수 있다).
+
+## 파일럿 측정 (3/3)
+
+| 항목 | 값 |
+| --- | --- |
+| 요약 표 | `--emit-table`로 생성, 24행, 미인용 0 |
+| 커밋 | candidate 두 커밋(첫 candidate, repair 1) 모두 `commit_candidate.py --require-quotes`(점검 PASS 뒤 커밋) |
+| self-review | 1회, 지적 6건(major 1: SOP 안의 실패 시 worktree 보존 모순, minor 5: 설계와 SOP 행, 제목 불일치 분기, 저장 실패 표시, README 문구, 기록 단계 누락). 모두 candidate 전에 반영 |
+| Reviewer 실행 | 2회(FINDINGS minor 3 → repair 1 → PASS) |
+| 지적 유형 | Reviewer: SOP 규칙 충돌 1, 실제 결함 1(보고 폴더가 저장소 안일 수 있음), 기록·주석이 코드보다 넓음 1. self-review: 실제 결함 2(제목 불일치 분기, 저장 실패 표시), SOP·문서 문구 3, 기록 1 |
+| Owner 원문 누락 지적 | 0건 |
+| repair | 1회 |
+| QA 실행 | 2회(첫 실행은 QA 스크립트 인코딩 오류, 같은 candidate 재실행) |
+| 사고 | 패치 스크립트의 줄바꿈 표기 손상 2건(구현 절). 등록 기록을 따로 커밋했다가 push 전 되돌림 |
+| self-review 사용량(API 환산 추정) | 약 $0.67, 97초 |
+
+## 파일럿 3건 비교 (task-0183~0196 수동 task와)
+
+기준 기간의 수동 SOP task 10건(task-0183, 0184, 0185, 0188, 0189, 0191, 0193, 0194, 0195, 0196. Discord Worker task는 뺌)의 기록에서 마지막 `repair_count`를 읽었다. Reviewer 실행 수는 그 기간 기록에 일정한 칸이 없어 repair 수 + 1로 어림했다(무효 검토 재실행은 빠짐).
+
+| 구분 | task 수 | repair 합(평균) | Reviewer 실행 어림 합(평균) | 첫 Reviewer PASS |
+| --- | --- | --- | --- | --- |
+| 기준 기간 | 10 | 14(1.4) | 24(2.4) | 4건(0184, 0188, 0191, 0195) |
+| 파일럿(0198, 0199, 0201) | 3 | 1(0.33) | 4(1.33) | 2건(0198, 0199) |
+
+- 파일럿 3건 모두 Owner 원문을 요약이 빠뜨렸다는 지적이 0건이었고, 커밋 보호를 거치지 않은 커밋은 없었다(task-0198의 `;` 사고는 보호를 거쳤지만 보완 전 기록이 커밋된 것).
+- 한계: 표본이 3건이고 task 크기와 종류가 기준 기간과 다르다. 기준 기간의 지적 유형은 기록마다 분류가 달라 유형별 비교는 하지 않았다. Reviewer 실행 수는 어림이다.
