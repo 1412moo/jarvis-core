@@ -121,7 +121,9 @@ FAKE_CLAUDE = textwrap.dedent(
     mode = os.environ.get("FAKE_WORKER", "ok")
     if mode.startswith("report"):
         # task-0201: a read-only report run, which must arrive read-only (plan mode, reading tools only).
-        if args[args.index("--permission-mode") + 1] != "plan" or args[args.index("--tools") + 1] != "Read,Grep,Glob":
+        if (args[args.index("--permission-mode") + 1] != "plan" or args[args.index("--tools") + 1] != "Read,Grep,Glob"
+                or "--strict-mcp-config" not in args or "--mcp-config" in args
+                or not {"Edit", "Write", "Bash"} <= set(args[args.index("--disallowedTools") + 1].split(","))):
             sys.exit(5)
         if mode == "reportedit":
             Path("apps/studyroom/report-note.md").write_text("x\\n", encoding="utf-8")
@@ -1772,7 +1774,9 @@ def report_bot_flow(bot, clone: Path, status_of) -> None:
         finally:
             bot._read_task_metadata = real_meta
         check("report bot: a title that is no longer read-only is refused, never run as an edit",
-              mismatch.get("result_type") == "error" and mismatch.get("reason") == "read_only_title_mismatch", str(mismatch))
+              mismatch.get("result_type") == "error"
+              and mismatch.get("reason") == f"read_only_title_mismatch:{mismatch.get('task_id')}"
+              and status_of(mismatch.get("task_id", "")) == "TODO", str(mismatch))
         changed = bot._format_reply({"result_type": "work_result", "task_id": task_id, "ok": False, "read_only": True, "stage": "scope",
                                      "reason": "report_changed_files", "worktree": "W"})
         check("report bot: a changed-file failure points at the kept worktree", "직접 확인(worktree W)" in changed, changed)
@@ -2327,6 +2331,10 @@ def report_flow(clone: Path, worktrees: Path, tmp: Path) -> None:
         r, calls, stages, before, after = run("reportnofile", "report")
         check("report: a failed report file write still reports and records", r.ok and r.report and not r.report_path
               and calls and calls[0][0] is True, f"{r.stage}:{r.reason}")
+        claude_worker.REPORT_DIR = clone / "reports-inside"
+        r, calls, stages, before, after = run("reportinside", "report")
+        check("report: a report folder inside the repository is never written", r.ok and not r.report_path
+              and not (clone / "reports-inside").exists(), f"{r.stage}:{r.reason}:{r.report_path}")
     finally:
         claude_worker.REPORT_DIR = real_dir
         os.environ.pop("FAKE_REPORT", None)

@@ -352,10 +352,10 @@ Worker 실행과 같은 preflight 뒤 저장소 밖에 attempt 이름의 detache
 Worker를 Read·Grep·Glob만 보이는 plan 권한 모드로 한 번 부른다. 답이 비면 `report_empty`, worktree에 바뀐 파일이 있으면
 `report_changed_files`로 실패하고(이때만 worktree를 남김), 바뀐 파일이 없는 것이 정상이다. candidate, Reviewer, QA,
 ff-only 반영은 없다(Owner 결정: 검증 없이 보고). 성공하면 답 전문을 저장소 밖 보고 파일(`%LOCALAPPDATA%\jarvis-core\reports\<attempt>.md`,
-쓰기 실패는 실행을 바꾸지 않음)에 쓰고, `DOING→DONE` 실행 결과 기록과 task 기록 한 파일만 담는 checkpoint commit을 한 뒤
+쓰기 실패와 저장소 안을 가리키는 폴더는 쓰지 않은 것으로 보고 실행을 바꾸지 않음)에 쓰고, `DOING→DONE` 실행 결과 기록과 task 기록 한 파일만 담는 checkpoint commit을 한 뒤
 worktree를 지운다. 결과는 채널에 "검증 안 된 Worker 답"으로 보내며, 답은 멘션을 무력화하고 한 메시지에 맞게 잘라 잘렸으면
 전문 파일 경로를 적는다. 읽기 전용 task에는 `resume`을 거절하고(`resume_not_for_read_only`) 다시 실행은 `/go`다. 이 실행은
-10.2의 candidate·Reviewer·QA·반영 규칙(1~9항, 12항)의 대상이 아니다. 실패 기록(`DOING→FAILED`)은 11항을 따르되 worktree는 `report_changed_files`일 때만 남기고(11항의 시도 보존 대신), recover는 13항을 따른다.
+10.2의 candidate·Reviewer·QA·반영·자동 DONE 규칙(1~10항, 12항)의 대상이 아니며, DONE과 task 기록만 담는 checkpoint는 이 문단을 따른다. 실패 기록(`DOING→FAILED`)은 11항을 따르되 worktree는 `report_changed_files`일 때만 남기고(11항의 시도 보존 대신), recover는 13항을 따른다.
 
 작업 종류의 값(종류 이름, 허용 경로, 테스트 스크립트)은 `orchestrator/worker/claude_worker.py`의
 `WORK_KINDS` 한 곳에 있고, 위 표는 종류마다 그 값을 적는다. 첫 항목 Studyroom이 기본값이며 기존

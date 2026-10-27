@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-27 10:55 UTC`
-- updated_at: `2026-10-27 11:19 UTC`
+- updated_at: `2026-10-27 11:32 UTC`
 - summary: `Discord /work 요청에 정해진 읽기 전용 문구(수정하지 마, 수정 금지, 보고만, 확인만, 읽기 전용 등)가 있으면 읽기 전용 확인·보고 작업으로 만든다. /go 뒤 Worker는 Read·Grep·Glob만으로 임시 worktree에서 답하고, 답을 검증 안 된 Worker 답으로 채널에 보고한다. 파일이 바뀌면 실패, 바뀐 파일이 없어도 성공이다. 긴 답은 잘라 보내고 전문은 저장소 밖 파일에 둔다. Reviewer·QA·main 반영은 없고 task 기록만 checkpoint한다. SOP 경량화 파일럿 측정 대상 3/3이다.`
 - source_command: `Owner 지시: 읽기 전용 확인·보고 작업 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `f3bd53b55d24e4ee5921a36acf97297bb13680e7` (등록 시점 main HEAD, task-0199까지 push 완료) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값. Reviewer 1차 minor 3건 repair) |
 | 파일럿 | SOP 경량화 파일럿(task-0197) 측정 대상 3/3. 요약 표는 `check_summary_quotes.py --emit-table`, candidate는 `commit_candidate.py --require-quotes`로 만든다 |
 
 ## Owner 결정 (원문)
@@ -53,7 +53,7 @@
    - `run_report()`: main이 checkout돼 있고 tracked 변경이 없을 때(task 자신의 기록 제외, 기존 preflight와 같음) baseline(HEAD)으로 attempt 이름의 detached worktree(브랜치 없음)를 저장소 밖에 만들고, 실행 표지(task-0167)를 둔다. Worker를 Read·Grep·Glob만, plan 권한 모드, `--tools`·`--strict-mcp-config`로 한 번 부른다(사용량은 task-0199 기록에 남음). 답이 비면 실패, worktree에 바뀐 파일이 있으면 `report_changed_files`로 실패(worktree 보존). 성공하면 답 전문을 저장소 밖 보고 파일(`%LOCALAPPDATA%\jarvis-core\reports\<attempt>.md`, `JARVIS_REPORT_DIR`로 변경)에 쓰고(실패해도 실행은 계속), DOING→DONE과 task 기록만 담는 checkpoint commit을 한다. 끝나면 worktree를 지운다. Reviewer·QA·ff-only 반영은 없다.
    - `WorkerRunResult`에 `read_only`, `report`, `report_path`를 더한다.
 2. `adapters/discord/bot_minimal.py`
-   - `/work`: 요청에 읽기 전용 문구가 있으면 작업 종류 표지어와 관계없이 팀장을 거치지 않고 TODO task를 만들고, 만든 task 제목으로 다시 판정한 결과를 작업 준비 메시지에 "읽기 전용 확인·보고"로 보인다. 제목이 읽기 전용이 아니게 되면(제목은 `/work` 원문이라 보통 일어나지 않음) 수정 작업으로 넘기지 않고 `read_only_title_mismatch`로 거절한다(팀장을 건너뛴 수정 작업이 생기지 않게).
+   - `/work`: 요청에 읽기 전용 문구가 있으면 작업 종류 표지어와 관계없이 팀장을 거치지 않고 TODO task를 만들고, 만든 task 제목으로 다시 판정한 결과를 작업 준비 메시지에 "읽기 전용 확인·보고"로 보인다. 제목이 읽기 전용이 아니게 되면(제목은 `/work` 원문이라 보통 일어나지 않음) 작업 준비 메시지 대신 `read_only_title_mismatch:<task-id>`로 거절한다. 이때 이미 만든 TODO task는 남고, 그 task에 `/go`하면 수정 작업으로 돈다(사유 코드에 task ID를 넣어 Owner가 알 수 있게 함, repair 1).
    - `/go`: 제목이 읽기 전용이면 읽기 전용 실행을 시작한다. `resume`은 거절(`resume_not_for_read_only`), `accept`는 기존 기록 검사대로 거절된다. `recover`는 그대로다.
    - 결과 보고: 성공이면 답(멘션 무력화, 한 메시지에 맞게 잘라냄)과 "검증 안 된 Worker 답(Reviewer·QA 없음)", 잘렸으면 전문 파일 경로, 사용량, checkpoint, push 없음. 실패면 기존 실패 보고에서 resume 선택지를 빼고 재시도·상태 확인만 보인다.
 3. 판정·repair·QA·반영, 기존 작업 종류, 팀장, task 기록 형식은 바꾸지 않는다.
@@ -133,3 +133,12 @@ candidate 전 1회(사전 점검 `--require-quotes` PASS, staged 6, 위반 0, �
 
 - 고친 뒤: Worker smoke total=641 failed=0, Discord self-check ok 109, validator PASS.
 - self-review 사용량(API 환산 추정): 약 $0.67, 97초.
+
+## Reviewer 1차와 repair 1
+
+- candidate `88b0df3aa0295efca1f45073e745aee49427302b`: Reviewer FINDINGS, minor 3건, self_deviations 0. 모두 candidate 파일을 가리켜 repair 예산 안에서 고쳤다(`repair_count=1`).
+  1. SOP 읽기 전용 문단이 10.2의 1~9항·12항만 제외해, 10항(9가 성공한 경우에만 자동 DONE과 checkpoint)과 읽기 전용 DONE이 맞부딪쳤다. 제외 범위를 1~10항·12항으로 넓히고 DONE과 기록 checkpoint는 그 문단을 따른다고 적었다.
+  2. `JARVIS_REPORT_DIR`가 저장소 안을 가리키면 답이 작업 트리에 쓰일 수 있었다. 보고 폴더에 `_ensure_outside_repo`를 적용해 저장소 안이면 쓰지 않은 것으로 본다(검사 1개, SOP 문단에도 적음).
+  3. `read_only_title_mismatch` 때 만든 TODO task가 남아 `/go`하면 수정 작업으로 도는데, 기록은 그런 task가 생기지 않는다고 적었다. 기록 설계 2와 코드 주석을 실제대로 고치고, 사유 코드에 task ID를 붙였다(검사에 TODO로 남는 것까지 확인).
+- Reviewer 미확인 가운데 읽기 전용 호출의 `--disallowedTools`·`--strict-mcp-config`는 가짜 claude가 함께 확인하게 했다(아니면 종료 코드 5).
+- 고친 뒤: Worker smoke total=642 failed=0, Discord self-check ok 109, validator PASS.

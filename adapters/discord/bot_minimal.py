@@ -1907,8 +1907,9 @@ def _run_work(command_text: str) -> dict[str, Any]:
         task_id = created["task_id"]
         title = (_read_task_metadata(REPO_ROOT / "memory" / "tasks" / f"{task_id}.md") or {}).get("title", "")
         if not claude_worker.is_read_only_request(title):
-            # Not expected (the title is the /work text); never fall back to an editing plan the lead skipped.
-            return {"result_type": "error", "reason": "read_only_title_mismatch", "task_id": task_id}
+            # Not expected (the title is the /work text). No plan is shown, but the TODO task just made
+            # stays and a /go on it would run as an edit, so the reason names it for the Owner.
+            return {"result_type": "error", "reason": f"read_only_title_mismatch:{task_id}", "task_id": task_id}
         return {"result_type": "work_planned", "task_id": task_id, "request": request, "read_only": True}
     kind = claude_worker.select_work_kind(request)
     if kind is None:

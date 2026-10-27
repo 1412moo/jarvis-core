@@ -2000,15 +2000,17 @@ def _run_report(
             raise StageFailure("scope", "report_changed_files", ", ".join(changed)[:200])
         result.report = answer
 
-        # 5. The full answer outside the repository; a failed write never fails the run.
+        # 5. The full answer outside the repository; a failed write never fails the run, and a
+        # folder inside the repository (JARVIS_REPORT_DIR) counts as a failed write.
         result.stage = "report"
         try:
+            _ensure_outside_repo(REPORT_DIR, repo_root)
             REPORT_DIR.mkdir(parents=True, exist_ok=True)
             target = REPORT_DIR / f"{name}.md"
             target.write_text(answer + "\n", encoding="utf-8")
             result.report_path = str(target)
-        except OSError as exc:
-            print(f"[report] file write failed ({type(exc).__name__}); the run goes on", file=sys.stderr)
+        except (OSError, StageFailure) as exc:
+            print(f"[report] file not written ({type(exc).__name__}); the run goes on", file=sys.stderr)
 
         # 6. Task result (DOING -> DONE) and a checkpoint commit of the task record only.
         result.stage = "checkpoint"
