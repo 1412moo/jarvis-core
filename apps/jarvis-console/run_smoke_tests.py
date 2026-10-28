@@ -8218,7 +8218,278 @@ process.stdout.write(JSON.stringify(results));
     assert_badges(live, expected)
 
 
+def _test_task_report_view() -> None:
+    """task-0205: Task View reads a read-only report Task's file, read-only."""
+
+    report_summary = "read-only report of 12 chars, no files changed"
+
+    def view(status: str, execution: dict[str, Any] | None, parse_state: str = "valid") -> dict[str, Any]:
+        return {"parse_state": parse_state, "id": "task-0202-report", "status": status, "execution": execution}
+
+    assert run_web_app.task_report_chars(view("DONE", {"status": "success", "summary": report_summary})) == 12
+    for not_report in (
+        view("DONE", None),
+        view("DONE", {"status": "success", "summary": None}),
+        view("FAILED", {"status": "failed", "summary": report_summary}),
+        view("DONE", {"status": "not_executed", "summary": report_summary}),
+        view("DONE", {"status": "success", "summary": "worker candidate 2fe5262 passed Reviewer and QA after 0 repair(s)"}),
+        view("DONE", {"status": "success", "summary": report_summary + " extra"}),
+        view("DONE", {"status": "success", "summary": report_summary}, parse_state="invalid"),
+    ):
+        assert run_web_app.task_report_chars(not_report) is None, not_report
+
+    # The folder follows claude_worker.REPORT_DIR: JARVIS_REPORT_DIR first,
+    # then LOCALAPPDATA, then the home folder.
+    saved_env = {name: os.environ.get(name) for name in ("JARVIS_REPORT_DIR", "LOCALAPPDATA")}
+    try:
+        os.environ["JARVIS_REPORT_DIR"] = "X:/custom/reports"
+        os.environ["LOCALAPPDATA"] = "X:/local"
+        assert run_web_app.task_report_dir() == Path("X:/custom/reports")
+        del os.environ["JARVIS_REPORT_DIR"]
+        assert run_web_app.task_report_dir() == Path("X:/local") / "jarvis-core" / "reports"
+        del os.environ["LOCALAPPDATA"]
+        assert run_web_app.task_report_dir() == Path.home() / "jarvis-core" / "reports"
+    finally:
+        for name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    task_id = "task-0202-report"
+    with TemporaryDirectory() as temp:
+        root = Path(temp)
+        reports = root / "reports"
+        tasks = root / "tasks"
+        reports.mkdir()
+        tasks.mkdir()
+
+        def read(chars: int) -> dict[str, Any]:
+            return run_web_app.read_task_report(task_id, chars, report_dir=reports, tasks_dir=tasks)
+
+        result = read(5)
+        assert result == {
+            "read_only": True,
+            "label": "Unverified Worker answer (no Reviewer or QA)",
+            "state": "missing",
+            "file_name": None,
+            "text": None,
+            "truncated": False,
+        }
+        assert run_web_app.read_task_report(task_id, 5, report_dir=root / "absent", tasks_dir=tasks)["state"] == "missing"
+
+        # What the Worker writes on Windows: the answer and one newline, every
+        # newline as CRLF. The recorded length is the answer's.
+        answer = "첫 답\n둘째 줄\tTAB\x07‮끝"
+        (reports / f"{task_id}.md").write_bytes((answer + "\n").replace("\n", "\r\n").encode("utf-8"))
+        result = read(len(answer))
+        assert result["state"] == "available" and result["file_name"] == f"{task_id}.md"
+        assert result["text"] == "첫 답\n둘째 줄\tTAB끝\n", result["text"]
+        assert result["truncated"] is False
+        assert str(reports) not in json.dumps(result)
+        # A file that does not fit the recorded length is not shown.
+        for wrong in (len(answer) - 1, len(answer) + 1, len(answer) + 2):
+            result = read(wrong)
+            assert result["state"] == "mismatch" and result["text"] is None and result["file_name"] is None, wrong
+        (reports / f"{task_id}.md").write_bytes(answer.encode("utf-8") + b"x")
+        assert read(len(answer))["state"] == "mismatch"  # same length, no final newline
+        (reports / f"{task_id}.md").write_bytes((answer + "\n").encode("utf-8"))
+        assert read(len(answer))["state"] == "available"  # LF as written elsewhere
+
+        # Only the attempt names the Worker makes count, and among them only the
+        # file that fits the recorded length. Names it never makes (-r1, -r02,
+        # other suffixes), folders and another Task's own id are skipped.
+        (reports / f"{task_id}-r2.md").write_text("second\n", encoding="utf-8")
+        (reports / f"{task_id}-r10.md").write_text("tenth!\n", encoding="utf-8")
+        (reports / f"{task_id}-r9.md").write_text("ninth\n", encoding="utf-8")
+        for skipped in (f"{task_id}-r1.md", f"{task_id}-r02.md", f"{task_id}-r11.txt", f"{task_id}-x.md", f"{task_id}-r11.md.bak"):
+            (reports / skipped).write_text("fits!\n", encoding="utf-8")
+        (reports / f"{task_id}-r11.md").mkdir()
+        assert read(len("ninth"))["file_name"] == f"{task_id}-r9.md"
+        assert read(len("ninth"))["text"] == "ninth\n"
+        assert read(len("tenth!"))["state"] == "ambiguous"  # r10 and r2 both fit
+        assert read(len("tenth!"))["text"] is None
+        (tasks / f"{task_id}-r10.md").write_text("another task\n", encoding="utf-8")
+        assert read(len("second"))["file_name"] == f"{task_id}-r2.md"
+        assert read(len("four"))["state"] == "mismatch"
+        try:
+            (reports / f"{task_id}-r12.md").symlink_to(reports / f"{task_id}-r9.md")
+        except (OSError, NotImplementedError):
+            pass  # no symlink privilege here; the is_file(follow_symlinks=False) rule stays
+        assert read(len("ninth"))["file_name"] == f"{task_id}-r9.md"
+
+        before = sorted((path.name, path.stat().st_size, path.stat().st_mtime_ns) for path in reports.iterdir())
+        read(len("ninth"))
+        after = sorted((path.name, path.stat().st_size, path.stat().st_mtime_ns) for path in reports.iterdir())
+        assert before == after
+
+    with TemporaryDirectory() as temp:
+        reports = Path(temp)
+        target = reports / f"{task_id}.md"
+
+        target.write_bytes(b"ok \xff bad\n")
+        result = run_web_app.read_task_report(task_id, 7, report_dir=reports)
+        assert result["state"] == "unreadable" and result["file_name"] == f"{task_id}.md"
+        assert result["text"] is None
+
+        # A cut inside a character leaves only that unfinished character out,
+        # and a cut file fits only a recorded length longer than what was read.
+        limit = run_web_app.TASK_REPORT_MAX_BYTES
+        target.write_bytes(b"a" * (limit - 1) + "가".encode("utf-8") + b"tail\n")
+        result = run_web_app.read_task_report(task_id, limit + 4, report_dir=reports)
+        assert result["state"] == "available" and result["truncated"] is True
+        assert result["text"] == "a" * (limit - 1)
+        assert run_web_app.read_task_report(task_id, limit - 2, report_dir=reports)["state"] == "mismatch"
+        target.write_bytes(b"b" * (limit - 1) + b"\n")
+        result = run_web_app.read_task_report(task_id, limit - 1, report_dir=reports)
+        assert result["state"] == "available" and result["truncated"] is False
+        assert len(result["text"]) == limit
+
+        original_scandir = run_web_app.os.scandir
+
+        def failing_scandir(path: Any) -> Any:
+            raise PermissionError("denied")
+
+        run_web_app.os.scandir = failing_scandir
+        try:
+            assert run_web_app.read_task_report(task_id, limit - 1, report_dir=reports)["state"] == "unreadable"
+        finally:
+            run_web_app.os.scandir = original_scandir
+
+    # A folder inside the repository is never read.
+    for inside in (run_web_app.REPO_ROOT, run_web_app.REPO_ROOT / "memory" / "tasks"):
+        result = run_web_app.read_task_report(task_id, 5, report_dir=inside)
+        assert result["state"] == "unavailable" and result["file_name"] is None, inside
+
+    # Only a successful report Task gets worker_report; nothing else changes.
+    def record(name: str, status: str, summary: str | None, success: str = "true") -> str:
+        lines = [
+            f"# {name}",
+            "",
+            f"- id: `{name}`",
+            "- title: `Title`",
+            f"- status: `{status}`",
+            "- repo: `jarvis-core`",
+            "- created_at: `2026-10-27 10:00 UTC`",
+            "- updated_at: `2026-10-27 10:00 UTC`",
+            "- summary: `Summary`",
+            "- executed: `true`",
+            f"- success: `{success}`",
+        ]
+        if summary is not None:
+            lines.append(f"- execution_summary: `{summary}`")
+        return "\n".join(lines) + "\n"
+
+    texts = {
+        "task-0901-report": record("task-0901-report", "DONE", report_summary),
+        "task-0902-worker": record("task-0902-worker", "DONE", "worker candidate 2fe5262 passed Reviewer and QA after 0 repair(s)"),
+        "task-0903-failed": record("task-0903-failed", "FAILED", report_summary, success="false"),
+        "task-0904-plain": "\n".join(record("task-0904-plain", "TODO", None).splitlines()[:9]) + "\n",
+    }
+    reader_calls: list[tuple[str, int]] = []
+
+    def fake_report(task: str, chars: int) -> dict[str, Any]:
+        reader_calls.append((task, chars))
+        return {"state": "missing", "task": task}
+
+    projected = run_web_app.project_task_view_items(
+        [{"path": f"memory/tasks/{name}.md"} for name in texts],
+        text_reader=lambda path: texts[path.stem],
+        report_reader=fake_report,
+    )
+    by_id = {item["task_view"]["id"]: item for item in projected}
+    assert reader_calls == [("task-0901-report", 12)]
+    assert by_id["task-0901-report"]["worker_report"] == {"state": "missing", "task": "task-0901-report"}
+    for other in ("task-0902-worker", "task-0903-failed", "task-0904-plain"):
+        assert "worker_report" not in by_id[other], other
+    assert all(item["task_view"]["parse_state"] == "valid" for item in projected)
+
+    # Rendering: escaped, collapsed, labelled; the other states show one line.
+    app_js = (Path(__file__).resolve().parent / "web" / "app.js").read_text(encoding="utf-8")
+    escape_source = "function escapeHtml" + app_js.split("function escapeHtml", 1)[1].split("function truncateText", 1)[0]
+    report_source = "const workerReportStateText" + app_js.split("const workerReportStateText", 1)[1].split(
+        "function actionableTaskItemMarkup", 1
+    )[0]
+    item_source = "function actionableTaskItemMarkup" + app_js.split("function actionableTaskItemMarkup", 1)[1].split(
+        "function taskTransitionReceiptMarkup", 1
+    )[0]
+    assert "worker_report" in item_source
+    assert "<details class=\"worker-report\">" in report_source and "<details open" not in report_source
+    assert "fetch(" not in report_source
+    harness = (
+        f"{escape_source}\n{report_source}\n"
+        "const taskTransitionLastReceipt = null;\n"
+        "const completionEvidenceLastReceipt = null;\n"
+        "function taskTransitionReceiptMarkup() { return \"\"; }\n"
+        "function completionEvidenceReceiptMarkup() { return \"\"; }\n"
+        f"{item_source}\n"
+        """
+function item(report, parseState = "valid") {
+  const valid = parseState === "valid";
+  const result = {
+    path: "memory/tasks/task-0202-report.md",
+    task_view: valid
+      ? { parse_state: "valid", id: "task-0202-report", title: "t", status: "DONE",
+          updated_at: "2026-10-27 10:00 UTC", summary: "s", next_action: "n",
+          execution: { status: "success", summary: "read-only report of 12 chars, no files changed" } }
+      : { parse_state: "invalid", reason_code: "invalid_text", next_action: "n" },
+  };
+  if (report) result.worker_report = report;
+  return result;
+}
+const available = actionableTaskItemMarkup(item({
+  state: "available", label: "Unverified Worker answer (no Reviewer or QA)",
+  file_name: "task-0202-report.md", text: "line <b>&</b>\\nnext", truncated: false,
+}));
+for (const part of [
+  "<dt>Read-only report</dt>",
+  "<summary>Unverified Worker answer (no Reviewer or QA): task-0202-report.md</summary>",
+  "<pre>line &lt;b&gt;&amp;&lt;/b&gt;\\nnext</pre>",
+]) {
+  if (!available.includes(part)) throw new Error(`available report missing ${part}`);
+}
+if (available.includes("Only the first part")) throw new Error("untruncated report showed the cut note");
+const truncated = actionableTaskItemMarkup(item({
+  state: "available", label: "L", file_name: "f.md", text: "x", truncated: true,
+}));
+if (!truncated.includes("<p>Only the first part of the file is shown.</p>")) throw new Error("cut note missing");
+for (const [state, text] of [
+  ["missing", "Report file not found"],
+  ["unreadable", "Report file could not be read"],
+  ["unavailable", "Report folder unavailable"],
+  ["mismatch", "No report file matches the recorded run"],
+  ["ambiguous", "Several report files match the recorded run"],
+]) {
+  const html = actionableTaskItemMarkup(item({ state, label: "L", file_name: null, text: null, truncated: false }));
+  if (!html.includes(`<dt>Read-only report</dt><dd>${text}</dd>`) || html.includes("<details")) {
+    throw new Error(`${state} report rendered wrongly`);
+  }
+}
+const plain = actionableTaskItemMarkup(item(null));
+if (plain.includes("Read-only report")) throw new Error("plain Task rendered a report row");
+const invalid = actionableTaskItemMarkup(item({ state: "missing" }, "invalid"));
+if (invalid.includes("Read-only report")) throw new Error("metadata review rendered a report row");
+const strip = (html) => html.replace(/<dt>Read-only report<\\/dt>[\\s\\S]*?<\\/dd>/, "").replace(/\\s+/g, " ");
+if (strip(actionableTaskItemMarkup(item({ state: "missing" }))) !== strip(plain)) {
+  throw new Error("report row changed other card markup");
+}
+"""
+    )
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, f"report renderer harness failed: {completed.stdout}\n{completed.stderr}"
+
+
 def main() -> None:
+    _test_task_report_view()
     _test_tasks_reports_registry_copy()
     _test_recent_item_ordering()
     _test_reports_filter_before_cap()

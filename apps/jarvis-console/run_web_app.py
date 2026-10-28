@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 from collections.abc import Callable, Mapping
 import hashlib
 import hmac
@@ -1914,10 +1915,162 @@ def task_view_sort_key(item: Mapping[str, Any]) -> tuple[int, float, str]:
     )
 
 
+# task-0205: a read-only report run (task-0201) leaves the Worker's full answer
+# only in a report file outside the repository, and its Task records just the
+# answer's length. Task View reads that file read-only. The summary is the exact
+# text claude_worker.py records for such a run.
+TASK_REPORT_SUMMARY_PATTERN = re.compile(
+    r"^read-only report of (?P<chars>\d+) chars, no files changed$"
+)
+TASK_REPORT_MAX_BYTES = 64 * 1024
+TASK_REPORT_LABEL = "Unverified Worker answer (no Reviewer or QA)"
+TASK_REPORT_DROPPED_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
+
+
+def task_report_dir() -> Path:
+    """Return the report folder by the rule of REPORT_DIR in claude_worker.py."""
+
+    return Path(
+        os.environ.get("JARVIS_REPORT_DIR")
+        or Path(os.environ.get("LOCALAPPDATA") or Path.home())
+        / "jarvis-core"
+        / "reports"
+    )
+
+
+def task_report_chars(task_view: Mapping[str, Any]) -> int | None:
+    """Return the recorded answer length of a successful report Task, else None."""
+
+    if task_view.get("parse_state") != "valid":
+        return None
+    execution = task_view.get("execution")
+    if (
+        execution is None
+        or execution["status"] != "success"
+        or execution["summary"] is None
+    ):
+        return None
+    match = TASK_REPORT_SUMMARY_PATTERN.fullmatch(execution["summary"])
+    return None if match is None else int(match.group("chars"))
+
+
+def clean_task_report_text(text: str) -> str:
+    """Keep line breaks and tabs; drop control, format and surrogate characters."""
+
+    text = unicodedata.normalize("NFC", text.replace("\r\n", "\n").replace("\r", "\n"))
+    kept = []
+    for character in text:
+        if character in "\n\t":
+            kept.append(character)
+        elif unicodedata.category(character) in {"Zl", "Zp"}:
+            kept.append("\n")
+        elif unicodedata.category(character) not in TASK_REPORT_DROPPED_CATEGORIES:
+            kept.append(character)
+    return "".join(kept)
+
+
+def read_task_report(
+    task_id: str,
+    expected_chars: int,
+    *,
+    report_dir: Path | None = None,
+    tasks_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Read one Task's report file read-only and bounded (task-0205).
+
+    The Worker names the file after the attempt: `<task-id>.md` first, then
+    `<task-id>-r<N>.md` (claude_worker._attempt_name), and a name that is also
+    another Task's id is that Task's file, not an attempt of this one. The
+    attempt number does not say which file belongs to the recorded run: a run
+    whose file write failed still succeeds, and numbering can restart. So a
+    file is shown only when it fits the recorded length - the Worker writes the
+    answer plus one newline (CRLF on Windows) and records the answer's length.
+    No fitting file, or more than one, shows a status instead. Nothing here
+    writes, creates or removes a file, a folder inside the repository is never
+    read (fail closed), and the full path stays out of the result.
+    """
+
+    report: dict[str, Any] = {
+        "read_only": True,
+        "label": TASK_REPORT_LABEL,
+        "state": "unavailable",
+        "file_name": None,
+        "text": None,
+        "truncated": False,
+    }
+    folder = task_report_dir() if report_dir is None else report_dir
+    tasks = REPO_ROOT / "memory" / "tasks" if tasks_dir is None else tasks_dir
+    pattern = re.compile(
+        rf"^{re.escape(task_id)}(?:-r(?P<attempt>[2-9]|[1-9]\d+))?\.md$"
+    )
+    try:
+        resolved = folder.resolve()
+        repo_root = REPO_ROOT.resolve()
+        if resolved == repo_root or repo_root in resolved.parents:
+            return report
+        if not resolved.is_dir():
+            report["state"] = "missing"
+            return report
+        candidates: list[tuple[int, str]] = []
+        with os.scandir(resolved) as entries:
+            for entry in entries:
+                match = pattern.fullmatch(entry.name)
+                if match is None or not entry.is_file(follow_symlinks=False):
+                    continue
+                stem = entry.name[: -len(".md")]
+                if stem != task_id and (tasks / entry.name).exists():
+                    continue
+                candidates.append((int(match.group("attempt") or 1), entry.name))
+        loaded: list[tuple[str, bytes]] = []
+        for _, file_name in sorted(candidates, reverse=True):
+            with (resolved / file_name).open("rb") as file:
+                loaded.append((file_name, file.read(TASK_REPORT_MAX_BYTES + 1)))
+    except OSError:
+        report["state"] = "unreadable"
+        return report
+    if not loaded:
+        report["state"] = "missing"
+        return report
+    fitting: list[tuple[str, str, bool]] = []
+    for file_name, raw in loaded:
+        truncated = len(raw) > TASK_REPORT_MAX_BYTES
+        if truncated:
+            raw = raw[:TASK_REPORT_MAX_BYTES]
+        try:
+            # A cut can end inside a character; only that unfinished tail is
+            # left out. Any other invalid byte still fails.
+            text = codecs.getincrementaldecoder("utf-8")("strict").decode(
+                raw, final=not truncated
+            )
+        except UnicodeDecodeError:
+            report.update(state="unreadable", file_name=file_name)
+            return report
+        written = text.replace("\r\n", "\n")
+        if truncated:
+            # Only the front is read, so only "the file is longer" is checked.
+            fits = len(written) < expected_chars + 1
+        else:
+            fits = len(written) == expected_chars + 1 and written.endswith("\n")
+        if fits:
+            fitting.append((file_name, text, truncated))
+    if len(fitting) != 1:
+        report["state"] = "ambiguous" if fitting else "mismatch"
+        return report
+    file_name, text, truncated = fitting[0]
+    report.update(
+        state="available",
+        file_name=file_name,
+        text=clean_task_report_text(text),
+        truncated=truncated,
+    )
+    return report
+
+
 def project_task_view_items(
     discovered_items: list[dict[str, Any]],
     *,
     text_reader: Callable[[Path], str] = read_task_view_text,
+    report_reader: Callable[[str, int], dict[str, Any]] = read_task_report,
 ) -> list[dict[str, Any]]:
     """Project only matching files after existing Recent Tasks selection."""
 
@@ -1936,6 +2089,12 @@ def project_task_view_items(
         assert task_view is not None
         projected_item = dict(item)
         projected_item["task_view"] = task_view
+        # task-0205: only a successful read-only report Task carries this key.
+        report_chars = task_report_chars(task_view)
+        if report_chars is not None:
+            projected_item["worker_report"] = report_reader(
+                task_view["id"], report_chars
+            )
         projected.append(projected_item)
     projected.sort(key=task_view_sort_key)
     return projected

@@ -305,6 +305,23 @@ A Task run by the Worker pipeline also shows its recorded result read-only:
 execution metadata shows neither row. Jarvis Console only reads these values;
 it does not run, retry or change the execution.
 
+A read-only report Task (task-0201: a successful run whose execution summary
+is `read-only report of <N> chars, no files changed`) also shows a
+**Read-only report** row (task-0205). Its full answer lives only in the
+Worker's report folder outside the repository (`JARVIS_REPORT_DIR`, otherwise
+`%LOCALAPPDATA%\jarvis-core\reports`, the same rule as the Worker). The
+console looks at the Task's attempt files (`<task-id>.md`,
+`<task-id>-r<N>.md`), reads each up to 64 KiB as strict UTF-8, and shows the
+one whose length fits the `<N> chars` the Task recorded (the Worker writes the
+answer plus one newline). The attempt number alone does not tell which run a
+file belongs to. The text is shown collapsed and escaped, with line endings
+made LF, NFC normalization, and control and format characters other than line
+breaks and tabs removed, always labelled **Unverified Worker answer (no
+Reviewer or QA)**. No file, a failed read, no fitting file, several fitting
+files, and a folder inside the repository (never read) each show one status
+line instead. The console writes, creates and removes nothing in that folder,
+and the full path does not appear in the page.
+
 The same tab also carries the owner project card. It lets the owner see why the
 current work exists, where it sits in the master plan, what the live repository
 reports, and what user-visible result is next before reading detailed task/report

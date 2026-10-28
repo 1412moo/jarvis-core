@@ -833,6 +833,32 @@ function normalizedOverviewItemsMarkup(items, emptyText) {
   `;
 }
 
+// task-0205: the full answer of a read-only report Task, read from the report
+// file outside the repository. Read-only and escaped; collapsed by default.
+const workerReportStateText = {
+  missing: "Report file not found",
+  unreadable: "Report file could not be read",
+  unavailable: "Report folder unavailable",
+  mismatch: "No report file matches the recorded run",
+  ambiguous: "Several report files match the recorded run",
+};
+
+function workerReportMarkup(report) {
+  if (report.state !== "available") {
+    return `<dt>Read-only report</dt><dd>${escapeHtml(workerReportStateText[report.state] || "Report unavailable")}</dd>`;
+  }
+  return `
+    <dt>Read-only report</dt>
+    <dd>
+      <details class="worker-report">
+        <summary>${escapeHtml(report.label || "")}: ${escapeHtml(report.file_name || "")}</summary>
+        ${report.truncated ? "<p>Only the first part of the file is shown.</p>" : ""}
+        <pre>${escapeHtml(report.text || "")}</pre>
+      </details>
+    </dd>
+  `;
+}
+
 function actionableTaskItemMarkup(item) {
   const view = item?.task_view || {};
   const valid = view.parse_state === "valid";
@@ -892,6 +918,7 @@ function actionableTaskItemMarkup(item) {
             `
             : ""
         }
+        ${valid && item.worker_report ? workerReportMarkup(item.worker_report) : ""}
         <dt>Completion evidence</dt><dd>${escapeHtml(view.completion_evidence || "Not recorded")}</dd>
         ${valid && view.hold_from ? `<dt>Held from</dt><dd>${escapeHtml(view.hold_from)}</dd>` : ""}
         ${valid && view.closed_reason ? `<dt>Closed reason</dt><dd>${escapeHtml(view.closed_reason)}</dd>` : ""}
