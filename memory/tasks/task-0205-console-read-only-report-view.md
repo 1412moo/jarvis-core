@@ -2,11 +2,12 @@
 
 - id: `task-0205-console-read-only-report-view`
 - title: `Task View에서 읽기 전용 보고 전문 보기`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-28 12:36 UTC`
-- updated_at: `2026-10-28 14:00 UTC`
+- updated_at: `2026-10-28 14:43 UTC`
 - summary: `task-0201 읽기 전용 확인·보고 task의 Worker 답 전문은 저장소 밖 보고 파일에만 있고 Console Task View에는 글자 수만 보인다. Console이 그 task의 보고 파일을 길이 제한을 두고 읽기 전용으로 읽어 카드에서 펼쳐 볼 수 있게 하고, 검증 안 된 Worker 답(Reviewer·QA 없음)이라고 표시하며, 파일이 없거나 읽지 못하면 그 상태를 보인다. 새 route·쓰기·저장은 없다.`
+- completion_evidence: `candidate aa837da12ae989ccaf6e897a07304365976d3746 (baseline 56b8038). Reviewer PASS after repair 3, findings 0, self_deviations 0. QA PASS 14/14 in a fresh worktree: six scope files; Console smoke with and without PYTHONUTF8; validator; record preflight with --require-quotes; only task_report_dir reads outside the repo; no new route or write; Korean label; real report folder unchanged and task-0202 available; browser card shows the full answer with no report path.`
 - source_command: `Owner 지시: Console 다음 작업 A안 (Claude Code 세션)`
 
 ## 기준선
@@ -14,7 +15,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `56b8038dd650345e993c517999d7281afa15ac13` (등록 시점 main HEAD, origin/main과 같음) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=3`, `repair_count=3` (SOP §5 기본값 1에서 Owner가 두 번 +1. repair 1~3은 아래 Reviewer·repair 절) |
+| budget | `retry_budget=1`, `retry_count=1`, `repair_budget=3`, `repair_count=3` (SOP §5 기본값 1에서 Owner가 두 번 +1. repair 1~3은 아래 Reviewer·repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -182,3 +183,11 @@ candidate 전 1회(사전 점검 `--require-quotes` PASS, staged 6, 위반 0, �
 - repair 2(`repair_count` 1→2, `repair_budget` 2): `task_report_dir()`을 승인된 폴더 하나로 고정하고 `LOCALAPPDATA`가 없으면 `read_task_report`가 `unavailable`을 돌려주게 했다. smoke의 폴더 규칙 검사를 바꾸고(`JARVIS_REPORT_DIR`가 있어도 무시, `LOCALAPPDATA`가 없거나 비면 None·`unavailable`), README·설계 2·구현 절·B2를 고쳤다. smoke(PYTHONUTF8 없이) 통과. 이 repair로 앞 Reviewer 결과는 무효이며 새 candidate에 Reviewer → QA를 다시 한다. 예산은 다시 소진됐다.
 - candidate `b10b208595543d725abd0d9ad3edfd341d96f5bc`: Reviewer FINDINGS(minor 1). A3의 해석이 아직 "Worker와 같은 규칙의 보고 폴더"라고 적어 B2·C4와 어긋났다. 같은 보고에 self_deviations 1건(첫 명령에 `cd`·리디렉션·명령 연결을 붙임)이 있어 그 검토는 SOP §5에 따라 무효다. retry로 재검토하는 대신, 지적 자체가 사실이라 repair 예산 소진으로 Manager → Owner escalation을 했다. Owner가 "예산 +1, A3 수정 (Recommended)"을 골랐다(D1~D4).
 - repair 3(`repair_count` 2→3, `repair_budget` 3): A3의 해석 칸을 승인된 폴더 하나로 고쳤다. 같은 옛 설명이 남은 곳을 기록·README·코드·테스트에서 찾았고 A3 밖에는 없었다. 이 repair로 앞 Reviewer 결과는 무효이며 새 candidate에 Reviewer → QA를 다시 한다. 예산은 다시 소진됐다. `retry_count`는 0 그대로다(무효 검토를 retry로 재실행하지 않음).
+
+## Reviewer·QA 결과
+
+- candidate `aa837da12ae989ccaf6e897a07304365976d3746`: Reviewer PASS(findings 0, self_deviations 0). unverified 6건(smoke, validator, 실제 브라우저, 실제 폴더 읽기 뒤 그대로, 다른 저장소 밖 읽기 경로 없음, 옛 폴더 설명이 A3 밖에 없음)은 QA가 확인했다.
+- QA: 새 detached worktree(저장소 밖)에서 PASS 14/14. 자동 13개: HEAD가 candidate, 변경 파일이 scope 6개와 같음, candidate tree에 jarvis.bat 없음, diff --check, Console smoke(PYTHONUTF8 없이·있게), SOP validator, 이 기록 `--require-quotes` 사전 점검, `run_web_app.py`의 저장소 밖 참조가 `task_report_dir` 안 두 줄뿐, diff에 새 route·fetch·쓰기 없음, 옛 폴더 설명은 repair 이력의 지적 인용 밖에 없음, 한국어 표지만 있음, 실제 보고 폴더를 `JARVIS_REPORT_DIR`를 준 채 읽어도 승인 폴더만 읽고 task-0202가 1163으로 `available`·1162로 `mismatch`이며 폴더의 이름·크기·mtime 그대로. 수동 1개: worktree에서 Console을 띄워 task-0202 카드에 "검증 안 된 Worker 답(Reviewer·QA 없음): task-0202-studyroom-glossary-owner-accept-term-task-0154.md"가 접힌 채 보이고 펼치면 답 전문(1164자)이 보임, 응답 JSON과 HTML에 보고 폴더 경로 없음, 콘솔 오류 없음.
+- QA 첫 실행에서 Q9(기대 줄 수를 3으로 잘못 씀)와 Q11(repair 이력의 지적 인용까지 셈)이 QA 스크립트 오류로 실패해, source 변경 없이 검사만 고쳐 같은 candidate에서 다시 실행했다(retry, `retry_count` 0→1). worktree와 서버는 지웠고 포트 8790은 비었다.
+- Console Evidence 기록 뒤 Owner 결정("Complete 진행")으로 Complete(DOING → DONE)했다. Console은 끝난 뒤 껐다. push는 하지 않았다.
+- 측정(참고): self-review 1회(major 1, minor 1), Reviewer 4회(무효 3: FINDINGS major 1·minor 1, minor 1, minor 1과 self_deviation 1), repair 3(Owner 예산 증액 2회), QA 1회(retry 1).
