@@ -316,8 +316,9 @@ one whose length fits the `<N> chars` the Task recorded (the Worker writes the
 answer plus one newline). The attempt number alone does not tell which run a
 file belongs to. The text is shown collapsed and escaped, with line endings
 made LF, NFC normalization, and control and format characters other than line
-breaks and tabs removed, always labelled **Unverified Worker answer (no
-Reviewer or QA)**. No file, a failed read, no fitting file, several fitting
+breaks and tabs removed, always labelled **검증 안 된 Worker 답(Reviewer·QA
+없음)** (the Owner's wording, kept in Korean; "unverified Worker answer, no
+Reviewer or QA"). No file, a failed read, no fitting file, several fitting
 files, and a folder inside the repository (never read) each show one status
 line instead. The console writes, creates and removes nothing in that folder,
 and the full path does not appear in the page.

@@ -8270,7 +8270,7 @@ def _test_task_report_view() -> None:
         result = read(5)
         assert result == {
             "read_only": True,
-            "label": "Unverified Worker answer (no Reviewer or QA)",
+            "label": "검증 안 된 Worker 답(Reviewer·QA 없음)",
             "state": "missing",
             "file_name": None,
             "text": None,
@@ -8438,12 +8438,12 @@ function item(report, parseState = "valid") {
   return result;
 }
 const available = actionableTaskItemMarkup(item({
-  state: "available", label: "Unverified Worker answer (no Reviewer or QA)",
+  state: "available", label: "검증 안 된 Worker 답(Reviewer·QA 없음)",
   file_name: "task-0202-report.md", text: "line <b>&</b>\\nnext", truncated: false,
 }));
 for (const part of [
   "<dt>Read-only report</dt>",
-  "<summary>Unverified Worker answer (no Reviewer or QA): task-0202-report.md</summary>",
+  "<summary>검증 안 된 Worker 답(Reviewer·QA 없음): task-0202-report.md</summary>",
   "<pre>line &lt;b&gt;&amp;&lt;/b&gt;\\nnext</pre>",
 ]) {
   if (!available.includes(part)) throw new Error(`available report missing ${part}`);

@@ -1923,7 +1923,7 @@ TASK_REPORT_SUMMARY_PATTERN = re.compile(
     r"^read-only report of (?P<chars>\d+) chars, no files changed$"
 )
 TASK_REPORT_MAX_BYTES = 64 * 1024
-TASK_REPORT_LABEL = "Unverified Worker answer (no Reviewer or QA)"
+TASK_REPORT_LABEL = "검증 안 된 Worker 답(Reviewer·QA 없음)"
 TASK_REPORT_DROPPED_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
 
 
