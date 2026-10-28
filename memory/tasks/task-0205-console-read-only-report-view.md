@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-28 12:36 UTC`
-- updated_at: `2026-10-28 13:23 UTC`
+- updated_at: `2026-10-28 14:00 UTC`
 - summary: `task-0201 읽기 전용 확인·보고 task의 Worker 답 전문은 저장소 밖 보고 파일에만 있고 Console Task View에는 글자 수만 보인다. Console이 그 task의 보고 파일을 길이 제한을 두고 읽기 전용으로 읽어 카드에서 펼쳐 볼 수 있게 하고, 검증 안 된 Worker 답(Reviewer·QA 없음)이라고 표시하며, 파일이 없거나 읽지 못하면 그 상태를 보인다. 새 route·쓰기·저장은 없다.`
 - source_command: `Owner 지시: Console 다음 작업 A안 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `56b8038dd650345e993c517999d7281afa15ac13` (등록 시점 main HEAD, origin/main과 같음) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (SOP §5 기본값 1에서 Owner가 +1. repair 1·2는 아래 Reviewer·repair 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=3`, `repair_count=3` (SOP §5 기본값 1에서 Owner가 두 번 +1. repair 1~3은 아래 Reviewer·repair 절) |
 
 ## Owner 결정 (원문)
 
@@ -58,6 +58,18 @@ Reviewer minor 지적(보고 폴더가 JARVIS_REPORT_DIR·홈 폴더 대체 규�
 ```
 
 선택지 설명(Manager가 질문과 함께 보인 문구, Owner 원문 아님): "repair 예산을 1 늘리고 Console이 %LOCALAPPDATA%\jarvis-core\reports만 읽도록 고칩니다. 새 candidate에 Reviewer→QA를 다시 합니다."
+
+## Owner 결정 (원문, 두 번째 escalation)
+
+```text
+[Manager 질문]
+A3 행 문구(폴더 규칙 설명이 고정 뒤 내용과 어긋남) minor 지적을 어떻게 처리할까요?
+
+[Owner 답]
+예산 +1, A3 수정 (Recommended)
+```
+
+선택지 설명(Manager가 질문과 함께 보인 문구, Owner 원문 아님): "repair 예산을 1 늘려 기록의 A3 문구만 고치고, 새 candidate에 Reviewer→QA를 다시 합니다. 코드는 그대로입니다."
 
 ## 조사 (등록 전)
 
@@ -118,7 +130,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 | --- | --- | --- | --- |
 | A1 | Owner 결정 (원문) | "[Manager 제안: Console 다음 작업 후보]" | 제안의 표지. 해석할 조건이 아니다 |
 | A2 | Owner 결정 (원문) | "Task View에서 읽기 전용 보고 전문 보기 (추천)**" | 이 task의 범위. Task View 카드에 보고 전문을 보인다 |
-| A3 | Owner 결정 (원문) | "**문제:** task-0201 이후 읽기 전용 확인 작업의 실제 답은 저장소 밖 파일(`%LOCALAPPDATA%\jarvis-core\reports\<task-id>.md`)에만 있습니다." | 읽는 곳은 Worker와 같은 규칙의 보고 폴더다. 파일 이름은 Worker의 attempt 이름(`<task-id>.md`, `<task-id>-r<N>.md`)이다. Manager 해석: "그 task의 보고 파일"은 task에 기록된 실행의 답이므로, attempt 번호가 아니라 기록된 글자 수에 맞는 파일 하나만 보인다(설계 3) |
+| A3 | Owner 결정 (원문) | "**문제:** task-0201 이후 읽기 전용 확인 작업의 실제 답은 저장소 밖 파일(`%LOCALAPPDATA%\jarvis-core\reports\<task-id>.md`)에만 있습니다." | 읽는 곳은 Owner가 승인한 `%LOCALAPPDATA%\jarvis-core\reports` 하나다(B4·C4, repair 3에서 고침). Worker의 폴더 규칙(`JARVIS_REPORT_DIR`, 홈 대체)은 따르지 않는다. 파일 이름은 Worker의 attempt 이름(`<task-id>.md`, `<task-id>-r<N>.md`)이다. Manager 해석: "그 task의 보고 파일"은 task에 기록된 실행의 답이므로, attempt 번호가 아니라 기록된 글자 수에 맞는 파일 하나만 보인다(설계 3) |
 | A4 | Owner 결정 (원문) | "Console 카드에는 "read-only report of 1163 chars"라는 글자 수만 나옵니다." | 대상 판정은 이 `execution_summary` 형식과 정확히 같고 실행 결과가 success인 유효한 task다. 기존 두 줄은 그대로 둔다 |
 | A5 | Owner 결정 (원문) | "예를 들어 task-0202는 DONE인데 결과를 Console에서 읽을 수 없습니다." | 실제 브라우저에서 task-0202 카드로 확인했다(Implementer 검증) |
 | A6 | Owner 결정 (원문) | "**변경:** 그 task의 보고 파일을 길이 제한을 두고 읽기 전용으로 읽어 카드에 펼쳐 보이게 합니다." | 64 KiB까지 읽고 잘렸으면 안내한다. 카드에서 접힌 `<details>`로 펼쳐 본다. 읽기만 하고 폴더는 그대로다(테스트) |
@@ -142,6 +154,10 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 | C2 | Owner 결정 (원문, repair 예산 소진 뒤 escalation) | "Reviewer minor 지적(보고 폴더가 JARVIS_REPORT_DIR·홈 폴더 대체 규칙으로 바뀔 수 있음)을 어떻게 처리할까요?" | 두 번째 Reviewer의 minor 지적. 선택지는 §8 수용과 예산 +1·폴더 고정이었다 |
 | C3 | Owner 결정 (원문, repair 예산 소진 뒤 escalation) | "[Owner 답]" | 답의 표지 |
 | C4 | Owner 결정 (원문, repair 예산 소진 뒤 escalation) | "예산 +1, 폴더 고정" | `repair_budget` 1→2. repair 2로 `task_report_dir()`을 `%LOCALAPPDATA%\jarvis-core\reports`만으로 고정했다(`JARVIS_REPORT_DIR`·홈 대체 없음, `LOCALAPPDATA`가 없으면 `unavailable`). 테스트와 README, 설계 2, 구현 절, B2를 고쳤다 |
+| D1 | Owner 결정 (원문, 두 번째 escalation) | "[Manager 질문]" | 질문의 표지 |
+| D2 | Owner 결정 (원문, 두 번째 escalation) | "A3 행 문구(폴더 규칙 설명이 고정 뒤 내용과 어긋남) minor 지적을 어떻게 처리할까요?" | 세 번째 Reviewer의 minor 지적. 선택지는 예산 +1·A3 수정과 §8 수용이었다 |
+| D3 | Owner 결정 (원문, 두 번째 escalation) | "[Owner 답]" | 답의 표지 |
+| D4 | Owner 결정 (원문, 두 번째 escalation) | "예산 +1, A3 수정 (Recommended)" | `repair_budget` 2→3. repair 3으로 A3의 해석 칸만 고쳤다. 코드·테스트·README는 그대로다 |
 
 ## Self-review
 
@@ -164,3 +180,5 @@ candidate 전 1회(사전 점검 `--require-quotes` PASS, staged 6, 위반 0, �
 - candidate `0a4baee0e906b5a18d5222b49230f451afa7bc63`: Reviewer FINDINGS(minor 1, self_deviations 0). 승인 질문은 `%LOCALAPPDATA%\jarvis-core\reports` 하나를 적었는데 `task_report_dir()`은 `JARVIS_REPORT_DIR`와 홈 폴더 대체를 따르고, B2는 이를 "질문에 적은 대로"라고 적었다. unverified(QA로 넘김): smoke, validator, repair 1 뒤 실제 브라우저(한국어 표지), 실제 폴더를 읽은 뒤 그대로, 다른 저장소 밖 읽기 경로 없음.
 - repair 예산(1)이 소진돼 Manager → Owner로 escalation했고, Owner가 "예산 +1, 폴더 고정"을 골랐다(C1~C4).
 - repair 2(`repair_count` 1→2, `repair_budget` 2): `task_report_dir()`을 승인된 폴더 하나로 고정하고 `LOCALAPPDATA`가 없으면 `read_task_report`가 `unavailable`을 돌려주게 했다. smoke의 폴더 규칙 검사를 바꾸고(`JARVIS_REPORT_DIR`가 있어도 무시, `LOCALAPPDATA`가 없거나 비면 None·`unavailable`), README·설계 2·구현 절·B2를 고쳤다. smoke(PYTHONUTF8 없이) 통과. 이 repair로 앞 Reviewer 결과는 무효이며 새 candidate에 Reviewer → QA를 다시 한다. 예산은 다시 소진됐다.
+- candidate `b10b208595543d725abd0d9ad3edfd341d96f5bc`: Reviewer FINDINGS(minor 1). A3의 해석이 아직 "Worker와 같은 규칙의 보고 폴더"라고 적어 B2·C4와 어긋났다. 같은 보고에 self_deviations 1건(첫 명령에 `cd`·리디렉션·명령 연결을 붙임)이 있어 그 검토는 SOP §5에 따라 무효다. retry로 재검토하는 대신, 지적 자체가 사실이라 repair 예산 소진으로 Manager → Owner escalation을 했다. Owner가 "예산 +1, A3 수정 (Recommended)"을 골랐다(D1~D4).
+- repair 3(`repair_count` 2→3, `repair_budget` 3): A3의 해석 칸을 승인된 폴더 하나로 고쳤다. 같은 옛 설명이 남은 곳을 기록·README·코드·테스트에서 찾았고 A3 밖에는 없었다. 이 repair로 앞 Reviewer 결과는 무효이며 새 candidate에 Reviewer → QA를 다시 한다. 예산은 다시 소진됐다. `retry_count`는 0 그대로다(무효 검토를 retry로 재실행하지 않음).
