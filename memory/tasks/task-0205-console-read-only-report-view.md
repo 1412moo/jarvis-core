@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-28 12:36 UTC`
-- updated_at: `2026-10-28 13:00 UTC`
+- updated_at: `2026-10-28 13:01 UTC`
 - summary: `task-0201 읽기 전용 확인·보고 task의 Worker 답 전문은 저장소 밖 보고 파일에만 있고 Console Task View에는 글자 수만 보인다. Console이 그 task의 보고 파일을 길이 제한을 두고 읽기 전용으로 읽어 카드에서 펼쳐 볼 수 있게 하고, 검증 안 된 Worker 답(Reviewer·QA 없음)이라고 표시하며, 파일이 없거나 읽지 못하면 그 상태를 보인다. 새 route·쓰기·저장은 없다.`
 - source_command: `Owner 지시: Console 다음 작업 A안 (Claude Code 세션)`
 
@@ -115,7 +115,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 | A9 | Owner 결정 (원문) | "쓰기는 하지 않습니다." | 보고 폴더에 쓰기·만들기·지우기가 없다. 새 route·저장도 없다 |
 | A10 | Owner 결정 (원문) | "**규모:** 작음~중간." | 변경 파일 5개와 이 기록 |
 | A11 | Owner 결정 (원문) | "`run_web_app.py`, `app.js`, smoke test, README/SOP 한 문단 정도입니다." | 네 곳을 바꿨고 문서는 README 한 문단이다(SOP는 그대로, 설계 7). `styles.css` 한 규칙을 더한 것은 구현 절의 Manager 해석이다 |
-| A12 | Owner 결정 (원문) | "A나 B를 고르시면 저장소 밖 파일을 읽기 전용으로 여는 것에 대한 승인도 함께 받아야 합니다." | 이 승인은 Reviewer 지적(major) 뒤 따로 받았다. 아래 B1·B2의 Owner 답이 그 승인이다 |
+| A12 | Owner 결정 (원문) | "A나 B를 고르시면 저장소 밖 파일을 읽기 전용으로 여는 것에 대한 승인도 함께 받아야 합니다." | 이 승인은 Reviewer 지적(major) 뒤 따로 받았다. 아래 B2의 질문에 대한 B4의 Owner 답이 그 승인이다 |
 | A13 | Owner 결정 (원문) | "[Owner 답]" | Owner 답의 표지. 해석할 조건이 아니다 |
 | A14 | Owner 결정 (원문) | "A로 진행" | A안으로 이 task를 등록하고 SOP 흐름으로 진행한다 |
 | B1 | Owner 결정 (원문, Reviewer 지적 뒤 bounded question) | "[Manager 질문 1]" | 질문의 표지. 해석할 조건이 아니다 |
@@ -144,4 +144,4 @@ candidate 전 1회(사전 점검 `--require-quotes` PASS, staged 6, 위반 0, �
   2. minor: 원문이 인용한 표지 "검증 안 된 Worker 답(Reviewer·QA 없음)" 대신 영어 문구를 썼다. 교정: 원문 문구로 보이거나 Owner 수용을 기록.
   - unverified(QA로 넘김): smoke 통과, validator PASS, 실제 브라우저의 task-0202 카드와 경로 없음, 실제 폴더를 읽은 뒤 그대로, Console의 다른 저장소 밖 읽기 경로 없음.
 - Manager → Owner bounded question 두 개를 묻고 답을 위 "Owner 결정 (원문, Reviewer 지적 뒤 bounded question)"에 원문 그대로 남겼다(B1~B8). Owner는 보고 폴더 읽기 전용 접근을 승인했고 표지를 한국어로 바꾸기로 했다.
-- repair 1(`repair_count` 0→1, 예산 안): `TASK_REPORT_LABEL`을 원문 문구로 바꾸고, smoke의 세 기대값(Python 결과 사전, JS harness 입력과 summary)과 README 문단을 맞췄다. 설계 6, 구현 절, A7, A12를 고쳤다. smoke(PYTHONUTF8 없이) 통과. 이 repair로 앞 Reviewer 결과는 무효이며 새 candidate에 Reviewer → QA를 다시 한다.
+- repair 1(`repair_count` 0→1, 예산 안, 커밋 두 개: `b371d1c`와 A12 행 번호를 바로잡은 다음 커밋. 새 Reviewer는 마지막 커밋에 한 번): `TASK_REPORT_LABEL`을 원문 문구로 바꾸고, smoke의 세 기대값(Python 결과 사전, JS harness 입력과 summary)과 README 문단을 맞췄다. 설계 6, 구현 절, A7, A12를 고쳤다. smoke(PYTHONUTF8 없이) 통과. 이 repair로 앞 Reviewer 결과는 무효이며 새 candidate에 Reviewer → QA를 다시 한다.
