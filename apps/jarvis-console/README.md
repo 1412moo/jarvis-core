@@ -308,8 +308,11 @@ it does not run, retry or change the execution.
 A read-only report Task (task-0201: a successful run whose execution summary
 is `read-only report of <N> chars, no files changed`) also shows a
 **Read-only report** row (task-0205). Its full answer lives only in the
-Worker's report folder outside the repository (`JARVIS_REPORT_DIR`, otherwise
-`%LOCALAPPDATA%\jarvis-core\reports`, the same rule as the Worker). The
+Worker's report folder outside the repository. The console reads only
+`%LOCALAPPDATA%\jarvis-core\reports`, the one folder the Owner approved: it
+does not follow the Worker's `JARVIS_REPORT_DIR` override or home-folder
+fallback (a report written there shows as not found), and without
+`LOCALAPPDATA` it reads no folder (the folder shows as unavailable). The
 console looks at the Task's attempt files (`<task-id>.md`,
 `<task-id>-r<N>.md`), reads each up to 64 KiB as strict UTF-8, and shows the
 one whose length fits the `<N> chars` the Task recorded (the Worker writes the

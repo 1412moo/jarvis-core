@@ -1927,15 +1927,18 @@ TASK_REPORT_LABEL = "검증 안 된 Worker 답(Reviewer·QA 없음)"
 TASK_REPORT_DROPPED_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
 
 
-def task_report_dir() -> Path:
-    """Return the report folder by the rule of REPORT_DIR in claude_worker.py."""
+def task_report_dir() -> Path | None:
+    """Return %LOCALAPPDATA%\\jarvis-core\\reports, or None without LOCALAPPDATA.
 
-    return Path(
-        os.environ.get("JARVIS_REPORT_DIR")
-        or Path(os.environ.get("LOCALAPPDATA") or Path.home())
-        / "jarvis-core"
-        / "reports"
-    )
+    The Owner approved reading this one folder (task-0205). The Worker's own
+    overrides (JARVIS_REPORT_DIR, the home-folder fallback) are not followed,
+    so a report written elsewhere shows as missing.
+    """
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        return None
+    return Path(local_app_data) / "jarvis-core" / "reports"
 
 
 def task_report_chars(task_view: Mapping[str, Any]) -> int | None:
@@ -1999,6 +2002,8 @@ def read_task_report(
         "truncated": False,
     }
     folder = task_report_dir() if report_dir is None else report_dir
+    if folder is None:
+        return report
     tasks = REPO_ROOT / "memory" / "tasks" if tasks_dir is None else tasks_dir
     pattern = re.compile(
         rf"^{re.escape(task_id)}(?:-r(?P<attempt>[2-9]|[1-9]\d+))?\.md$"

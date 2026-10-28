@@ -8238,17 +8238,25 @@ def _test_task_report_view() -> None:
     ):
         assert run_web_app.task_report_chars(not_report) is None, not_report
 
-    # The folder follows claude_worker.REPORT_DIR: JARVIS_REPORT_DIR first,
-    # then LOCALAPPDATA, then the home folder.
+    # Only the approved %LOCALAPPDATA%\jarvis-core\reports is read: the
+    # Worker's JARVIS_REPORT_DIR override and home fallback are not followed,
+    # and without LOCALAPPDATA no folder is read at all.
     saved_env = {name: os.environ.get(name) for name in ("JARVIS_REPORT_DIR", "LOCALAPPDATA")}
     try:
         os.environ["JARVIS_REPORT_DIR"] = "X:/custom/reports"
         os.environ["LOCALAPPDATA"] = "X:/local"
-        assert run_web_app.task_report_dir() == Path("X:/custom/reports")
+        assert run_web_app.task_report_dir() == Path("X:/local") / "jarvis-core" / "reports"
         del os.environ["JARVIS_REPORT_DIR"]
         assert run_web_app.task_report_dir() == Path("X:/local") / "jarvis-core" / "reports"
-        del os.environ["LOCALAPPDATA"]
-        assert run_web_app.task_report_dir() == Path.home() / "jarvis-core" / "reports"
+        os.environ["JARVIS_REPORT_DIR"] = "X:/custom/reports"
+        for unset in ("", None):
+            if unset is None:
+                del os.environ["LOCALAPPDATA"]
+            else:
+                os.environ["LOCALAPPDATA"] = unset
+            assert run_web_app.task_report_dir() is None
+            result = run_web_app.read_task_report("task-0202-report", 5)
+            assert result["state"] == "unavailable" and result["file_name"] is None
     finally:
         for name, value in saved_env.items():
             if value is None:
