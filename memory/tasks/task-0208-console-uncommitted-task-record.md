@@ -2,11 +2,12 @@
 
 - id: `task-0208-console-uncommitted-task-record`
 - title: `커밋되지 않은 task 기록을 카드에 표시`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-29 15:47 UTC`
-- updated_at: `2026-10-29 15:48 UTC`
+- updated_at: `2026-10-29 16:03 UTC`
 - summary: `task-0200처럼 git에 들어가지 않은 task 기록은 Console 카드만 보고는 알 수 없다. Console이 이미 읽는 git status 결과(허용 목록 명령, 새 명령 없음)를 같은 요청의 Task View 투영에 넘겨, memory/tasks 기록이 미추적·커밋 안 된 수정·stage됨이면 카드에 한국어 Git 상태 한 줄을 보인다. 그룹·순위·counts, task 기록, 쓰기 흐름은 바꾸지 않고 push는 하지 않는다.`
+- completion_evidence: `candidate e2b200dd04393b13dc1fc6633156f9a3466c26ed (baseline e7d7ae8). Reviewer PASS, findings 0, repair 0. QA PASS in a fresh CRLF worktree: 5 scope files, Console smoke with and without PYTHONUTF8, intake smoke, self-check 109/109, validator, diff --check, node --check, Worker smoke 642/0. Browser: only the untracked task-0208 card showed the Git row.`
 - source_command: `Owner 지시: Console 다음 작업 후보 3 (Claude Code 세션)`
 
 ## 기준선
@@ -133,3 +134,22 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 1. 구현 절의 README 위치("실행 결과 절 뒤")가 실제(task-0207 문단 뒤)와 다름 → 실제 위치로 고쳤다.
 
 Owner 원문과 Manager 요약(A1–A18)의 조건 대조, 설계·README·코드 일치, 금지한 git helper 무변경은 지적이 없었다. 사전 점검 결과는 아래 candidate 직전 실행이다.
+
+## Reviewer·QA 결과
+
+- candidate `e2b200dd04393b13dc1fc6633156f9a3466c26ed`(baseline `e7d7ae8`, 단일 커밋, scope 5파일): Reviewer PASS, findings 0. Reviewer가 직접 돌리지 않은 항목(smoke, validator, diff check, node check, 브라우저, Worker smoke, Discord self-check)은 아래 QA와 Implementer 검증에서 확인했다. retry 0, repair 0.
+- QA PASS(새 detached worktree, `core.autocrlf=true`로 CRLF 체크아웃, HEAD = candidate): baseline..candidate 변경 파일 5개, `jarvis.bat` 트리에 없음, Console smoke PYTHONUTF8 없이·있이 통과, discord-intake smoke 종료 0, Discord `--self-check-suite` 109/109(종료 0), SOP validator PASS, `git diff --check` 통과, `node --check app.js` 통과, Worker smoke total=642 failed=0, 검사 뒤 작업 트리 깨끗. QA worktree는 지웠다. Docs는 `not_required`(README가 candidate 안에 있음).
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0208을 Console Complete로 DONE 처리할까요? (Reviewer PASS 지적 0, QA PASS, 완료 증거 기록됨)
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-29 16:01 UTC`)로 completion_evidence를 남겼다. 그 직후 이 기록 카드의 `Git 상태`가 `미추적`에서 `커밋 안 된 수정`으로 바뀌어(candidate에 커밋된 뒤 수정됨) 실제 동작을 한 번 더 확인했다. Owner 결정에 따라 Console Complete Preview(DOING → DONE, 증거 표시)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-29 16:03 UTC`). Console은 끈 상태다. push는 하지 않았다.
