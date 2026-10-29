@@ -2,11 +2,12 @@
 
 - id: `task-0206-console-close-failed-task`
 - title: `FAILED task를 Console Close로 닫기`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-29 03:46 UTC`
-- updated_at: `2026-10-29 03:48 UTC`
+- updated_at: `2026-10-29 05:12 UTC`
 - summary: `FAILED task는 다른 task로 대체돼도 Console Needs attention에 영구히 남는다(예: task-0200, 같은 요청을 task-0202가 DONE). Console Close가 DOING 수동 task에 더해 FAILED task(수동·Worker 경로 모두)도 받게 하여 FAILED → CLOSED 전이를 closed_reason과 함께 연다. Close는 기록 세 줄만 바꾸고 보존된 attempt worktree는 그대로 두며 Preview에서 경고한다. QA 뒤 이 task 안에서 Console Close로 task-0200을 닫는다.`
+- completion_evidence: `candidate 3cce5658dc38621b5c114944348ed6c8ae6c66cf (baseline 91997ff). Reviewer PASS, findings 0, self_deviations 0, repair 0. QA PASS in a fresh CRLF worktree: 10 scope files, Console smoke with and without PYTHONUTF8, intake smoke, self-check 109/109, validator, diff --check, node --check, Worker smoke 642/0, a task-0200 copy closes changing three lines. task-0200 closed via Console Close with the Owner reason; its worktree kept.`
 - source_command: `Owner 지시: Console 다음 작업 후보 1 (Claude Code 세션)`
 
 ## 기준선
@@ -129,6 +130,11 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 | A17 | Owner 결정 (원문, 착수 전 bounded question) | "구현이 끝난 뒤 task-0200은 누가 닫을까요?" | A19의 질문 |
 | A18 | Owner 결정 (원문, 착수 전 bounded question) | "[Owner 답 3]" | 답의 표지 |
 | A19 | Owner 결정 (원문, 착수 전 bounded question) | "이번 task 안에서 닫기" | candidate에는 task-0200 변경이 없다. QA PASS 뒤 Console Close로 닫고(closed_reason은 Owner가 정함) 그 변경을 checkpoint에 담는다. 아직 하지 않았다 |
+| A20 | Owner 결정 (원문, task-0200 closed_reason) | "[Manager 질문]" | 질문의 표지(QA 뒤 추가, candidate 밖) |
+| A21 | Owner 결정 (원문, task-0200 closed_reason) | "task-0200을 Console Close로 닫을 때 closed_reason을 무엇으로 할까요?" | A22의 질문 |
+| A22 | Owner 결정 (원문, task-0200 closed_reason) | "task-0202로 대체 (Recommended)" | 선택지 설명 문장을 그대로 closed_reason으로 써서 task-0200을 닫았다(Reviewer·QA 결과 절) |
+| A23 | Owner 결정 (원문, Complete) | "task-0206을 Console Complete로 DONE 처리할까요? (Reviewer PASS, QA PASS, task-0200 Close 완료, 완료 증거 기록됨)" | A24의 질문(QA 뒤 추가, candidate 밖) |
+| A24 | Owner 결정 (원문, Complete) | "Complete 진행 (Recommended)" | Console Complete로 DONE(Complete 절). push는 하지 않았다 |
 
 ## Self-review
 
@@ -143,3 +149,35 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 7. FAILED에서 닫은 task에 Close 재시도를 검사하지 않으면서 기록은 "모든 동작 거부"라 적음 → 테스트에 Close 재시도 거부를 더하고 기록 문장을 동작 다섯 개로 적음.
 
 수정 뒤 Console smoke와 discord-intake smoke 다시 통과, `node --check` 통과. 사전 점검 결과는 아래 candidate 직전 실행이다.
+
+## Owner 결정 (원문, task-0200 closed_reason)
+
+```text
+[Manager 질문]
+task-0200을 Console Close로 닫을 때 closed_reason을 무엇으로 할까요?
+
+[Owner 답]
+task-0202로 대체 (Recommended)
+```
+
+선택지 설명(Manager가 질문과 함께 보인 문구, Owner 원문 아님): "같은 요청을 task-0202가 읽기 전용 경로(task-0201)로 다시 실행해 DONE. 이 시도는 scope:no_changes 실패 그대로 둔다."
+
+## Reviewer·QA 결과
+
+- candidate `3cce5658dc38621b5c114944348ed6c8ae6c66cf`(baseline `91997ff`, 단일 커밋, scope 10파일): Reviewer PASS, findings 0, self_deviations 0. Reviewer가 직접 돌리지 않은 항목(smoke, self-check, validator, 브라우저, Worker smoke, task-0200 Close)은 QA와 아래 Close에서 확인했다. retry 0, repair 0.
+- QA PASS(새 detached worktree, `core.autocrlf`로 CRLF 체크아웃): 변경 파일 10개, Console smoke PYTHONUTF8 없이·있이 통과, discord-intake smoke 종료 0, Discord `--self-check-suite` ok 109/109, SOP validator PASS, `git diff --check` 통과, `node --check app.js` 통과, Worker smoke total=642 failed=0, `jarvis.bat` 트리에 없음, 작업 트리 깨끗. worktree 안 task-0200 사본을 Console 함수로 닫으면 status·closed_reason·updated_at만 바뀌고 뒤이은 Start·Complete·Hold·Resume Preview가 거부됐다(사본은 되돌림). `check_no_secrets.py` 전체 검사는 findings 7로 FAIL이었으나 7건 모두 스캐너 자신의 자체 검사 견본(`scripts/check_no_secrets.py:242-248`)이고 baseline main에서도 같아 이 candidate와 무관하다. QA worktree는 지웠다.
+- task-0200 Close(Owner 답 3과 위 closed_reason 결정): 실제 Console(127.0.0.1:8790)에서 사유를 입력하고 Preview(`FAILED → CLOSED`, Reopen Not possible, 새 경고 문구)를 확인한 뒤 `Confirm Close`. 기록은 status `CLOSED`, closed_reason(위 선택지 설명 문장), updated_at `2026-10-29 04:28 UTC` 세 줄만 바뀌었다. task-0200의 attempt worktree(`jarvis-core-worktrees/task-0200-...`)는 Owner 답 2대로 그대로 두었다.
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0206을 Console Complete로 DONE 처리할까요? (Reviewer PASS, QA PASS, task-0200 Close 완료, 완료 증거 기록됨)
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-29 04:29 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE, 증거 표시)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-29 05:12 UTC`). Console은 끈 상태다. push는 하지 않았다.
