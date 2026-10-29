@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-29 16:36 UTC`
-- updated_at: `2026-10-29 16:36 UTC`
+- updated_at: `2026-10-29 16:39 UTC`
 - summary: `DONE·CLOSED task 네 개의 Worker attempt worktree 폴더 다섯 개를 git worktree remove(--force 없이)로 지운다. branch 다섯 개와 그 커밋은 남겨 필요하면 git worktree add로 다시 만들 수 있게 한다. 중첩 폴더 jarvis-core-worktrees/jarvis-core-worktrees와 잠금 파일, 코드·다른 기록은 바꾸지 않고 push는 하지 않는다.`
 - source_command: `Owner 지시: 다음 권장 작업 (Claude Code 세션)`
 
@@ -95,4 +95,9 @@ worktree마다 미커밋 변경 0을 다시 확인한 뒤 `git worktree remove <
 1. "task 다섯 개"라 적었지만 worktree 다섯 개는 task 네 개의 것(task-0149가 둘) → summary와 조사 절을 "task 네 개의 worktree 다섯 개"로 고쳤다.
 2. SOP 인용 위치 "§10 1항"이 실제로는 §10.2 1항 → 고쳤다.
 
-사전 점검 결과는 아래 candidate 직전 실행이다.
+수정 뒤 사전 점검(`python -B scripts/check_task_record.py memory/tasks/task-0209-remove-old-attempt-worktrees.md --baseline 5edb8ffe39bb945a89a482fc537c859119f11c4c --require-quotes`)은 `status=PASS`였고, 그 뒤 `commit_candidate.py`로 첫 candidate `36f15501b064e22eb5ba910619f5e3636a187580`을 만들었다.
+
+## Reviewer 결과 (첫 candidate)
+
+- candidate `36f15501b064e22eb5ba910619f5e3636a187580`: Reviewer FINDINGS, 지적 1건(minor), self_deviations 0. Self-review 절 마지막 문장이 "아래 candidate 직전 실행"의 사전 점검 결과를 가리키지만 그 아래에 결과가 없다.
+- Repair 1(`repair_count=1`, 예산 안, Manager 결정): 그 문장을 실제 사전 점검 명령과 결과(`status=PASS`)를 적는 문장으로 바꾸고 이 절을 더했다. 실행 내용과 Manager 요약은 바꾸지 않았다. 새 candidate에 Reviewer → QA를 다시 한다.
