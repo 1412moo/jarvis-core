@@ -8775,9 +8775,158 @@ if (!empty.includes("<ul></ul>") || !empty.includes("<dt>실패 의미</dt><dd><
     assert completed.returncode == 0, f"failure guidance harness failed: {completed.stdout}\n{completed.stderr}"
 
 
+def _test_task_record_git_state() -> None:
+    """task-0208: a Task record git does not hold yet is marked on its card, read-only."""
+
+    labels = run_web_app.TASK_RECORD_GIT_LABELS
+    assert set(labels) == {"untracked", "modified", "staged"}
+    status = "\n".join(
+        [
+            " M jarvis.bat",
+            "?? memory/tasks/task-0901-new.md",
+            " M memory/tasks/task-0902-edited.md",
+            "M  memory/tasks/task-0903-staged.md",
+            "MM memory/tasks/task-0904-both.md",
+            "A  memory/tasks/task-0905-added.md",
+            "AM memory/tasks/task-0906-added-edited.md",
+            "R  memory/tasks/task-0907-old.md -> memory/tasks/task-0908-renamed.md",
+            '?? "memory/tasks/task-0909-\\354\\235\\264.md"',
+            "?? docs/memory/tasks/task-0910-elsewhere.md",
+            "?? memory/tasks-old/task-0911.md",
+            "?? memory/tasks/",
+            "garbage",
+            "",
+        ]
+    )
+    states = run_web_app.task_record_git_states(status)
+    assert states == {
+        "memory/tasks/task-0901-new.md": "untracked",
+        "memory/tasks/task-0902-edited.md": "modified",
+        "memory/tasks/task-0903-staged.md": "staged",
+        "memory/tasks/task-0904-both.md": "modified",
+        "memory/tasks/task-0905-added.md": "staged",
+        "memory/tasks/task-0906-added-edited.md": "modified",
+        "memory/tasks/task-0908-renamed.md": "staged",
+        "memory/tasks/": "untracked",
+    }, states
+    assert run_web_app.task_record_git_states("clean") == {}
+    assert run_web_app.task_record_git_states("") == {}
+
+    # Projection: only listed paths get git_state; the view itself is unchanged.
+    def record(name: str) -> str:
+        return "\n".join(
+            [
+                f"# {name}",
+                "",
+                f"- id: `{name}`",
+                "- title: `Title`",
+                "- status: `DOING`",
+                "- repo: `jarvis-core`",
+                "- created_at: `2026-10-29 10:00 UTC`",
+                "- updated_at: `2026-10-29 10:00 UTC`",
+                "- summary: `Summary`",
+            ]
+        ) + "\n"
+
+    names = ("task-0901-new", "task-0902-edited", "task-0903-staged", "task-0912-committed")
+    items = [{"path": f"memory/tasks/{name}.md"} for name in names]
+    plain = run_web_app.project_task_view_items(
+        items, text_reader=lambda path: record(path.stem)
+    )
+    marked = run_web_app.project_task_view_items(
+        items, text_reader=lambda path: record(path.stem), git_states=states
+    )
+    by_id = {item["task_view"]["id"]: item for item in marked}
+    assert by_id["task-0901-new"]["git_state"] == {"kind": "untracked", "label": labels["untracked"]}
+    assert by_id["task-0902-edited"]["git_state"] == {"kind": "modified", "label": labels["modified"]}
+    assert by_id["task-0903-staged"]["git_state"] == {"kind": "staged", "label": labels["staged"]}
+    assert "git_state" not in by_id["task-0912-committed"]
+    assert all("git_state" not in item for item in plain)
+    assert [{k: v for k, v in item.items() if k != "git_state"} for item in marked] == plain
+
+    # The overview passes the status it already read; no git command is added.
+    git_calls: list[tuple[str, ...]] = []
+    real_git = run_web_app.run_read_only_git
+    real_repo_status = run_web_app.repo_status_payload
+    first_path = run_web_app.overview_payload()["tasks"][0]["path"]
+
+    def counting_git(args: tuple[str, ...], **kwargs: Any) -> str:
+        git_calls.append(tuple(args))
+        return real_git(args, **kwargs)
+
+    def fake_repo_status() -> dict[str, Any]:
+        repo = real_repo_status()
+        repo["working_tree_status"] = f"?? {first_path}"
+        return repo
+
+    run_web_app.run_read_only_git = counting_git
+    try:
+        run_web_app.overview_payload()
+        assert git_calls.count(("status", "--short", "--untracked-files=all")) == 1, git_calls
+        assert all(call in run_web_app.READ_ONLY_GIT_COMMANDS for call in git_calls), git_calls
+        run_web_app.repo_status_payload = fake_repo_status
+        overview = run_web_app.overview_payload()
+    finally:
+        run_web_app.run_read_only_git = real_git
+        run_web_app.repo_status_payload = real_repo_status
+    first = next(item for item in overview["tasks"] if item["path"] == first_path)
+    assert first["git_state"]["kind"] == "untracked", first
+    assert all("git_state" not in item for item in overview["tasks"] if item["path"] != first_path)
+
+    # Rendering: one escaped row after Path, only with git_state.
+    app_js = (Path(__file__).resolve().parent / "web" / "app.js").read_text(encoding="utf-8")
+    item_source = "function actionableTaskItemMarkup" + app_js.split("function actionableTaskItemMarkup", 1)[1].split(
+        "function taskTransitionReceiptMarkup", 1
+    )[0]
+    row = '${item.git_state ? `<dt>Git 상태</dt><dd>${escapeHtml(item.git_state.label || "")}</dd>` : ""}'
+    assert row in item_source
+    assert item_source.index("<dt>Path</dt>") < item_source.index(row)
+    escape_source = "function escapeHtml" + app_js.split("function escapeHtml", 1)[1].split("function truncateText", 1)[0]
+    helper_source = "const workerReportStateText" + app_js.split("const workerReportStateText", 1)[1].split(
+        "function actionableTaskItemMarkup", 1
+    )[0]
+    harness = (
+        f"{escape_source}\n{helper_source}\n"
+        "const taskTransitionLastReceipt = null;\n"
+        "const completionEvidenceLastReceipt = null;\n"
+        "function taskTransitionReceiptMarkup() { return \"\"; }\n"
+        "function completionEvidenceReceiptMarkup() { return \"\"; }\n"
+        f"{item_source}\n"
+        """
+function item(gitState) {
+  const result = {
+    path: "memory/tasks/task-0901-new.md",
+    task_view: { parse_state: "valid", id: "task-0901-new", title: "t", status: "DOING",
+      updated_at: "2026-10-29 10:00 UTC", summary: "s", next_action: "n" },
+  };
+  if (gitState) result.git_state = gitState;
+  return result;
+}
+const marked = actionableTaskItemMarkup(item({ kind: "untracked", label: "미추적 <b>&</b>" }));
+if (!marked.includes("<dt>Git 상태</dt><dd>미추적 &lt;b&gt;&amp;&lt;/b&gt;</dd>")) throw new Error("git row missing");
+const plain = actionableTaskItemMarkup(item(null));
+if (plain.includes("Git 상태")) throw new Error("committed record rendered a git row");
+const strip = (html) => html.replace(/<dt>Git 상태<\\/dt><dd>[\\s\\S]*?<\\/dd>/, "").replace(/\\s+/g, " ");
+if (strip(marked) !== strip(plain)) throw new Error("git row changed other card markup");
+"""
+    )
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, f"git state harness failed: {completed.stdout}\n{completed.stderr}"
+
+
 def main() -> None:
     _test_task_report_view()
     _test_task_failure_guidance()
+    _test_task_record_git_state()
     _test_tasks_reports_registry_copy()
     _test_recent_item_ordering()
     _test_reports_filter_before_cap()

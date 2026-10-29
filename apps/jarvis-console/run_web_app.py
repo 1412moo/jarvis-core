@@ -2275,11 +2275,46 @@ def task_failure_guidance(task_view: Mapping[str, Any]) -> dict[str, Any] | None
     }
 
 
+# task-0208: a Task record that git does not hold yet (task-0200 stayed
+# untracked for days) looks like any other card. The overview already reads
+# the allowlisted `git status --short --untracked-files=all`; its lines are
+# reused here, so no git command is added. Labels are Korean by the Owner's
+# choice.
+TASK_RECORD_GIT_DIRECTORY = "memory/tasks/"
+TASK_RECORD_GIT_LABELS = {
+    "untracked": "미추적: git에 없는 기록이다. 커밋 전까지 원격과 다른 PC에 없다.",
+    "modified": "커밋 안 된 수정: 작업 트리에 커밋되지 않은 변경이 있다.",
+    "staged": "stage됨: 변경이 index에만 있고 아직 커밋되지 않았다.",
+}
+
+
+def task_record_git_states(working_tree_status: str) -> dict[str, str]:
+    """Map each memory/tasks path in `git status --short` output to its kind."""
+
+    states: dict[str, str] = {}
+    for line in working_tree_status.splitlines():
+        if len(line) < 4 or line[2] != " ":
+            continue
+        index_state, tree_state, path = line[0], line[1], line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if path.startswith('"') or not path.startswith(TASK_RECORD_GIT_DIRECTORY):
+            continue
+        if index_state == "?" and tree_state == "?":
+            states[path] = "untracked"
+        elif tree_state != " ":
+            states[path] = "modified"
+        elif index_state != " ":
+            states[path] = "staged"
+    return states
+
+
 def project_task_view_items(
     discovered_items: list[dict[str, Any]],
     *,
     text_reader: Callable[[Path], str] = read_task_view_text,
     report_reader: Callable[[str, int], dict[str, Any]] = read_task_report,
+    git_states: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Project only matching files after existing Recent Tasks selection."""
 
@@ -2308,6 +2343,13 @@ def project_task_view_items(
         failure_guidance = task_failure_guidance(task_view)
         if failure_guidance is not None:
             projected_item["failure_guidance"] = failure_guidance
+        # task-0208: only a record git lists as not committed carries this key.
+        git_kind = (git_states or {}).get(item["path"])
+        if git_kind is not None:
+            projected_item["git_state"] = {
+                "kind": git_kind,
+                "label": TASK_RECORD_GIT_LABELS[git_kind],
+            }
         projected.append(projected_item)
     projected.sort(key=task_view_sort_key)
     return projected
@@ -2393,7 +2435,10 @@ def overview_payload() -> dict[str, Any]:
     # takes the capped prefix of the same candidate list rather than the
     # priority-ordered projection.
     discovered_tasks = task_candidates[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY]
-    task_projection = project_task_view_items(task_candidates)
+    task_projection = project_task_view_items(
+        task_candidates,
+        git_states=task_record_git_states(repo["working_tree_status"]),
+    )
     tasks = task_projection[:OVERVIEW_MAX_ITEMS_PER_DIRECTORY]
     reports = discover_recent_items(
         ("reports", "research_examples", "daily_ai_radar_examples"),

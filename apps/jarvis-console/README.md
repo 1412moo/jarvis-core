@@ -323,6 +323,16 @@ Console Close. An unknown, malformed or missing reason shows a note to read the
 Task record. These rows are text only: they add no button and run nothing, and
 the Task's status, next action and record stay as they are.
 
+A Task card whose record git does not hold as committed also shows a **Git
+상태** row after Path (task-0208, Korean by the Owner's choice): 미추적 (`??`,
+not in git at all), 커밋 안 된 수정 (a working-tree change, staged or not), or
+stage됨 (a change only in the index). The console takes this from the
+`git status --short --untracked-files=all` output the overview already reads
+with its allowlisted read-only Git command, so no Git command is added. Only
+`memory/tasks/` paths are matched; a rename shows on the new path, and a quoted
+path is skipped. A committed record shows no row. Groups, order, counts and
+next action are unchanged, and nothing is staged or committed.
+
 A read-only report Task (task-0201: a successful run whose execution summary
 is `read-only report of <N> chars, no files changed`) also shows a
 **Read-only report** row (task-0205). Its full answer lives only in the

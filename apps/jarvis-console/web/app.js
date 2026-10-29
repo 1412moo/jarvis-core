@@ -937,6 +937,7 @@ function actionableTaskItemMarkup(item) {
         ${valid && view.closed_reason ? `<dt>Closed reason</dt><dd>${escapeHtml(view.closed_reason)}</dd>` : ""}
         <dt>Next action</dt><dd>${escapeHtml(view.next_action || "")}</dd>
         <dt>Path</dt><dd><code>${escapeHtml(item.path || "")}</code></dd>
+        ${item.git_state ? `<dt>Git 상태</dt><dd>${escapeHtml(item.git_state.label || "")}</dd>` : ""}
       </dl>
       ${
         actions.length
