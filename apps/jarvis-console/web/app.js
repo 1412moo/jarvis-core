@@ -881,11 +881,12 @@ function actionableTaskItemMarkup(item) {
   const recordEligible = valid
     && view.status === "DOING"
     && !view.has_completion_evidence;
-  // task-0180: Close takes a manual DOING Task only; a Worker-path Task (made by
+  // task-0180: Close takes a manual DOING Task; a DOING Worker-path Task (made by
   // /task) is closed out by /go <task-id> recover. The server enforces the same rule.
+  // task-0206: a FAILED Task closes whatever its source_command.
   const closeEligible = valid
-    && view.status === "DOING"
-    && view.source_command !== "/task";
+    && ((view.status === "DOING" && view.source_command !== "/task")
+      || view.status === "FAILED");
   const writable = actions.length || recordEligible || closeEligible;
   const accessLabel = writable ? "Preview + Confirm required" : "Read-only";
   const accessClass = writable ? "approval-needed" : "read-only";

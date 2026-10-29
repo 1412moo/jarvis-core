@@ -370,17 +370,20 @@ TASK_HOLD_APPROVAL_NOTICE = (
 )
 # task-0180: Close. Only a manual DOING Task (source_command is not /task), only to
 # CLOSED, with the Owner's closed_reason written in the same replace. CLOSED is final.
+# task-0206: also any FAILED Task, Worker path included.
 TASK_CLOSE_ACTIONS = {
-    "close": (frozenset({"DOING"}), "CLOSE TASK"),
+    "close": (frozenset({"DOING", "FAILED"}), "CLOSE TASK"),
 }
 TASK_CLOSE_NOTICE = (
     "Close changes only status, updated_at and closed_reason. It does not execute "
     "the task, and a closed Task cannot be reopened; to do the work again, create a new Task."
 )
 TASK_CLOSE_WARNING = (
-    "Close is for a manual Task the Owner ends without the completion conditions. "
-    "Jarvis does not judge the reason. A Worker-path Task (made by /task) uses "
-    "/go <task-id> recover instead."
+    "Close is for a manual DOING Task or a FAILED Task the Owner ends without the "
+    "completion conditions. Jarvis does not judge the reason. A DOING Worker-path "
+    "Task (made by /task) uses /go <task-id> recover instead. Closing a FAILED Task "
+    "leaves any kept Worker attempt worktrees in place, and /go retry, resume and "
+    "accept no longer take it."
 )
 TASK_TRANSITION_WARNINGS = {
     "complete": TASK_TRANSITION_COMPLETE_WARNING,
@@ -3094,8 +3097,12 @@ def preview_task_transition(
         # NEEDS_APPROVAL.
         target_status = snapshot_view["hold_from"]
     elif action == "close":
-        # task-0180: a Worker-path Task is closed out by /go <task-id> recover.
-        if snapshot_view["source_command"] == TASK_WORKER_SOURCE_COMMAND:
+        # task-0180: a DOING Worker-path Task is closed out by /go <task-id> recover.
+        # task-0206: a FAILED one can be closed here.
+        if (
+            snapshot_status == "DOING"
+            and snapshot_view["source_command"] == TASK_WORKER_SOURCE_COMMAND
+        ):
             return HTTPStatus.CONFLICT, {
                 "ok": False,
                 "error": "close_requires_manual_task",

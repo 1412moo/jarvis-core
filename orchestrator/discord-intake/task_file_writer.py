@@ -162,13 +162,19 @@ TASK_STATUS_TRANSITIONS = frozenset(
         # closed_reason in the same replace. CLOSED is final: nothing leaves it, and
         # /go, /go accept and /go recover never take it, so a closed Task cannot run again.
         ("DOING", "CLOSED"),
+        # task-0206. A FAILED Task, manual or Worker path, that the Owner will not retry.
+        # No run is in progress there: /go writes FAILED -> TODO -> DOING before it runs.
+        ("FAILED", "CLOSED"),
     }
 )
 TASK_CLOSED_STATUS = "CLOSED"
 TASK_CLOSED_REASON_FIELD = "closed_reason"
-TASK_CLOSE_TRANSITIONS = frozenset({("DOING", TASK_CLOSED_STATUS)})
+TASK_CLOSE_TRANSITIONS = frozenset(
+    {("DOING", TASK_CLOSED_STATUS), ("FAILED", TASK_CLOSED_STATUS)}
+)
 # task-0180: a Task whose source_command is exactly this was made by Discord /task and
-# runs through the Worker; /go <id> recover closes out those, so Close refuses them.
+# runs through the Worker; /go <id> recover closes out a DOING one, so Close refuses
+# those while DOING. task-0206: a FAILED one can be closed.
 TASK_WORKER_SOURCE_COMMAND = "/task"
 TASK_HOLD_STATUS = "ON_HOLD"
 TASK_HOLD_FROM_FIELD = "hold_from"
@@ -1180,10 +1186,11 @@ def close_task_file(
     _temp_token_factory: Callable[[], str] = lambda: secrets.token_hex(8),
     _before_final_check: Callable[[Path], None] | None = None,
 ) -> TaskStatusTransitionResult:
-    """task-0180: move a manual DOING Task to CLOSED and write closed_reason in one replace.
+    """task-0180: move a manual DOING or a FAILED Task to CLOSED with closed_reason in one replace.
 
-    Only DOING -> CLOSED, and only for a Task whose source_command is not the Worker
-    path's /task (a record without source_command counts as manual). closed_reason goes
+    DOING -> CLOSED only for a Task whose source_command is not the Worker path's /task
+    (a record without source_command counts as manual). task-0206: FAILED -> CLOSED for
+    any Task; kept Worker attempt worktrees are left as they are. closed_reason goes
     right after the status line, under the completion_evidence text rules; Jarvis does not
     judge what it says. The result is validated again before it is written, and any failure
     leaves the original bytes in place. Nothing leaves CLOSED.
@@ -1221,7 +1228,10 @@ def close_task_file(
         return TaskStatusTransitionResult("hold", "task_id_path_mismatch")
     if metadata["status"] != current_status:
         return TaskStatusTransitionResult("stale", "task_changed_since_preview")
-    if metadata.get("source_command") == TASK_WORKER_SOURCE_COMMAND:
+    if (
+        current_status == "DOING"
+        and metadata.get("source_command") == TASK_WORKER_SOURCE_COMMAND
+    ):
         return TaskStatusTransitionResult("hold", "close_requires_manual_task")
 
     status_pattern = re.compile(

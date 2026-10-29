@@ -22,7 +22,7 @@
 - `DONE`: 검증까지 완료
 - `FAILED`: 시도했으나 목표 달성 실패
 - `NEEDS_APPROVAL`: 승인 필요 상태
-- `CLOSED`: Owner가 완료 조건 없이 의도적으로 종료한 수동 task (task-0180). 종료 사유를 `closed_reason`에 기록하고, 다시 열지 않는다(다시 하려면 새 task). 실패가 아니라 Owner 종료이며, 실행 명령은 이 상태의 task를 받지 않는다(5-1, 13절)
+- `CLOSED`: Owner가 완료 조건 없이 의도적으로 종료한 수동 task 또는 FAILED task (task-0180, FAILED는 task-0206). 종료 사유를 `closed_reason`에 기록하고, 다시 열지 않는다(다시 하려면 새 task). 실패가 아니라 Owner 종료이며, 실행 명령은 이 상태의 task를 받지 않는다(5-1, 13절)
 
 ## 3) 필수 필드
 모든 Task는 아래 필드를 반드시 포함한다.
@@ -58,7 +58,7 @@
 
 ### 5-1) 허용 전이 계약
 
-코드가 적용하는 상태 전이는 아래 11쌍뿐이다. 표에 없는 전이는 durable writer가
+코드가 적용하는 상태 전이는 아래 12쌍뿐이다. 표에 없는 전이는 durable writer가
 거부한다.
 
 | from | to |
@@ -74,15 +74,18 @@
 | `ON_HOLD` | `TODO` |
 | `ON_HOLD` | `NEEDS_APPROVAL` |
 | `DOING` | `CLOSED` |
+| `FAILED` | `CLOSED` |
 
 `ON_HOLD`가 들어간 4쌍은 `hold_from`을 함께 쓰고 지우는 전용 writer만 적용한다. 일반 전이
 writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수 있으므로 `ON_HOLD`로 가는
 전이가 없다. 해제의 도착 상태는 `hold_from` 값 하나로 정해진다(12절).
 
-`DOING` → `CLOSED`는 `closed_reason`을 함께 쓰는 전용 writer만 적용하고, 일반 전이 writer와
-실행 결과 writer는 이 쌍을 거부한다. 대상은 수동 task(`source_command`가 `/task`가 아닌 task,
-필드가 없는 기록 포함)뿐이며, Worker 경로 task는 `/go <id> recover`를 쓴다. `CLOSED`에서
-나가는 전이는 없다(13절).
+`DOING` → `CLOSED`와 `FAILED` → `CLOSED`는 `closed_reason`을 함께 쓰는 전용 writer만 적용하고,
+일반 전이 writer와 실행 결과 writer는 이 두 쌍을 거부한다. `DOING`에서는 수동 task(`source_command`가
+`/task`가 아닌 task, 필드가 없는 기록 포함)만 대상이며, `DOING`인 Worker 경로 task는 `/go <id> recover`를
+쓴다. `FAILED`에서는 `source_command`와 관계없이 대상이다(task-0206). 실행 전에 `FAILED` → `TODO`를
+먼저 쓰므로 `FAILED`인 동안에는 실행이 없고, 닫아도 보존된 Worker attempt worktree는 그대로 남는다.
+`CLOSED`에서 나가는 전이는 없다(13절).
 
 자동 전이는 Owner가 승인한 실행의 결과로 코드가 적용하는 전이를 뜻한다. 그런
 실행 없이 스스로 일어나는 전이는 없다.
@@ -104,7 +107,7 @@ writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수
 | Discord `/go <id> recover` (`/work`로 만든 DOING task, 실행 중인 Worker가 없고 마지막 시도의 실행 표지가 가리키는 프로세스가 모두 끝났을 때만, task-0167) | `DOING` → `FAILED` (실패 기록과 함께, 재실행 없음) |
 | Jarvis Console Hold (표시된 task, `HOLD TASK`, `hold_from`에 출발 상태를 함께 기록, task-0173) | `TODO` → `ON_HOLD`, `NEEDS_APPROVAL` → `ON_HOLD` |
 | Jarvis Console Resume (표시된 task, `RESUME TASK`, `hold_from`이 가리키는 상태로만 복귀하고 `hold_from`을 지움, task-0173) | `ON_HOLD` → `TODO` (`hold_from`이 `TODO`일 때), `ON_HOLD` → `NEEDS_APPROVAL` (`hold_from`이 `NEEDS_APPROVAL`일 때) |
-| Jarvis Console Close (표시된 수동 DOING task, `CLOSE TASK`, Owner가 적은 `closed_reason`을 함께 기록, task-0180) | `DOING` → `CLOSED` |
+| Jarvis Console Close (표시된 수동 DOING task 또는 FAILED task, `CLOSE TASK`, Owner가 적은 `closed_reason`을 함께 기록, task-0180·task-0206) | `DOING` → `CLOSED`, `FAILED` → `CLOSED` |
 
 Hold와 Resume은 승인도 거절도 아니며 실행하지 않는다. 승인 대기였던 task는 Resume 뒤에도
 `NEEDS_APPROVAL`이므로 실행에 이르는 길은 Discord `/approve`뿐이다.
@@ -257,7 +260,8 @@ These fields do not replace the required task fields. If no execution result has
   on a Task in any other status fails canonical validation in both the writer and
   the Console parser.
 - Jarvis Console Close writes the status, `updated_at` and this line (right after
-  the `status` line) in one atomic replace, only for a manual `DOING` Task. Any
+  the `status` line) in one atomic replace, only for a manual `DOING` Task or a
+  `FAILED` Task of any `source_command` (task-0206). Any
   failure leaves the file unchanged. No other path writes or removes the field.
 - `CLOSED` is final. A `completion_evidence` recorded before the close stays as it
   was. To do the work again, create a new Task.

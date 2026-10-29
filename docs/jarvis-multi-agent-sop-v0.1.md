@@ -272,7 +272,8 @@ Owner는 그 작업을 `CLOSED`로 닫기로 결정할 수 있고, 닫기는 Jar
 Confirm)로만 하며 종료 사유를 `closed_reason`에 남긴다(`docs/task-model.md` 13절).
 `CLOSED`는 완료가 아니고 위 조건을 만족했다는 증거도 아니므로 Manager는 이를 완료로
 보고하지 않는다. `CLOSED`는 되돌릴 수 없어 다시 하려면 새 task를 만든다. §10
-Worker 파이프라인 task는 Close 대상이 아니다.
+Worker 파이프라인 task는 `DOING`이면 Close 대상이 아니고, `FAILED`이면 Owner가 같은 방법으로
+닫을 수 있다(task-0206).
 
 Owner의 minor finding 수용(수동 경로 한정). Reviewer FINDINGS의 지적이 모두
 minor이면 Owner는 지적별로 수용할 수 있고, 그때 같은 candidate로 QA를 진행한다.
