@@ -859,6 +859,17 @@ function workerReportMarkup(report) {
   `;
 }
 
+// task-0207: the server explains a FAILED Task's recorded reason and lists the
+// existing ways out. Text only; no button here runs or retries anything.
+function failureGuidanceMarkup(guidance) {
+  const options = Array.isArray(guidance.options) ? guidance.options : [];
+  return `
+    <dt>실패 의미</dt><dd>${escapeHtml(guidance.meaning || "")}</dd>
+    <dt>가능한 조치</dt>
+    <dd><ul>${options.map((option) => `<li>${escapeHtml(option)}</li>`).join("")}</ul></dd>
+  `;
+}
+
 function actionableTaskItemMarkup(item) {
   const view = item?.task_view || {};
   const valid = view.parse_state === "valid";
@@ -920,6 +931,7 @@ function actionableTaskItemMarkup(item) {
             : ""
         }
         ${valid && item.worker_report ? workerReportMarkup(item.worker_report) : ""}
+        ${valid && item.failure_guidance ? failureGuidanceMarkup(item.failure_guidance) : ""}
         <dt>Completion evidence</dt><dd>${escapeHtml(view.completion_evidence || "Not recorded")}</dd>
         ${valid && view.hold_from ? `<dt>Held from</dt><dd>${escapeHtml(view.hold_from)}</dd>` : ""}
         ${valid && view.closed_reason ? `<dt>Closed reason</dt><dd>${escapeHtml(view.closed_reason)}</dd>` : ""}

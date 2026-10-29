@@ -8578,8 +8578,206 @@ if (strip(actionableTaskItemMarkup(item({ state: "missing" }))) !== strip(plain)
     assert completed.returncode == 0, f"report renderer harness failed: {completed.stdout}\n{completed.stderr}"
 
 
+def _test_task_failure_guidance() -> None:
+    """task-0207: a FAILED Task's recorded reason is explained, read-only."""
+
+    task_id = "task-0910-failed"
+    close = run_web_app.TASK_FAILURE_CLOSE_OPTION
+    repo_root = Path(__file__).resolve().parents[2]
+    worker_source = (repo_root / "orchestrator" / "worker" / "claude_worker.py").read_text(encoding="utf-8")
+    bot_source = (repo_root / "adapters" / "discord" / "bot_minimal.py").read_text(encoding="utf-8")
+
+    def view(
+        status: str,
+        summary: str | None,
+        *,
+        source_command: str | None = "/task",
+        executed: bool = True,
+        parse_state: str = "valid",
+    ) -> dict[str, Any]:
+        return {
+            "parse_state": parse_state,
+            "id": task_id,
+            "status": status,
+            "source_command": source_command,
+            "execution": {"status": "failed", "summary": summary} if executed else None,
+        }
+
+    def retry_line() -> str:
+        return run_web_app.task_failure_option_text(run_web_app.TASK_FAILURE_RETRY, task_id)
+
+    def resume_line() -> str:
+        return run_web_app.task_failure_option_text(run_web_app.TASK_FAILURE_RESUME, task_id)
+
+    def accept_line() -> str:
+        return run_web_app.task_failure_option_text(run_web_app.TASK_FAILURE_ACCEPT, task_id)
+
+    assert retry_line() == f"/go {task_id}: 새 attempt로 처음부터 다시 실행한다."
+    assert resume_line().startswith(f"/go {task_id} resume: ") and "읽기 전용 요청은 받지 않는다" in resume_line()
+    assert accept_line().startswith(f"/go {task_id} accept: ")
+
+    # A known reason on a Worker-path Task: its meaning, the fitting ways, then Close.
+    no_changes = run_web_app.task_failure_guidance(view("FAILED", "scope:no_changes"))
+    assert no_changes == {
+        "code": "scope:no_changes",
+        "known": True,
+        "meaning": run_web_app.TASK_FAILURE_REASONS["no_changes"][0],
+        "options": [retry_line(), close],
+    }, no_changes
+    timeout = run_web_app.task_failure_guidance(view("FAILED", "worker:worker_timeout"))
+    assert timeout["options"] == [retry_line(), resume_line(), close], timeout
+    # The Owner-review stop keeps its tail in the summary; accept comes first.
+    owner_review = run_web_app.task_failure_guidance(
+        view("FAILED", f"qa:qa_unverified_owner_review candidate={'a' * 40} baseline={'b' * 40} attempt=2")
+    )
+    assert owner_review["code"] == "qa:qa_unverified_owner_review" and owner_review["known"] is True
+    assert owner_review["options"] == [accept_line(), retry_line(), close], owner_review
+    # Without the exact record form /go accept refuses (accept_record_invalid), so no accept line.
+    for broken in (
+        "qa:qa_unverified_owner_review",
+        f"qa:qa_unverified_owner_review candidate={'a' * 39} baseline={'b' * 40} attempt=2",
+        f"qa:qa_unverified_owner_review candidate={'a' * 40} baseline={'b' * 40} attempt=0",
+        f"qa:qa_unverified_owner_review candidate={'a' * 40} baseline={'b' * 40} attempt=2 extra",
+    ):
+        guidance = run_web_app.task_failure_guidance(view("FAILED", broken))
+        assert guidance["known"] is True and guidance["options"] == [retry_line(), close], (broken, guidance)
+    worker_pattern = 'r"qa:qa_unverified_owner_review candidate=([0-9a-f]{40}) baseline=([0-9a-f]{40}) attempt=([1-9][0-9]*)"'
+    assert worker_pattern in worker_source and run_web_app.TASK_FAILURE_OWNER_REVIEW_PATTERN.pattern == worker_pattern[2:-1]
+    recovered = run_web_app.task_failure_guidance(view("FAILED", "recover:stalled_doing"))
+    assert recovered["known"] is True and recovered["options"] == [retry_line(), resume_line(), close]
+
+    # A manual Task: /go never takes it, so only the note and Close.
+    manual = run_web_app.task_failure_guidance(view("FAILED", "scope:no_changes", source_command=None))
+    assert manual["known"] is True
+    assert manual["options"] == [run_web_app.TASK_FAILURE_MANUAL_NOTE, close], manual
+
+    # Unknown, malformed or missing reasons: the raw code if any, and look at the record.
+    for summary, code in (
+        ("scope:made_up_reason", "scope:made_up_reason"),
+        ("read-only report of 12 chars, no files changed", None),
+        ("Scope:no_changes", None),
+        ("scope:no_changes\textra", None),
+        (None, None),
+    ):
+        guidance = run_web_app.task_failure_guidance(view("FAILED", summary))
+        assert guidance == {
+            "code": code,
+            "known": False,
+            "meaning": run_web_app.TASK_FAILURE_UNKNOWN_MEANING,
+            "options": ["task 기록과 Execution summary를 직접 확인한다.", close],
+        }, (summary, guidance)
+    assert run_web_app.task_failure_guidance(view("FAILED", None, executed=False))["known"] is False
+
+    # Only a valid FAILED Task gets guidance.
+    for status in ("TODO", "DOING", "DONE", "BLOCKED", "NEEDS_APPROVAL", "ON_HOLD", "CLOSED"):
+        assert run_web_app.task_failure_guidance(view(status, "scope:no_changes")) is None, status
+    assert run_web_app.task_failure_guidance(view("FAILED", "scope:no_changes", parse_state="invalid")) is None
+
+    # Every reason in the table is one the Worker or the bot really records.
+    assert 'f"reviewer_{verdict.lower()}"' in worker_source
+    assert 'RECOVER_SUMMARY = "recover:stalled_doing"' in bot_source
+    assert 'result.reason = "unexpected_error"' in worker_source
+    for reason in run_web_app.TASK_FAILURE_REASONS:
+        if reason in ("reviewer_findings", "reviewer_blocked", "reviewer_unknown", "stalled_doing", "unexpected_error"):
+            continue
+        assert f'"{reason}"' in worker_source, reason
+    for reason, (meaning, recoveries) in run_web_app.TASK_FAILURE_REASONS.items():
+        assert meaning and recoveries, reason
+        assert set(recoveries) <= {
+            run_web_app.TASK_FAILURE_RETRY,
+            run_web_app.TASK_FAILURE_RESUME,
+            run_web_app.TASK_FAILURE_ACCEPT,
+        }, reason
+        # accept only takes the Owner-review stop (SOP section 10 item 12).
+        assert (run_web_app.TASK_FAILURE_ACCEPT in recoveries) == (reason == "qa_unverified_owner_review"), reason
+    # An accept stopped before its approval transition leaves the record as it was.
+    assert "accept_transition_failed" not in run_web_app.TASK_FAILURE_REASONS
+
+    # Projection: only the FAILED item gets failure_guidance; the view itself is unchanged.
+    def record(name: str, status: str, summary: str, success: str) -> str:
+        return "\n".join(
+            [
+                f"# {name}",
+                "",
+                f"- id: `{name}`",
+                "- title: `Title`",
+                f"- status: `{status}`",
+                "- repo: `jarvis-core`",
+                "- created_at: `2026-10-29 10:00 UTC`",
+                "- updated_at: `2026-10-29 10:00 UTC`",
+                "- summary: `Summary`",
+                "- source_command: `/task`",
+                "- executed: `true`",
+                f"- success: `{success}`",
+                f"- execution_summary: `{summary}`",
+            ]
+        ) + "\n"
+
+    texts = {
+        "task-0911-failed": record("task-0911-failed", "FAILED", "tests:tests_failed", "false"),
+        "task-0912-done": record("task-0912-done", "DONE", "worker candidate 2fe5262 passed Reviewer and QA after 0 repair(s)", "true"),
+    }
+    projected = run_web_app.project_task_view_items(
+        [{"path": f"memory/tasks/{name}.md"} for name in texts],
+        text_reader=lambda path: texts[path.stem],
+        report_reader=lambda task, chars: {"state": "missing"},
+    )
+    by_id = {item["task_view"]["id"]: item for item in projected}
+    failed_guidance = by_id["task-0911-failed"]["failure_guidance"]
+    assert failed_guidance["code"] == "tests:tests_failed" and failed_guidance["known"] is True
+    assert failed_guidance["options"][0] == "/go task-0911-failed: 새 attempt로 처음부터 다시 실행한다."
+    assert "failure_guidance" not in by_id["task-0912-done"]
+    assert "failure_guidance" not in by_id["task-0911-failed"]["task_view"]
+    assert by_id["task-0911-failed"]["task_view"]["next_action"] == run_web_app.TASK_VIEW_STATUS_RULES["FAILED"][2]
+
+    # Rendering: two escaped rows, a list, no button or fetch.
+    app_js = (Path(__file__).resolve().parent / "web" / "app.js").read_text(encoding="utf-8")
+    escape_source = "function escapeHtml" + app_js.split("function escapeHtml", 1)[1].split("function truncateText", 1)[0]
+    guidance_source = "function failureGuidanceMarkup" + app_js.split("function failureGuidanceMarkup", 1)[1].split(
+        "function actionableTaskItemMarkup", 1
+    )[0]
+    item_source = "function actionableTaskItemMarkup" + app_js.split("function actionableTaskItemMarkup", 1)[1].split(
+        "function taskTransitionReceiptMarkup", 1
+    )[0]
+    assert "item.failure_guidance ? failureGuidanceMarkup(item.failure_guidance)" in item_source
+    assert "fetch(" not in guidance_source and "<button" not in guidance_source
+    harness = (
+        f"{escape_source}\n{guidance_source}\n"
+        """
+const html = failureGuidanceMarkup({
+  code: "scope:no_changes", known: true, meaning: "의미 <b>&</b>",
+  options: ["/go task-0910-failed: 다시 <i>", "Console Close"],
+});
+for (const part of [
+  "<dt>실패 의미</dt><dd>의미 &lt;b&gt;&amp;&lt;/b&gt;</dd>",
+  "<dt>가능한 조치</dt>",
+  "<li>/go task-0910-failed: 다시 &lt;i&gt;</li>",
+  "<li>Console Close</li>",
+]) {
+  if (!html.includes(part)) throw new Error(`guidance missing ${part}`);
+}
+const empty = failureGuidanceMarkup({ meaning: null, options: "not a list" });
+if (!empty.includes("<ul></ul>") || !empty.includes("<dt>실패 의미</dt><dd></dd>")) {
+  throw new Error("malformed guidance rendered wrongly");
+}
+"""
+    )
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, f"failure guidance harness failed: {completed.stdout}\n{completed.stderr}"
+
+
 def main() -> None:
     _test_task_report_view()
+    _test_task_failure_guidance()
     _test_tasks_reports_registry_copy()
     _test_recent_item_ordering()
     _test_reports_filter_before_cap()

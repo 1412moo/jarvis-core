@@ -309,6 +309,20 @@ A Task run by the Worker pipeline also shows its recorded result read-only:
 execution metadata shows neither row. Jarvis Console only reads these values;
 it does not run, retry or change the execution.
 
+A `FAILED` Task also shows **실패 의미** and **가능한 조치** rows (task-0207,
+kept in Korean by the Owner's choice). The console reads the reason code from
+the recorded `<stage>:<reason>` execution summary (an Owner-review stop keeps
+its `candidate=… baseline=… attempt=…` tail) and, for a reason it knows,
+explains it and lists the existing ways out that fit: `/go <task-id>` (a new
+attempt), `/go <task-id> resume` (not for a read-only request) and, only for
+`qa_unverified_owner_review` recorded in the exact
+`candidate=<40hex> baseline=<40hex> attempt=<N>` form, `/go <task-id> accept`
+(the bot still checks the rest of the record itself). A manual Task gets a note
+that `/go` takes only a Task `/work` made instead. Every `FAILED` Task ends with
+Console Close. An unknown, malformed or missing reason shows a note to read the
+Task record. These rows are text only: they add no button and run nothing, and
+the Task's status, next action and record stay as they are.
+
 A read-only report Task (task-0201: a successful run whose execution summary
 is `read-only report of <N> chars, no files changed`) also shows a
 **Read-only report** row (task-0205). Its full answer lives only in the

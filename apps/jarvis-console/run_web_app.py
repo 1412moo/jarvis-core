@@ -2074,6 +2074,207 @@ def read_task_report(
     return report
 
 
+# task-0207: a FAILED Task records its failure as "<stage>:<reason>" in
+# execution_summary (claude_worker.py; recover writes recover:stalled_doing and
+# an Owner-review stop adds a tail). Task View explains a known reason in
+# Korean (the Owner's choice) and names the existing ways out that fit it. It
+# only shows text: nothing here runs, retries or changes the Task.
+TASK_FAILURE_SUMMARY_PATTERN = re.compile(
+    r"^(?P<stage>[a-z_]+):(?P<reason>[a-z0-9_]+)(?: .*)?$"
+)
+# The exact Owner-review record (claude_worker.py OWNER_REVIEW_RECORD_PATTERN).
+# /go accept takes only this form, so accept is listed only when it matches.
+TASK_FAILURE_OWNER_REVIEW_PATTERN = re.compile(
+    r"qa:qa_unverified_owner_review candidate=([0-9a-f]{40}) baseline=([0-9a-f]{40}) attempt=([1-9][0-9]*)"
+)
+TASK_FAILURE_RETRY = "retry"
+TASK_FAILURE_RESUME = "resume"
+TASK_FAILURE_ACCEPT = "accept"
+TASK_FAILURE_RETRY_ONLY = (TASK_FAILURE_RETRY,)
+TASK_FAILURE_RETRY_OR_RESUME = (TASK_FAILURE_RETRY, TASK_FAILURE_RESUME)
+TASK_FAILURE_REASONS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "claude_not_found": (
+        "Claude CLI 실행 파일을 찾지 못했다. 설치와 PATH를 확인한다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "git_failed": (
+        "Worker가 쓰는 git 명령이 실패했다. 저장소와 attempt worktree 상태를 확인한다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "git_status_failed": (
+        "변경 범위를 보려던 git status가 실패했다. attempt worktree 상태를 확인한다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "worktree_inside_repo": (
+        "attempt worktree 경로가 저장소 안이라 실행을 거부했다. worktree 위치 설정을 확인한다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "main_not_checked_out": (
+        "실행 전이나 반영·기록 단계에서 main이 checkout돼 있지 않았다. main으로 돌아간 뒤 다시 실행한다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "main_tree_dirty": (
+        "실행 전이나 반영·기록 단계에서 main에 커밋되지 않은 tracked 변경이 있었다. 변경을 정리한 뒤 다시 실행한다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "worker_timeout": (
+        "Worker가 제한 시간 안에 끝나지 않았다. 요청이 너무 크면 나누는 것도 방법이다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "worker_failed": (
+        "Worker 프로세스가 오류로 끝났다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "report_empty": (
+        "읽기 전용 요청에 Worker가 빈 답을 냈다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "report_changed_files": (
+        "읽기 전용 요청인데 Worker가 파일을 바꿨다. 바뀐 내용은 main에 반영되지 않았다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "no_changes": (
+        "Worker가 아무 파일도 바꾸지 않았다. 보고만 원한 요청이면 읽기 전용 요청으로 다시 만들고, 아니면 요청을 구체화한다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "repair_no_changes": (
+        "Reviewer 지적을 고치는 repair에서 Worker가 아무것도 바꾸지 않았다. 지적 내용을 확인한다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "scope_violation": (
+        "Worker가 허용 경로 밖의 파일을 바꿨다. 바뀐 내용은 main에 반영되지 않았다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "forbidden_addition": (
+        "Worker가 추가하면 안 되는 파일을 더했다. 바뀐 내용은 main에 반영되지 않았다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "tests_failed": (
+        "candidate에서 테스트가 실패했다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "reviewer_timeout": (
+        "Reviewer가 제한 시간 안에 끝나지 않았다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "reviewer_findings": (
+        "Reviewer 지적이 남았고 repair 예산을 다 썼다. Owner가 지적을 보고 결정한다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "reviewer_findings_not_repairable": (
+        "Reviewer 지적이 candidate가 바꾼 파일을 가리키지 않아 repair할 수 없다. Owner가 지적을 보고 결정한다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "reviewer_blocked": (
+        "Reviewer가 BLOCKED로 판정했다. Reviewer 보고의 이유를 확인한다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "reviewer_unknown": (
+        "Reviewer 판정을 읽을 수 없었다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "reviewer_self_deviation": (
+        "Reviewer가 다시 검토해도 자기 규칙을 벗어나 그 검토를 쓸 수 없었다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "qa_failed": (
+        "candidate의 QA 검사 중 통과하지 못한 것이 있다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "qa_unverified_owner_review": (
+        "QA는 통과했지만 QA로 확인할 수 없는 Reviewer 항목이 남아 반영하지 않았다. candidate는 보존돼 있고 Owner 확인을 기다린다.",
+        (TASK_FAILURE_ACCEPT, TASK_FAILURE_RETRY),
+    ),
+    "baseline_moved": (
+        "반영 직전에 main이 baseline에서 움직여 반영하지 않았다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "resume_no_previous_attempt": (
+        "resume할 직전 attempt가 없었다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "resume_no_changes": (
+        "직전 attempt에 옮길 변경이 없어 resume하지 못했다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "resume_scope_violation": (
+        "직전 attempt의 변경이 허용 경로를 벗어나 resume하지 못했다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "resume_conflict": (
+        "직전 attempt의 변경을 현재 main 위로 옮기다 충돌이 났다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "stalled_doing": (
+        "멈춘 DOING task를 Owner가 recover로 FAILED 처리했다. 다시 실행되지 않았다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "unexpected_error": (
+        "Worker 파이프라인에서 예상하지 못한 오류가 났다. task 기록과 봇 로그를 확인한다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+}
+TASK_FAILURE_UNKNOWN_MEANING = (
+    "Console이 모르는 실패 사유이거나 사유가 기록되지 않았다. task 기록을 직접 확인한다."
+)
+TASK_FAILURE_MANUAL_NOTE = (
+    "/go는 /work로 만든 Worker 경로 task만 받는다. 이 task의 재작업은 Jarvis 밖에서 하고, 상태는 Console로 바꾼다."
+)
+TASK_FAILURE_CLOSE_OPTION = (
+    "Console Close: closed_reason을 적고 닫는다. 되돌릴 수 없고, 닫으면 /go가 더는 받지 않는다."
+)
+
+
+def task_failure_option_text(option: str, task_id: str) -> str:
+    """Return the Korean line for one recovery way of a Worker-path Task."""
+
+    if option == TASK_FAILURE_RETRY:
+        return f"/go {task_id}: 새 attempt로 처음부터 다시 실행한다."
+    if option == TASK_FAILURE_RESUME:
+        return (
+            f"/go {task_id} resume: 직전 attempt의 변경을 새 attempt로 옮겨 이어서 "
+            "실행한다. 읽기 전용 요청은 받지 않는다."
+        )
+    return (
+        f"/go {task_id} accept: 남은 확인 항목을 본 뒤, QA를 다시 돌리고 "
+        "Reviewer 없이 반영한다."
+    )
+
+
+def task_failure_guidance(task_view: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Explain the recorded failure of a valid FAILED Task, else None."""
+
+    if task_view.get("parse_state") != "valid" or task_view.get("status") != "FAILED":
+        return None
+    execution = task_view.get("execution")
+    summary = None if execution is None else execution["summary"]
+    match = None if summary is None else TASK_FAILURE_SUMMARY_PATTERN.fullmatch(summary)
+    reason = None if match is None else match.group("reason")
+    known = reason in TASK_FAILURE_REASONS
+    worker_path = task_view.get("source_command") == "/task"
+    if not known:
+        meaning = TASK_FAILURE_UNKNOWN_MEANING
+        options = ["task 기록과 Execution summary를 직접 확인한다."]
+    else:
+        meaning, recoveries = TASK_FAILURE_REASONS[reason]
+        if TASK_FAILURE_OWNER_REVIEW_PATTERN.fullmatch(summary) is None:
+            recoveries = tuple(
+                option for option in recoveries if option != TASK_FAILURE_ACCEPT
+            )
+        options = (
+            [task_failure_option_text(option, task_view["id"]) for option in recoveries]
+            if worker_path
+            else [TASK_FAILURE_MANUAL_NOTE]
+        )
+    options.append(TASK_FAILURE_CLOSE_OPTION)
+    return {
+        "code": None if match is None else f"{match.group('stage')}:{reason}",
+        "known": known,
+        "meaning": meaning,
+        "options": options,
+    }
+
+
 def project_task_view_items(
     discovered_items: list[dict[str, Any]],
     *,
@@ -2103,6 +2304,10 @@ def project_task_view_items(
             projected_item["worker_report"] = report_reader(
                 task_view["id"], report_chars
             )
+        # task-0207: only a valid FAILED Task carries this key.
+        failure_guidance = task_failure_guidance(task_view)
+        if failure_guidance is not None:
+            projected_item["failure_guidance"] = failure_guidance
         projected.append(projected_item)
     projected.sort(key=task_view_sort_key)
     return projected
