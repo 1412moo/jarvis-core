@@ -2,11 +2,12 @@
 
 - id: `task-0207-console-failed-reason-guidance`
 - title: `FAILED 카드에 실패 사유를 읽을 수 있는 말로 표시`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-29 11:52 UTC`
-- updated_at: `2026-10-29 11:53 UTC`
+- updated_at: `2026-10-29 14:46 UTC`
 - summary: `FAILED task 카드는 execution_summary의 코드(예: scope:no_changes)와 일반 안내만 보여 준다. Task View 투영이 FAILED 항목에만 failure_guidance를 붙여 기록된 사유 코드의 한국어 설명과, 그 사유와 task 경로에 맞는 기존 복구 방법(/go 재시도·resume·accept, Console Close)을 글로 보여 준다. 읽기 전용이며 task 기록, 상태 계약, API 경로, 쓰기 흐름은 바꾸지 않고 push는 하지 않는다.`
+- completion_evidence: `candidate 0b10771ec7c6e67b1f0df15b5bc4adc93295d8d2 (baseline ab4f340). Reviewer FINDINGS 3 minor, all accepted by the Owner (SOP 8), self_deviations 0, repair 0. QA PASS in a fresh CRLF worktree: 5 scope files, Console smoke with and without PYTHONUTF8, intake smoke, self-check 109/109, validator, diff --check, node --check, Worker smoke 642/0. Browser: a temporary FAILED card showed the guidance rows.`
 - source_command: `Owner 지시: Console 다음 작업 후보 2 (Claude Code 세션)`
 
 ## 기준선
@@ -126,3 +127,43 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 3. `checkpoint:task_result_not_recorded`를 뺀 판단이 기록에 없음 → 구현 절에 이유(반영 뒤 기록 단계 실패라 `/go` 안내가 맞지 않음)를 적었다.
 
 수정 뒤 Console smoke 통과. 사전 점검 결과는 아래 candidate 직전 실행이다.
+
+## Reviewer 결과
+
+- candidate `0b10771ec7c6e67b1f0df15b5bc4adc93295d8d2`(baseline `ab4f340`, 단일 커밋, scope 5파일): Reviewer **FINDINGS**, 지적 3건 모두 minor, self_deviations 0.
+  1. 승인 문장은 `run_web_app.py`와 `app.js`만 바뀐다고 했는데 smoke test, README, 이 task 기록까지 5파일이 바뀐다. A4의 근거("SOP가 요구하는 검사·문서·기록")는 승인 원문에 없다.
+  2. 승인 문장은 원인과 조치를 "한 줄로 바꿔" 보여 준다고 했는데 candidate는 코드를 두고 `실패 의미`·`가능한 조치`(목록) 두 줄을 더하고, 승인 문장에 없는 accept를 넣었다. A3의 accept 근거는 Owner 원문이 아닌 선택지 설명이다.
+  3. A10·A14가 근거로 든 선택지 설명은 Owner 원문 블록 밖의 Manager 문구다.
+- Reviewer가 직접 돌리지 않은 항목(Console smoke 두 방식, validator, diff check, node check, 브라우저, Worker smoke, Discord self-check)은 아래 QA와 Implementer 검증에서 확인했다.
+
+## Owner 결정 (원문, Reviewer minor 지적 수용)
+
+```text
+[Manager 질문]
+Reviewer minor 지적 3건(범위 5파일, 두 줄+목록 형태와 accept, 선택지 설명에 기댁 세부 규칙)을 어떻게 처리할까요?
+
+[Owner 답]
+3건 모두 수용, QA 진행 (Recommended)
+```
+
+선택지 설명(Manager가 질문과 함께 보인 문구, Owner 원문 아님): "지금 구현(5파일, 실패 의미 한 줄 + 조치 목록, Owner-review 기록에만 accept, 선택지 설명의 세부 규칙)을 Owner가 인정합니다. 수용 원문을 기록하고 같은 candidate 0b10771로 QA를 돌립니다. repair 예산은 쓰지 않습니다."
+
+SOP §8 Owner minor finding 수용(수동 경로): 지적 1·2·3 모두 수용, candidate `0b10771`에만 효력. retry 0, repair 0.
+
+## QA 결과
+
+QA PASS(새 detached worktree, `core.autocrlf=true`로 CRLF 체크아웃, HEAD = candidate `0b10771ec7c6e67b1f0df15b5bc4adc93295d8d2`): baseline..candidate 변경 파일 5개, `jarvis.bat` 트리에 없음, Console smoke PYTHONUTF8 없이·있이 통과, discord-intake smoke 종료 0, Discord `--self-check-suite` 109/109(종료 0), SOP validator PASS, `git diff --check` 통과, `node --check app.js` 통과, Worker smoke total=642 failed=0, 검사 뒤 작업 트리 깨끗. QA worktree는 지웠다. Docs는 `not_required`(README가 candidate 안에 있음).
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0207을 Console Complete로 DONE 처리할까요? (Reviewer minor 3건 Owner 수용, QA PASS, 완료 증거 기록됨)
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-29 12:30 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE, 증거 표시)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-29 14:46 UTC`). Console은 끈 상태다. push는 하지 않았다.
