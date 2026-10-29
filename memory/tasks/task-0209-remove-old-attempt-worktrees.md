@@ -2,11 +2,12 @@
 
 - id: `task-0209-remove-old-attempt-worktrees`
 - title: `끝난 task의 attempt worktree 정리 (branch 유지)`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-29 16:36 UTC`
-- updated_at: `2026-10-29 16:39 UTC`
+- updated_at: `2026-10-29 17:53 UTC`
 - summary: `DONE·CLOSED task 네 개의 Worker attempt worktree 폴더 다섯 개를 git worktree remove(--force 없이)로 지운다. branch 다섯 개와 그 커밋은 남겨 필요하면 git worktree add로 다시 만들 수 있게 한다. 중첩 폴더 jarvis-core-worktrees/jarvis-core-worktrees와 잠금 파일, 코드·다른 기록은 바꾸지 않고 push는 하지 않는다.`
+- completion_evidence: `Five attempt worktrees removed with git worktree remove (no --force); five jarvis/* branches and both lock files kept. Record candidate 2092cf5f5ce08b839ccd196874ede02010625aaa (baseline 5edb8ff, repair 1): Reviewer PASS, findings 0. QA PASS: record checks, validator, diff --check, worktree list shows main only, branches and lock files confirmed.`
 - source_command: `Owner 지시: 다음 권장 작업 (Claude Code 세션)`
 
 ## 기준선
@@ -101,3 +102,22 @@ worktree마다 미커밋 변경 0을 다시 확인한 뒤 `git worktree remove <
 
 - candidate `36f15501b064e22eb5ba910619f5e3636a187580`: Reviewer FINDINGS, 지적 1건(minor), self_deviations 0. Self-review 절 마지막 문장이 "아래 candidate 직전 실행"의 사전 점검 결과를 가리키지만 그 아래에 결과가 없다.
 - Repair 1(`repair_count=1`, 예산 안, Manager 결정): 그 문장을 실제 사전 점검 명령과 결과(`status=PASS`)를 적는 문장으로 바꾸고 이 절을 더했다. 실행 내용과 Manager 요약은 바꾸지 않았다. 새 candidate에 Reviewer → QA를 다시 한다.
+
+## Reviewer·QA 결과 (repair 1 candidate)
+
+- candidate `2092cf5f5ce08b839ccd196874ede02010625aaa`(baseline `5edb8ff`, 두 커밋: `36f1550` 첫 candidate와 `2092cf5` repair 1, scope 1파일): Reviewer PASS, findings 0, self_deviations 0. retry 0, repair 1/1.
+- QA PASS(기록만 바뀐 변경이라 코드 smoke 없이 가장 가벼운 충분한 방법, 메인 작업 트리에서 HEAD = candidate): 변경 파일 1개, `jarvis.bat` 트리에 없음, `git diff --check` 통과, `check_task_record.py --require-quotes` PASS, SOP validator PASS. Reviewer가 확인하지 못한 저장소 밖 사실도 확인했다: `git worktree list`는 main만, `jarvis/*` branch 다섯 개 그대로(`e05c69c`, `8f0c58e`, `bd1622e`, `80a61a8`, `f3bd53b`), 조사 표의 main 조상 열(`80a61a8`·`f3bd53b`만 조상), 중첩 폴더와 두 `.jarvis-worker.lock` 그대로, 봇의 DONE·CLOSED 거부(`status_not_startable`, `accept_requires_failed`, `resume_requires_failed`). 작업 트리 변경 없음. Docs는 `not_required`.
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0209를 Console Complete로 DONE 처리할까요? (worktree 5개 제거 완료, repair 1 뒤 Reviewer PASS, QA PASS, 완료 증거 기록됨)
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-29 16:41 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-29 17:53 UTC`). Console은 끈 상태다. push는 하지 않았다.
