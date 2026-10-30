@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-30 13:56 UTC`
-- updated_at: `2026-10-30 13:57 UTC`
+- updated_at: `2026-10-30 14:04 UTC`
 - summary: `docs/master-plan.md §2 현재 기준점이 2026-07-23(Verified implementation HEAD 7d4394e)에 멈춰 Console Project Control 카드가 7~9월 상태를 보인다. §2의 설명 필드 일곱 개(Last verified, Verified implementation HEAD, Current workstream, Current milestone, Recommended next step, Next user-visible milestone, Recent completed)와 Owner Dashboard의 현재 줄 네 개를 2026-10-29(7b03f6f) 상태로 고친다. Approval state, Owner decision, Manager reporting 필드와 보류 결정은 바꾸지 않고 push는 하지 않는다.`
 - source_command: `Owner 지시: 다음 단계 후보 1 (Claude Code 세션)`
 
@@ -53,7 +53,7 @@ Verified implementation HEAD와 Last verified를 어느 시점으로 맞출까�
 - `Verified implementation HEAD`는 현재 branch의 조상이어야 한다(`commit_is_branch_ancestor`, task-0126). 아니면 Manager Report가 blocked가 된다. `7b03f6f`는 main HEAD라 조건을 만족한다.
 - validator(`scripts/validate_multi_agent_sop.py` `_validate_master_plan`)는 문서 어딘가에 옛 HEAD 문자열 `7d4394eed584bc11ee25062a671952b2e4c38b31`이 남기를 요구한다. 이 값은 Dashboard의 "최근 검증 결과" 줄에도 있어 §2 값을 바꿔도 남는다.
 - 2026-10-29 기준 task 기록: DONE 153, CLOSED 3, ON_HOLD 5(Team Manager 보류, task-0156/0176), 그 밖 열린 task 없음.
-- 문서에 적은 "남은 작은 후보"(FAILED Next action 문구 정정, 비밀 정보 검사기 전체 검사의 자체 견본 제외)는 이 task 직전 Manager의 읽기 전용 조사(2026-10-29, Owner에게 후보 표로 보고, 이 task는 그 표의 후보 1)에서 나왔다. 근거: `apps/jarvis-console/run_web_app.py` `TASK_VIEW_STATUS_RULES["FAILED"]`의 Next action "Review the summary and decide the recovery outside Jarvis Console.", `python -B scripts/check_no_secrets.py` 전체 검사의 findings 7건이 모두 `scripts/check_no_secrets.py:242-248` 자체 검사 견본(task-0206 기록에도 같은 사실). attempt branch 3개 결정은 task-0209 기록에 있다.
+- 문서에 적은 "남은 작은 후보"(FAILED Next action 문구 정정, 비밀 정보 검사기 전체 검사의 자체 견본 제외)는 이 task 직전 Manager의 읽기 전용 조사(2026-10-29, Owner에게 후보 표로 보고, 이 task는 그 표의 후보 1)에서 나왔다. 근거: `apps/jarvis-console/run_web_app.py` `TASK_VIEW_STATUS_RULES["FAILED"]`의 Next action "Review the summary and decide the recovery outside Jarvis Console.", `python -B scripts/check_no_secrets.py` 전체 검사의 findings 7건이 모두 `scripts/check_no_secrets.py:242-248` 자체 검사 견본(task-0206 기록에도 같은 사실). main에 없는 attempt branch 3개가 실패한 이전 시도이고 task-0209가 그 branch를 남겼다는 사실은 task-0209 기록에 있다. 그 삭제 여부를 남은 Owner 결정으로 적은 것은 같은 조사에서 Manager가 판단한 것이다(task-0209의 Owner 답은 "worktree만 정리"이고 branch 삭제는 그 task의 범위 밖이었다).
 - "현재 사용자 체감 결과" 문장의 근거: Discord `/work`·`/go`와 Worker → Reviewer → QA → main 반영(SOP §10, task-0142/0148), `자비스,` 호출(task-0184), Task View 실행 결과·FAILED 사유와 조치·커밋 안 된 기록(task-0155/0207/0208), Start·Complete·Hold·Resume·Close(task-0173/0180/0206), 수동 SOP의 사전 점검·self-review(task-0171/0172).
 
 ## 범위
@@ -78,7 +78,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 
 `docs/master-plan.md`만 바꿨다(11줄 교체).
 
-- §2 일곱 필드: `Last verified` `2026-10-29`, `Verified implementation HEAD` `7b03f6f0f39b23959e95925405f0e2e86248c2a1`, `Current workstream`·`Current milestone`·`Recent completed`는 task-0130 이후 task-0209까지의 Console·Worker·팀장·SOP 작업으로, `Recommended next step`은 같은 결정(다음 bounded package 제안 뒤 Owner 승인)과 보류 문장(②/④/⑤ 보류, task-0042가 ④ 착수를 승인하지 않음)을 그대로 두고 2026-10-29 조사로 남은 작은 후보와 attempt branch 3개 결정을 더해, `Next user-visible milestone`은 Close(task-0180/0206)를 더해 고쳤다. `Recent completed`는 500자 상한 때문에 대표 이력만 남겼다: Buzz Phase 1·Bridge와 감사 해시체인은 남기고, Manual Pilot v0.1A·Reviewer 규칙(task-0133~0136/0139)·Studyroom(task-0137/0138/0140)·기준 지도(task-0147) 등 task-0130 무렵 항목은 빼고 task-0142 이후 항목을 넣었다(뺀 항목은 Owner Dashboard 날짜 항목에 그대로 있다). 값 길이(백틱·`**` 제외)는 각각 10, 40, 423, 415, 418, 212, 488자로 Console 상한 500자 안이다.
+- §2 일곱 필드: `Last verified` `2026-10-29`, `Verified implementation HEAD` `7b03f6f0f39b23959e95925405f0e2e86248c2a1`, `Current workstream`·`Current milestone`·`Recent completed`는 task-0130 이후 task-0209까지의 Console·Worker·팀장·SOP 작업으로, `Recommended next step`은 같은 결정(다음 bounded package 제안 뒤 Owner 승인)과 보류 문장(②/④/⑤ 보류, task-0042가 ④ 착수를 승인하지 않음)을 그대로 두고 2026-10-29 조사로 남은 작은 후보와 attempt branch 3개 결정을 더해, `Next user-visible milestone`은 Close(task-0180/0206)를 더해 고쳤다. `Recent completed`는 500자 상한 때문에 대표 이력만 남겼다: Buzz Phase 1·Bridge와 감사 해시체인은 남기고, Manual Pilot v0.1A·Reviewer 규칙(task-0133~0136/0139)·Studyroom(task-0137/0138/0140)·기준 지도(task-0147) 등 task-0130 무렵 항목은 빼고 task-0142 이후 항목을 넣었다(뺀 항목은 Owner Dashboard 날짜 항목에 그대로 있다). 값 길이(백틱·`**` 제외)는 각각 10, 40, 423, 415, 439, 212, 488자로 Console 상한 500자 안이다.
 - Owner Dashboard 네 줄: "현재 다음 작업"의 첫 문장, "현재 사용자 체감 결과" 전체, "다음 사용자 체감 milestone"의 첫 문장과 Console 쓰기 목록(Close 추가), "현재 결정 필요"의 첫 문장 뒤 attempt branch 결정 한 문장. 각 줄의 보류·잠금 문장은 그대로다.
 - Approval state·Approval note·Owner decision·Manager reporting 필드와 다른 절은 바꾸지 않았다(diff 기준).
 
@@ -121,3 +121,8 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 4. 사전 점검 결과가 기록에 없음 → 아래에 적었다.
 
 수정 뒤 Console smoke 통과, SOP validator PASS. 수정 뒤 사전 점검(`python -B scripts/check_task_record.py memory/tasks/task-0210-master-plan-baseline-refresh.md --baseline 7b03f6f0f39b23959e95925405f0e2e86248c2a1 --require-quotes`)은 `staged_files=2`, `violations=0`, `status=PASS`였고, 그 뒤 `commit_candidate.py`로 candidate를 만들었다.
+
+## Reviewer 결과 (첫 candidate)
+
+- candidate `42544d6f2b7585cd6aabef80950d10957ef75c86`: Reviewer FINDINGS, 지적 1건(minor), self_deviations 0. master-plan 두 곳(Recommended next step, 현재 결정 필요)과 조사 절이 attempt branch 3개 삭제를 "남은 Owner 결정"으로 적으며 task-0209를 출처로 달았지만, task-0209 기록에는 그 branch들이 main 조상이 아닌 실패 시도라는 사실과 Owner가 branch를 남기기로 한 결정만 있고 열린 결정은 없다.
+- Repair 1(`repair_count=1`, 예산 안, Manager 결정): 두 master-plan 문장을 "task-0209가 남긴 … branch 3개"를 2026-10-29 조사가 Owner 결정 대상으로 본 것으로 고쳐 task-0209는 사실의 출처로만 남겼고, 조사 절에 판단 주체를 적었다. `Recommended next step` 값은 439자다. 새 candidate에 Reviewer → QA를 다시 한다.
