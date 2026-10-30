@@ -232,20 +232,24 @@ def scan_paths(paths: list[Path]) -> list[Finding]:
 
 # --- self-test ---------------------------------------------------------
 
+# task-0212: each value is split into two adjacent string literals so this
+# source file does not match its own patterns in a full scan. The joined
+# values are the ones the self-test checks; the last self-test check fails if
+# a value is written back in one piece.
 _POSITIVE_FIXTURES: tuple[tuple[str, str], ...] = (
-    ("aws_access_key_id", "aws_key = AKIAABCDEFGHIJKLMNOP"),
+    ("aws_access_key_id", "aws_key = AKIA" "ABCDEFGHIJKLMNOP"),
     (
         "openai_style_key",
-        "OPENAI_API_KEY_LITERAL = sk-Tr7qLm2Zx9BpN4vKdC1sYh6e",
+        "OPENAI_API_KEY_LITERAL = sk-" "Tr7qLm2Zx9BpN4vKdC1sYh6e",
     ),
     (
         "anthropic_style_key",
-        "ANTHROPIC_LITERAL = sk-ant-Qw3eRt7yUi2oPl9kJh5gFd8s",
+        "ANTHROPIC_LITERAL = sk-ant-" "Qw3eRt7yUi2oPl9kJh5gFd8s",
     ),
-    ("slack_token", "token = xoxb-19f3820561-h3jK9mQpLz2R"),
-    ("github_token", "gh_pat = ghp_9mK3pQzL7xVbN2wRcT5jH8dYfA6sE4uG1oI0"),
-    ("private_key_block", "-----BEGIN RSA PRIVATE KEY-----"),
-    ("generic_secret_assignment", 'db_password = "hunter2hunter2"'),
+    ("slack_token", "token = xoxb-" "19f3820561-h3jK9mQpLz2R"),
+    ("github_token", "gh_pat = ghp_" "9mK3pQzL7xVbN2wRcT5jH8dYfA6sE4uG1oI0"),
+    ("private_key_block", "-----BEGIN RSA PRIVATE" " KEY-----"),
+    ("generic_secret_assignment", 'db_password = "hunt' 'er2hunter2"'),
 )
 
 _NEGATIVE_FIXTURES: tuple[str, ...] = (
@@ -279,6 +283,17 @@ def _run_self_test() -> tuple[int, list[str]]:
             failures.append(
                 f"negative fixture false-positived: {fixture!r} -> {findings!r}"
             )
+    # task-0212: the scanner's own source must scan clean, or a full scan of
+    # the repository reports the fixtures above as secrets.
+    checks += 1
+    own_findings = scan_text(
+        Path(__file__).read_text(encoding="utf-8"), path="<scanner source>"
+    )
+    if own_findings:
+        failures.append(
+            "scanner source matches its own patterns: "
+            + ", ".join(f"{f.line_number}:{f.code}" for f in own_findings)
+        )
     return checks, failures
 
 
