@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-30 14:34 UTC`
-- updated_at: `2026-10-30 14:35 UTC`
+- updated_at: `2026-10-30 14:43 UTC`
 - summary: `FAILED task 카드의 Next action은 "Review the summary and decide the recovery outside Jarvis Console."인데, 카드에는 이제 실패 의미와 가능한 조치(task-0207)가 보이고 Console Close로 닫을 수 있다(task-0206). FAILED 문구 하나만 Owner가 고른 영어 문장(self-review 뒤 Owner 결정으로 /go를 뺀 문장)으로 바꾼다. 다른 상태 문구, 그룹·순위, 쓰기 흐름은 바꾸지 않고 push는 하지 않는다.`
 - source_command: `Owner 지시: 다음 작업 (Claude Code 세션)`
 
@@ -100,7 +100,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 | A3 | Owner 결정 (원문) | "비용이 가장 낮은 FAILED Next action 문구 정정을 먼저 하는 것을 권합니다." | 이 task가 그 첫 후보다 |
 | A4 | Owner 결정 (원문) | "비밀 정보 검사기의 자체 견본 제외는 그다음입니다." | 이 task 범위 밖. 손대지 않았다 |
 | A5 | Owner 결정 (원문) | "[Owner 답]" | 답의 표지 |
-| A6 | Owner 결정 (원문) | "다음작업 진행해" | 첫 후보 착수 승인. 세부는 A10·A14·A16의 답으로 정했다. Manager 해석: 범위 표 owned의 smoke test 한 줄(규칙 사본)과 이 task 기록은 승인 원문에 이름이 없고, 같은 규칙을 검사하고 기록하려는 Manager 판단으로 넣었다 |
+| A6 | Owner 결정 (원문) | "다음작업 진행해" | 첫 후보 착수 승인. 세부는 A10·A14의 답과, A16(처음 고른 문장)을 대체한 A20·A22의 답으로 정했다. Manager 해석: 범위 표 owned의 smoke test 한 줄(규칙 사본)과 이 task 기록은 승인 원문에 이름이 없고, 같은 규칙을 검사하고 기록하려는 Manager 판단으로 넣었다 |
 | A7 | Owner 결정 (원문, 착수 전 bounded question) | "[Manager 질문 1]" | 질문의 표지 |
 | A8 | Owner 결정 (원문, 착수 전 bounded question) | "어느 상태의 Next action 문구를 고칠까요?" | A10의 질문 |
 | A9 | Owner 결정 (원문, 착수 전 bounded question) | "[Owner 답 1]" | 답의 표지 |
@@ -127,3 +127,9 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 
 수정 뒤 Console smoke(PYTHONUTF8 없이·있이) 통과. 사전 점검 결과는 아래 줄이다.
 - 사전 점검(`python -B scripts/check_task_record.py memory/tasks/task-0211-failed-next-action-wording.md --baseline b8f16b2e9575df1ebb8bdef305d09a6b6efdf79e --require-quotes`): `staged_files=3`, `violations=0`, `status=PASS`. 그 뒤 `commit_candidate.py`로 candidate를 만들었다.
+
+## Reviewer 결과 (첫 candidate)
+
+- candidate `7e73ea1dba5ae4039c40b378d343cb11274cd07b` 첫 검토: 판정 PASS였지만 `self_deviations` 1건(허용 형식 밖의 `git -C`·리디렉션·명령 연결)이라 SOP §5에 따라 무효. 같은 candidate를 한 번 다시 검토했다(retry 1, `retry_count=1`, repair 예산 사용 없음).
+- 재검토: FINDINGS, 지적 1건(minor), self_deviations 0. A6이 "세부는 A10·A14·A16의 답으로 정했다"고 적어, 대체된 첫 미리보기(A16)를 결정 근거로 들고 최종 문장을 정한 A20·A22를 빠뜨렸다.
+- Repair 1(`repair_count=1`, 예산 안, Manager 결정): A6을 "A10·A14의 답과, A16을 대체한 A20·A22의 답"으로 고쳤다. 코드와 다른 행은 바꾸지 않았다. 새 candidate에 Reviewer → QA를 다시 한다.
