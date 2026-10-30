@@ -2,11 +2,12 @@
 
 - id: `task-0213-master-plan-candidate-sync`
 - title: `master-plan의 끝난 작은 후보 문구 동기화와 다음 후보 조사`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-30 17:34 UTC`
-- updated_at: `2026-10-30 17:35 UTC`
+- updated_at: `2026-10-30 19:04 UTC`
 - summary: `master-plan Dashboard 현재 다음 작업 줄과 §2 Recommended next step이 task-0211·task-0212로 끝난 작은 후보 두 건을 아직 남은 것으로 적는다. 두 문장만 끝났다고 고치고, 다음 bounded work package 후보를 조사해 이 기록과 보고에만 남긴다. 코드와 기능 구현은 하지 않고 push는 하지 않는다.`
+- completion_evidence: `candidate 3c121bd46d62eda41fe65a069973b1f64ec0a1a8 (baseline e48afb7, retry 2 with Owner budget increase, repair 0): Reviewer retry 2 valid, 1 minor accepted by the Owner (SOP 8). QA PASS in a fresh CRLF worktree: 2 files, validator, Console smoke with and without PYTHONUTF8, diff --check; Recommended next step 458/500 chars carries the new sentence and the stale clause is gone from it and the Dashboard line.`
 - source_command: `Owner 지시: master-plan 동기화와 다음 후보 조사 (Claude Code 세션)`
 
 ## 기준선
@@ -14,7 +15,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `e48afb7e3fff4f4505ab818f1d343397649602a8` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=2`(SOP §5 기본값 1에서 Owner가 1 늘림, 아래 retry 예산 증액 원문), `retry_count=2`, `repair_budget=1`, `repair_count=0` |
 
 ## Owner 결정 (원문)
 
@@ -84,6 +85,36 @@ master-plan의 어느 범위까지 고칠까요? 오래된 문구는 Dashboard '
 
 - 답 1: "두 줄의 '남은 작은 후보' 구절만 'task-0211·0212로 끝났다'로 바꿉니다. Recent completed, Current milestone, Last verified/HEAD는 그대로 둡니다." 함께 보인 미리보기 문장이 아래 설계 1·2의 문장이다.
 - 답 2: "후보 표는 이번 task 기록의 조사 절과 완료 보고에만 적습니다. master-plan에는 Owner가 고른 뒤에 넣습니다."
+
+## Owner 결정 (원문, retry 예산 증액)
+
+```text
+[Manager 질문]
+retry 예산을 1 늘려 Reviewer를 한 번 더 돌릴까요?
+
+[Owner 답]
+1 늘리고 재리뷰
+```
+
+## Owner 결정 (원문, Reviewer minor 수용)
+
+```text
+[Manager 질문]
+How should I handle the minor finding?
+
+[Owner 답]
+Accept, go to QA
+```
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0213을 Console Complete로 DONE 처리할까요? (Reviewer retry 2 유효, minor 1건 Owner 수용, QA PASS. Complete 전에 기록에 Reviewer·QA 결과, retry 예산 증액, minor 수용 원문과 빠진 요약 행을 넣습니다)
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
 
 ## 조사 (등록 전)
 
@@ -207,6 +238,20 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 | A39 | Owner 결정 (원문, 착수 전 bounded question) | "다음 work package 후보 조사 결과를 어디에 남길까요?" | A41의 질문 |
 | A40 | Owner 결정 (원문, 착수 전 bounded question) | "[Owner 답 2]" | 답의 표지 |
 | A41 | Owner 결정 (원문, 착수 전 bounded question) | "보고와 task 기록만 (Recommended)" | 후보 표는 이 기록의 조사 절과 완료 보고에만 두고 master-plan에는 넣지 않았다 |
+| A42 | Owner 결정 (원문, retry 예산 증액) | "[Manager 질문]" | 질문의 표지 |
+| A43 | Owner 결정 (원문, retry 예산 증액) | "retry 예산을 1 늘려 Reviewer를 한 번 더 돌릴까요?" | A45의 질문. Reviewer retry 1이 `self_deviations` 1건으로 무효였고 retry 예산 1이 소진돼 물었다 |
+| A44 | Owner 결정 (원문, retry 예산 증액) | "[Owner 답]" | 답의 표지 |
+| A45 | Owner 결정 (원문, retry 예산 증액) | "1 늘리고 재리뷰" | retry_budget 1 → 2. 같은 candidate로 Reviewer를 한 번 더 돌렸다(retry 2, 유효) |
+| A46 | Owner 결정 (원문, Reviewer minor 수용) | "[Manager 질문]" | 질문의 표지 |
+| A47 | Owner 결정 (원문, Reviewer minor 수용) | "How should I handle the minor finding?" | A49의 질문. Reviewer retry 2의 minor 지적(retry 예산 증액 원문이 요약에 없음, 기록의 budget이 1로 남음) |
+| A48 | Owner 결정 (원문, Reviewer minor 수용) | "[Owner 답]" | 답의 표지 |
+| A49 | Owner 결정 (원문, Reviewer minor 수용) | "Accept, go to QA" | SOP §8에 따라 minor를 수용하고 candidate를 바꾸지 않은 채 QA로 갔다. 지적의 최소 수정(A42~A45 행, budget 칸)은 Reviewer가 적은 대로 Complete 전 기록 갱신에서 넣었다 |
+| A50 | Owner 결정 (원문, Complete) | "[Manager 질문]" | 질문의 표지 |
+| A51 | Owner 결정 (원문, Complete) | "task-0213을 Console Complete로 DONE 처리할까요?" | A55의 질문 |
+| A52 | Owner 결정 (원문, Complete) | "(Reviewer retry 2 유효, minor 1건 Owner 수용, QA PASS." | 질문에 붙인 상태 요약. Reviewer·QA 결과 절과 같다 |
+| A53 | Owner 결정 (원문, Complete) | "Complete 전에 기록에 Reviewer·QA 결과, retry 예산 증액, minor 수용 원문과 빠진 요약 행을 넣습니다)" | 넣었다(budget 칸, 세 Owner 원문 블록, A42~A55, Reviewer·QA 결과 절) |
+| A54 | Owner 결정 (원문, Complete) | "[Owner 답]" | 답의 표지 |
+| A55 | Owner 결정 (원문, Complete) | "Complete 진행 (Recommended)" | Record Evidence와 Complete를 Preview 뒤 Confirm한다(Complete 절) |
 
 ## Self-review
 
@@ -214,3 +259,15 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 
 1. (major) Manager 요약 41행이 모두 `" ||`로 끝나 칸이 하나 밀림 → `" |`로 고쳐 4칸 행으로 맞췄다.
 2. (minor) 설계 3이 승인된 두 문장 밖의 master-plan 날짜 항목 추가를 적음 → 그 문장을 지웠다. 이 candidate는 두 문장만 바꾼다.
+
+## Reviewer·QA 결과
+
+- candidate `3c121bd46d62eda41fe65a069973b1f64ec0a1a8`(baseline `e48afb7`, 단일 커밋, scope 2파일).
+- Reviewer 첫 실행: BLOCKED. Manager가 승인 원문을 요청 본문에 붙이지 않고 저장소 밖 파일 경로만 줬기 때문이다(입력 오류, candidate 무관). 원문을 붙여 다시 요청했다(retry 1).
+- Reviewer retry 1: PASS, findings 0이었지만 첫 명령이 허용 형식을 어겨(`git -C`, 리디렉션, `cd`, 명령 연결) `self_deviations` 1건으로 무효. retry 예산이 소진돼 Owner에게 물었고 Owner가 1 늘렸다(A45).
+- Reviewer retry 2: 유효(`self_deviations` 0), FINDINGS minor 1건(retry 예산 증액 원문이 요약에 없고 기록 budget이 1로 남음). Owner가 SOP §8로 수용했다(A49). repair 0.
+- QA PASS(새 detached worktree, `core.autocrlf=true`로 CRLF 체크아웃, HEAD = candidate): 바뀐 파일 2개, `git diff --check` 통과, `jarvis.bat` 트리에 없음, SOP validator PASS, Console smoke PASS(PYTHONUTF8 유무 모두), `overview_payload()`의 `recommended_next_step` 458자(한도 `MASTER_PLAN_VALUE_MAX_CHARS` 500)에 새 문장이 있고 옛 구절이 없음, Dashboard 줄도 새 문장이고 옛 구절이 없음, 검사 뒤 작업 트리 깨끗, QA worktree는 지웠다. Docs는 `not_required`(이 candidate가 문서 변경 자체다).
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-30 19:04 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-30 19:04 UTC`). Console은 끈 상태다. push는 하지 않았다.
