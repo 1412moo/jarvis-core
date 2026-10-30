@@ -2,11 +2,12 @@
 
 - id: `task-0210-master-plan-baseline-refresh`
 - title: `master-plan 기준점과 Owner Dashboard 현재 줄 갱신`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-30 13:56 UTC`
-- updated_at: `2026-10-30 14:04 UTC`
+- updated_at: `2026-10-30 14:12 UTC`
 - summary: `docs/master-plan.md §2 현재 기준점이 2026-07-23(Verified implementation HEAD 7d4394e)에 멈춰 Console Project Control 카드가 7~9월 상태를 보인다. §2의 설명 필드 일곱 개(Last verified, Verified implementation HEAD, Current workstream, Current milestone, Recommended next step, Next user-visible milestone, Recent completed)와 Owner Dashboard의 현재 줄 네 개를 2026-10-29(7b03f6f) 상태로 고친다. Approval state, Owner decision, Manager reporting 필드와 보류 결정은 바꾸지 않고 push는 하지 않는다.`
+- completion_evidence: `candidate f0a83754ce565f7e96703714a056a7f131142823 (baseline 7b03f6f, repair 1): Reviewer PASS, findings 0. QA PASS in a fresh CRLF worktree: Console smoke with and without PYTHONUTF8, validator, diff --check, section 2 values within 500 chars, 7b03f6f is a branch ancestor, 20 cited task records checked. Main checkout: card attention unchanged, Manager Report milestone_complete, no source conflicts.`
 - source_command: `Owner 지시: 다음 단계 후보 1 (Claude Code 세션)`
 
 ## 기준선
@@ -126,3 +127,22 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 
 - candidate `42544d6f2b7585cd6aabef80950d10957ef75c86`: Reviewer FINDINGS, 지적 1건(minor), self_deviations 0. master-plan 두 곳(Recommended next step, 현재 결정 필요)과 조사 절이 attempt branch 3개 삭제를 "남은 Owner 결정"으로 적으며 task-0209를 출처로 달았지만, task-0209 기록에는 그 branch들이 main 조상이 아닌 실패 시도라는 사실과 Owner가 branch를 남기기로 한 결정만 있고 열린 결정은 없다.
 - Repair 1(`repair_count=1`, 예산 안, Manager 결정): 두 master-plan 문장을 "task-0209가 남긴 … branch 3개"를 2026-10-29 조사가 Owner 결정 대상으로 본 것으로 고쳐 task-0209는 사실의 출처로만 남겼고, 조사 절에 판단 주체를 적었다. `Recommended next step` 값은 439자다. 새 candidate에 Reviewer → QA를 다시 한다.
+
+## Reviewer·QA 결과 (repair 1 candidate)
+
+- candidate `f0a83754ce565f7e96703714a056a7f131142823`(baseline `7b03f6f`, 두 커밋: `42544d6` 첫 candidate와 `f0a8375` repair 1, scope 2파일): Reviewer PASS, findings 0, self_deviations 0. retry 0, repair 1/1.
+- QA PASS(새 detached worktree, `core.autocrlf=true`로 CRLF 체크아웃, HEAD = candidate): 변경 파일 2개, `jarvis.bat` 트리에 없음, Console smoke PYTHONUTF8 없이·있이 통과, SOP validator PASS, `git diff --check` 통과. Console 파서로 읽은 §2 값 길이 10·40·423·415·439·212·488(상한 500), `commit_is_branch_ancestor(7b03f6f…)` 참, writer의 `("FAILED", "CLOSED")` 전이 존재, 인용한 task 20개(task-0155~0208)의 기록과 제목 일치. QA worktree에서 Project Control 카드는 `blocked`였는데 이유(branch가 다름, `jarvis.bat` 없음)는 detached worktree 환경 때문이라, 같은 candidate를 HEAD로 둔 메인 checkout에서 다시 계산했다: 카드 `attention`(이유 1개, 변경 전과 같은 Approval note), Manager Report `milestone_complete`, source conflict 0, 카드의 Verified HEAD `7b03f6f`·Last verified `2026-10-29`. QA worktree는 지웠다. Docs는 `not_required`(이 task가 문서 변경).
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0210을 Console Complete로 DONE 처리할까요? (repair 1 뒤 Reviewer PASS, QA PASS, 완료 증거 기록됨)
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-30 14:09 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-30 14:12 UTC`). Console은 끈 상태다. push는 하지 않았다.
