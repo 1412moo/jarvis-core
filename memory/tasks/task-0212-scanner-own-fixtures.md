@@ -2,11 +2,12 @@
 
 - id: `task-0212-scanner-own-fixtures`
 - title: `비밀 정보 검사기 전체 검사에서 자체 견본 빼기`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-30 15:30 UTC`
-- updated_at: `2026-10-30 15:32 UTC`
+- updated_at: `2026-10-30 15:38 UTC`
 - summary: `scripts/check_no_secrets.py 전체 검사가 자기 self-test 양성 견본 7건을 잡아 항상 FAIL이다. 견본 값을 실행 때 이어 붙이는 조각으로 적어 소스에는 비밀 모양 문자열이 없게 하고, self-test에 검사기 자신의 소스를 검사해 발견 0건인지 보는 검사를 더한다. 탐지 규칙·대상·예외는 바꾸지 않고 push는 하지 않는다.`
+- completion_evidence: `candidate 2d29157605d47dae69eddf35b8a1c4c9cff80b36 (baseline 3b2f2b6): Reviewer PASS, findings 0, repair 0. QA PASS in a fresh CRLF worktree: self-test 17/0, full scan findings 0 (was 7), validator, diff --check; fixtures, patterns and scan targets equal the baseline at runtime. Seven secret shapes still detected; each fixture written back whole fails the new self-test.`
 - source_command: `Owner 지시: 다음 작업 (Claude Code 세션)`
 
 ## 기준선
@@ -121,3 +122,22 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 3. owned 밖 저장소 경로에 검증용 임시 파일을 쓴 일이 범위 표에 없음 → 범위 표에 그 파일과 이유, 지우고 stage하지 않는다는 조건을 적고, 삭제 확인 근거를 검증 절에 적었다.
 
 수정 뒤 사전 점검(`python -B scripts/check_task_record.py memory/tasks/task-0212-scanner-own-fixtures.md --baseline 3b2f2b68c6b88c2a3cacb3be3414cc48d9141fd4 --require-quotes`) 결과는 `status=PASS`였고, 그 뒤 `commit_candidate.py`로 candidate를 만들었다.
+
+## Reviewer·QA 결과
+
+- candidate `2d29157605d47dae69eddf35b8a1c4c9cff80b36`(baseline `3b2f2b6`, 단일 커밋, scope 2파일): Reviewer PASS, findings 0, self_deviations 0. retry 0, repair 0.
+- QA PASS(새 detached worktree, `core.autocrlf=true`로 CRLF 체크아웃, HEAD = candidate): 변경 파일 2개, `jarvis.bat`과 임시 probe 파일 트리에 없음, `--self-test` checks=17 failures=0 PASS, 전체 검사 files_scanned=454(이 task 기록 하나 더함) findings=0 PASS, SOP validator PASS, `git diff --check` 통과, 검사 뒤 작업 트리 깨끗, QA worktree는 지웠다. 실행 비교(HEAD = candidate인 메인 checkout, baseline 소스는 저장소 밖 임시 파일로 불러옴): `_POSITIVE_FIXTURES`·`_NEGATIVE_FIXTURES`의 값, `PATTERNS`(코드·정규식·value_group), `TEXT_SUFFIXES`·`EXCLUDED_DIR_PARTS`·`PLACEHOLDER_MARKERS`·`GENERIC_ASSIGNMENT_KEYS`가 baseline과 모두 같다. 처음 비교 스크립트는 모듈을 `sys.modules`에 등록하지 않아 dataclass 처리에서 멈췄고(검사기 코드와 무관), 등록해 다시 돌렸다. Docs는 `not_required`(이 검사기를 설명하는 문서에 바꿀 문장이 없음).
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0212를 Console Complete로 DONE 처리할까요? (Reviewer PASS 지적 0, QA PASS, 완료 증거 기록됨)
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-30 15:37 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-30 15:38 UTC`). Console은 끈 상태다. push는 하지 않았다.
