@@ -2,11 +2,12 @@
 
 - id: `task-0211-failed-next-action-wording`
 - title: `FAILED Next action 문구 정정`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-30 14:34 UTC`
-- updated_at: `2026-10-30 14:43 UTC`
+- updated_at: `2026-10-30 14:51 UTC`
 - summary: `FAILED task 카드의 Next action은 "Review the summary and decide the recovery outside Jarvis Console."인데, 카드에는 이제 실패 의미와 가능한 조치(task-0207)가 보이고 Console Close로 닫을 수 있다(task-0206). FAILED 문구 하나만 Owner가 고른 영어 문장(self-review 뒤 Owner 결정으로 /go를 뺀 문장)으로 바꾼다. 다른 상태 문구, 그룹·순위, 쓰기 흐름은 바꾸지 않고 push는 하지 않는다.`
+- completion_evidence: `candidate 3b3ca033734d85ec13fd0bf6b7ddd60bc3501635 (baseline b8f16b2, retry 1, repair 1): Reviewer PASS, findings 0. QA PASS in a fresh CRLF worktree: Console smoke with and without PYTHONUTF8, validator, diff --check, FAILED next action equals the Owner's final sentence, other statuses unchanged. Browser: Worker-path and manual no-reason FAILED cards showed the new sentence.`
 - source_command: `Owner 지시: 다음 작업 (Claude Code 세션)`
 
 ## 기준선
@@ -133,3 +134,22 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 - candidate `7e73ea1dba5ae4039c40b378d343cb11274cd07b` 첫 검토: 판정 PASS였지만 `self_deviations` 1건(허용 형식 밖의 `git -C`·리디렉션·명령 연결)이라 SOP §5에 따라 무효. 같은 candidate를 한 번 다시 검토했다(retry 1, `retry_count=1`, repair 예산 사용 없음).
 - 재검토: FINDINGS, 지적 1건(minor), self_deviations 0. A6이 "세부는 A10·A14·A16의 답으로 정했다"고 적어, 대체된 첫 미리보기(A16)를 결정 근거로 들고 최종 문장을 정한 A20·A22를 빠뜨렸다.
 - Repair 1(`repair_count=1`, 예산 안, Manager 결정): A6을 "A10·A14의 답과, A16을 대체한 A20·A22의 답"으로 고쳤다. 코드와 다른 행은 바꾸지 않았다. 새 candidate에 Reviewer → QA를 다시 한다.
+
+## Reviewer·QA 결과 (repair 1 candidate)
+
+- candidate `3b3ca033734d85ec13fd0bf6b7ddd60bc3501635`(baseline `b8f16b2`, 두 커밋: `7e73ea1` 첫 candidate와 `3b3ca03` repair 1, scope 3파일): Reviewer PASS, findings 0, self_deviations 0. retry 1/1, repair 1/1.
+- QA PASS(새 detached worktree, `core.autocrlf=true`로 CRLF 체크아웃, HEAD = candidate): 변경 파일 3개, `jarvis.bat`과 임시 기록(task-0997·0998) 트리에 없음, Console smoke PYTHONUTF8 없이·있이 통과, SOP validator PASS, `git diff --check` 통과. `TASK_VIEW_STATUS_RULES["FAILED"]`의 문구가 A22 문장과 같고 다른 상태 문구 일곱 개는 그대로다. 검사 뒤 작업 트리 깨끗, QA worktree는 지웠다. Docs는 `not_required`(README·문서에 이 문구가 없음).
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0211을 Console Complete로 DONE 처리할까요? (retry 1·repair 1 뒤 Reviewer PASS, QA PASS, 완료 증거 기록됨)
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-30 14:46 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-30 14:51 UTC`). Console은 끈 상태다. push는 하지 않았다.
