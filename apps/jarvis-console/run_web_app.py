@@ -253,7 +253,7 @@ TASK_VIEW_STATUS_RULES = {
     "FAILED": (
         "needs_attention",
         30,
-        "Review the summary and decide the recovery outside Jarvis Console.",
+        "Read the failure meaning and options on this card, then follow them or close it here with Close.",
     ),
     "DOING": (
         "in_progress",
