@@ -7824,6 +7824,146 @@ if (taskViewHiddenCountsMarkup(undefined) !== "") throw new Error("missing count
     assert 'if (tabId === "tasks") {\n    return loadOverview();' in activate_source
 
 
+def _test_task_view_name_rule_excluded_count() -> None:
+    """Count the Task records the secrets-like name rule skips (task-0214).
+
+    The rule itself, the Task View, its counts and the actionable scope stay
+    as they are; only a number is added, and no skipped name reaches the
+    payload. Files skipped for another reason - extension or a hidden path -
+    are not counted.
+    """
+
+    fixture_root = run_web_app.REPO_ROOT / "name-rule-fixture"
+    assert fixture_root.resolve().parent == run_web_app.REPO_ROOT.resolve()
+    shutil.rmtree(fixture_root, ignore_errors=True)
+    original_directory_lookup = run_web_app.overview_directory_by_key
+    relative = "name-rule-fixture/tasks"
+    listed = ("task-9101-listed", "task-9102-listed")
+    skipped_names = ("rotate-the-bot-token", "remove-password-field")
+
+    def record(task_id: str) -> str:
+        return (
+            f"# {task_id}\n\n"
+            f"- id: `{task_id}`\n"
+            "- title: `fixture`\n"
+            "- status: `TODO`\n"
+            "- repo: `jarvis-core`\n"
+            "- created_at: `2026-10-31 09:00 UTC`\n"
+            "- updated_at: `2026-10-31 10:00 UTC`\n"
+            "- summary: `fixture record`\n"
+        )
+
+    def overview(extra: dict[str, str]) -> dict:
+        shutil.rmtree(fixture_root, ignore_errors=True)
+        tasks_dir = run_web_app.REPO_ROOT / relative
+        tasks_dir.mkdir(parents=True)
+        for task_id in listed:
+            (tasks_dir / f"{task_id}.md").write_text(record(task_id), encoding="utf-8")
+        for name, task_id in extra.items():
+            path = tasks_dir / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(record(task_id), encoding="utf-8")
+        mapping = dict(original_directory_lookup())
+        mapping["memory_tasks"] = {"key": "memory_tasks", "label": "Tasks", "path": relative}
+        run_web_app.overview_directory_by_key = lambda: mapping
+        code, payload = run_web_app.handle_get_api("/api/overview")
+        assert code == HTTPStatus.OK
+        return payload
+
+    try:
+        # 0 - no skipped record: the field is present and zero
+        counts = overview({})["task_view_counts"]
+        assert counts["name_rule_excluded"] == 0
+        assert counts["total"] == len(listed)
+        # 2 - two skipped names count; files skipped for other reasons do not
+        payload = overview(
+            {
+                f"task-9103-{skipped_names[0]}.md": f"task-9103-{skipped_names[0]}",
+                f"task-9104-{skipped_names[1]}.md": f"task-9104-{skipped_names[1]}",
+                "task-9105-token-notes.py": "task-9105-token-notes",
+                ".hidden/task-9106-secret.md": "task-9106-secret",
+                ".task-9107-token.md": "task-9107-token",
+                ".env-task-9108-notes.md": "task-9108-notes",
+            }
+        )
+        counts = payload["task_view_counts"]
+        assert counts["name_rule_excluded"] == 2
+        # the existing counts and the actionable scope are unchanged
+        assert counts["total"] == len(listed)
+        assert counts["displayed"] + counts["hidden"] == counts["total"]
+        assert {item["path"].rsplit("/", 1)[-1] for item in payload["tasks"]} == {
+            f"{task_id}.md" for task_id in listed
+        }
+        assert run_web_app.selected_task_transition_items() == payload["tasks"]
+        # no skipped name or path reaches discovery; the existing git status
+        # text in repo and project_control lists untracked paths as before
+        text = json.dumps(
+            {key: value for key, value in payload.items() if key not in {"repo", "project_control"}},
+            ensure_ascii=False,
+        )
+        for name in (*skipped_names, "token-notes", "task-9106", "task-9107", "task-9108"):
+            assert name not in text, name
+    finally:
+        run_web_app.overview_directory_by_key = original_directory_lookup
+        shutil.rmtree(fixture_root, ignore_errors=True)
+
+    # the real repository: same number as an independent count of memory/tasks
+    tasks_root = run_web_app.REPO_ROOT / "memory" / "tasks"
+    expected = sum(
+        1
+        for path in tasks_root.rglob("*")
+        if path.is_file()
+        and path.suffix.lower() in run_web_app.OVERVIEW_ALLOWED_EXTENSIONS
+        and not any(part.startswith(".") for part in path.relative_to(tasks_root).parts)
+        and any(part in path.name.lower() for part in run_web_app.SECRET_LIKE_NAME_PARTS)
+    )
+    assert run_web_app.name_rule_excluded_count("memory_tasks") == expected
+
+    # the line renders only for a positive number, with no action control
+    app_js = (Path(__file__).resolve().parent / "web" / "app.js").read_text(encoding="utf-8")
+    escape_source = "function escapeHtml" + app_js.split("function escapeHtml", 1)[1].split(
+        "function truncateText", 1
+    )[0]
+    line_source = "function taskViewNameRuleExcludedMarkup" + app_js.split(
+        "function taskViewNameRuleExcludedMarkup", 1
+    )[1].split("\nfunction renderActionableTaskView(", 1)[0]
+    harness = (
+        f"{escape_source}\n{line_source}\n"
+        """
+const one = taskViewNameRuleExcludedMarkup({ total: 3, name_rule_excluded: 1 });
+for (const part of ["Name rule:", "1 task record is not listed because its file name", "secret or token", "so it is not"]) {
+  if (!one.includes(part)) throw new Error(`missing ${part}: ${one}`);
+}
+if (!taskViewNameRuleExcludedMarkup({ name_rule_excluded: 2 }).includes("2 task records are not listed because their file names")) {
+  throw new Error("plural line missing");
+}
+for (const forbidden of ["<button", "fetch(", "data-task-action"]) {
+  if (one.includes(forbidden)) throw new Error(`unexpected ${forbidden}`);
+}
+for (const counts of [undefined, {}, { name_rule_excluded: 0 }, { name_rule_excluded: "1" }]) {
+  if (taskViewNameRuleExcludedMarkup(counts) !== "") throw new Error(`rendered for ${JSON.stringify(counts)}`);
+}
+"""
+    )
+    completed = subprocess.run(
+        ("node", "-"),
+        cwd=Path(__file__).resolve().parent,
+        input=harness,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    assert completed.returncode == 0, (
+        f"name rule line harness failed: {completed.stdout}\n{completed.stderr}"
+    )
+    actionable_source = app_js.split("\nfunction renderActionableTaskView(", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "taskViewNameRuleExcludedMarkup(counts)" in actionable_source
+
+
 def _test_task_view_attention_priority() -> None:
     """Select Task View items by display priority, not by file recency (task-0114).
 
@@ -8934,6 +9074,7 @@ def main() -> None:
     _test_task_hold_resume()
     _test_task_close()
     _test_task_view_hidden_counts_and_first_screen()
+    _test_task_view_name_rule_excluded_count()
     _test_actionable_task_view_vertical_slice()
     _test_director_renderer_fails_closed_on_malformed_nested_data()
     _test_read_only_git_preserves_porcelain_status()

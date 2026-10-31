@@ -2358,9 +2358,46 @@ def project_task_view_items(
 TASK_VIEW_COUNT_METADATA_REVIEW = "METADATA_REVIEW"
 
 
+def name_rule_excluded_count(directory_key: str) -> int:
+    """Count the files one directory skips only for a secrets-like name (task-0214).
+
+    is_overview_candidate_path drops any file whose name contains a
+    SECRET_LIKE_NAME_PARTS word, and nothing on screen said so: a Task record
+    named that way was missing from the Task View and its counts, and could not
+    be started or completed here. This returns only how many, never a name, a
+    path or any content, and leaves the rule and every discovery list as they
+    are. A skipped file counts only when the same path passes with each such
+    word replaced, so a leading dot and the extension stay and the
+    extension, hidden-path and allowed-root rules still decide the rest
+    exactly as before.
+    """
+
+    directory = overview_directory_by_key()[directory_key]
+    root = REPO_ROOT / directory["path"]
+    if not root.exists() or not root.is_dir():
+        return 0
+    count = 0
+    for path in root.rglob("*"):
+        if not path.is_file() or is_overview_candidate_path(path, root):
+            continue
+        lowered_name = path.name.lower()
+        # keep a leading dot, so a hidden ".env..." name stays hidden
+        head = "." if lowered_name.startswith(".") else ""
+        neutral_name = lowered_name[len(head):]
+        for part in SECRET_LIKE_NAME_PARTS:
+            neutral_name = neutral_name.replace(part, "x")
+        neutral_name = head + neutral_name
+        if neutral_name == lowered_name:
+            continue
+        if is_overview_candidate_path(path.with_name(neutral_name), root):
+            count += 1
+    return count
+
+
 def task_view_counts(
     projection: list[dict[str, Any]],
     displayed: int,
+    name_rule_excluded: int = 0,
 ) -> dict[str, Any]:
     """Count the Tasks the capped Task View leaves out, by status (task-0162).
 
@@ -2368,7 +2405,8 @@ def task_view_counts(
     file is read again and the selection, its order and the cap stay as they
     are. An invalid record counts under METADATA_REVIEW, since it has no
     trusted status. Statuses follow the display order and only those with a
-    hidden Task are listed.
+    hidden Task are listed. name_rule_excluded (task-0214) counts records the
+    name rule kept out of the projection, so it is not part of total.
     """
 
     hidden: dict[str, int] = {}
@@ -2390,6 +2428,7 @@ def task_view_counts(
         "hidden_by_status": {
             status: hidden[status] for status in order if status in hidden
         },
+        "name_rule_excluded": name_rule_excluded,
     }
 
 
@@ -2467,7 +2506,9 @@ def overview_payload() -> dict[str, Any]:
         "skills": overview_skills_payload(registry["skills"]),
         "tasks": tasks,
         "task_view_counts": task_view_counts(
-            task_projection, len(tasks)
+            task_projection,
+            len(tasks),
+            name_rule_excluded=name_rule_excluded_count("memory_tasks"),
         ),
         "reports": reports,
         "checkpoints": checkpoints,

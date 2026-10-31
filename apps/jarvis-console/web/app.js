@@ -1418,6 +1418,19 @@ function taskViewHiddenCountsMarkup(counts) {
   return `<p class="muted"><strong>Not shown:</strong> ${escapeHtml(String(counts.hidden))} of ${escapeHtml(String(counts.total))} Tasks (${parts.join(", ")}). Read-only count; these Tasks cannot be changed here until they are displayed.</p>`;
 }
 
+function taskViewNameRuleExcludedMarkup(counts) {
+  // task-0214: read-only count of task records the secrets-like name rule skips.
+  const excluded = counts?.name_rule_excluded;
+  if (typeof excluded !== "number" || excluded <= 0) {
+    return "";
+  }
+  const sentence =
+    excluded === 1
+      ? "task record is not listed because its file name contains a word such as secret or token. Discovery skips such names, so it is not in the counts above and cannot be changed here."
+      : "task records are not listed because their file names contain a word such as secret or token. Discovery skips such names, so they are not in the counts above and cannot be changed here.";
+  return `<p class="muted"><strong>Name rule:</strong> ${escapeHtml(String(excluded))} ${sentence}</p>`;
+}
+
 function renderActionableTaskView(items, counts) {
   const groups = [
     ["metadata_review", "Needs metadata review"],
@@ -1443,6 +1456,7 @@ function renderActionableTaskView(items, counts) {
       <p class="muted">Shows up to 10 Tasks, attention first then most recently updated; this is not the full backlog.</p>
       <p class="muted"><strong>Display order:</strong> metadata review, NEEDS_APPROVAL, BLOCKED, FAILED, DOING, TODO, ON_HOLD, DONE, CLOSED; then updated time newest first and path.</p>
       ${taskViewHiddenCountsMarkup(counts)}
+      ${taskViewNameRuleExcludedMarkup(counts)}
       <div class="overview-skill-grid">
         ${groups
           .map(([groupId, title]) => {

@@ -103,6 +103,12 @@ Included:
   the Actionable Task View: how many Tasks the 10-item view leaves out, by
   status. Those Tasks cannot be started or completed until they are displayed;
   the selection, its order and the cap are unchanged.
+- A read-only `name_rule_excluded` number in `task_view_counts` and, when it is
+  above zero, one more line in the Actionable Task View (task-0214): how many
+  task records discovery skips because the file name contains a word such as
+  secret or token. Those records are not in the other counts and cannot be
+  changed here. No file name or content is shown, and the name rule itself is
+  unchanged.
 - A single-repo `project_control.v0.1E` payload inside the existing
   `GET /api/overview` response; no new action route or persistence.
 - Read-only skill registry validation.
