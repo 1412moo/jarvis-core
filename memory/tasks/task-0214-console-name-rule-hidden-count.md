@@ -2,11 +2,12 @@
 
 - id: `task-0214-console-name-rule-hidden-count`
 - title: `Console이 이름 규칙으로 뺀 task 기록 수 표시`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-31 09:12 UTC`
-- updated_at: `2026-10-31 14:56 UTC`
-- summary: `Console 탐색은 파일 이름에 secret·token·credential·password·.env가 든 파일을 아무 표시 없이 뺀다. 그래서 task-0043-no-secrets-enforcement.md가 Task View 집계와 화면에서 빠지고, 같은 단어가 든 task는 Console에서 상태를 바꿀 수도 없다. 제외 규칙은 그대로 두고, 이 규칙으로 뺀 task 기록의 수를 Task View에 보이게 한다(파일 이름과 내용은 보이지 않는다). Owner 답(Start as recommended) 뒤 구현했고 candidate 검토 단계다. push는 하지 않는다.`
+- updated_at: `2026-10-31 15:05 UTC`
+- summary: `Console 탐색은 파일 이름에 secret·token·credential·password·.env가 든 파일을 아무 표시 없이 뺀다. 그래서 task-0043-no-secrets-enforcement.md가 Task View 집계와 화면에서 빠지고, 같은 단어가 든 task는 Console에서 상태를 바꿀 수도 없다. 제외 규칙은 그대로 두고, 이 규칙으로 뺀 task 기록의 수를 Task View에 보이게 한다(파일 이름과 내용은 보이지 않는다). Owner 답(Start as recommended) 뒤 구현했고 Reviewer·QA PASS 뒤 DONE이다(candidate `20d9b15`). push는 하지 않는다.`
+- completion_evidence: `candidate 20d9b1576fe939b09b2ef422134e3daeee02a0d3: Reviewer 2nd PASS (no findings), QA PASS (smoke both modes, self-test, SOP validator, check_no_secrets, diff --check, name_rule_excluded=1)`
 - source_command: `Owner 지시: N1 등록과 조사 (Claude Code 세션)`
 
 ## 기준선
@@ -147,6 +148,35 @@ verdict FINDINGS, self_deviations 없음(유효한 review).
 - 확인: repair 전 `run_web_app.py`(candidate 판)로 새 smoke를 돌리면 `assert counts["name_rule_excluded"] == 2`에서 실패(rc=1)했다. 확인 뒤 고친 판으로 되돌렸고 `cmp`로 같음을 봤다. 고친 판에서 smoke(PYTHONUTF8=1과 없음 모두 rc=0), self-test, SOP validator, `check_no_secrets.py`(findings=0), `git diff --check`가 통과했고, 실제 수는 1이다. fixture 폴더는 남지 않았다.
 - Repair self-review: self-reviewer를 repair diff(첫 candidate 대비)에 한 번 더 돌렸다. minor 두 건(위 패턴 판정 이유 문장이 틀렸음, docstring에 새 조건이 없음)이 나왔고 둘 다 고쳤다.
 - minor: A5 오른쪽 칸에 "Owner 원문으로 대조되지 않는 Manager 해석"임을 밝혔다. Owner가 본 것은 질문 한 줄과 그 바로 앞의 등록·조사 보고이며, 이 기록의 추천안·보고 요약은 Manager가 옮긴 것이다.
+- 새 candidate: `20d9b1576fe939b09b2ef422134e3daeee02a0d3`(첫 candidate 위 커밋 하나). 첫 candidate의 Reviewer 결과는 이 candidate에 무효다.
+
+## Reviewer·QA 결과 (candidate `20d9b1576fe939b09b2ef422134e3daeee02a0d3`)
+
+- Reviewer 2차: 범위 `ed47f6f..20d9b15` 전체를 새로 검토했다. verdict PASS, findings 없음, self_deviations 없음. unverified로 남긴 것은 실행 검사(아래 QA가 다룸)와, A5가 기대는 추천안·보고가 Owner가 본 것과 같은지다(저장소 밖이라 Reviewer가 확인할 수 없고, A5 행이 이를 밝힌다).
+- QA: scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다.
+  - HEAD가 candidate와 같았고 작업 트리는 깨끗했다.
+  - Console smoke: PYTHONUTF8=1과 없음 모두 rc=0, "Jarvis Console smoke tests passed".
+  - `run_web_app.py --self-test` 통과, SOP validator PASS, `check_no_secrets.py` findings=0 PASS, `git diff --check ed47f6f 20d9b15` 통과.
+  - `task_view_counts`: `total 165, displayed 10, hidden 155, hidden_by_status {DONE 152, CLOSED 3}, name_rule_excluded 1`. 상태 전이 목록은 Task View 목록과 같았다.
+  - payload의 `repo`·`project_control`을 뺀 부분에 숨겨진 파일 경로 `memory/tasks/task-0043…`는 없다. `task-0043`이라는 글자는 task-0214 자신의 summary 문장에만 나타났다.
+  - fixture 폴더는 남지 않았다. QA 뒤 worktree를 지웠다.
+- QA 판정: PASS.
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0214 passed Reviewer (2nd, PASS) and QA (PASS) on candidate 20d9b15. Record Completion Evidence and run Console Complete (DOING → DONE), then make the DONE checkpoint and master-plan date-entry commits (no push)?
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+선택지 설명(Manager 문구, Owner 원문 아님): "Record evidence and Complete in Console, then commit the DONE checkpoint and the master-plan date entry locally. No push."
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-31 15:04 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-31 15:05 UTC`). Console은 끈 상태다. 그 뒤 이 절을 더하고 메타데이터 summary의 단계 문장을 DONE으로 고치면서 updated_at을 다시 맞췄다. push는 하지 않았다.
 
 ## Manager 요약
 
@@ -159,3 +189,6 @@ verdict FINDINGS, self_deviations 없음(유효한 review).
 | A3 | Owner 결정 (원문, 착수 전 bounded question) | "Start task-0214 with the recommended answers?" | A5의 질문. 추천안 세 개는 원문 블록 아래에 Manager 문구로 적었다 |
 | A4 | Owner 결정 (원문, 착수 전 bounded question) | "[Owner 답]" | 답의 표지 |
 | A5 | Owner 결정 (원문, 착수 전 bounded question) | "Start as recommended" | Console Start 뒤 구현했다. 아래 두 Manager 해석은 Owner 원문으로 대조되지 않는다. 근거는 Owner가 질문 직전에 본 등록·조사 보고를 Manager가 이 기록에 옮긴 문구뿐이다. Manager 해석(추천안 근거): `memory/tasks` 수만 Task View에 보이고, 수와 규칙 설명만 적고 파일 이름은 보이지 않으며, 문구는 영어다. Manager 해석(보고 3·5절 근거): 같은 보고에 보인 설계 초안·변경 파일·비범위를 범위 표와 설계 방향으로 그대로 쓴다. 범위 표 owned의 이 task 기록은 SOP 기록으로 Manager가 넣었다 |
+| A6 | Owner 결정 (원문, Complete) | "task-0214 passed Reviewer (2nd, PASS) and QA (PASS) on candidate 20d9b15." | A8의 질문 배경. Reviewer·QA 결과 절과 같다 |
+| A7 | Owner 결정 (원문, Complete) | "Record Completion Evidence and run Console Complete (DOING → DONE), then make the DONE checkpoint and master-plan date-entry commits (no push)?" | A8의 질문 |
+| A8 | Owner 결정 (원문, Complete) | "Complete 진행 (Recommended)" | Console로 Completion Evidence를 남기고 Complete했다(Complete 절). DONE checkpoint와 master-plan 날짜 항목은 로컬 커밋만 하고 push하지 않는다 |
