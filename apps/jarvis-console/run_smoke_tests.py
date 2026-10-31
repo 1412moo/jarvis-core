@@ -7884,6 +7884,8 @@ def _test_task_view_name_rule_excluded_count() -> None:
                 ".hidden/task-9106-secret.md": "task-9106-secret",
                 ".task-9107-token.md": "task-9107-token",
                 ".env-task-9108-notes.md": "task-9108-notes",
+                "token.txt": "stray-token",
+                "notes-secret.md": "stray-notes",
             }
         )
         counts = payload["task_view_counts"]
@@ -7901,7 +7903,10 @@ def _test_task_view_name_rule_excluded_count() -> None:
             {key: value for key, value in payload.items() if key not in {"repo", "project_control"}},
             ensure_ascii=False,
         )
-        for name in (*skipped_names, "token-notes", "task-9106", "task-9107", "task-9108"):
+        for name in (
+            *skipped_names, "token-notes", "task-9106", "task-9107", "task-9108",
+            "stray-token", "notes-secret",
+        ):
             assert name not in text, name
     finally:
         run_web_app.overview_directory_by_key = original_directory_lookup
@@ -7915,6 +7920,8 @@ def _test_task_view_name_rule_excluded_count() -> None:
         if path.is_file()
         and path.suffix.lower() in run_web_app.OVERVIEW_ALLOWED_EXTENSIONS
         and not any(part.startswith(".") for part in path.relative_to(tasks_root).parts)
+        and path.name != "task-template.md"
+        and run_web_app.TASK_FILE_PATTERN.fullmatch(path.name)
         and any(part in path.name.lower() for part in run_web_app.SECRET_LIKE_NAME_PARTS)
     )
     assert run_web_app.name_rule_excluded_count("memory_tasks") == expected

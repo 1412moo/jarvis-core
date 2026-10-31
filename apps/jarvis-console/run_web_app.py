@@ -2369,7 +2369,8 @@ def name_rule_excluded_count(directory_key: str) -> int:
     are. A skipped file counts only when the same path passes with each such
     word replaced, so a leading dot and the extension stay and the
     extension, hidden-path and allowed-root rules still decide the rest
-    exactly as before.
+    exactly as before. Only a name the Task View projection would take
+    (TASK_FILE_PATTERN, not task-template.md) counts as a task record.
     """
 
     directory = overview_directory_by_key()[directory_key]
@@ -2379,6 +2380,10 @@ def name_rule_excluded_count(directory_key: str) -> int:
     count = 0
     for path in root.rglob("*"):
         if not path.is_file() or is_overview_candidate_path(path, root):
+            continue
+        # only a file the Task View projection would take counts as a task
+        # record, so a stray token.txt or notes-secret.md is not reported
+        if path.name == "task-template.md" or not TASK_FILE_PATTERN.fullmatch(path.name):
             continue
         lowered_name = path.name.lower()
         # keep a leading dot, so a hidden ".env..." name stays hidden

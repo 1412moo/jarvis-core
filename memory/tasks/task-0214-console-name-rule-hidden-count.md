@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-10-31 09:12 UTC`
-- updated_at: `2026-10-31 14:27 UTC`
+- updated_at: `2026-10-31 14:56 UTC`
 - summary: `Console 탐색은 파일 이름에 secret·token·credential·password·.env가 든 파일을 아무 표시 없이 뺀다. 그래서 task-0043-no-secrets-enforcement.md가 Task View 집계와 화면에서 빠지고, 같은 단어가 든 task는 Console에서 상태를 바꿀 수도 없다. 제외 규칙은 그대로 두고, 이 규칙으로 뺀 task 기록의 수를 Task View에 보이게 한다(파일 이름과 내용은 보이지 않는다). Owner 답(Start as recommended) 뒤 구현했고 candidate 검토 단계다. push는 하지 않는다.`
 - source_command: `Owner 지시: N1 등록과 조사 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `ed47f6fed897713e313a8d115c77e4e3ca49efca` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, Reviewer 1차 major로 repair 1회) |
 
 ## Owner 결정 (원문)
 
@@ -97,7 +97,7 @@ Console Start Preview(TODO → DOING, 실행 없음)를 확인하고 `Confirm St
 ## 구현
 
 - `apps/jarvis-console/run_web_app.py`
-  - 새 함수 `name_rule_excluded_count(directory_key)`: 한 탐색 폴더에서 `is_overview_candidate_path()`가 거른 파일 가운데, 이름의 `SECRET_LIKE_NAME_PARTS` 단어를 `x`로 바꾼 같은 경로가 통과하는 것만 센다. 이름 맨 앞의 `.`는 바꾸기 전에 떼어 두었다가 다시 붙이므로 `.env…`로 시작하는 숨김 이름도 숨김으로 남는다. 그래서 확장자·숨김 경로·허용 폴더 판정은 기존 함수가 그대로 정한다. 수만 돌려주고 이름·경로·내용은 돌려주지 않는다.
+  - 새 함수 `name_rule_excluded_count(directory_key)`(Repair 1에서 task 파일 모양 거르기 추가): 한 탐색 폴더에서 `is_overview_candidate_path()`가 거른 파일 가운데, 이름의 `SECRET_LIKE_NAME_PARTS` 단어를 `x`로 바꾼 같은 경로가 통과하는 것만 센다. 이름 맨 앞의 `.`는 바꾸기 전에 떼어 두었다가 다시 붙이므로 `.env…`로 시작하는 숨김 이름도 숨김으로 남는다. 그래서 확장자·숨김 경로·허용 폴더 판정은 기존 함수가 그대로 정한다. 수만 돌려주고 이름·경로·내용은 돌려주지 않는다.
   - `task_view_counts()`에 키워드 인자 `name_rule_excluded`(기본 0)를 더하고, 결과에 `"name_rule_excluded"` 필드 하나를 더했다. `total`·`displayed`·`hidden`·`hidden_by_status`는 그대로다.
   - `overview_payload()`가 `name_rule_excluded_count("memory_tasks")`를 넘긴다.
   - `SECRET_LIKE_NAME_PARTS`, `is_overview_candidate_path()`, `discover_recent_items()`, `discover_history_items()`, 상태 전이 코드는 바꾸지 않았다.
@@ -133,6 +133,21 @@ staged 변경에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). min
 
 고친 뒤 위 Implementer 검증 결과를 다시 확인했다(smoke 두 방식, self-test, validator, 비밀 정보 검사기, `git diff --check`, 실제 수 1).
 
+## Reviewer 1차 (candidate `98feaca985d175bb7822d35257e3baa44d55eca9`)
+
+verdict FINDINGS, self_deviations 없음(유효한 review).
+
+- major: `name_rule_excluded_count()`가 Task View projection의 거르기(`task-template.md` 제외, `TASK_FILE_PATTERN.fullmatch`)를 쓰지 않았다. 그래서 `memory/tasks/token.txt`나 `notes-secret.md` 같은 task가 아닌 파일도 "task record"로 세어졌다. smoke의 독립 계산도 같은 거르기가 없었고, 그런 fixture도 없었다.
+- minor: A5의 표시 범위·내용·언어·owned 파일 목록은 Owner 원문에 없고 Manager가 적은 추천안·보고에만 근거한다. Reviewer는 이를 Owner 원문과 대조할 수 없었다.
+
+## Repair 1 (repair_count 0 → 1)
+
+- `run_web_app.py` `name_rule_excluded_count()`: 원래 파일 이름이 `task-template.md`가 아니고 `TASK_FILE_PATTERN`에 맞을 때만 센다(projection과 같은 거르기). 패턴은 projection처럼 바꾸기 전 원래 이름으로 판정한다(바꾼 이름으로 판정하면 대문자나 `.env`가 든 이름이 잘못 세어질 수 있다). docstring에도 이 조건을 적었다.
+- `run_smoke_tests.py`: fixture에 task 모양이 아닌 `token.txt`·`notes-secret.md`를 더했다(세지 않아야 함, 이름이 payload 탐색 부분에 없어야 함). 독립 계산에도 같은 거르기를 더했다.
+- 확인: repair 전 `run_web_app.py`(candidate 판)로 새 smoke를 돌리면 `assert counts["name_rule_excluded"] == 2`에서 실패(rc=1)했다. 확인 뒤 고친 판으로 되돌렸고 `cmp`로 같음을 봤다. 고친 판에서 smoke(PYTHONUTF8=1과 없음 모두 rc=0), self-test, SOP validator, `check_no_secrets.py`(findings=0), `git diff --check`가 통과했고, 실제 수는 1이다. fixture 폴더는 남지 않았다.
+- Repair self-review: self-reviewer를 repair diff(첫 candidate 대비)에 한 번 더 돌렸다. minor 두 건(위 패턴 판정 이유 문장이 틀렸음, docstring에 새 조건이 없음)이 나왔고 둘 다 고쳤다.
+- minor: A5 오른쪽 칸에 "Owner 원문으로 대조되지 않는 Manager 해석"임을 밝혔다. Owner가 본 것은 질문 한 줄과 그 바로 앞의 등록·조사 보고이며, 이 기록의 추천안·보고 요약은 Manager가 옮긴 것이다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이며, 근거가 추천안(Manager 문구, Owner 원문 아님)이거나 Manager 판단이다.
@@ -143,4 +158,4 @@ staged 변경에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). min
 | A2 | Owner 결정 (원문, 착수 전 bounded question) | "[Manager 질문]" | 질문의 표지 |
 | A3 | Owner 결정 (원문, 착수 전 bounded question) | "Start task-0214 with the recommended answers?" | A5의 질문. 추천안 세 개는 원문 블록 아래에 Manager 문구로 적었다 |
 | A4 | Owner 결정 (원문, 착수 전 bounded question) | "[Owner 답]" | 답의 표지 |
-| A5 | Owner 결정 (원문, 착수 전 bounded question) | "Start as recommended" | Console Start 뒤 구현했다. Manager 해석(추천안 근거): `memory/tasks` 수만 Task View에 보이고, 수와 규칙 설명만 적고 파일 이름은 보이지 않으며, 문구는 영어다. Manager 해석(보고 3·5절 근거): 같은 보고에 보인 설계 초안·변경 파일·비범위를 범위 표와 설계 방향으로 그대로 쓴다. 범위 표 owned의 이 task 기록은 SOP 기록으로 Manager가 넣었다 |
+| A5 | Owner 결정 (원문, 착수 전 bounded question) | "Start as recommended" | Console Start 뒤 구현했다. 아래 두 Manager 해석은 Owner 원문으로 대조되지 않는다. 근거는 Owner가 질문 직전에 본 등록·조사 보고를 Manager가 이 기록에 옮긴 문구뿐이다. Manager 해석(추천안 근거): `memory/tasks` 수만 Task View에 보이고, 수와 규칙 설명만 적고 파일 이름은 보이지 않으며, 문구는 영어다. Manager 해석(보고 3·5절 근거): 같은 보고에 보인 설계 초안·변경 파일·비범위를 범위 표와 설계 방향으로 그대로 쓴다. 범위 표 owned의 이 task 기록은 SOP 기록으로 Manager가 넣었다 |
