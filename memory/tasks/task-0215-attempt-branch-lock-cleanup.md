@@ -2,11 +2,12 @@
 
 - id: `task-0215-attempt-branch-lock-cleanup`
 - title: `남은 Worker attempt branch와 중첩 lock 폴더 정리`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-10-31 15:36 UTC`
-- updated_at: `2026-10-31 16:07 UTC`
+- updated_at: `2026-10-31 16:26 UTC`
 - summary: `task-0209가 남긴 로컬 jarvis/* branch 다섯 개(main에 들어간 두 개, 버려진 시도 세 개)와 저장소 밖 중첩 폴더 jarvis-core-worktrees/jarvis-core-worktrees(빈 lock 파일 하나)를 정리한다. Owner가 지울 대상 셋을 모두 승인했고 실행 직전 확인도 받아 지웠다. 바깥쪽 lock 파일, 코드, 다른 기록은 바꾸지 않고 push는 하지 않는다.`
+- completion_evidence: `candidate 81ae6d892a3ea0521e7b01494deb2f9d9cd30d7b: Reviewer PASS (no findings), QA PASS (record checks, validator, diff --check; jarvis/* branches 0, commits kept as objects, origin unchanged, worktree list main only, only outer lock file left)`
 - source_command: `Owner 지시: E1+E2 조사 뒤 task 등록 (Claude Code 세션)`
 
 ## 기준선
@@ -132,6 +133,33 @@ Delete all three groups (Recommended)
 
 staged 기록에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). minor 네 건이 나왔고 candidate 전에 모두 고쳤다: 설계·범위 절 제목의 "초안" 표기, 설계 1의 "하나씩"과 실제 한 번 승인의 차이, 중첩 lock을 잡은 프로세스가 없다는 것이 추론임을 밝히지 않음, 사전 점검 결과와 경고 설명 누락과 owned 경로의 `../` 누락.
 
+## Reviewer·QA 결과 (candidate `81ae6d892a3ea0521e7b01494deb2f9d9cd30d7b`)
+
+- Reviewer: verdict PASS, findings 없음, self_deviations 없음. unverified로 남긴 것은 저장소 밖 사실과 로컬 branch 상태(허용된 명령 형식으로 볼 수 없음)이며 아래 QA가 확인했다.
+- QA(기록만 바뀐 변경이라 가장 가벼운 충분한 방법, 메인 작업 트리에서 HEAD = candidate, task-0209와 같은 방식):
+  - 변경 파일은 이 기록 하나이고, `jarvis.bat`은 트리에 없다. `git diff --check` 통과, `check_task_record.py --require-quotes` violations=0 PASS, SOP validator PASS.
+  - `git branch --list 'jarvis/*'`는 0개다. 다른 로컬 branch는 남아 있다(전체 35개).
+  - 다섯 커밋은 아직 commit 객체로 있고, `80a61a8`·`f3bd53b`만 main 조상이다.
+  - `git ls-remote --heads origin 'jarvis/*'`는 0개다(원격은 원래 없었고 바뀌지 않았다).
+  - `git worktree list`는 main 하나뿐이다. `../jarvis-core-worktrees` 안에는 바깥쪽 `.jarvis-worker.lock`만 남았다.
+- QA 판정: PASS.
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0215 passed Reviewer (PASS) and QA (PASS) on candidate 81ae6d8. Record Completion Evidence and run Console Complete (DOING → DONE), then make the DONE checkpoint and master-plan date-entry commits (no push)?
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+선택지 설명(Manager 문구, Owner 원문 아님): "Record evidence and Complete in Console, then commit the DONE checkpoint and the master-plan date entry locally. No push."
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-10-31 16:26 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-10-31 16:26 UTC`). Console은 끈 상태다. push는 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이며, 근거가 선택지 설명(Manager 문구, Owner 원문 아님)이거나 Manager 판단이다.
@@ -153,3 +181,6 @@ staged 기록에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). min
 | A13 | Owner 결정 (원문, 삭제 직전 확인) | "The outer lock file stays." | 바깥쪽 lock 파일은 남았다(결과 확인 절) |
 | A14 | Owner 결정 (원문, 삭제 직전 확인) | "The running Discord bot runs from the main repo, so it does not use the nested lock." | 질문의 근거 설명. 실행 전 재확인 절의 프로세스 확인 |
 | A15 | Owner 결정 (원문, 삭제 직전 확인) | "Delete all three groups (Recommended)" | 세 묶음을 질문에 적은 그대로 지웠다(실행·결과 확인 절) |
+| A16 | Owner 결정 (원문, Complete) | "task-0215 passed Reviewer (PASS) and QA (PASS) on candidate 81ae6d8." | A18의 질문 배경. Reviewer·QA 결과 절과 같다 |
+| A17 | Owner 결정 (원문, Complete) | "Record Completion Evidence and run Console Complete (DOING → DONE), then make the DONE checkpoint and master-plan date-entry commits (no push)?" | A18의 질문 |
+| A18 | Owner 결정 (원문, Complete) | "Complete 진행 (Recommended)" | Console로 Completion Evidence를 남기고 Complete했다(Complete 절). DONE checkpoint와 master-plan 날짜 항목은 로컬 커밋만 하고 push하지 않는다 |
