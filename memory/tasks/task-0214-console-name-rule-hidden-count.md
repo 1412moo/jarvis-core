@@ -6,7 +6,7 @@
 - repo: `jarvis-core`
 - created_at: `2026-10-31 09:12 UTC`
 - updated_at: `2026-10-31 15:05 UTC`
-- summary: `Console 탐색은 파일 이름에 secret·token·credential·password·.env가 든 파일을 아무 표시 없이 뺀다. 그래서 task-0043-no-secrets-enforcement.md가 Task View 집계와 화면에서 빠지고, 같은 단어가 든 task는 Console에서 상태를 바꿀 수도 없다. 제외 규칙은 그대로 두고, 이 규칙으로 뺀 task 기록의 수를 Task View에 보이게 한다(파일 이름과 내용은 보이지 않는다). Owner 답(Start as recommended) 뒤 구현했고 Reviewer·QA PASS 뒤 DONE이다(candidate `20d9b15`). push는 하지 않는다.`
+- summary: `Console 탐색은 파일 이름에 secret·token·credential·password·.env가 든 파일을 아무 표시 없이 뺀다. 그래서 task-0043-no-secrets-enforcement.md가 Task View 집계와 화면에서 빠지고, 같은 단어가 든 task는 Console에서 상태를 바꿀 수도 없다. 제외 규칙은 그대로 두고, 이 규칙으로 뺀 task 기록의 수를 Task View에 보이게 한다(파일 이름과 내용은 보이지 않는다). Owner 답(Start as recommended) 뒤 구현했고 Reviewer·QA PASS 뒤 DONE이다(candidate 20d9b15). push는 하지 않는다.`
 - completion_evidence: `candidate 20d9b1576fe939b09b2ef422134e3daeee02a0d3: Reviewer 2nd PASS (no findings), QA PASS (smoke both modes, self-test, SOP validator, check_no_secrets, diff --check, name_rule_excluded=1)`
 - source_command: `Owner 지시: N1 등록과 조사 (Claude Code 세션)`
 
