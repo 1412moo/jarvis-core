@@ -895,9 +895,11 @@ function actionableTaskItemMarkup(item) {
   // task-0180: Close takes a manual DOING Task; a DOING Worker-path Task (made by
   // /task) is closed out by /go <task-id> recover. The server enforces the same rule.
   // task-0206: a FAILED Task closes whatever its source_command.
+  // task-0218: so does an ON_HOLD Task.
   const closeEligible = valid
     && ((view.status === "DOING" && view.source_command !== "/task")
-      || view.status === "FAILED");
+      || view.status === "FAILED"
+      || view.status === "ON_HOLD");
   const writable = actions.length || recordEligible || closeEligible;
   const accessLabel = writable ? "Preview + Confirm required" : "Read-only";
   const accessClass = writable ? "approval-needed" : "read-only";

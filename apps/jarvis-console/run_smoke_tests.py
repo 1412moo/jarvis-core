@@ -2398,6 +2398,26 @@ def _test_task_close() -> None:
     def digest(raw: bytes) -> str:
         return hashlib.sha256(raw).hexdigest()
 
+    def held_task(task_id: str, hold_from: str) -> tuple[Path, bytes]:
+        # task-0218: an ON_HOLD record as the Hold writer lays it out, hold_from
+        # right after status.
+        path = tasks_dir / f"{task_id}.md"
+        raw = task_bytes(task_id, "ON_HOLD").replace(
+            b"- status: `ON_HOLD`\r\n",
+            b"- status: `ON_HOLD`\r\n- hold_from: `" + hold_from.encode("ascii") + b"`\r\n",
+            1,
+        )
+        path.write_bytes(raw)
+        return path, raw
+
+    def closed_held_bytes(raw: bytes, hold_from: str) -> bytes:
+        return closed_bytes(
+            raw.replace(
+                b"- hold_from: `" + hold_from.encode("ascii") + b"`\r\n", b"", 1
+            ),
+            status="ON_HOLD",
+        )
+
     def closed_bytes(
         raw: bytes, closed_reason: str = reason, status: str = "DOING"
     ) -> bytes:
@@ -2426,11 +2446,13 @@ def _test_task_close() -> None:
     try:
         # Rule agreement between the writer and the Console.
         assert TASK_CLOSE_TRANSITIONS == frozenset(
-            {("DOING", "CLOSED"), ("FAILED", "CLOSED")}
+            {("DOING", "CLOSED"), ("FAILED", "CLOSED"), ("ON_HOLD", "CLOSED")}
         )
         assert TASK_CLOSE_TRANSITIONS <= TASK_STATUS_TRANSITIONS
+        # task-0218: ON_HOLD -> CLOSED is a Close pair, never a Hold / Resume pair.
+        assert not TASK_CLOSE_TRANSITIONS & TASK_HOLD_TRANSITIONS
         assert run_web_app.TASK_CLOSE_ACTIONS["close"] == (
-            frozenset({"DOING", "FAILED"}),
+            frozenset({"DOING", "FAILED", "ON_HOLD"}),
             "CLOSE TASK",
         )
         assert not set(run_web_app.TASK_CLOSE_ACTIONS) & (
@@ -2529,6 +2551,66 @@ def _test_task_close() -> None:
             assert result.previous_status == "FAILED"
             assert result.current_status == "CLOSED"
             assert path.read_bytes() == closed_bytes(before, status="FAILED")
+
+        # task-0218: an ON_HOLD Task closes byte for byte from either hold_from
+        # value, hold_from goes in the same replace, and the generic writer
+        # refuses that pair. A closed former ON_HOLD Task cannot be resumed.
+        for task_id, hold_from in (
+            ("task-8607-held-todo", "TODO"),
+            ("task-8608-held-approval", "NEEDS_APPROVAL"),
+        ):
+            path, before = held_task(task_id, hold_from)
+            assert run_web_app.transition_task_file_status(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(before),
+                current_status="ON_HOLD",
+                target_status="CLOSED",
+                planned_updated_at=planned,
+            ).reason == "close_transition_requires_close_writer"
+            assert task_file_writer.record_task_execution_result(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(before),
+                execution_fields={},
+                current_status="ON_HOLD",
+                target_status="CLOSED",
+                planned_updated_at=planned,
+            ).reason == "close_transition_requires_close_writer"
+            assert path.read_bytes() == before
+            result = close_task_file(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(before),
+                current_status="ON_HOLD",
+                closed_reason=reason,
+                planned_updated_at=planned,
+            )
+            assert result.result_type == "updated", result
+            assert result.previous_status == "ON_HOLD"
+            assert result.current_status == "CLOSED"
+            closed = path.read_bytes()
+            assert closed == closed_held_bytes(before, hold_from)
+            assert b"hold_from" not in closed
+            assert task_file_writer.resume_task_file(
+                tasks_dir=tasks_dir,
+                task_id=task_id,
+                expected_digest=digest(closed),
+                current_status="CLOSED",
+                planned_updated_at=planned,
+            ).reason == "invalid_task_transition"
+            assert path.read_bytes() == closed
+        # An ON_HOLD record without hold_from fails closed before anything is written.
+        broken_path, broken_before = write_task("task-8609-held-broken", "ON_HOLD")
+        assert close_task_file(
+            tasks_dir=tasks_dir,
+            task_id="task-8609-held-broken",
+            expected_digest=digest(broken_before),
+            current_status="ON_HOLD",
+            closed_reason=reason,
+            planned_updated_at=planned,
+        ).reason == "task_file_invalid_hold_from_metadata"
+        assert broken_path.read_bytes() == broken_before
 
         # Writer: every other status, a DOING Worker-path Task, a bad reason,
         # and a stale file are refused and leave the bytes as they were.
@@ -2747,10 +2829,40 @@ def _test_task_close() -> None:
             assert failed_path.read_bytes() == closed_bytes(
                 failed_before, status="FAILED"
             )
+        # task-0218: an ON_HOLD Task closes from the Console too, and the
+        # Preview warns that Resume can no longer return it.
+        for task_id, hold_from in (
+            ("task-8708-held-todo", "TODO"),
+            ("task-8709-held-approval", "NEEDS_APPROVAL"),
+        ):
+            held_path, held_before = held_task(task_id, hold_from)
+            status, payload = preview(
+                {"task_id": task_id, "action": "close", "closed_reason": reason}
+            )
+            assert status == HTTPStatus.OK, payload
+            held_preview = payload["preview"]
+            assert held_preview["transition"] == "ON_HOLD \u2192 CLOSED"
+            assert held_preview["reversible"] is False
+            assert held_preview["warning"] == run_web_app.TASK_CLOSE_WARNING
+            assert held_preview["notice"] == run_web_app.TASK_CLOSE_NOTICE
+            assert "removes hold_from from an ON_HOLD Task" in held_preview["notice"]
+            assert held_path.read_bytes() == held_before
+            status, payload = confirm(payload["token"], "CLOSE TASK")
+            assert status == HTTPStatus.OK, payload
+            assert payload["receipt"]["transition"] == "ON_HOLD \u2192 CLOSED"
+            assert payload["receipt"]["closed_reason"] == reason
+            assert held_path.read_bytes() == closed_held_bytes(held_before, hold_from)
+            for action in ("start", "complete", "hold", "resume"):
+                status, payload = preview({"task_id": task_id, "action": action})
+                assert status == HTTPStatus.CONFLICT, (action, payload)
+            assert held_path.read_bytes() == closed_held_bytes(held_before, hold_from)
         warning = run_web_app.TASK_CLOSE_WARNING
         assert "FAILED Task" in warning
         assert "kept Worker attempt worktrees in place" in warning
         assert "/go retry, resume and accept no longer take it" in warning
+        assert "an ON_HOLD Task" in warning
+        assert "Closing an ON_HOLD Task removes hold_from" in warning
+        assert "Resume can no longer return it" in warning
 
         # A file changed after Preview is never written.
         stale_path, stale_before = write_task("task-8704-stale", "DOING")
@@ -2787,11 +2899,13 @@ def _test_task_close() -> None:
         assert payload["error"] == "invalid_or_expired_task_transition_token"
         assert expire_path.read_bytes() == expire_before
 
-        # The page: Close appears only for a manual DOING Task or a FAILED Task,
-        # with its own reason input, and sends closed_reason only for Close.
+        # The page: Close appears only for a manual DOING Task, a FAILED Task
+        # or an ON_HOLD Task (task-0218), with its own reason input, and sends
+        # closed_reason only for Close.
         app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
         assert '(view.status === "DOING" && view.source_command !== "/task")' in app_js
-        assert '|| view.status === "FAILED");' in app_js
+        assert '|| view.status === "FAILED"' in app_js
+        assert '|| view.status === "ON_HOLD");' in app_js
         assert 'data-task-action="close">Close Task</button>' in app_js
         assert 'class="closed-reason-input"' in app_js
         assert '"CLOSE TASK": "Confirm Close"' in app_js
@@ -3007,7 +3121,8 @@ def _test_task_transition_vertical_slice() -> None:
         # spelled out rather than imported - so any further widening has to
         # be made deliberately here too. task-0173 added the four ON_HOLD
         # pairs, which only the Hold / Resume writers apply. task-0180 added
-        # DOING -> CLOSED, which only the Close writer applies.
+        # DOING -> CLOSED, which only the Close writer applies. task-0206 added
+        # FAILED -> CLOSED and task-0218 ON_HOLD -> CLOSED, both Close-only.
         official_transitions = frozenset(
             {
                 ("TODO", "DOING"),
@@ -3022,19 +3137,24 @@ def _test_task_transition_vertical_slice() -> None:
                 ("ON_HOLD", "NEEDS_APPROVAL"),
                 ("DOING", "CLOSED"),
                 ("FAILED", "CLOSED"),
+                ("ON_HOLD", "CLOSED"),
             }
         )
-        hold_transitions = frozenset(
-            pair for pair in official_transitions if "ON_HOLD" in pair
+        close_transitions = frozenset(
+            {("DOING", "CLOSED"), ("FAILED", "CLOSED"), ("ON_HOLD", "CLOSED")}
         )
-        close_transitions = frozenset({("DOING", "CLOSED"), ("FAILED", "CLOSED")})
+        hold_transitions = frozenset(
+            pair
+            for pair in official_transitions
+            if "ON_HOLD" in pair and pair not in close_transitions
+        )
         # task-0101: spelling the set out only works if something checks it
         # against the writer's own constant. Nothing did, so the two could
         # drift apart in silence - the way the status vocabulary sat out of
         # sync until task-0098. The count keeps a coordinated shrink of both
         # sides from passing quietly.
         assert official_transitions == TASK_STATUS_TRANSITIONS
-        assert len(official_transitions) == 12
+        assert len(official_transitions) == 13
         assert hold_transitions == TASK_HOLD_TRANSITIONS
         assert len(hold_transitions) == 4
         assert close_transitions == TASK_CLOSE_TRANSITIONS

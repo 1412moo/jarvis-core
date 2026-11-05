@@ -85,9 +85,10 @@ Included:
 - Explicit Preview + Confirm for **Hold** (`TODO` or `NEEDS_APPROVAL` →
   `ON_HOLD`) and **Resume** (`ON_HOLD` → the status recorded in `hold_from`),
   changing only `status`, `updated_at` and `hold_from`.
-- Explicit Preview + Confirm for **Close** (a manual `DOING` Task or any
-  `FAILED` Task → `CLOSED`, task-0180·task-0206), changing only `status`,
-  `updated_at` and `closed_reason`.
+- Explicit Preview + Confirm for **Close** (a manual `DOING` Task, any
+  `FAILED` Task or any `ON_HOLD` Task → `CLOSED`, task-0180·task-0206·task-0218),
+  changing only `status`, `updated_at` and `closed_reason` (and removing
+  `hold_from` from an `ON_HOLD` Task).
 - Explicit **Record Completion Evidence** Preview + Confirm for a valid `DOING`
   Task without evidence, appending one `completion_evidence` value and changing
   only `updated_at`.
@@ -214,8 +215,8 @@ not approval transitions, and write no audit entry.
 
 Close (task-0180) uses the same Preview + Confirm flow, token, digest check and
 Actionable Task View selection as Start / Complete. It is how the Owner ends a
-manual Task, or a FAILED Task that will not be retried, without the completion
-conditions (`docs/task-model.md` sections 2, 5-1 and 13).
+manual Task, a FAILED Task that will not be retried, or an ON_HOLD Task that
+will not be resumed, without the completion conditions (`docs/task-model.md` sections 2, 5-1 and 13).
 
 - **Close** (`CLOSE TASK`) accepts a `DOING` Task whose `source_command` is
   not `/task` (a record without the field counts as manual). A `DOING`
@@ -223,7 +224,9 @@ conditions (`docs/task-model.md` sections 2, 5-1 and 13).
   recover` closes those out. It also accepts any `FAILED` Task, Worker path
   included (task-0206). Closing one leaves any kept Worker attempt worktrees
   in place, and Preview warns that `/go` retry, resume and accept no longer
-  take it. The Preview request carries the Owner's `closed_reason`, normalized by the
+  take it. It also accepts any `ON_HOLD` Task (task-0218); Confirm removes its
+  `hold_from` line in the same replace, and Preview warns that Resume can no
+  longer return it. The Preview request carries the Owner's `closed_reason`, normalized by the
   completion evidence rules; no other action accepts that field.
 - Confirm sets `status` to `CLOSED`, updates `updated_at` and writes
   `closed_reason` right after the status line, in one atomic replace. The

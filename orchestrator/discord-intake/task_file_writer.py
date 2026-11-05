@@ -165,12 +165,20 @@ TASK_STATUS_TRANSITIONS = frozenset(
         # task-0206. A FAILED Task, manual or Worker path, that the Owner will not retry.
         # No run is in progress there: /go writes FAILED -> TODO -> DOING before it runs.
         ("FAILED", "CLOSED"),
+        # task-0218. An ON_HOLD Task the Owner ends instead of resuming. No run is in
+        # progress there (DOING never goes to ON_HOLD), and close_task_file() drops
+        # hold_from in the same replace, so the closed record carries only closed_reason.
+        ("ON_HOLD", "CLOSED"),
     }
 )
 TASK_CLOSED_STATUS = "CLOSED"
 TASK_CLOSED_REASON_FIELD = "closed_reason"
 TASK_CLOSE_TRANSITIONS = frozenset(
-    {("DOING", TASK_CLOSED_STATUS), ("FAILED", TASK_CLOSED_STATUS)}
+    {
+        ("DOING", TASK_CLOSED_STATUS),
+        ("FAILED", TASK_CLOSED_STATUS),
+        ("ON_HOLD", TASK_CLOSED_STATUS),
+    }
 )
 # task-0180: a Task whose source_command is exactly this was made by Discord /task and
 # runs through the Worker; /go <id> recover closes out a DOING one, so Close refuses
@@ -180,8 +188,11 @@ TASK_HOLD_STATUS = "ON_HOLD"
 TASK_HOLD_FROM_FIELD = "hold_from"
 # task-0173: the statuses Hold accepts, which are also the only values hold_from takes.
 TASK_HOLD_FROM_STATUSES = frozenset({"TODO", "NEEDS_APPROVAL"})
+# task-0218: ON_HOLD -> CLOSED belongs to Close, not to Hold and Resume.
 TASK_HOLD_TRANSITIONS = frozenset(
-    pair for pair in TASK_STATUS_TRANSITIONS if TASK_HOLD_STATUS in pair
+    pair
+    for pair in TASK_STATUS_TRANSITIONS
+    if TASK_HOLD_STATUS in pair and pair not in TASK_CLOSE_TRANSITIONS
 )
 TASK_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M UTC"
 TASK_METADATA_PATTERN = re.compile(
@@ -1186,11 +1197,13 @@ def close_task_file(
     _temp_token_factory: Callable[[], str] = lambda: secrets.token_hex(8),
     _before_final_check: Callable[[Path], None] | None = None,
 ) -> TaskStatusTransitionResult:
-    """task-0180: move a manual DOING or a FAILED Task to CLOSED with closed_reason in one replace.
+    """task-0180: move a manual DOING, a FAILED or an ON_HOLD Task to CLOSED with closed_reason in one replace.
 
     DOING -> CLOSED only for a Task whose source_command is not the Worker path's /task
     (a record without source_command counts as manual). task-0206: FAILED -> CLOSED for
-    any Task; kept Worker attempt worktrees are left as they are. closed_reason goes
+    any Task; kept Worker attempt worktrees are left as they are. task-0218: ON_HOLD ->
+    CLOSED for any Task; its hold_from line is removed in the same replace, so the Task
+    can no longer be resumed. closed_reason goes
     right after the status line, under the completion_evidence text rules; Jarvis does not
     judge what it says. The result is validated again before it is written, and any failure
     leaves the original bytes in place. Nothing leaves CLOSED.
@@ -1240,11 +1253,18 @@ def close_task_file(
     updated_pattern = re.compile(
         rb"(?m)^- updated_at: `[^`\r\n]*`(?=\r?$)"
     )
+    hold_from_pattern = re.compile(
+        rb"(?m)^- hold_from: `[^`\r\n]*`(?:\r?\n|$)"
+    )
     status_matches = list(status_pattern.finditer(original))
     if len(status_matches) != 1:
         return TaskStatusTransitionResult("hold", "task_file_invalid_status_metadata")
     if len(updated_pattern.findall(original)) != 1:
         return TaskStatusTransitionResult("hold", "task_file_invalid_updated_at_metadata")
+    # task-0218: an ON_HOLD record has exactly one hold_from line; the others have none.
+    expected_hold_from = 1 if current_status == TASK_HOLD_STATUS else 0
+    if len(hold_from_pattern.findall(original)) != expected_hold_from:
+        return TaskStatusTransitionResult("hold", "task_file_invalid_hold_from_metadata")
 
     status_match = status_matches[0]
     line_ending = status_match.group("eol")
@@ -1262,6 +1282,8 @@ def close_task_file(
         + status_line
         + original[status_match.end() :]
     )
+    if expected_hold_from:
+        updated = hold_from_pattern.sub(b"", updated, count=1)
     updated = updated_pattern.sub(
         f"- updated_at: `{planned_updated_at}`".encode("ascii"),
         updated,
@@ -1272,6 +1294,7 @@ def close_task_file(
         result_metadata is None
         or result_metadata["status"] != TASK_CLOSED_STATUS
         or result_metadata.get(TASK_CLOSED_REASON_FIELD) != closed_reason
+        or TASK_HOLD_FROM_FIELD in result_metadata
     ):
         return TaskStatusTransitionResult(
             "hold", result_error or "task_file_invalid_closed_reason_metadata"
