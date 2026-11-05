@@ -2,11 +2,12 @@
 
 - id: `task-0217-master-plan-s2-forward-only-rule`
 - title: `master-plan 앞을 보는 필드에 앞으로 할 일만 적는 규칙`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-05 12:25 UTC`
-- updated_at: `2026-11-05 12:25 UTC`
+- updated_at: `2026-11-05 13:13 UTC`
 - summary: `master-plan의 Dashboard 현재 다음 작업·현재 결정 필요 줄과 §2 Recommended next step이 끝난 일을 계속 안고 있어 task마다 손으로 고쳐야 한다(task-0213, task-0216). §10 갱신 규칙에 앞을 보는 필드에는 앞으로 할 일과 남은 결정만 적는다는 규칙을 넣고, 세 필드에서 완료 이력을 빼며, 밀린 §2 Recent completed, Last verified, Verified implementation HEAD를 맞춘다. 코드와 validator는 바꾸지 않고 push는 하지 않는다.`
+- completion_evidence: `candidate 540895ae524c1c28640eb98b49a10d2bf4beca24: Reviewer 2 minor accepted by Owner (SOP 8), QA PASS (validator, self-test, smoke both modes, diff --check, Recent completed 495 chars)`
 - source_command: `Owner 지시: n3하자 / 승인, 진행해 (Claude Code 세션)`
 
 ## 기준선
@@ -106,6 +107,52 @@ staged 변경에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). 지
 
 수정 뒤 사전 점검(`check_task_record.py --require-quotes`) 결과는 아래 candidate 직전 실행과 같다(PASS, violations 0).
 
+## Reviewer 결과 (candidate `540895ae524c1c28640eb98b49a10d2bf4beca24`)
+
+verdict FINDINGS, self_deviations 없음(유효한 review). minor 두 건:
+
+1. §10 규칙 문단이 승인 문구보다 넓다. 완료 사실의 자리에 Dashboard `최근 완료` 줄을 더했고(그 줄은 지금 Phase 1만 적는다), "앞을 보는 필드에서는 끝난 항목을 지우기만 한다" 문장을 더했다.
+2. 승인은 "docs/master-plan.md 한 파일"이라 하는데 candidate에 이 task 기록이 들어 있다. 요약 A3의 "SOP 기록으로 Manager가 넣었다"는 승인이 다루지 않는다.
+
+둘 다 source 변경 없이 Owner 결정으로 처리할 수 있는 minor라 SOP §8에 따라 Owner 결정을 받았다. Reviewer의 unverified 항목(값 길이, validator·smoke, preflight, HEAD 조상)은 QA에서 확인했다.
+
+## Owner 결정 (원문, Reviewer minor 수용)
+
+```text
+[Manager 질문]
+Reviewer가 candidate 540895a에 minor 두 건을 냈습니다. ① §10에 넣은 규칙 문단이 승인 문구보다 넓습니다. 완료 사실을 적는 자리에 Dashboard '최근 완료' 줄을 더했고, '앞을 보는 필드에서는 끝난 항목을 지우기만 한다'는 문장을 더했습니다. ② 승인에는 'docs/master-plan.md 한 파일'이라고 되어 있는데, candidate에는 task 기록 파일도 들어 있습니다(SOP 기록이라 매 task에 들어감). 두 건을 어떻게 처리할까요?
+
+[Owner 답]
+둘 다 수용, QA로 (Recommended)
+```
+
+선택지 설명(Manager 문구, Owner 원문 아님): "규칙 문단과 task 기록 포함을 그대로 인정합니다. candidate는 바꾸지 않고 같은 candidate에 QA를 돌립니다(SOP §8)."
+
+## QA 결과 (같은 candidate)
+
+- scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗, `jarvis.bat` 트리에 없음.
+- 변경 파일은 `docs/master-plan.md`와 이 기록 둘이다. `git diff --check` 통과, SOP validator PASS, `run_web_app.py --self-test` 통과, Console smoke PYTHONUTF8=1과 없음 모두 rc=0.
+- §2 값 길이 10·40·280·495(상한 500). `Verified implementation HEAD`(baseline)는 HEAD의 조상이다.
+- `현재 다음 작업`·`현재 결정 필요`·`Recommended next step`에 "끝났"·"지웠다"·"DONE"·"모두 완료"·"완료됐" 표현이 없다. task-0179·0182·0199와 task-0210~0216의 날짜 항목이 모두 있다.
+- 메인 checkout(HEAD = candidate)에서 Project Control 카드는 `attention`, 이유는 변경 전과 같은 Approval note 하나, 카드의 Verified HEAD `b695174`·Last verified `2026-11-05`. QA worktree는 지웠다.
+- QA 판정: PASS. Docs는 `not_required`(이 task가 문서 변경).
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0217: candidate 540895a의 Reviewer minor 두 건은 수용하셨고, QA는 PASS입니다(validator, self-test, smoke 두 모드, diff --check, §2 값 길이 495/500, HEAD가 branch 조상, Console 카드 attention이고 이유는 변경 전과 같음). 이제 Completion Evidence를 기록하고 Console Complete(DOING → DONE)를 실행할까요? 그 뒤 DONE checkpoint 커밋과 master-plan 날짜 항목 커밋도 로컬에만 합니다(push 없음).
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+선택지 설명(Manager 문구, Owner 원문 아님): "Evidence 기록 → Complete → DONE checkpoint와 날짜 항목을 로컬에 커밋합니다. push는 하지 않습니다."
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-11-05 13:13 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-05 13:13 UTC`). Console은 끈 상태다. push는 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -134,3 +181,17 @@ staged 변경에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). 지
 | A20 | Owner 결정 (원문, Recent completed 항목 빼기) | "세 항목은 Dashboard 날짜 항목(153·156·169행)에 그대로 남습니다." | 날짜 항목 153·156·169행이 세 task를 그대로 적는 것을 확인했다 |
 | A21 | Owner 결정 (원문, Recent completed 항목 빼기) | "이 세 항목을 빼도 될까요?" | A22 답의 질문 |
 | A22 | Owner 결정 (원문, Recent completed 항목 빼기) | "세 항목 빼기 (Recommended)" | `Recent completed`에서 task-0179·0182·0199 세 항목을 빼고 task-0210~0216을 넣었다(495자) |
+| A23 | Owner 결정 (원문, Reviewer minor 수용) | "[Manager 질문]" | 질문의 표지 |
+| A24 | Owner 결정 (원문, Reviewer minor 수용) | "Reviewer가 candidate 540895a에 minor 두 건을 냈습니다." | A30 답의 질문 배경. Reviewer 결과 절과 같다 |
+| A25 | Owner 결정 (원문, Reviewer minor 수용) | "① §10에 넣은 규칙 문단이 승인 문구보다 넓습니다." | Reviewer minor 1 |
+| A26 | Owner 결정 (원문, Reviewer minor 수용) | "완료 사실을 적는 자리에 Dashboard '최근 완료' 줄을 더했고, '앞을 보는 필드에서는 끝난 항목을 지우기만 한다'는 문장을 더했습니다." | Reviewer minor 1의 내용 |
+| A27 | Owner 결정 (원문, Reviewer minor 수용) | "② 승인에는 'docs/master-plan.md 한 파일'이라고 되어 있는데, candidate에는 task 기록 파일도 들어 있습니다(SOP 기록이라 매 task에 들어감)." | Reviewer minor 2 |
+| A28 | Owner 결정 (원문, Reviewer minor 수용) | "두 건을 어떻게 처리할까요?" | A30 답의 질문 |
+| A29 | Owner 결정 (원문, Reviewer minor 수용) | "[Owner 답]" | 답의 표지 |
+| A30 | Owner 결정 (원문, Reviewer minor 수용) | "둘 다 수용, QA로 (Recommended)" | Owner가 minor 두 건을 수용했다. A6의 규칙 문단과 A3의 task 기록 포함이 이 결정으로 승인 범위에 들어온다. candidate를 바꾸지 않고 같은 candidate에 QA를 돌렸다(QA 결과 절) |
+| A31 | Owner 결정 (원문, Complete) | "[Manager 질문]" | 질문의 표지 |
+| A32 | Owner 결정 (원문, Complete) | "task-0217: candidate 540895a의 Reviewer minor 두 건은 수용하셨고, QA는 PASS입니다(validator, self-test, smoke 두 모드, diff --check, §2 값 길이 495/500, HEAD가 branch 조상, Console 카드 attention이고 이유는 변경 전과 같음)." | A36 답의 질문 배경. QA 결과 절과 같다 |
+| A33 | Owner 결정 (원문, Complete) | "이제 Completion Evidence를 기록하고 Console Complete(DOING → DONE)를 실행할까요?" | A36 답의 질문 |
+| A34 | Owner 결정 (원문, Complete) | "그 뒤 DONE checkpoint 커밋과 master-plan 날짜 항목 커밋도 로컬에만 합니다(push 없음)." | A36 답의 질문 |
+| A35 | Owner 결정 (원문, Complete) | "[Owner 답]" | 답의 표지 |
+| A36 | Owner 결정 (원문, Complete) | "Complete 진행 (Recommended)" | Console로 Completion Evidence를 남기고 Complete했다(Complete 절). DONE checkpoint와 master-plan 날짜 항목은 로컬 커밋만 하고 push하지 않는다 |
