@@ -2,11 +2,11 @@
 
 - id: `task-0034-local-team-manager-approval-boundary`
 - title: `Local Team Manager 운영 경계 및 승인 구조 검증`
-- status: `ON_HOLD`
-- hold_from: `NEEDS_APPROVAL`
+- status: `CLOSED`
+- closed_reason: `팀장은 외부 LLM 없이 Claude 기반으로 구현됨(task-0183/0184). 외부 API·credential·비용이 드는 팀장 방향은 재개하지 않음(task-0156). 다시 하려면 새 task.`
 - repo: `jarvis-core`
 - created_at: `2026-08-26 11:46 UTC`
-- updated_at: `2026-10-21 05:06 UTC`
+- updated_at: `2026-11-05 16:11 UTC`
 - summary: `master-plan.md §6의 잠긴 기능 중 background worker/unattended execution과 자동 prompt rendering·실행이 로컬 Team Manager에도 적용됨을 확인했다(외부 API/LLM/credential은 로컬 경로에 문자 그대로는 미적용). Owner 승인 식별은 기존 adapters/discord의 /approve 계약 재사용을 제안한다. 최소 Phase B로는 상시 봇 대신 Owner가 수동 호출하는 1회성 로컬 CLI 조언 도구를 제안했고 어떤 lock도 건드리지 않는다. 설치·다운로드·코드 구현 없음. NEEDS_APPROVAL 사유는 최소 Phase B 범위와 승인 식별 방식의 Owner 확정이 필요하기 때문이다. 전체 원문은 아래 요약(원문) 절에 그대로 보존했다. 보류: Owner 결정(task-0156). 외부 API·credential·비용·상시 실행 작업은 재개하지 않고, 재개는 별도 Owner 결정이 필요하다.`
 - source_command: `Discord work-order (task-0034)`
 

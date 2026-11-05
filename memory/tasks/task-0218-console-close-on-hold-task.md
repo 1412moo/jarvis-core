@@ -5,7 +5,7 @@
 - status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-05 14:17 UTC`
-- updated_at: `2026-11-05 15:52 UTC`
+- updated_at: `2026-11-05 16:12 UTC`
 - summary: `Console Close는 DOING(수동)·FAILED만 받아 Owner가 끝내기로 한 ON_HOLD task(task-0030/0032/0033/0034/0036)를 닫을 수 없다. 상태 전이 계약에 ON_HOLD에서 CLOSED로 가는 쌍을 더하고(13쌍), Close 전용 writer가 같은 교체에서 hold_from을 지우고 closed_reason을 쓰게 하며, Console Close 버튼·경고, smoke, task-model·SOP·README를 맞춘다. 다섯 task를 실제로 닫는 일(2단계), Discord 봇·Worker 코드, push는 범위 밖이다.`
 - completion_evidence: `candidate afdc588b983c8e24e3b22b1ba6a7dca79dbf67f2: Reviewer 1 minor accepted by Owner (SOP 8), QA PASS (Console smoke both modes, self-test, validator, node --check, Worker smoke 642/0, real-copy close of task-0030/0036)`
 - source_command: `Owner 지시: n2하자 / Close 확장 후 닫기 / 승인, 진행해 (Claude Code 세션)`
@@ -147,6 +147,22 @@ Complete 진행 (Recommended)
 
 Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-11-05 15:52 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-05 15:52 UTC`). Console은 끈 상태다. 다섯 ON_HOLD task는 닫지 않았다(2단계). push는 하지 않았다.
 
+## 2단계: 다섯 ON_HOLD task 닫기 (DONE 뒤)
+
+### Owner 결정 (원문, 2단계 종결 사유)
+
+```text
+[Manager 질문]
+2단계로 다섯 task를 이 사유로 닫을까요? 제안 사유: "팀장은 외부 LLM 없이 Claude 기반으로 구현됨(task-0183/0184). 외부 API·credential·비용이 드는 팀장 방향은 재개하지 않음(task-0156). 다시 하려면 새 task."
+
+[Owner 답]
+이 사유로 닫기
+```
+
+### 실행
+
+DONE 뒤 Console을 켜고 task-0030, task-0032, task-0033, task-0034, task-0036을 차례로 Close Preview(ON_HOLD → CLOSED, 사유 표시, 되돌릴 수 없음, 실행 없음)로 확인한 뒤 `Confirm Close`로 닫았다. 다섯 기록 모두 `status`(ON_HOLD → CLOSED), `hold_from` 삭제, `closed_reason` 추가, `updated_at`만 바뀌었다(각 3줄 삭제·3줄 추가). 저장소에 ON_HOLD task는 남지 않았다. Console은 끈 상태이며, 이 절은 승인 기록이지 candidate가 아니다. push는 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -195,3 +211,8 @@ Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-11-05 15
 | A40 | Owner 결정 (원문, Complete) | "push는 하지 않습니다." | A42 답의 질문 조건 |
 | A41 | Owner 결정 (원문, Complete) | "[Owner 답]" | 답의 표지 |
 | A42 | Owner 결정 (원문, Complete) | "Complete 진행 (Recommended)" | Console로 Completion Evidence를 남기고 Complete했다(Complete 절). DONE checkpoint와 master-plan 날짜 항목은 로컬 커밋만 하고 push하지 않는다 |
+| A43 | Owner 결정 (원문, 2단계 종결 사유) | "[Manager 질문]" | 질문의 표지 |
+| A44 | Owner 결정 (원문, 2단계 종결 사유) | "2단계로 다섯 task를 이 사유로 닫을까요?" | A47 답의 질문 |
+| A45 | Owner 결정 (원문, 2단계 종결 사유) | "제안 사유: "팀장은 외부 LLM 없이 Claude 기반으로 구현됨(task-0183/0184). 외부 API·credential·비용이 드는 팀장 방향은 재개하지 않음(task-0156). 다시 하려면 새 task."" | A47 답의 질문에 붙은 사유 문안. 다섯 기록의 closed_reason에 이 문장(따옴표 안)을 그대로 썼다 |
+| A46 | Owner 결정 (원문, 2단계 종결 사유) | "[Owner 답]" | 답의 표지 |
+| A47 | Owner 결정 (원문, 2단계 종결 사유) | "이 사유로 닫기" | 다섯 task를 Console Close로 이 사유와 함께 닫았다(2단계 실행 절) |

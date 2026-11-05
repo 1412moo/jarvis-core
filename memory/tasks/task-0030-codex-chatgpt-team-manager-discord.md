@@ -2,10 +2,10 @@
 
 - id: `task-0030-codex-chatgpt-team-manager-discord`
 - title: `Codex-based ChatGPT Team Manager for Discord — investigate and design`
-- status: `ON_HOLD`
-- hold_from: `NEEDS_APPROVAL`
+- status: `CLOSED`
+- closed_reason: `팀장은 외부 LLM 없이 Claude 기반으로 구현됨(task-0183/0184). 외부 API·credential·비용이 드는 팀장 방향은 재개하지 않음(task-0156). 다시 하려면 새 task.`
 - repo: `jarvis-core`
 - created_at: `2026-08-26 11:08 UTC`
-- updated_at: `2026-10-21 05:06 UTC`
+- updated_at: `2026-11-05 16:10 UTC`
 - summary: `ChatGPT/Codex를 Discord에 연결된 팀장 에이전트로 만드는 방안을 조사·설계했다(구현 없음). work-order: prompts/task-0030-codex-chatgpt-team-manager-discord-work-order.md. 결론: 실질 구현은 신규 OpenAI API credential, 비용, (상시 구동 시) 배포가 필요하며 docs/master-plan.md §6의 "Hermes의 자동 Codex/ChatGPT 호출" 잠긴 기능 재오픈 대상이다. NEEDS_APPROVAL 사유: 어느 대안으로 진행할지, credential/비용/배포를 승인할지, 잠긴 기능 재오픈 여부를 Owner가 결정해야 한다. 승인되면 바로 할 다음 작업은 선택된 대안의 최소 스캐폴딩(토큰/배포 제외) 설계. 보류: Owner 결정(task-0156). 외부 API·credential·비용·상시 실행 작업은 재개하지 않고, 재개는 별도 Owner 결정이 필요하다.`
 - source_command: `Discord work-order (task-0030)`

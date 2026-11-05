@@ -2,11 +2,11 @@
 
 - id: `task-0033-local-llm-team-manager`
 - title: `로컬 LLM 기반 Team Manager 아키텍처 조사·설계`
-- status: `ON_HOLD`
-- hold_from: `NEEDS_APPROVAL`
+- status: `CLOSED`
+- closed_reason: `팀장은 외부 LLM 없이 Claude 기반으로 구현됨(task-0183/0184). 외부 API·credential·비용이 드는 팀장 방향은 재개하지 않음(task-0156). 다시 하려면 새 task.`
 - repo: `jarvis-core`
 - created_at: `2026-08-26 11:42 UTC`
-- updated_at: `2026-10-21 05:06 UTC`
+- updated_at: `2026-11-05 16:11 UTC`
 - summary: `Owner PC 하드웨어(Ryzen 5 7530U, RAM ~13.9GB, 통합 GPU만)를 확인하고, Ollama/llama.cpp/LM Studio/vLLM을 비교해 이 하드웨어에는 Ollama(llama.cpp 기반) + 7B급 4-bit 양자화 모델을 권고했다. 모델 다운로드/credential 발급/외부 연결/코드 구현 없음. NEEDS_APPROVAL 사유: OpenAI API 경로(task-0032) 대비 로컬 경로를 택할지, 모델 후보 중 무엇을 쓸지, master-plan.md §6 잠긴 기능("자동 Codex/ChatGPT 호출", "background worker/unattended execution")이 로컬 모델 기반에도 그대로 적용되는지 해석이 필요해 Owner/ChatGPT 결정 대기. 보류: Owner 결정(task-0156). 외부 API·credential·비용·상시 실행 작업은 재개하지 않고, 재개는 별도 Owner 결정이 필요하다.`
 - source_command: `Discord work-order (task-0033)`
 
