@@ -2,11 +2,12 @@
 
 - id: `task-0219-task-0214-summary-backtick-fix`
 - title: `task-0214 기록 summary의 백틱 제거`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-05 16:27 UTC`
-- updated_at: `2026-11-05 16:28 UTC`
+- updated_at: `2026-11-05 16:44 UTC`
 - summary: `task-0214 기록의 summary 끝에 candidate 해시를 감싼 백틱 두 개가 있어 writer와 Console 파서가 그 기록을 invalid로 읽고, discord-intake smoke의 저장소 기록 검사와 그 smoke를 쓰는 Discord self-check가 실패한다. 그 두 백틱만 지운다. 다른 문구, 다른 필드, 코드는 바꾸지 않고 push는 하지 않는다.`
+- completion_evidence: `candidate de0b0b3353b000f37b05ba85e8bf6d7df15fdb42: Reviewer PASS (no findings), QA PASS (intake smoke rc=0, Discord self-check-suite rc=0, Console smoke, validator, preflight, task-0214 parses valid)`
 - source_command: `Owner 지시: 고쳐줘 (Claude Code 세션)`
 
 ## 기준선
@@ -63,6 +64,31 @@ staged 변경에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). min
 
 수정 뒤 사전 점검(`check_task_record.py --require-quotes`) 결과는 candidate 직전 실행과 같다(PASS, violations 0).
 
+## Reviewer 결과 (candidate `de0b0b3353b000f37b05ba85e8bf6d7df15fdb42`)
+
+verdict PASS, findings 없음, self_deviations 없음. Reviewer의 unverified 항목(파서·smoke·self-check 결과, preflight)은 QA에서 확인했다.
+
+## QA 결과 (같은 candidate)
+
+- scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗, `jarvis.bat` 트리에 없음.
+- 변경 파일은 task-0214 기록과 이 기록 둘이고, task-0214는 summary 한 줄만 바뀌었다. `git diff --check` 통과, 사전 점검 PASS, SOP validator PASS.
+- discord-intake smoke(PYTHONUTF8=1) rc=0, Discord `--self-check-suite`(PYTHONUTF8=1) rc=0, Console smoke rc=0. Console 파서가 task-0214를 `valid`로 읽는다. QA worktree는 지웠다.
+- QA 판정: PASS. Docs는 `not_required`.
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0219: candidate de0b0b3에 Reviewer PASS(지적 0건)가 나왔고 QA도 PASS입니다. intake smoke와 Discord self-check가 다시 통과(rc=0)하고, Console smoke·validator·preflight도 통과했으며, task-0214는 Console에서 valid로 읽힙니다. Completion Evidence를 기록하고 Console Complete(DOING → DONE)를 실행한 뒤, DONE checkpoint와 master-plan 날짜 항목을 로컬에 커밋할까요? push는 하지 않습니다.
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-05 16:44 UTC`). Console은 끈 상태다. push는 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -73,3 +99,10 @@ staged 변경에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). min
 | A2 | Owner 결정 (원문) | "task-0214 summary 백틱을 고칠까요?" | A4 답의 질문. 범위는 summary의 백틱이다 |
 | A3 | Owner 결정 (원문) | "[Owner 답]" | 답의 표지 |
 | A4 | Owner 결정 (원문) | "고쳐줘" | 착수 승인. task-0214 summary의 백틱 두 개만 지웠다(구현 절). Manager 해석: 다른 문구와 updated_at은 질문 밖이라 그대로 두었다 |
+| A5 | Owner 결정 (원문, Complete) | "[Manager 질문]" | 질문의 표지 |
+| A6 | Owner 결정 (원문, Complete) | "task-0219: candidate de0b0b3에 Reviewer PASS(지적 0건)가 나왔고 QA도 PASS입니다." | A11 답의 질문 배경. Reviewer·QA 결과 절과 같다 |
+| A7 | Owner 결정 (원문, Complete) | "intake smoke와 Discord self-check가 다시 통과(rc=0)하고, Console smoke·validator·preflight도 통과했으며, task-0214는 Console에서 valid로 읽힙니다." | A11 답의 질문 배경. QA 결과 절과 같다 |
+| A8 | Owner 결정 (원문, Complete) | "Completion Evidence를 기록하고 Console Complete(DOING → DONE)를 실행한 뒤, DONE checkpoint와 master-plan 날짜 항목을 로컬에 커밋할까요?" | A11 답의 질문 |
+| A9 | Owner 결정 (원문, Complete) | "push는 하지 않습니다." | A11 답의 질문 조건 |
+| A10 | Owner 결정 (원문, Complete) | "[Owner 답]" | 답의 표지 |
+| A11 | Owner 결정 (원문, Complete) | "Complete 진행 (Recommended)" | Console로 Completion Evidence를 남기고 Complete했다(Complete 절). checkpoint와 날짜 항목은 로컬 커밋만 하고 push하지 않는다 |
