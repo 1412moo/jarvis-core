@@ -2,11 +2,12 @@
 
 - id: `task-0218-console-close-on-hold-task`
 - title: `Console Close가 ON_HOLD task를 받게 하기`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-05 14:17 UTC`
-- updated_at: `2026-11-05 14:17 UTC`
+- updated_at: `2026-11-05 15:52 UTC`
 - summary: `Console Close는 DOING(수동)·FAILED만 받아 Owner가 끝내기로 한 ON_HOLD task(task-0030/0032/0033/0034/0036)를 닫을 수 없다. 상태 전이 계약에 ON_HOLD에서 CLOSED로 가는 쌍을 더하고(13쌍), Close 전용 writer가 같은 교체에서 hold_from을 지우고 closed_reason을 쓰게 하며, Console Close 버튼·경고, smoke, task-model·SOP·README를 맞춘다. 다섯 task를 실제로 닫는 일(2단계), Discord 봇·Worker 코드, push는 범위 밖이다.`
+- completion_evidence: `candidate afdc588b983c8e24e3b22b1ba6a7dca79dbf67f2: Reviewer 1 minor accepted by Owner (SOP 8), QA PASS (Console smoke both modes, self-test, validator, node --check, Worker smoke 642/0, real-copy close of task-0030/0036)`
 - source_command: `Owner 지시: n2하자 / Close 확장 후 닫기 / 승인, 진행해 (Claude Code 세션)`
 
 ## 기준선
@@ -106,6 +107,46 @@ staged 변경에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). 지
 
 수정 뒤 Console smoke 두 모드를 다시 돌려 통과했다. 사전 점검(`check_task_record.py --require-quotes`) 결과는 candidate 직전 실행과 같다(PASS, violations 0).
 
+## Reviewer 결과 (candidate `afdc588b983c8e24e3b22b1ba6a7dca79dbf67f2`)
+
+verdict FINDINGS, self_deviations 없음(유효한 review). minor 한 건: `TASK_CLOSE_WARNING`은 문장 하나를 더한 것에 더해 기존 첫 문장도 "a manual DOING Task, a FAILED Task or an ON_HOLD Task"로 넓혔고 smoke가 그 문구를 확인한다. 승인 조건("경고에 한 줄")과 요약 A12, self-review 확인 질문은 이 수정을 적지 않았다. source 변경 없이 Owner 결정으로 처리할 수 있는 minor라 SOP §8에 따라 Owner 결정을 받았다. Reviewer의 unverified 항목은 QA에서 확인했다.
+
+## Owner 결정 (원문, Reviewer minor 수용)
+
+```text
+[Manager 질문]
+Reviewer가 candidate afdc588에 minor 한 건을 냈습니다. Close 경고에 문장 하나를 더한 것뿐 아니라, 기존 첫 문장도 고쳤습니다. 'Close is for a manual DOING Task or a FAILED Task...'를 '... a FAILED Task or an ON_HOLD Task...'로 바꾼 것인데, 요약 A12와 앞서의 확인 질문에는 이 점을 적지 않았습니다. 이 변경을 수용하고 QA로 갈까요?
+
+[Owner 답]
+수용, QA로 (Recommended)
+```
+
+선택지 설명(Manager 문구, Owner 원문 아님): "첫 문장 수정을 범위에 넣습니다. 이 문장이 Close 대상을 나열하고 있어서, 고치지 않으면 경고가 실제 동작과 어긋납니다. candidate는 그대로 두고 QA를 돌립니다(SOP §8)."
+
+## QA 결과 (같은 candidate)
+
+- scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗, 변경 파일 10개, `jarvis.bat` 트리에 없음.
+- `git diff --check` 통과, SOP validator PASS, `run_web_app.py --self-test` 통과, Console smoke PYTHONUTF8=1과 없음 모두 rc=0, `node --check app.js` 통과, Worker smoke total=642 failed=0.
+- discord-intake smoke(PYTHONUTF8=1)는 209건 중 `repo_task_validation:task-0214-console-name-rule-hidden-count.md` 1건만 실패, Discord `--self-check-suite`는 109건 중 같은 6건 실패로 baseline과 이름까지 같다(조사 절, 이 candidate와 무관).
+- 실제 기록 모양 확인: task-0030·task-0036 사본을 임시 폴더에서 `close_task_file`로 닫으면 `status`·`hold_from`(삭제)·`updated_at` 줄만 바뀌고 `closed_reason`이 status 다음에 들어가며, 뒤이은 Resume은 `invalid_task_transition`으로 거부됐다. 메인 checkout에서 task-0030 Close Preview(쓰기 없음)는 `ON_HOLD → CLOSED`와 바뀐 notice를 보였다. 임시 폴더와 QA worktree는 지웠다.
+- QA 판정: PASS. Docs는 `not_required`(문서 변경이 candidate에 포함됨).
+
+## Owner 결정 (원문, Complete)
+
+```text
+[Manager 질문]
+task-0218: Reviewer minor 1건은 수용하셨고, candidate afdc588의 QA는 PASS입니다. Console smoke 두 모드, self-test, validator, node --check, Worker smoke 642/0, diff --check가 통과했고, 실제 task-0030·task-0036 사본을 닫으면 status·hold_from·updated_at만 바뀝니다. intake smoke와 Discord self-check의 실패는 baseline과 똑같습니다(task-0214 기록 문제). Completion Evidence를 기록하고 Console Complete(DOING → DONE)를 실행한 뒤, DONE checkpoint와 master-plan 날짜 항목을 로컬에 커밋할까요? push는 하지 않습니다.
+
+[Owner 답]
+Complete 진행 (Recommended)
+```
+
+선택지 설명(Manager 문구, Owner 원문 아님): "Evidence 기록 → Complete → checkpoint와 날짜 항목을 로컬에 커밋합니다. push는 하지 않습니다."
+
+## Complete
+
+Record Completion Evidence(Preview 확인 뒤 Confirm, updated_at `2026-11-05 15:52 UTC`)로 completion_evidence를 남긴 뒤, Owner 결정에 따라 Console Complete Preview(DOING → DONE)를 확인하고 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-05 15:52 UTC`). Console은 끈 상태다. 다섯 ON_HOLD task는 닫지 않았다(2단계). push는 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -139,3 +180,18 @@ staged 변경에 self-reviewer를 한 번 돌렸다(Reviewer 판정 아님). 지
 | A25 | Owner 결정 (원문, self-review 범위 확인) | "두 변경을 범위에 넣을까요?" | A27 답의 질문 |
 | A26 | Owner 결정 (원문, self-review 범위 확인) | "[Owner 답]" | 답의 표지 |
 | A27 | Owner 결정 (원문, self-review 범위 확인) | "둘 다 포함 (Recommended)" | Owner가 notice 수정과 task-model §2·§5-2·§12 수정을 범위에 넣었다. 두 변경이 이 결정으로 승인 범위에 들어온다 |
+| A28 | Owner 결정 (원문, Reviewer minor 수용) | "[Manager 질문]" | 질문의 표지 |
+| A29 | Owner 결정 (원문, Reviewer minor 수용) | "Reviewer가 candidate afdc588에 minor 한 건을 냈습니다." | A34 답의 질문 배경. Reviewer 결과 절과 같다 |
+| A30 | Owner 결정 (원문, Reviewer minor 수용) | "Close 경고에 문장 하나를 더한 것뿐 아니라, 기존 첫 문장도 고쳤습니다." | Reviewer minor 내용 |
+| A31 | Owner 결정 (원문, Reviewer minor 수용) | "'Close is for a manual DOING Task or a FAILED Task...'를 '... a FAILED Task or an ON_HOLD Task...'로 바꾼 것인데, 요약 A12와 앞서의 확인 질문에는 이 점을 적지 않았습니다." | Reviewer minor 내용. A12의 "문장 하나를 더했다"는 이 수정을 빠뜨렸다 |
+| A32 | Owner 결정 (원문, Reviewer minor 수용) | "이 변경을 수용하고 QA로 갈까요?" | A34 답의 질문 |
+| A33 | Owner 결정 (원문, Reviewer minor 수용) | "[Owner 답]" | 답의 표지 |
+| A34 | Owner 결정 (원문, Reviewer minor 수용) | "수용, QA로 (Recommended)" | Owner가 경고 첫 문장 수정을 범위에 넣었다. candidate를 바꾸지 않고 같은 candidate에 QA를 돌렸다(QA 결과 절) |
+| A35 | Owner 결정 (원문, Complete) | "[Manager 질문]" | 질문의 표지 |
+| A36 | Owner 결정 (원문, Complete) | "task-0218: Reviewer minor 1건은 수용하셨고, candidate afdc588의 QA는 PASS입니다." | A42 답의 질문 배경. QA 결과 절과 같다 |
+| A37 | Owner 결정 (원문, Complete) | "Console smoke 두 모드, self-test, validator, node --check, Worker smoke 642/0, diff --check가 통과했고, 실제 task-0030·task-0036 사본을 닫으면 status·hold_from·updated_at만 바뀝니다." | A42 답의 질문 배경. QA 결과 절과 같다 |
+| A38 | Owner 결정 (원문, Complete) | "intake smoke와 Discord self-check의 실패는 baseline과 똑같습니다(task-0214 기록 문제)." | A42 답의 질문 배경. 조사 절과 같다 |
+| A39 | Owner 결정 (원문, Complete) | "Completion Evidence를 기록하고 Console Complete(DOING → DONE)를 실행한 뒤, DONE checkpoint와 master-plan 날짜 항목을 로컬에 커밋할까요?" | A42 답의 질문 |
+| A40 | Owner 결정 (원문, Complete) | "push는 하지 않습니다." | A42 답의 질문 조건 |
+| A41 | Owner 결정 (원문, Complete) | "[Owner 답]" | 답의 표지 |
+| A42 | Owner 결정 (원문, Complete) | "Complete 진행 (Recommended)" | Console로 Completion Evidence를 남기고 Complete했다(Complete 절). DONE checkpoint와 master-plan 날짜 항목은 로컬 커밋만 하고 push하지 않는다 |
