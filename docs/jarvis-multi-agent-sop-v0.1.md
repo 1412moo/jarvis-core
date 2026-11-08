@@ -454,11 +454,11 @@ worktree를 지운다. 결과는 채널에 "검증 안 된 Worker 답"으로 보
     수정 요청. `/go <id> revise <지시>`는 최종 승인 대기 task에만 하며(task-0220) Owner가 승인한 새 실행이다. 12항의 candidate 식별과 main baseline 확인을
     먼저 하고(`accept_*` 거절은 상태를 바꾸지 않음), 승인 전이 `NEEDS_APPROVAL→DOING`과 Owner 승인 감사 뒤 같은 worktree에서 Worker가 지시를 반영한다. 이어서
     범위 검사, 테스트, 새 candidate, fresh Reviewer와 repair(3~6항), QA(8항)를 거쳐 9항의 대기로 돌아가며, 자동 repair는 실행마다 5항의 상한 1을 따른다. main은 바뀌지 않는다.
-    지시는 1000자까지이며 그 commit의 `Owner-Revision:` 줄에 원문이 남고 뒤의 Worker와 Reviewer는 요청 원문과 모든 지시를 받는다. resume은 이전 시도의 지시를 새 시도의 첫 commit에 옮겨 적어 함께 넘긴다.
+    지시는 1000자까지이며 그 commit의 `Owner-Revision:` 줄에 원문이 남고 뒤의 Worker와 Reviewer는 요청 원문과 모든 지시를 받는다. resume은 이전 시도의 지시(commit 전에 실패한 수정의 지시는 attempt worktree 옆 `.owner-revision.json`)를 새 시도의 첫 commit에 옮겨 적어 함께 넘기며, 읽지 못하면 `resume_instruction_unreadable`로 거절한다. 지시를 저장하지 못하면 `revise_instruction_not_saved`로 대기를 유지한다. revise의 변경 범위는 commit될 내용과 baseline의 차이이므로 일부 되돌리기는 그 파일이 빠진 change set이 된다.
     candidate 사슬은 지시 하나씩을 가진 `owner revision <N> candidate` commit을 포함한다. 승인 전이 뒤의 실패는 일반 실행 실패(`DOING→FAILED`, attempt 보존)다. Worker가 바꾼 것이 없으면 `revise_no_changes`, 변경이 모두 사라지면 `revise_empty_change_set`이다.
     재검토. `/go <id> recheck`는 최종 승인 대기 task에만 하며(task-0220) Worker를 부르지 않고 같은 candidate에 fresh Reviewer와 8항 QA만 다시 돌린다. 식별·baseline 거절은 12항과 같다.
-    모두 통과하면 상태·기록을 쓰지 않고 대기를 유지한다. FINDINGS(`recheck:reviewer_findings`), QA 실패(`qa:qa_failed`), 9항의 미확인 항목은
-    `NEEDS_APPROVAL→FAILED`로 끝나고(그 기록을 쓰지 못하면 `recheck_transition_failed`로 대기 유지) 그 candidate는 accept할 수 없다. Reviewer가 판정하지 못한 경우(BLOCKED, UNKNOWN, 시간 초과, 재시도 뒤에도 무효)는 아무것도 바꾸지 않고 다시 할 수 있다.
+    모두 통과하면 상태·기록을 쓰지 않고 대기를 유지한다. FINDINGS(`recheck:recheck_findings`), QA 실패(`qa:qa_failed`), 9항의 미확인 항목은
+    `NEEDS_APPROVAL→FAILED`로 끝난다(그 기록을 쓰지 못하면 `recheck_transition_failed`로 대기 유지). FINDINGS와 QA 실패의 candidate는 accept할 수 없고, 미확인 항목은 9항의 기록이라 Owner가 확인한 뒤 accept할 수 있다. Reviewer가 판정하지 못한 경우(BLOCKED, UNKNOWN, 시간 초과, 재시도 뒤에도 무효)는 아무것도 바꾸지 않고 다시 할 수 있다.
     두 명령의 상태·경로·기록 거절은 `revise_requires_final_review:<상태>`·`recheck_requires_final_review:<상태>`, `revise_not_worker_path`·`recheck_not_worker_path`, `revise_record_invalid`·`recheck_record_invalid`다.
 13. Recover. `/go <id> recover`는 `/work`로 만든 DOING task에만, Owner가 명시적으로 요청할 때만
     한다(task-0167). 실행은 attempt를 만들 때부터 결과(DONE·FAILED·최종 승인 대기와 실행 기록)를 쓸 때까지

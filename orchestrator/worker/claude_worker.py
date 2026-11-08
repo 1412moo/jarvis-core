@@ -697,6 +697,8 @@ FINAL_REVIEW_DIFF_EXCERPT_CHARS = 900
 OWNER_REVISION_TRAILER = "Owner-Revision: "
 # task-0220: on a resumed attempt's first commit, the lines after this one carry earlier instructions.
 OWNER_REVISIONS_CARRIED = "Owner-Revisions-Carried:"
+# task-0220: beside the attempt worktree, the instruction of a revision not committed yet.
+OWNER_REVISION_PENDING_SUFFIX = ".owner-revision.json"
 
 
 @dataclass
@@ -1321,6 +1323,24 @@ def _run_reviewer(repo_root: Path, call: str) -> tuple[str, str]:
     return verdict, text
 
 
+def _net_changed_paths(worktree: Path, baseline: str) -> list[str]:
+    """task-0220: the paths whose content, as it would be committed now, differs from the baseline.
+
+    An Owner revision can undo part of the candidate. A path restored to its baseline content
+    is not in the change set any more, so the union _cumulative_paths gives would be wrong.
+    """
+
+    _git(["add", "-A", "--", "."], worktree)
+    try:
+        return sorted(_git(["diff", "--cached", "--name-only", baseline], worktree).splitlines())
+    finally:
+        _git(["reset", "-q"], worktree)
+
+
+def _pending_revision_path(worktree: Path) -> Path:
+    return worktree.parent / f"{worktree.name}{OWNER_REVISION_PENDING_SUFFIX}"
+
+
 def _cumulative_paths(worktree: Path, baseline: str) -> list[str]:
     committed = _git(["diff", "--name-only", baseline, "HEAD"], worktree).splitlines()
     return sorted(set(committed) | set(_changed_paths(worktree)))
@@ -1758,9 +1778,17 @@ def _run_pipeline(
             earlier = owner_revisions(repo_root, baseline, candidate)
             prefix = f"feat({_active_kind().commit_scope}): {task_id} Jarvis worker owner revision "
             revision_number = 1 + sum(_git(["log", "-1", "--format=%s", c], repo_root).startswith(prefix) for c in chain)
+            # Before the approval: a Worker that fails leaves edits resume can carry, and the
+            # instruction must go with them although no commit holds it yet.
+            pending_revision = _pending_revision_path(worktree)
+            try:
+                pending_revision.write_text(json.dumps(revision.instruction, ensure_ascii=False), encoding="utf-8")
+            except OSError as exc:
+                raise StageFailure("revise", "revise_instruction_not_saved", type(exc).__name__)
             result.stage = "approval"
             applied, why = revision.approve()
             if not applied:
+                pending_revision.unlink(missing_ok=True)
                 raise StageFailure("approval", "accept_transition_failed", why)
             approved = True
             request = effective_request(request, [*earlier, revision.instruction])
@@ -1795,6 +1823,15 @@ def _run_pipeline(
                 # Every resume check runs before a new worktree exists, so a refused resume leaves nothing.
                 result.stage = "resume"
                 plan = _plan_resume(repo_root, worktree_root, task_id, baseline, attempt)
+                # task-0220: the Owner's instructions go with the changes they produced, including
+                # one whose revision failed before its commit.
+                carried = owner_revisions(repo_root, _git(["merge-base", plan[1], baseline], repo_root), plan[1])
+                pending_revision = _pending_revision_path(plan[0])
+                if pending_revision.exists():
+                    try:
+                        carried.append(str(json.loads(pending_revision.read_text(encoding="utf-8"))))
+                    except (OSError, ValueError) as exc:
+                        raise StageFailure("resume", "resume_instruction_unreadable", type(exc).__name__)
             _git(["worktree", "add", "-b", branch, str(worktree), baseline], repo_root)
 
             # 3. Worker, or the previous attempt's changes on resume.
@@ -1803,10 +1840,6 @@ def _run_pipeline(
                 _report_progress(progress, "resume")
                 previous, result.resumed_from, paths = plan
                 _copy_attempt_changes(previous, worktree, paths)
-                # task-0220: the Owner's instructions go with the changes they produced.
-                carried = owner_revisions(
-                    repo_root, _git(["merge-base", result.resumed_from, baseline], repo_root), result.resumed_from
-                )
                 request = effective_request(request, carried)
             else:
                 result.stage = "worker"
@@ -1817,7 +1850,7 @@ def _run_pipeline(
             # 4. Scope, cumulative from the baseline.
             result.stage = "scope"
             working = _changed_paths(worktree)
-            changed = _cumulative_paths(worktree, baseline)
+            changed = _net_changed_paths(worktree, baseline) if revision is not None else _cumulative_paths(worktree, baseline)
             result.changed_files = changed
             if not working:
                 raise StageFailure(
@@ -1865,7 +1898,10 @@ def _run_pipeline(
             candidate = _git(["rev-parse", "HEAD"], worktree)
             result.candidate = candidate
             result.candidates.append(candidate)
-            if parent is not None:
+            if revision is not None and result.repairs == 0:
+                # task-0220: the commit holds the instruction now.
+                _pending_revision_path(worktree).unlink(missing_ok=True)
+            if label.startswith("repair "):
                 # task-0183: what the repair produced, from the scope and test steps above.
                 _report_progress(progress, "repaired", f"{', '.join(changed)} | tests: {summary}"[:300])
 
@@ -2155,8 +2191,8 @@ def _recheck_candidate(
             progress, "review", verdict if verdict == "PASS" or not result.reviewer_excerpt else f"{verdict}: {result.reviewer_excerpt}"
         )
         if verdict == "FINDINGS":
-            ended = "recheck:reviewer_findings"
-            raise StageFailure("recheck", "reviewer_findings", result.reviewer_excerpt)
+            ended = "recheck:recheck_findings"
+            raise StageFailure("recheck", "recheck_findings", result.reviewer_excerpt)
         if verdict != "PASS":
             raise StageFailure("reviewer", f"reviewer_{verdict.lower()}", result.reviewer_excerpt)
 

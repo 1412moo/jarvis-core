@@ -2208,6 +2208,10 @@ TASK_FAILURE_REASONS: dict[str, tuple[str, tuple[str, ...]]] = {
         "QA는 통과했지만 QA로 확인할 수 없는 Reviewer 항목이 남아 반영하지 않았다. candidate는 보존돼 있고 Owner 확인을 기다린다.",
         (TASK_FAILURE_ACCEPT, TASK_FAILURE_RETRY),
     ),
+    "recheck_findings": (
+        "Owner가 요청한 재검토에서 Reviewer가 지적을 냈다. repair는 돌리지 않았고 main은 바뀌지 않았으며 이 candidate는 accept할 수 없다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
     "revise_no_changes": (
         "Owner의 수정 요청에 Worker가 파일을 바꾸지 않았다. main은 바뀌지 않았다.",
         TASK_FAILURE_RETRY_OR_RESUME,

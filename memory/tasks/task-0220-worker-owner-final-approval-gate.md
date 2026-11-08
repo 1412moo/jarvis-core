@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-08 09:55 UTC`
-- updated_at: `2026-11-08 13:32 UTC`
+- updated_at: `2026-11-08 14:34 UTC`
 - summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. 2단위는 /go revise로 수정한 새 candidate와 /go recheck로 Reviewer·QA만 재실행을 더한다. Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
 - source_command: `Owner 지시: 결과 확인 후 반영 구조 구현, 정책 4건 승인 (Claude Code 세션)`
 
@@ -264,7 +264,7 @@ push하지 않는다.
 | 항목 | 값 |
 | --- | --- |
 | baseline | `8b407323fb4ebc5391ec59ab2c84d571e8ba0a3f` (작업 브랜치 HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0`. Manager 해석: 새 작업 단위라 SOP 기본값으로 시작한다. 1단위의 Reviewer 예외는 적용하지 않는다 |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1`(아래 Repair 절). Manager 해석: 새 작업 단위라 SOP 기본값으로 시작한다. 1단위의 Reviewer 예외는 적용하지 않는다 |
 
 ## 2단위 구현
 
@@ -301,6 +301,23 @@ push하지 않는다.
 12. minor: SOP 항 번호 인용 오류. 고쳤다.
 
 self-review subagent는 저장소 worktree 전체를 grep했으나 이 worktree에는 `jarvis.bat`이 없고 `.env`도 추적되지 않는다.
+
+## 2단위 Reviewer 결과 (candidate `4c0d27520b4159ea80c6b6baf51f62badea008fd`)
+
+verdict FINDINGS, self_deviations 없음(유효). 첫 호출은 사용량 한도로 끊겨 같은 Reviewer를 이어서 끝냈다. major 3건, minor 3건:
+
+1. major: commit 전에 실패한 revise의 지시가 resume에 안 넘어감. 2. major: `_cumulative_paths` 합집합 때문에 `revise_empty_change_set`이 도달 불가, 일부 되돌리기는 항상 qa_failed. 3. major: SOP가 미확인 항목의 candidate도 accept 불가라고 적음. 4. minor: recheck의 실패 종결이 승인 원문에 없음. 5. minor: Console의 `reviewer_findings` 설명이 recheck에 맞지 않음. 6. minor: Owner 수정 commit에 repair 진행 표시가 나감.
+
+## 2단위 Repair (`repair_count=1`)
+
+1. 지시를 승인 전이 전에 attempt worktree 옆 `.owner-revision.json`에 저장하고 수정 commit이 끝나면 지운다. resume이 읽어 새 첫 commit에 옮긴다.
+2. revise는 commit될 내용과 baseline의 차이(`_net_changed_paths`)를 change set으로 쓴다.
+3. SOP 문장을 고쳤다. 미확인 항목은 accept 가능하다.
+4. recheck의 실패 종결은 Owner에게 보고해 결정을 받는다(코드 변경 없음).
+5. `recheck_findings` 사유와 Console 설명을 따로 두었다.
+6. repair 진행 표시는 repair commit에만 나간다.
+
+이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
 
 ## Manager 요약
 

@@ -180,11 +180,16 @@ FAKE_CLAUDE = textwrap.dedent(
         data.append({"id": f"cite-term-{len(data)}", "term": "Cite", "dev_definition": "d", "simple_explanation": "s",
                      "jarvis_example": os.environ["FAKE_CITE"]})
         p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8", newline="\\n")
-    elif mode == "ok":
+    elif mode == "revertfile":
+        # task-0220: an Owner revision that restores a file to its baseline content.
+        subprocess.run(["git", "checkout", os.environ["FAKE_REVERT_TO"], "--", os.environ["FAKE_REVERT_PATH"]], check=True)
+    elif mode in ("ok", "okfail"):
         p = Path("apps/studyroom/content/glossary.json")
         data = json.loads(p.read_text(encoding="utf-8"))
         data.append({"id": f"fake-term-{len(data)}", "term": "Fake", "dev_definition": "d", "simple_explanation": "s", "jarvis_example": "e"})
         p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8", newline="\\n")
+    if mode == "okfail":
+        sys.exit(3)
     print(json.dumps({"result": "edited"}))
     """
 )
@@ -1265,9 +1270,9 @@ def revise_recheck_flow(bot, clone: Path, status_of) -> None:
     found = job(finding_id, bot._run_command(f"/go {finding_id} recheck"))
     finding_path = clone / "memory" / "tasks" / f"{finding_id}.md"
     check("recheck: FINDINGS end the wait as FAILED, no Worker, main unmoved, candidate kept",
-          found.get("reason") == "reviewer_findings" and status_of(finding_id) == "FAILED" and calls("WORKER") == 0
+          found.get("reason") == "recheck_findings" and status_of(finding_id) == "FAILED" and calls("WORKER") == 0
           and git(["rev-parse", "HEAD"], clone) == after and Path(finding_first["worktree"]).is_dir()
-          and "- execution_summary: `recheck:reviewer_findings`" in finding_path.read_text(encoding="utf-8")
+          and "- execution_summary: `recheck:recheck_findings`" in finding_path.read_text(encoding="utf-8")
           and bot._run_command(f"/go {finding_id} accept").get("reason") == "accept_record_invalid", str(found.get("reason")))
 
     os.environ["FAKE_REVIEW"] = "pass"
@@ -1285,6 +1290,55 @@ def revise_recheck_flow(bot, clone: Path, status_of) -> None:
           nochange.get("reason") == "revise_no_changes" and status_of(nochange_id) == "FAILED"
           and git(["rev-parse", "HEAD"], clone) == after, str(nochange.get("reason")))
     os.environ["FAKE_WORKER"] = "ok"
+
+    # A revision that fails before its commit: resume still carries its instruction.
+    uncommitted_id, _uncommitted_first = waiting_task("Studyroom glossary에 커밋 전 실패 용어 추가")
+    os.environ["FAKE_WORKER"] = "okfail"
+    uncommitted_text = "커밋 전에 실패해도 남아야 하는 지시"
+    uncommitted = job(uncommitted_id, bot._run_command(f"/go {uncommitted_id} revise {uncommitted_text}"))
+    os.environ["FAKE_WORKER"] = "ok"
+    log.write_text("", encoding="utf-8")
+    resumed = bot._run_command(f"/go {uncommitted_id} resume")
+    resumed_job = bot._run_worker_job(uncommitted_id, resumed["request"], resumed["command"], True)
+    seen = log.read_text(encoding="utf-8")
+    check("resume after a revise that failed before its commit: the Reviewer and the new chain have the instruction",
+          uncommitted.get("reason") == "worker_failed" and resumed_job.get("awaiting_owner") is True
+          and f"Owner revision 1 (verbatim): {uncommitted_text}" in seen
+          and claude_worker.owner_revisions(clone, resumed_job["baseline"], resumed_job["candidate"]) == [uncommitted_text],
+          f"{resumed_job.get('stage')}:{resumed_job.get('reason')}:{resumed_job.get('detail')}")
+
+    # Undoing part, then all, of the candidate.
+    undo_id, undo_first = waiting_task("Studyroom glossary에 되돌리기 용어 추가")
+    os.environ["FAKE_WORKER"] = "appcode"
+    progress_lines: list[str] = []
+    started = bot._run_command(f"/go {undo_id} revise 화면 코드도 고쳐")
+    two_files = bot._run_worker_job(undo_id, started["request"], started["command"], False, False,
+                                    bot._make_progress(undo_id, progress_lines.append), started["work_kind"], False, "revise", started["instruction"])
+    check("revise: a second file joins the change set, and no repair is reported for an Owner revision",
+          two_files.get("awaiting_owner") is True and len(two_files["changed_files"]) == 2
+          and not any(line.startswith(f"🔁 {undo_id}") for line in progress_lines), f"{two_files.get('changed_files')}:{progress_lines}")
+    os.environ["FAKE_WORKER"] = "revertfile"
+    os.environ["FAKE_REVERT_TO"], os.environ["FAKE_REVERT_PATH"] = undo_first["baseline"], "apps/studyroom/web/app.js"
+    partial = job(undo_id, bot._run_command(f"/go {undo_id} revise 화면 코드는 되돌려"))
+    check("revise: a partial undo leaves that file out of the change set and passes QA",
+          partial.get("awaiting_owner") is True and partial["changed_files"] == ["apps/studyroom/content/glossary.json"]
+          and all(partial["qa_checks"].values()), f"{partial.get('stage')}:{partial.get('reason')}:{partial.get('detail')}:{partial.get('changed_files')}")
+    os.environ["FAKE_REVERT_PATH"] = "apps/studyroom/content/glossary.json"
+    emptied = job(undo_id, bot._run_command(f"/go {undo_id} revise 전부 되돌려"))
+    os.environ["FAKE_WORKER"] = "ok"
+    check("revise: undoing everything has its own reason, main unmoved",
+          emptied.get("reason") == "revise_empty_change_set" and status_of(undo_id) == "FAILED"
+          and git(["rev-parse", "HEAD"], clone) == after, f"{emptied.get('stage')}:{emptied.get('reason')}")
+
+    # Recheck with entries QA cannot verify ends as the accept-able stop.
+    unverified_id, _unverified_first = waiting_task("Studyroom glossary에 미확인 재검토 용어 추가")
+    os.environ["FAKE_REVIEW"] = "unverifiednone"
+    stopped = job(unverified_id, bot._run_command(f"/go {unverified_id} recheck"))
+    os.environ["FAKE_REVIEW"] = "pass"
+    unverified_path = clone / "memory" / "tasks" / f"{unverified_id}.md"
+    check("recheck: unverified entries end the wait with the record accept still takes",
+          stopped.get("reason") == "qa_unverified_owner_review" and status_of(unverified_id) == "FAILED"
+          and bot._owner_review_record(unverified_path) is not None and git(["rev-parse", "HEAD"], clone) == after, str(stopped.get("reason")))
 
     # A resumed attempt keeps the Owner's instructions.
     carried_id, _carried_first = waiting_task("Studyroom glossary에 이어가기 용어 추가")
