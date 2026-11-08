@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-08 09:55 UTC`
-- updated_at: `2026-11-08 14:34 UTC`
+- updated_at: `2026-11-08 15:02 UTC`
 - summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. 2단위는 /go revise로 수정한 새 candidate와 /go recheck로 Reviewer·QA만 재실행을 더한다. Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
 - source_command: `Owner 지시: 결과 확인 후 반영 구조 구현, 정책 4건 승인 (Claude Code 세션)`
 
@@ -264,14 +264,14 @@ push하지 않는다.
 | 항목 | 값 |
 | --- | --- |
 | baseline | `8b407323fb4ebc5391ec59ab2c84d571e8ba0a3f` (작업 브랜치 HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1`(아래 Repair 절). Manager 해석: 새 작업 단위라 SOP 기본값으로 시작한다. 1단위의 Reviewer 예외는 적용하지 않는다 |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`(Owner 증액), `repair_count=2`(아래 Repair 절들). Manager 해석: 새 작업 단위라 SOP 기본값으로 시작한다. 1단위의 Reviewer 예외는 적용하지 않는다 |
 
 ## 2단위 구현
 
 - `/go <id> revise <지시>`: 지시 원문을 받아(Manager 해석: 1000자 상한은 승인 문구에 없고 commit과 Reviewer 호출 길이를 위해 정했다) 대기 기록을 대조하고 `revise_candidate`를 돌린다. `_run_pipeline`에 Owner 수정 분기(`_OwnerRevision`)를 더해, 기존 범위 검사·테스트·candidate·Reviewer·repair·QA·대기 단계를 그대로 쓴다. 기록 식별과 main baseline 확인은 accept와 같은 함수이며, 그 거절은 상태를 바꾸지 않는다.
 - 지시 원문은 revision commit의 `Owner-Revision:` 줄에 JSON으로 남고 `owner_revisions`가 읽는다. 뒤의 Worker와 Reviewer는 요청과 모든 지시를 받는다.
 - 감사 명령은 200자 상한 때문에 `/go <id> revise`로 기록한다. 지시 원문은 commit에 있다.
-- `/go <id> recheck`: `recheck_candidate`가 Reviewer와 QA만 돌린다. Worker를 부르지 않는다. 통과면 task 파일을 쓰지 않고 대기를 유지하며 검토 파일을 새로 쓴다. Reviewer가 판정하지 못한 경우는 아무것도 바꾸지 않는다. FINDINGS는 `NEEDS_APPROVAL → FAILED`다(Owner에게 보인 설계 표의 "PASS면 대기 유지, FINDINGS면 `FAILED`"). Manager 해석: QA 실패와 미확인 항목도 같게 다룬다. 이 동작은 도움말과 시작 답에 경고하고 Owner 보고에 적는다.
+- `/go <id> recheck`: `recheck_candidate`가 Reviewer와 QA만 돌린다. Worker를 부르지 않는다. 통과면 task 파일을 쓰지 않고 대기를 유지하며 검토 파일을 새로 쓴다. Reviewer가 판정하지 못한 경우는 아무것도 바꾸지 않는다. FINDINGS와 미확인 항목은 `NEEDS_APPROVAL → FAILED`, QA 실패는 대기 유지다(Owner 결정, repair 증액과 recheck 정책 절).
 - `_candidate_chain`은 수정 commit과 실행마다의 repair를 허용하는 순서 검사로 바꿨고 수정 commit마다 지시가 정확히 하나 있어야 한다. 자동 repair 수는 commit 제목으로 센다.
 - resume은 이전 시도의 지시를 새 시도의 첫 commit에 옮겨 적고 Reviewer에게 넘긴다.
 - Worker가 바꾼 것이 없으면 `revise_no_changes`, 변경이 모두 사라지면 `revise_empty_change_set`으로 실패한다.
@@ -281,7 +281,7 @@ push하지 않는다.
 
 ## 2단위 검증 (작업 트리, 지정 worktree)
 
-- 아래 Self-review 수정 뒤 기준으로 Worker smoke, Console smoke PYTHONUTF8=1과 없음, `run_web_app.py --self-test`, Discord `--self-check-suite`, discord-intake smoke, SOP validator, `node --check`, `git diff --check`를 다시 돌렸다. 수치는 candidate 직전 실행의 결과로 Owner 보고에 적는다.
+- Self-review 수정 뒤에 돌렸고, repair 뒤에는 candidate 커밋 직전마다 다시 돌렸다(마지막 기준은 Repair 2 뒤 QA). Worker smoke, Console smoke PYTHONUTF8=1과 없음, `run_web_app.py --self-test`, Discord `--self-check-suite`, discord-intake smoke, SOP validator, `node --check`, `git diff --check`를 다시 돌렸다. 수치는 candidate 직전 실행의 결과로 Owner 보고에 적는다.
 
 ## Self-review (2단위)
 
@@ -318,6 +318,32 @@ verdict FINDINGS, self_deviations 없음(유효). 첫 호출은 사용량 한도
 6. repair 진행 표시는 repair commit에만 나간다.
 
 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
+
+## 2단위 Reviewer 결과 (repair candidate `768ff908fe5c5350f80fa330889deee1d2c1716a`)
+
+verdict FINDINGS, self_deviations 없음(유효). major 1건(resume이 commit 전에 실패한 뒤 다시 resume하면 지시 유실), minor 5건(recheck 종결이 승인 원문에 없음, 검증 절이 repair 전 기준, revise 범위 검사의 rename, 새 resume 사유의 Console 설명, 비워진 candidate에 resume 안내). repair 예산이 소진돼 Owner에게 보고했다.
+
+## Owner 결정 (원문, repair 증액과 recheck 정책)
+
+```text
+[Manager 제안]
+repair 예산 1회 증액 (권장)
+위 지적은 소스 수정이 필요하고, 예산 증액은 Owner만 정할 수 있습니다.
+recheck가 문제를 찾았을 때의 동작
+Reviewer 지적: 대기 종료, FAILED, accept 불가 유지
+QA 미확인 항목: 대기 종료, FAILED, 확인 후 accept 가능 유지
+QA 실패: 대기 유지로 변경
+
+[Owner 답]
+권장안으로 진행
+```
+
+## 2단위 Repair 2 (`repair_count=2`, Owner 증액)
+
+- resume은 지시 전체를 새 시도 옆에 저장해, 첫 commit 전에 실패해도 다시 resume할 때 이어진다.
+- recheck의 QA 실패는 대기를 유지한다(Owner 결정). Reviewer 지적과 미확인 항목의 종결은 유지한다.
+- revise 범위 검사에 `--no-renames`를 넣었다. 새 resume 사유의 Console 설명을 더했다. 비워진 candidate의 답에서 resume을 뺐다.
+- 아래 2단위 검증 절의 수치는 Owner 보고와 QA 결과가 기준이다.
 
 ## Manager 요약
 
@@ -409,3 +435,12 @@ verdict FINDINGS, self_deviations 없음(유효). 첫 호출은 사용량 한도
 | A82 | Owner 결정 (원문, 2단위) | "2단위 구현과 검증이 끝나면 중간 보고해라." | Owner 보고로 한다 |
 | A83 | Owner 결정 (원문, 2단위) | "아직 DONE 처리하거나 main에 반영하지 마라." | DOING이고 main에 반영하지 않았다 |
 | A84 | Owner 결정 (원문, 2단위) | "최종적으로 1·2단위 전체 기능과 테스트 결과를 확인한 뒤 Owner에게 최종 승인 여부를 요청해라." | QA 뒤 Owner에게 요청한다 |
+| A85 | Owner 결정 (원문, repair 증액과 recheck 정책) | "[Manager 제안]" | 제안의 표지 |
+| A86 | Owner 결정 (원문, repair 증액과 recheck 정책) | "repair 예산 1회 증액 (권장)" | Owner가 승인해 repair 2를 했다 |
+| A87 | Owner 결정 (원문, repair 증액과 recheck 정책) | "위 지적은 소스 수정이 필요하고, 예산 증액은 Owner만 정할 수 있습니다." | A92 답의 배경 |
+| A88 | Owner 결정 (원문, repair 증액과 recheck 정책) | "recheck가 문제를 찾았을 때의 동작" | 아래 세 줄의 주제 |
+| A89 | Owner 결정 (원문, repair 증액과 recheck 정책) | "Reviewer 지적: 대기 종료, FAILED, accept 불가 유지" | 유지했다 |
+| A90 | Owner 결정 (원문, repair 증액과 recheck 정책) | "QA 미확인 항목: 대기 종료, FAILED, 확인 후 accept 가능 유지" | 유지했다 |
+| A91 | Owner 결정 (원문, repair 증액과 recheck 정책) | "QA 실패: 대기 유지로 변경" | 대기 유지로 바꿨다 |
+| A92 | Owner 결정 (원문, repair 증액과 recheck 정책) | "[Owner 답]" | 답의 표지 |
+| A93 | Owner 결정 (원문, repair 증액과 recheck 정책) | "권장안으로 진행" | 위 두 결정의 승인 |

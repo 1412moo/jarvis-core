@@ -2212,6 +2212,14 @@ TASK_FAILURE_REASONS: dict[str, tuple[str, tuple[str, ...]]] = {
         "Owner가 요청한 재검토에서 Reviewer가 지적을 냈다. repair는 돌리지 않았고 main은 바뀌지 않았으며 이 candidate는 accept할 수 없다.",
         TASK_FAILURE_RETRY_OR_RESUME,
     ),
+    "resume_instruction_unreadable": (
+        "이전 시도에 남은 Owner 수정 지시를 읽지 못해 resume하지 않았다.",
+        TASK_FAILURE_RETRY_ONLY,
+    ),
+    "resume_instruction_not_saved": (
+        "Owner 수정 지시를 새 시도 옆에 저장하지 못해 resume하지 않았다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
     "revise_no_changes": (
         "Owner의 수정 요청에 Worker가 파일을 바꾸지 않았다. main은 바뀌지 않았다.",
         TASK_FAILURE_RETRY_OR_RESUME,

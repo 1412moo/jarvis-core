@@ -815,7 +815,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/go <task-id> accept - 최종 승인: 확인 대기 중인 candidate를 QA 재확인 뒤 main에 반영 (Owner)",
             "/go <task-id> reject - 최종 거절: 확인 대기 중인 candidate를 반영하지 않음, main 불변 (Owner)",
             "/go <task-id> revise <지시> - 수정 요청: 대기 중인 candidate를 Worker가 고치고 Reviewer·QA 뒤 다시 대기 (Owner)",
-            "/go <task-id> recheck - 재검토: Worker 없이 대기 중인 candidate에 Reviewer·QA만 다시 실행, 지적이나 QA 실패가 나오면 대기가 끝나고 FAILED (Owner)",
+            "/go <task-id> recheck - 재검토: Worker 없이 대기 중인 candidate에 Reviewer·QA만 다시 실행, Reviewer 지적이 나오면 대기가 끝나고 FAILED (Owner)",
             "/go <task-id> recover - 실행 중인 Worker 없이 멈춘 DOING을 FAILED로만 전환, 재실행 없음 (Owner)",
         ],
     }
@@ -2884,7 +2884,7 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         if result.get("mode") == "revise":
             return f"▶️ 수정 요청 시작: {task_id} → Worker 수정, Reviewer, QA 뒤 다시 최종 승인을 기다립니다. main은 바뀌지 않습니다."
         if result.get("mode") == "recheck":
-            return f"▶️ 재검토 시작: {task_id} → Worker 없이 Reviewer와 QA만 다시 돌립니다. main은 바뀌지 않습니다. 지적이나 QA 실패가 나오면 대기가 끝나고 FAILED가 되어 accept할 수 없습니다."
+            return f"▶️ 재검토 시작: {task_id} → Worker 없이 Reviewer와 QA만 다시 돌립니다. main은 바뀌지 않습니다. Reviewer 지적이 나오면 대기가 끝나고 FAILED가 되어 accept할 수 없습니다."
         if result.get("accept"):
             return (
                 f"▶️ 승인됨 (accept): {task_id} → 보존된 candidate의 QA를 다시 확인한 뒤 반영합니다. "
@@ -2968,8 +2968,9 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         lines.append(f"다음 선택지: `/go {task_id}` 다시 실행 · `/status {task_id}` 상태 확인{kept}")
     else:
         lines.append(
-            f"다음 선택지: `/go {task_id}` 처음부터 재시도 · `/go {task_id} resume` 이 시도에서 이어가기 · "
-            f"{accept}`/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
+            f"다음 선택지: `/go {task_id}` 처음부터 재시도 · "
+            + ("" if result.get("reason") == "revise_empty_change_set" else f"`/go {task_id} resume` 이 시도에서 이어가기 · ")
+            + f"{accept}`/status {task_id}` 상태 확인 · 직접 개입(worktree {result.get('worktree')})"
         )
     if pending_at >= 0:
         # task-0150: the same pending rule the pipeline stopped on, never a copy of it.

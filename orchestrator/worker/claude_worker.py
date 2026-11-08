@@ -697,7 +697,7 @@ FINAL_REVIEW_DIFF_EXCERPT_CHARS = 900
 OWNER_REVISION_TRAILER = "Owner-Revision: "
 # task-0220: on a resumed attempt's first commit, the lines after this one carry earlier instructions.
 OWNER_REVISIONS_CARRIED = "Owner-Revisions-Carried:"
-# task-0220: beside the attempt worktree, the instruction of a revision not committed yet.
+# task-0220: beside the attempt worktree, the JSON list of instructions no commit of it holds yet.
 OWNER_REVISION_PENDING_SUFFIX = ".owner-revision.json"
 
 
@@ -1332,7 +1332,7 @@ def _net_changed_paths(worktree: Path, baseline: str) -> list[str]:
 
     _git(["add", "-A", "--", "."], worktree)
     try:
-        return sorted(_git(["diff", "--cached", "--name-only", baseline], worktree).splitlines())
+        return sorted(_git(["diff", "--cached", "--no-renames", "--name-only", baseline], worktree).splitlines())
     finally:
         _git(["reset", "-q"], worktree)
 
@@ -1782,7 +1782,7 @@ def _run_pipeline(
             # instruction must go with them although no commit holds it yet.
             pending_revision = _pending_revision_path(worktree)
             try:
-                pending_revision.write_text(json.dumps(revision.instruction, ensure_ascii=False), encoding="utf-8")
+                pending_revision.write_text(json.dumps([revision.instruction], ensure_ascii=False), encoding="utf-8")
             except OSError as exc:
                 raise StageFailure("revise", "revise_instruction_not_saved", type(exc).__name__)
             result.stage = "approval"
@@ -1829,9 +1829,15 @@ def _run_pipeline(
                 pending_revision = _pending_revision_path(plan[0])
                 if pending_revision.exists():
                     try:
-                        carried.append(str(json.loads(pending_revision.read_text(encoding="utf-8"))))
-                    except (OSError, ValueError) as exc:
+                        carried.extend(str(text) for text in json.loads(pending_revision.read_text(encoding="utf-8")))
+                    except (OSError, ValueError, TypeError) as exc:
                         raise StageFailure("resume", "resume_instruction_unreadable", type(exc).__name__)
+                if carried:
+                    # This attempt can fail before its first commit too; the next resume reads this.
+                    try:
+                        _pending_revision_path(worktree).write_text(json.dumps(carried, ensure_ascii=False), encoding="utf-8")
+                    except OSError as exc:
+                        raise StageFailure("resume", "resume_instruction_not_saved", type(exc).__name__)
             _git(["worktree", "add", "-b", branch, str(worktree), baseline], repo_root)
 
             # 3. Worker, or the previous attempt's changes on resume.
@@ -1898,8 +1904,8 @@ def _run_pipeline(
             candidate = _git(["rev-parse", "HEAD"], worktree)
             result.candidate = candidate
             result.candidates.append(candidate)
-            if revision is not None and result.repairs == 0:
-                # task-0220: the commit holds the instruction now.
+            if (revision is not None and result.repairs == 0) or (parent is None and carried):
+                # task-0220: the commit holds the instructions now.
                 _pending_revision_path(worktree).unlink(missing_ok=True)
             if label.startswith("repair "):
                 # task-0183: what the repair produced, from the scope and test steps above.
@@ -2102,8 +2108,8 @@ def recheck_candidate(
     """task-0220: `/go <id> recheck`, a fresh Reviewer and QA on the waiting candidate. No Worker.
 
     PASS and QA pass: the task stays in NEEDS_APPROVAL with the same record and nothing is written.
-    FINDINGS, a failed QA check or entries QA cannot verify end the wait as FAILED through
-    record_failure. A Reviewer that could not judge, or a stop before a verdict, changes nothing.
+    FINDINGS or entries QA cannot verify end the wait as FAILED through record_failure. A failed QA
+    check, a Reviewer that could not judge, or a stop before a verdict changes nothing.
     """
 
     kind = work_kind_by_name(work_kind) if work_kind else DEFAULT_WORK_KIND
@@ -2200,8 +2206,8 @@ def _recheck_candidate(
         _report_progress(progress, "qa")
         qa = _qa_checks(repo_root, worktree, baseline, candidate, changed)
         result.qa_checks = qa
+        # Owner decision: a QA failure can be temporary, so it leaves the wait; accept re-runs QA.
         if not all(qa.values()):
-            ended = "qa:qa_failed"
             raise StageFailure("qa", "qa_failed", ",".join(k for k, v in qa.items() if not v))
         result.test_summary = "passed in the QA rerun"
         pending = unverified_pending(result.reviewer_unverified)
@@ -2209,7 +2215,6 @@ def _recheck_candidate(
             ended = owner_review_record(candidate, baseline, parsed[2])
             raise StageFailure("qa", "qa_unverified_owner_review", " | ".join(pending)[:300])
         if _changed_paths(worktree):
-            ended = "qa:qa_failed"
             raise StageFailure("qa", "qa_failed", "the QA run left changes in the attempt worktree")
 
         result.stage = "owner_review"

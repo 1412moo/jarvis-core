@@ -1298,6 +1298,14 @@ def revise_recheck_flow(bot, clone: Path, status_of) -> None:
     uncommitted = job(uncommitted_id, bot._run_command(f"/go {uncommitted_id} revise {uncommitted_text}"))
     os.environ["FAKE_WORKER"] = "ok"
     log.write_text("", encoding="utf-8")
+    # The first resume also fails before its commit; the second must still have the instruction.
+    real_tests = claude_worker._run_tests
+    claude_worker._run_tests = lambda worktree: (False, "forced failure")
+    first_resume = bot._run_command(f"/go {uncommitted_id} resume")
+    failed_resume = bot._run_worker_job(uncommitted_id, first_resume["request"], first_resume["command"], True)
+    claude_worker._run_tests = real_tests
+    check("resume twice: the first resume fails before its commit", failed_resume.get("reason") == "tests_failed", str(failed_resume.get("reason")))
+    log.write_text("", encoding="utf-8")
     resumed = bot._run_command(f"/go {uncommitted_id} resume")
     resumed_job = bot._run_worker_job(uncommitted_id, resumed["request"], resumed["command"], True)
     seen = log.read_text(encoding="utf-8")
@@ -1329,6 +1337,23 @@ def revise_recheck_flow(bot, clone: Path, status_of) -> None:
     check("revise: undoing everything has its own reason, main unmoved",
           emptied.get("reason") == "revise_empty_change_set" and status_of(undo_id) == "FAILED"
           and git(["rev-parse", "HEAD"], clone) == after, f"{emptied.get('stage')}:{emptied.get('reason')}")
+
+    check("revise: the reply for an emptied candidate does not offer resume, which could only fail",
+          f"`/go {undo_id} resume`" not in bot._format_reply(emptied) and f"`/go {undo_id}` 처음부터" in bot._format_reply(emptied),
+          bot._format_reply(emptied))
+
+    # Owner decision: a QA failure on recheck leaves the wait.
+    qa_id, _qa_first = waiting_task("Studyroom glossary에 일시 QA 실패 용어 추가")
+    qa_path = clone / "memory" / "tasks" / f"{qa_id}.md"
+    qa_before = qa_path.read_bytes()
+    real_tests = claude_worker._run_tests
+    claude_worker._run_tests = lambda worktree: (False, "forced failure")
+    qa_failed = job(qa_id, bot._run_command(f"/go {qa_id} recheck"))
+    claude_worker._run_tests = real_tests
+    check("recheck: a QA failure keeps the wait and its record, and offers the decisions",
+          qa_failed.get("reason") == "qa_failed" and qa_failed.get("accept_retryable") is True and status_of(qa_id) == "NEEDS_APPROVAL"
+          and qa_path.read_bytes() == qa_before and f"`/go {qa_id} recheck`" in bot._format_reply(qa_failed),
+          f"{qa_failed.get('reason')}")
 
     # Recheck with entries QA cannot verify ends as the accept-able stop.
     unverified_id, _unverified_first = waiting_task("Studyroom glossary에 미확인 재검토 용어 추가")
