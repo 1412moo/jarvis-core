@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-08 09:55 UTC`
-- updated_at: `2026-11-08 11:15 UTC`
+- updated_at: `2026-11-08 11:46 UTC`
 - summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. revise와 recheck는 2단위, Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
 - source_command: `Owner 지시: 결과 확인 후 반영 구조 구현, 정책 4건 승인 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `a7a28dcd8e4a1af78f652866541f142eb3b9f96a` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, repair 1은 아래 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, repair 1은 아래 절). retry는 Owner 증액으로 2회 사용(`retry_count=2`, 재검토 경과 절) |
 
 ## Owner 결정 (원문, 작업 지시)
 
@@ -148,6 +148,56 @@ verdict FINDINGS, `self_deviations` 1건(Reviewer가 git grep에 여러 패턴�
 - `_prepare_final_review`가 `subprocess.TimeoutExpired`도 잡게 하고 Worker smoke에 검사를 더했다.
 - 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
 
+## Reviewer 재검토 경과 (candidate `44e5adabb044d8355ccb04e9a07118390a075b0d`)
+
+| 차례 | 판정 | self_deviations | 효력 |
+| --- | --- | --- | --- |
+| repair 뒤 1차 | FINDINGS minor 1(큰 테스트 diff를 다 읽지 못함) | `git grep`에 패턴 alternation | 무효 |
+| retry 1 | PASS, 지적 0 | `git grep -F` | 무효 |
+| retry 2 (Owner 증액) | PASS, 지적 0 | `git grep -c` | 무효, 아래 Owner 예외로 유효 인정 |
+
+세 이탈 모두 읽기 전용 git 옵션이다. retry 1의 이탈은 Manager가 넘긴 검색어에 `|`가 들어 있어 유도됐다. 1차의 지적은 소스 변경이 필요 없어 retry로 처리했고, retry에 이 파일의 변경 위치를 찾는 검색어를 넘겼다.
+
+## Owner 결정 (원문, retry 증액)
+
+```text
+[Manager 질문]
+retry 예산 1회는 이미 썼고, 예산 증액은 Owner만 정할 수 있습니다. 어떻게 할까요?
+
+[Owner 답]
+retry 1회 증액 (Recommended)
+```
+
+## Owner 결정 (원문, Reviewer 무효 규칙 예외)
+
+```text
+이번 한 건에 한해 Owner 결정으로 현재 candidate `44e5ada`의 Reviewer PASS를 유효한 검토 결과로 인정한다.
+동일 candidate에서 PASS, 지적 0건이 두 차례 확인되었고, 무효 사유는 모두 읽기 전용 git 옵션 사용이었다는 점을 고려한 예외 결정이다.
+다음 조건으로 진행해라.
+이번 예외 결정과 사유를 task-0220 기록에 정확히 남긴다.
+candidate `44e5ada`의 코드는 변경하지 않는다.
+기존 절차에 따라 QA를 진행한다.
+QA PASS 후에도 NEEDS_APPROVAL 상태를 유지한다.
+Owner의 최종 승인 전까지 main에 반영하지 않는다.
+push는 하지 않는다.
+이번 예외는 task-0220의 해당 Reviewer 검토에만 적용한다.
+이후 작업부터는 기존 SOP의 Reviewer 무효 규칙을 그대로 적용한다.
+```
+
+이 예외는 위 retry 2의 검토에만 적용한다. Owner의 메시지에서 번호를 뺀 것 외에는 원문 그대로다.
+
+## QA 결과 (candidate `44e5adabb044d8355ccb04e9a07118390a075b0d`)
+
+- scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗(실행 뒤에도), 변경 파일 11개, `jarvis.bat` 트리에 없음. QA worktree는 지웠다.
+- `git diff --check` 통과, SOP validator PASS, `run_web_app.py --self-test` 통과, Console smoke PYTHONUTF8=1과 없음 모두 rc=0, `node --check app.js` 통과, Worker smoke total=664 failed=0, discord-intake smoke rc=0, Discord `--self-check-suite` rc=0, Studyroom smoke 5/5, `check_no_secrets.py` findings 0.
+- Reviewer의 unverified 항목: 감사 검증기 `validate_payload("owner_approval", ...)`가 `/go` reject(`NEEDS_APPROVAL → FAILED`)와 accept(`NEEDS_APPROVAL → DOING`) payload를 받는다. 저장소 밖 잠금 파일을 잡은 동안 별도 프로세스의 획득은 실패하고 해제 뒤 성공한다. `_run_pipeline` 안에 `_integrate_and_checkpoint` 호출이 없고 `merge` 호출은 파일 전체에 하나다. `accept_candidate`와 `run_pipeline`을 부르는 곳은 봇의 `_run_worker_job`뿐이다.
+- QA 판정: PASS. Docs는 `not_required`(문서 변경이 candidate에 포함됨).
+- 확인하지 못한 것: 실제 봇 프로세스 재시작과 Discord 실전 실행. 실행 중인 봇은 이 코드를 아직 읽지 않았고 이 PC의 `claude` CLI는 로그아웃 상태다.
+
+## Manager 메모 (candidate 절차)
+
+첫 candidate 커밋 때 Manager의 명령이 Console smoke 실패를 확인하지 않아, 실패한 상태로 커밋이 만들어졌다. Reviewer에 넘기기 전에 `git reset --soft`로 되돌려 고친 뒤 다시 커밋했다(`341f596`). 이 task의 status는 DOING이며 Owner 최종 승인 전이라 Complete하지 않았다. 이 기록의 Reviewer 경과·예외·QA 절은 작업 트리에만 있고 커밋하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -189,3 +239,19 @@ verdict FINDINGS, `self_deviations` 1건(Reviewer가 git grep에 여러 패턴�
 | A33 | Owner 결정 (원문, 승인된 설계 제안) | "진행 단위 2: revise + recheck." | 다음 task의 범위다 |
 | A34 | Owner 결정 (원문, 승인된 설계 제안) | "[Owner 답]" | 답의 표지 |
 | A35 | Owner 결정 (원문, 승인된 설계 제안) | "제안한 정책 결정 4건을 모두 승인한다." | A11과 같은 문장이다 |
+| A36 | Owner 결정 (원문, retry 증액) | "[Manager 질문]" | 질문의 표지 |
+| A37 | Owner 결정 (원문, retry 증액) | "retry 예산 1회는 이미 썼고, 예산 증액은 Owner만 정할 수 있습니다." | A40 답의 질문 배경 |
+| A38 | Owner 결정 (원문, retry 증액) | "어떻게 할까요?" | A40 답의 질문 |
+| A39 | Owner 결정 (원문, retry 증액) | "[Owner 답]" | 답의 표지 |
+| A40 | Owner 결정 (원문, retry 증액) | "retry 1회 증액 (Recommended)" | Owner가 retry 예산을 1 늘렸다. retry 2를 돌렸다 |
+| A41 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "이번 한 건에 한해 Owner 결정으로 현재 candidate `44e5ada`의 Reviewer PASS를 유효한 검토 결과로 인정한다." | 이 결정으로 44e5ada의 Reviewer PASS를 유효로 본다. SOP 무효 규칙의 예외다 |
+| A42 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "동일 candidate에서 PASS, 지적 0건이 두 차례 확인되었고, 무효 사유는 모두 읽기 전용 git 옵션 사용이었다는 점을 고려한 예외 결정이다." | 아래 Reviewer 재검토 경과 절의 사실과 같다 |
+| A43 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "다음 조건으로 진행해라." | 조건의 표지 |
+| A44 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "이번 예외 결정과 사유를 task-0220 기록에 정확히 남긴다." | 이 절과 재검토 경과 절이다 |
+| A45 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "candidate `44e5ada`의 코드는 변경하지 않는다." | `44e5ada` 뒤로 코드를 바꾸지 않았다 |
+| A46 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "기존 절차에 따라 QA를 진행한다." | QA 결과 절이다 |
+| A47 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "QA PASS 후에도 NEEDS_APPROVAL 상태를 유지한다." | Manager 해석이 필요해 Owner에게 보고한다: task-0220 자체는 수동 task라 DOING이고 NEEDS_APPROVAL로 옮기는 경로가 없다. Worker 경로의 대기 동작은 candidate가 구현했다 |
+| A48 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "Owner의 최종 승인 전까지 main에 반영하지 않는다." | Manager 해석이 필요해 Owner에게 보고한다: 수동 SOP candidate는 commit_candidate로 main에 커밋되므로 `341f596`·`44e5ada`는 이미 로컬 main에 있다. push는 하지 않았다 |
+| A49 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "push는 하지 않는다." | 하지 않았다 |
+| A50 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "이번 예외는 task-0220의 해당 Reviewer 검토에만 적용한다." | task-0220의 이 검토에만 적용한다 |
+| A51 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "이후 작업부터는 기존 SOP의 Reviewer 무효 규칙을 그대로 적용한다." | 이 예외를 다른 task의 근거로 쓰지 않는다 |
