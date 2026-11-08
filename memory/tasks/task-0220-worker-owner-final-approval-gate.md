@@ -5,8 +5,8 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-08 09:55 UTC`
-- updated_at: `2026-11-08 12:41 UTC`
-- summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. revise와 recheck는 2단위, Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
+- updated_at: `2026-11-08 13:32 UTC`
+- summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. 2단위는 /go revise로 수정한 새 candidate와 /go recheck로 Reviewer·QA만 재실행을 더한다. Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
 - source_command: `Owner 지시: 결과 확인 후 반영 구조 구현, 정책 4건 승인 (Claude Code 세션)`
 
 ## 기준선
@@ -83,8 +83,8 @@ Manager가 채팅으로 보인 설계 제안의 핵심 문장을 표 형식 없�
 
 | 구분 | 경로 |
 | --- | --- |
-| owned | `orchestrator/worker/claude_worker.py`, `orchestrator/worker/run_smoke_tests.py`, `adapters/discord/bot_minimal.py`, `orchestrator/discord-intake/task_file_writer.py`, `apps/jarvis-console/run_web_app.py`, `apps/jarvis-console/run_smoke_tests.py`, `docs/task-model.md`, `docs/jarvis-multi-agent-sop-v0.1.md`, `adapters/discord/README.md`, `apps/jarvis-console/README.md`, 이 task 기록 |
-| deny | revise·recheck(2단위), Lead 종합 보고, Worker Backend, Gemma, 다른 task 기록, validator, `jarvis.bat`, `.env`, push |
+| owned | `orchestrator/worker/claude_worker.py`, `orchestrator/worker/run_smoke_tests.py`, `adapters/discord/bot_minimal.py`, `orchestrator/discord-intake/task_file_writer.py`, `apps/jarvis-console/run_web_app.py`, `apps/jarvis-console/run_smoke_tests.py`, `docs/task-model.md`, `docs/jarvis-multi-agent-sop-v0.1.md`, `adapters/discord/README.md`, `apps/jarvis-console/README.md`, 이 task 기록(2단위에도 같은 파일) |
+| deny | Lead 종합 보고, Worker Backend, Gemma, 다른 task 기록, validator, `jarvis.bat`, `.env`, push |
 
 ## Start
 
@@ -233,6 +233,75 @@ Git reset이나 branch 이동은 먼저 복구 가능한 백업과 참조점을 
 - 최종 반영: Owner 승인 뒤에만 main을 이 브랜치로 ff-only 한다. 그 전에 main이 움직이면 브랜치를 새 main 위로 옮기고 Reviewer와 QA를 다시 한다.
 - 주의: main이 `a7a28dc`인 동안 봇 코드에는 최종 승인 대기가 없어 `/go`는 이전처럼 자동 반영한다. main에서 새 task를 만들면 이 task의 번호 0220을 다시 쓸 수 있다.
 
+## Owner 결정 (원문, 2단위)
+
+```text
+브랜치 분리 결과를 확인했다.
+현재 상태를 유지하고 task-0220의 2단위를 진행해라.
+`/go <id> revise <지시>` 구현
+`/go <id> recheck` 구현
+revise 후 새 candidate 생성 및 Reviewer·QA 재실행
+recheck는 Worker를 호출하지 않고 기존 candidate에 Reviewer·QA만 재실행
+검증 통과 후에도 NEEDS_APPROVAL 유지
+Owner 최종 승인 전 main 반영 금지
+main 체크아웃은 그대로 유지한다.
+모든 변경과 검증은 지정된 worktree에서 진행한다.
+baseline은 현재 작업 브랜치 HEAD인 `8b40732`다.
+기존 1단위 기능과 테스트를 훼손하지 않는다.
+`jarvis.bat`은 절대 수정하지 않는다.
+Reviewer 및 QA 절차를 준수한다.
+self-review를 포함한 모든 검증 방식의 차이는 기록한다.
+push하지 않는다.
+2단위 구현과 검증이 끝나면 중간 보고해라.
+아직 DONE 처리하거나 main에 반영하지 마라.
+최종적으로 1·2단위 전체 기능과 테스트 결과를 확인한 뒤 Owner에게 최종 승인 여부를 요청해라.
+```
+
+번호와 글머리표만 뺀 Owner 메시지다.
+
+## 2단위 기준선
+
+| 항목 | 값 |
+| --- | --- |
+| baseline | `8b407323fb4ebc5391ec59ab2c84d571e8ba0a3f` (작업 브랜치 HEAD) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0`. Manager 해석: 새 작업 단위라 SOP 기본값으로 시작한다. 1단위의 Reviewer 예외는 적용하지 않는다 |
+
+## 2단위 구현
+
+- `/go <id> revise <지시>`: 지시 원문을 받아(Manager 해석: 1000자 상한은 승인 문구에 없고 commit과 Reviewer 호출 길이를 위해 정했다) 대기 기록을 대조하고 `revise_candidate`를 돌린다. `_run_pipeline`에 Owner 수정 분기(`_OwnerRevision`)를 더해, 기존 범위 검사·테스트·candidate·Reviewer·repair·QA·대기 단계를 그대로 쓴다. 기록 식별과 main baseline 확인은 accept와 같은 함수이며, 그 거절은 상태를 바꾸지 않는다.
+- 지시 원문은 revision commit의 `Owner-Revision:` 줄에 JSON으로 남고 `owner_revisions`가 읽는다. 뒤의 Worker와 Reviewer는 요청과 모든 지시를 받는다.
+- 감사 명령은 200자 상한 때문에 `/go <id> revise`로 기록한다. 지시 원문은 commit에 있다.
+- `/go <id> recheck`: `recheck_candidate`가 Reviewer와 QA만 돌린다. Worker를 부르지 않는다. 통과면 task 파일을 쓰지 않고 대기를 유지하며 검토 파일을 새로 쓴다. Reviewer가 판정하지 못한 경우는 아무것도 바꾸지 않는다. FINDINGS는 `NEEDS_APPROVAL → FAILED`다(Owner에게 보인 설계 표의 "PASS면 대기 유지, FINDINGS면 `FAILED`"). Manager 해석: QA 실패와 미확인 항목도 같게 다룬다. 이 동작은 도움말과 시작 답에 경고하고 Owner 보고에 적는다.
+- `_candidate_chain`은 수정 commit과 실행마다의 repair를 허용하는 순서 검사로 바꿨고 수정 commit마다 지시가 정확히 하나 있어야 한다. 자동 repair 수는 commit 제목으로 센다.
+- resume은 이전 시도의 지시를 새 시도의 첫 commit에 옮겨 적고 Reviewer에게 넘긴다.
+- Worker가 바꾼 것이 없으면 `revise_no_changes`, 변경이 모두 사라지면 `revise_empty_change_set`으로 실패한다.
+- Manager 해석: 승인 전이 뒤 Worker가 실패한 revise는 일반 실행 실패(`FAILED`, attempt 보존)로 두었다. 이전 candidate는 사슬과 브랜치에 남고 `resume`으로 이어갈 수 있다.
+- 보고에 네 가지 결정 명령을 모두 적었다. Console Next action과 Hold 안내도 맞췄다.
+- 테스트 환경: Worker smoke의 임시 clone이 실행 체크아웃의 브랜치를 따라가 작업 브랜치에서 `main_not_checked_out`으로 실패했다. clone을 `main`으로 맞추는 한 줄을 더했다.
+
+## 2단위 검증 (작업 트리, 지정 worktree)
+
+- 아래 Self-review 수정 뒤 기준으로 Worker smoke, Console smoke PYTHONUTF8=1과 없음, `run_web_app.py --self-test`, Discord `--self-check-suite`, discord-intake smoke, SOP validator, `node --check`, `git diff --check`를 다시 돌렸다. 수치는 candidate 직전 실행의 결과로 Owner 보고에 적는다.
+
+## Self-review (2단위)
+
+절차 차이: `claude` CLI가 여전히 로그아웃(`loggedIn: false`)이라 SOP §3의 `claude -p --agent self-reviewer` 대신 같은 정의를 세션 subagent로 돌렸다. Reviewer 판정이 아니다. 지적과 처리:
+
+1. major: resume이 Owner 지시를 잃음. 이전 시도의 지시를 새 첫 commit에 옮겨 적고 Reviewer에 넘기게 했다.
+2. major: recheck FINDINGS의 FAILED 전환과 1000자 상한의 근거 표시 없음. 구현 절에 출처와 Manager 해석을 적고 도움말·시작 답에 경고를 넣었다.
+3. major: 검증 절이 없는데 있다고 적음. 이 절과 검증 절을 더했다.
+4. minor: recheck 기록 실패를 무시함. `recheck_transition_failed`로 보고하고 대기를 유지한다.
+5. minor: 지시 없는 수정 commit 통과, 음성 테스트 없음. 지시 하나를 요구하고 smoke를 더했다.
+6. minor: 지시 판독을 승인 뒤에 하고 `splitlines`를 씀. 승인 전에 읽고 줄바꿈만 나눈다.
+7. minor: 변경 없는 revise가 repair 실패로 보임. `revise_no_changes`와 Console 설명을 더했다.
+8. minor: 변경이 모두 사라져도 대기로 감. `revise_empty_change_set`으로 실패한다.
+9. minor: recheck 보고의 테스트 줄이 비어 있음. 채웠다.
+10. minor: 기록 요약과 A15·A27·A30·A33이 2단위 전 표현. 고쳤다.
+11. minor: task-model의 recheck 행에 미확인 항목 누락. 더했다.
+12. minor: SOP 항 번호 인용 오류. 고쳤다.
+
+self-review subagent는 저장소 worktree 전체를 grep했으나 이 worktree에는 `jarvis.bat`이 없고 `.env`도 추적되지 않는다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -244,7 +313,7 @@ Git reset이나 branch 이동은 먼저 복구 가능한 백업과 참조점을 
 | A3 | Owner 결정 (원문, 작업 지시) | "Owner의 사전 실행 승인과 최종 반영 승인을 구분한다." | `/go`는 실행 승인, `/go <id> accept`는 반영 승인이다. SOP 9항에 적었다 |
 | A4 | Owner 결정 (원문, 작업 지시) | "최종 승인 전에는 main이 절대 변경되지 않아야 한다." | `_run_pipeline`에서 반영 호출을 없앴고 smoke가 HEAD 불변을 확인한다 |
 | A5 | Owner 결정 (원문, 작업 지시) | "승인 전 결과물은 candidate 또는 격리된 상태로 보존한다." | attempt 브랜치와 worktree에 남긴다 |
-| A6 | Owner 결정 (원문, 작업 지시) | "거절, 수정 요청, 재검토, 승인 흐름을 명확하게 구분한다." | 승인과 거절은 이 task, 수정 요청과 재검토는 A33의 진행 단위 2다 |
+| A6 | Owner 결정 (원문, 작업 지시) | "거절, 수정 요청, 재검토, 승인 흐름을 명확하게 구분한다." | 승인과 거절은 이 task, 수정 요청과 재검토는 A33의 진행 단위 2에서 구현했다 |
 | A7 | Owner 결정 (원문, 작업 지시) | "기존 /go, /accept, resume, recover의 동작과 호환성을 확인한다." | Manager 해석: /accept는 실제 명령 /go <id> accept다. smoke가 네 경로를 확인한다. FAILED accept는 기존 그대로다 |
 | A8 | Owner 결정 (원문, 작업 지시) | "기존 Reviewer, QA, 실패 복구 구조를 최대한 재사용한다." | Reviewer·QA·repair는 바꾸지 않았고 `accept_candidate`를 재사용했다 |
 | A9 | Owner 결정 (원문, 작업 지시) | "jarvis.bat은 절대 수정하지 않는다." | 건드리지 않았다 |
@@ -253,7 +322,7 @@ Git reset이나 branch 이동은 먼저 복구 가능한 백업과 참조점을 
 | A12 | Owner 결정 (원문, 설계 승인) | "NEEDS_APPROVAL 상태 재사용" | `DOING → NEEDS_APPROVAL` 1쌍만 더했다 |
 | A13 | Owner 결정 (원문, 설계 승인) | "main의 커밋 및 소스 파일은 최종 승인 전까지 불변." | main 커밋과 소스 파일은 accept 전까지 바뀌지 않는다. task 기록의 상태는 작업 트리에서만 바뀐다(A29 결정 2) |
 | A14 | Owner 결정 (원문, 설계 승인) | "읽기 전용 보고 기록은 기존 방식 유지" | `run_report`는 바꾸지 않았다 |
-| A15 | Owner 결정 (원문, 설계 승인) | "revise는 Owner가 승인한 새로운 실행으로 취급하며, 각 실행의 자동 repair는 최대 1회" | 2단위에서 구현한다 |
+| A15 | Owner 결정 (원문, 설계 승인) | "revise는 Owner가 승인한 새로운 실행으로 취급하며, 각 실행의 자동 repair는 최대 1회" | 2단위에서 구현했다. revise마다 repair 상한 1을 새로 쓴다 |
 | A16 | Owner 결정 (원문, 설계 승인) | "Lead의 종합 보고는 이번 범위에서 제외하고 다음 작업으로 분리" | 포함하지 않았다 |
 | A17 | Owner 결정 (원문, 설계 승인) | "봇 재시작 후에도 NEEDS_APPROVAL 상태와 candidate가 보존되어야 한다." | Owner 추가 조건 표 참고. 실제 프로세스 재시작은 하지 않았고 파일·git 재판독으로 확인했다 |
 | A18 | Owner 결정 (원문, 설계 승인) | "중복 accept 및 동시 승인으로 인한 중복 반영을 방지해야 한다." | Owner 추가 조건 표 참고 |
@@ -265,13 +334,13 @@ Git reset이나 branch 이동은 먼저 복구 가능한 백업과 참조점을 
 | A24 | Owner 결정 (원문, 승인된 설계 제안) | "[Manager 제안]" | 제안의 표지 |
 | A25 | Owner 결정 (원문, 승인된 설계 제안) | "통과한 실행은 NEEDS_APPROVAL로 대기하고 /go <id> accept 때만 main에 반영한다." | NEEDS_APPROVAL 대기와 accept를 구현했다 |
 | A26 | Owner 결정 (원문, 승인된 설계 제안) | "/go <id> reject는 main을 바꾸지 않고 FAILED로 끝낸다." | reject를 구현했다 |
-| A27 | Owner 결정 (원문, 승인된 설계 제안) | "/go <id> revise <지시>는 수정 요청이고 /go <id> recheck는 재검토다." | Manager 해석: 수정 요청과 재검토는 진행 단위 2에서 구현한다 |
+| A27 | Owner 결정 (원문, 승인된 설계 제안) | "/go <id> revise <지시>는 수정 요청이고 /go <id> recheck는 재검토다." | Manager 해석: 수정 요청과 재검토는 진행 단위 2에서 구현했다 |
 | A28 | Owner 결정 (원문, 승인된 설계 제안) | "결정 1: NEEDS_APPROVAL 재사용. 전이 DOING → NEEDS_APPROVAL 1쌍만 추가." | `DOING → NEEDS_APPROVAL`만 더했다 |
 | A29 | Owner 결정 (원문, 승인된 설계 제안) | "결정 2: main의 커밋과 소스 파일 불변. task 기록의 상태 변화는 작업 트리에만 있고 승인 때 커밋. 읽기 전용 보고는 지금처럼 기록만 커밋." | A13·A14와 같다 |
-| A30 | Owner 결정 (원문, 승인된 설계 제안) | "결정 3: revise 1회를 Owner가 승인한 새 실행으로 취급. 그 안의 자동 repair는 최대 1회." | 진행 단위 2에서 구현한다 |
+| A30 | Owner 결정 (원문, 승인된 설계 제안) | "결정 3: revise 1회를 Owner가 승인한 새 실행으로 취급. 그 안의 자동 repair는 최대 1회." | 진행 단위 2에서 구현했다 |
 | A31 | Owner 결정 (원문, 승인된 설계 제안) | "결정 4: Lead 종합 보고는 이번에 제외." | 포함하지 않았다 |
 | A32 | Owner 결정 (원문, 승인된 설계 제안) | "진행 단위 1: 대기 + accept + reject." | 이 task의 범위다 |
-| A33 | Owner 결정 (원문, 승인된 설계 제안) | "진행 단위 2: revise + recheck." | 다음 task의 범위다 |
+| A33 | Owner 결정 (원문, 승인된 설계 제안) | "진행 단위 2: revise + recheck." | 이 task의 2단위로 진행했다 |
 | A34 | Owner 결정 (원문, 승인된 설계 제안) | "[Owner 답]" | 답의 표지 |
 | A35 | Owner 결정 (원문, 승인된 설계 제안) | "제안한 정책 결정 4건을 모두 승인한다." | A11과 같은 문장이다 |
 | A36 | Owner 결정 (원문, retry 증액) | "[Manager 질문]" | 질문의 표지 |
@@ -304,3 +373,22 @@ Git reset이나 branch 이동은 먼저 복구 가능한 백업과 참조점을 
 | A63 | Owner 결정 (원문, 브랜치 분리) | "Git reset이나 branch 이동은 먼저 복구 가능한 백업과 참조점을 확보한 뒤 실행해라." | 복구 전에 백업 ref, bundle, 기록 사본을 만들었다 |
 | A64 | Owner 결정 (원문, 브랜치 분리) | "작업이 끝나면 main, origin/main, 작업 브랜치의 HEAD와 task 상태를 각각 보고해라." | Owner 보고에 적었다 |
 | A65 | Owner 결정 (원문, 브랜치 분리) | "이번 단계에서는 봇 재시작이나 push를 하지 말고 먼저 보고해라." | 둘 다 하지 않았다 |
+| A66 | Owner 결정 (원문, 2단위) | "브랜치 분리 결과를 확인했다." | 지시의 배경 |
+| A67 | Owner 결정 (원문, 2단위) | "현재 상태를 유지하고 task-0220의 2단위를 진행해라." | 이 절이 2단위다 |
+| A68 | Owner 결정 (원문, 2단위) | "`/go <id> revise <지시>` 구현" | `_run_go`의 revise 분기와 `revise_candidate` |
+| A69 | Owner 결정 (원문, 2단위) | "`/go <id> recheck` 구현" | `_run_go`의 recheck 분기와 `recheck_candidate` |
+| A70 | Owner 결정 (원문, 2단위) | "revise 후 새 candidate 생성 및 Reviewer·QA 재실행" | 같은 attempt에 새 candidate를 만들고 fresh Reviewer와 QA를 돌린다 |
+| A71 | Owner 결정 (원문, 2단위) | "recheck는 Worker를 호출하지 않고 기존 candidate에 Reviewer·QA만 재실행" | smoke가 Worker 호출 0회와 Reviewer 1회를 확인한다 |
+| A72 | Owner 결정 (원문, 2단위) | "검증 통과 후에도 NEEDS_APPROVAL 유지" | revise와 recheck가 통과해도 NEEDS_APPROVAL로 끝난다 |
+| A73 | Owner 결정 (원문, 2단위) | "Owner 최종 승인 전 main 반영 금지" | main을 바꾸는 호출은 accept의 ff-only뿐이다 |
+| A74 | Owner 결정 (원문, 2단위) | "main 체크아웃은 그대로 유지한다." | main 체크아웃과 그 작업 트리를 바꾸지 않았다 |
+| A75 | Owner 결정 (원문, 2단위) | "모든 변경과 검증은 지정된 worktree에서 진행한다." | 지정 worktree에서만 변경하고 검증했다(2단위 검증 절) |
+| A76 | Owner 결정 (원문, 2단위) | "baseline은 현재 작업 브랜치 HEAD인 `8b40732`다." | 2단위 preflight와 Reviewer baseline은 `8b407323fb4ebc5391ec59ab2c84d571e8ba0a3f`다 |
+| A77 | Owner 결정 (원문, 2단위) | "기존 1단위 기능과 테스트를 훼손하지 않는다." | 1단위 smoke를 유지하고 전체를 다시 돌렸다(2단위 검증 절) |
+| A78 | Owner 결정 (원문, 2단위) | "`jarvis.bat`은 절대 수정하지 않는다." | 건드리지 않았다 |
+| A79 | Owner 결정 (원문, 2단위) | "Reviewer 및 QA 절차를 준수한다." | candidate 뒤의 절차로 진행한다 |
+| A80 | Owner 결정 (원문, 2단위) | "self-review를 포함한 모든 검증 방식의 차이는 기록한다." | Self-review (2단위) 절에 적었다 |
+| A81 | Owner 결정 (원문, 2단위) | "push하지 않는다." | 하지 않았다 |
+| A82 | Owner 결정 (원문, 2단위) | "2단위 구현과 검증이 끝나면 중간 보고해라." | Owner 보고로 한다 |
+| A83 | Owner 결정 (원문, 2단위) | "아직 DONE 처리하거나 main에 반영하지 마라." | DOING이고 main에 반영하지 않았다 |
+| A84 | Owner 결정 (원문, 2단위) | "최종적으로 1·2단위 전체 기능과 테스트 결과를 확인한 뒤 Owner에게 최종 승인 여부를 요청해라." | QA 뒤 Owner에게 요청한다 |

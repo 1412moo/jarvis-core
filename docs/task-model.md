@@ -111,6 +111,8 @@ writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수
 | Discord `/go <id> accept` (`qa_unverified_owner_review` 기록이 있는 FAILED task, QA 재실행 통과 뒤에만) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
 | Discord `/go <id> accept` (최종 승인 대기 기록이 있는 NEEDS_APPROVAL task, QA 재실행 통과 뒤에만, task-0220) | `NEEDS_APPROVAL` → `DOING` |
 | Discord `/go <id> reject` (최종 승인 대기 기록이 있는 NEEDS_APPROVAL task, 거절 기록과 함께, main 불변, task-0220) | `NEEDS_APPROVAL` → `FAILED` |
+| Discord `/go <id> revise <지시>` (최종 승인 대기 task, main 불변, task-0220) | `NEEDS_APPROVAL` → `DOING`, 실행 결과로 `DOING` → `NEEDS_APPROVAL` 또는 `DOING` → `FAILED` |
+| Discord `/go <id> recheck` (최종 승인 대기 task, Worker 없음, main 불변, task-0220) | 통과면 전이 없음, 지적·QA 실패·미확인 항목이면 `NEEDS_APPROVAL` → `FAILED` |
 | 실행 결과 기록 `_apply_execution_result` (Reviewer·QA를 통과한 Worker 실행의 최종 승인 대기, task-0220) | `DOING` → `NEEDS_APPROVAL` |
 | Discord `/approve` 승인 / 거절 | `NEEDS_APPROVAL` → `DOING` / `NEEDS_APPROVAL` → `FAILED` |
 | 실행 결과 기록 `_apply_execution_result` (`/approve`·`/go` 실행 뒤. `/run`·`/retry`는 task-0179에서 폐기) | 성공 `DOING` → `DONE`, 실패 `DOING` → `FAILED` |
@@ -120,7 +122,7 @@ writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수
 | Jarvis Console Close (표시된 수동 DOING task, FAILED task 또는 ON_HOLD task, `CLOSE TASK`, Owner가 적은 `closed_reason`을 함께 기록하고 ON_HOLD에서는 `hold_from`을 지움, task-0180·task-0206·task-0218) | `DOING` → `CLOSED`, `FAILED` → `CLOSED`, `ON_HOLD` → `CLOSED` |
 
 Hold와 Resume은 승인도 거절도 아니며 실행하지 않는다. 승인 대기였던 task는 Resume 뒤에도
-`NEEDS_APPROVAL`이므로 실행에 이르는 길은 Discord `/approve`뿐이다. Worker 최종 승인 대기였던 task는 Resume 뒤에도 Discord `/go <id> accept`·`reject`로만 결정한다(task-0220).
+`NEEDS_APPROVAL`이므로 실행에 이르는 길은 Discord `/approve`뿐이다. Worker 최종 승인 대기였던 task는 Resume 뒤에도 Discord `/go <id> accept`·`reject`·`revise`·`recheck`로만 다룬다(task-0220).
 
 Close는 실행하지 않고 되돌릴 수 없다. Discord에는 종료 명령이 없고, `/go`·`/go <id> accept`·
 `/go <id> recover`는 `CLOSED` task를 받지 않는다.

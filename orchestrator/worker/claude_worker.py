@@ -694,6 +694,9 @@ FINAL_REVIEW_RECORD_PATTERN = re.compile(
 TASK_REF_PATTERN = re.compile(r"task-(\d{4})(?!\d)")
 # task-0220: how much of the diff the Discord report carries; the whole diff is in the review file.
 FINAL_REVIEW_DIFF_EXCERPT_CHARS = 900
+OWNER_REVISION_TRAILER = "Owner-Revision: "
+# task-0220: on a resumed attempt's first commit, the lines after this one carry earlier instructions.
+OWNER_REVISIONS_CARRIED = "Owner-Revisions-Carried:"
 
 
 @dataclass
@@ -739,6 +742,9 @@ class WorkerRunResult:
     diff_stat: str = ""
     diff_excerpt: str = ""
     review_path: str = ""
+    # task-0220: this run was `/go <id> recheck` or `/go <id> revise`.
+    rechecked: bool = False
+    revised: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -1023,6 +1029,8 @@ def reviewer_call(
     evidence: list[str] | None = None,
     parent: str | None = None,
     repair: int = 0,
+    revision: int = 0,
+    recheck: bool = False,
 ) -> str:
     scope = "\n".join(f"- {p}" for p in changed_files)
     evidence_block = (
@@ -1033,12 +1041,23 @@ def reviewer_call(
         if evidence
         else ""
     )
-    purpose = "first review of this candidate" if not repair else f"fresh review after repair {repair}"
+    # task-0220: an Owner revision and an Owner-requested re-review say so.
+    if recheck:
+        purpose = "Owner-requested re-review of this unchanged candidate"
+    elif revision and not repair:
+        purpose = f"fresh review after Owner revision {revision}"
+    else:
+        purpose = "first review of this candidate" if not repair else f"fresh review after repair {repair}"
     structure = (
         f"Commit structure: baseline {baseline} -> previous candidate {parent} (Reviewer FINDINGS, now invalid) "
         f"-> this repair candidate {candidate}. Review the whole baseline..candidate change set.\n\n"
         if repair
-        else ""
+        else (
+            f"Commit structure: baseline {baseline} -> previous candidate {parent} (waited for the Owner) "
+            f"-> this Owner revision candidate {candidate}. Review the whole baseline..candidate change set.\n\n"
+            if revision and not recheck
+            else ""
+        )
     )
     return (
         f"Review request from Manager (the caller): {task_id}, {purpose} "
@@ -1067,6 +1086,48 @@ def reviewer_call(
         f"/work {request}\n"
         f"{approval_command}\n"
     )
+
+
+def owner_revision_prompt(task_id: str, request: str, candidate: str, instruction: str) -> str:
+    """task-0220: the Worker prompt of `/go <id> revise`. request already holds every Owner instruction."""
+
+    return (
+        worker_prompt(task_id, request)
+        + f"\n\nThis is an Owner revision of candidate {candidate}, which is already in this worktree. "
+        f"Owner instruction (verbatim): {instruction}\n"
+        "Change only what this instruction requires and keep the rest of the candidate as it is."
+    )
+
+
+def effective_request(request: str, instructions: list[str]) -> str:
+    """task-0220: the Owner's request followed by every revision instruction, verbatim and in order."""
+
+    return request + "".join(f"\n\nOwner revision {n} (verbatim): {text}" for n, text in enumerate(instructions, start=1))
+
+
+def owner_revisions(repo_root: Path, baseline: str, candidate: str) -> list[str]:
+    """task-0220: the Owner's revision instructions, read from the candidate chain, oldest first."""
+
+    found: list[str] = []
+    for commit in _git(["rev-list", "--reverse", f"{baseline}..{candidate}"], repo_root).split():
+        found.extend(_commit_instructions(repo_root, commit))
+    return found
+
+
+def _commit_instructions(repo_root: Path, commit: str) -> list[str]:
+    """The instructions one chain commit carries; a trailer that cannot be read raises ValueError.
+
+    Split on newlines only: JSON leaves line separators such as U+2028 unescaped in the text.
+    """
+
+    lines = _git(["log", "-1", "--format=%b", commit], repo_root).split("\n")
+    if " Jarvis worker owner revision " in _git(["log", "-1", "--format=%s", commit], repo_root):
+        trailers = [line for line in lines if line.startswith(OWNER_REVISION_TRAILER)]
+    elif OWNER_REVISIONS_CARRIED in lines:
+        trailers = [line for line in lines[lines.index(OWNER_REVISIONS_CARRIED) + 1:] if line.startswith(OWNER_REVISION_TRAILER)]
+    else:
+        return []
+    return [str(json.loads(line[len(OWNER_REVISION_TRAILER):])) for line in trailers]
 
 
 def repair_prompt(task_id: str, request: str, candidate: str, review_text: str, changed_files: list[str]) -> str:
@@ -1352,28 +1413,56 @@ def _worktree_entry(repo_root: Path, worktree: Path) -> dict[str, str] | None:
     return None
 
 
+REPAIR_CANDIDATE_LABEL = f"repair {REPAIR_BUDGET_MAX} candidate"
+
+
 def _candidate_chain(repo_root: Path, task_id: str, baseline: str, candidate: str) -> list[str]:
     """task-0151: the Worker candidate commits from baseline to candidate, oldest first.
 
     Each commit has one parent, the first sits directly on the baseline, and the subjects are
-    exactly the candidate and repair candidate commits run_pipeline makes, in order.
+    exactly the commits run_pipeline makes, in order: the candidate, then Owner revisions (task-0220),
+    each run allowed its repair.
     """
 
     ancestor = _run(["git", "merge-base", "--is-ancestor", baseline, candidate], cwd=repo_root, timeout=GIT_TIMEOUT_SECONDS)
     if ancestor.returncode != 0:
         raise StageFailure("accept", "accept_chain_mismatch", "the recorded baseline is not an ancestor of the candidate")
     commits = list(reversed(_git(["rev-list", "--first-parent", f"{baseline}..{candidate}"], repo_root).split()))
-    if not 1 <= len(commits) <= 1 + REPAIR_BUDGET_MAX:
-        raise StageFailure("accept", "accept_chain_mismatch", f"{len(commits)} commits between baseline and candidate")
+    if not commits:
+        raise StageFailure("accept", "accept_chain_mismatch", "0 commits between baseline and candidate")
     parent = baseline
+    revisions = 0
+    previous = ""
+    prefix = f"feat({_active_kind().commit_scope}): {task_id} Jarvis worker "
     for number, commit in enumerate(commits):
-        label = "candidate" if number == 0 else f"repair {number} candidate"
+        allowed = {"candidate"} if number == 0 else {f"owner revision {revisions + 1} candidate"}
+        if number and previous != REPAIR_CANDIDATE_LABEL:
+            allowed.add(REPAIR_CANDIDATE_LABEL)
         parents = _git(["rev-list", "--parents", "-n", "1", commit], repo_root).split()[1:]
         subject = _git(["log", "-1", "--format=%s", commit], repo_root)
-        if parents != [parent] or subject != f"feat({_active_kind().commit_scope}): {task_id} Jarvis worker {label}":
-            raise StageFailure("accept", "accept_chain_mismatch", f"{commit[:7]} is not the expected {label} commit")
+        label = subject[len(prefix):] if subject.startswith(prefix) else ""
+        if parents != [parent] or label not in allowed:
+            raise StageFailure("accept", "accept_chain_mismatch", f"{commit[:7]} is not an expected candidate commit")
+        if label != "candidate" and label != REPAIR_CANDIDATE_LABEL:
+            revisions += 1
+            # task-0220: an Owner revision without its instruction is not one the Owner gave.
+            try:
+                instructions = _commit_instructions(repo_root, commit)
+            except ValueError:
+                instructions = []
+            if len(instructions) != 1:
+                raise StageFailure("accept", "accept_chain_mismatch", f"{commit[:7]} does not carry one Owner instruction")
+        previous = label
         parent = commit
     return commits
+
+
+def _chain_repairs(repo_root: Path, chain: list[str]) -> int:
+    """task-0220: the automatic repairs in a candidate chain; Owner revisions are not repairs."""
+
+    return sum(
+        _git(["log", "-1", "--format=%s", commit], repo_root).endswith(f" {REPAIR_CANDIDATE_LABEL}") for commit in chain
+    )
 
 
 def find_owner_review_attempt(
@@ -1634,55 +1723,96 @@ def _run_pipeline(
     resume: bool,
     repair_budget: int | None,
     progress: Callable[[str], None] | None = None,
+    revision: "_OwnerRevision | None" = None,
 ) -> WorkerRunResult:
     result = WorkerRunResult(task_id=task_id)
     worktree_root = worktree_root or WORKTREE_ROOT
     budget = max(0, min(REPAIR_BUDGET_MAX, REPAIR_BUDGET if repair_budget is None else repair_budget))
     failure_record = ""
+    # task-0220: whether an Owner revision's approval transition has applied.
+    approved = False
     # task-0167 repair 1: this run's marker, from the start of the attempt until its result is
     # written; repair 2: it also names each child process while it runs (see _run).
     run_marker: _RunMarker | None = None
     try:
-        # 1. Preflight: main is on main and clean (tracked files).
-        result.stage = "preflight"
-        if _git(["symbolic-ref", "--short", "HEAD"], repo_root) != "main":
-            raise StageFailure("preflight", "main_not_checked_out")
-        if _main_tracked_changes(repo_root, task_id):
-            raise StageFailure("preflight", "main_tree_dirty")
-        baseline = _git(["rev-parse", "HEAD"], repo_root)
-        result.baseline = baseline
-
-        # 2. A new isolated worktree outside the repository; earlier attempts are never removed.
-        result.stage = "worktree"
-        # task-0152: after the highest existing attempt, never into a gap.
-        attempt = max(_existing_attempts(repo_root, worktree_root, task_id), default=0) + 1
-        name = _attempt_name(task_id, attempt)
-        worktree = worktree_root / name
-        branch = f"jarvis/{name}"
-        result.branch = branch
-        result.worktree = str(worktree)
-        _ensure_outside_repo(worktree, repo_root)
-        worktree_root.mkdir(parents=True, exist_ok=True)
-        run_marker = _start_run_marker(worktree, task_id)
-        plan = None
-        if resume:
-            # Every resume check runs before a new worktree exists, so a refused resume leaves nothing.
-            result.stage = "resume"
-            plan = _plan_resume(repo_root, worktree_root, task_id, baseline, attempt)
-        _git(["worktree", "add", "-b", branch, str(worktree), baseline], repo_root)
-
-        # 3. Worker, or the previous attempt's changes on resume.
-        if plan is not None:
-            result.stage = "resume"
-            _report_progress(progress, "resume")
-            previous, result.resumed_from, paths = plan
-            _copy_attempt_changes(previous, worktree, paths)
-        else:
+        parent: str | None = None
+        revision_number = 0
+        carried: list[str] = []
+        if revision is not None:
+            # task-0220: an Owner revision continues the waiting attempt. Nothing is written until
+            # approve() has applied, so a refusal leaves the wait as it was.
+            result.stage = "revise"
+            worktree, branch, candidate, baseline, chain, _prior = find_owner_review_attempt(
+                repo_root, worktree_root, task_id, revision.record
+            )
+            parsed = parse_final_review_record(revision.record)
+            if parsed is None:
+                raise StageFailure("revise", "accept_record_invalid", revision.record[:200])
+            attempt = parsed[2]
+            name = _attempt_name(task_id, attempt)
+            result.baseline, result.branch, result.worktree, result.candidate = baseline, branch, str(worktree), candidate
+            result.candidates = list(chain)
+            run_marker = _start_run_marker(worktree, task_id)
+            _accept_main_check(repo_root, baseline, task_id)
+            # Read before the approval: a chain that cannot be read must leave the wait as it was.
+            earlier = owner_revisions(repo_root, baseline, candidate)
+            prefix = f"feat({_active_kind().commit_scope}): {task_id} Jarvis worker owner revision "
+            revision_number = 1 + sum(_git(["log", "-1", "--format=%s", c], repo_root).startswith(prefix) for c in chain)
+            result.stage = "approval"
+            applied, why = revision.approve()
+            if not applied:
+                raise StageFailure("approval", "accept_transition_failed", why)
+            approved = True
+            request = effective_request(request, [*earlier, revision.instruction])
             result.stage = "worker"
             _report_progress(progress, "worker")
-            _run_worker(worktree, worker_prompt(task_id, request))
+            _run_worker(worktree, owner_revision_prompt(task_id, request, candidate, revision.instruction))
+            parent = candidate
+        else:
+            # 1. Preflight: main is on main and clean (tracked files).
+            result.stage = "preflight"
+            if _git(["symbolic-ref", "--short", "HEAD"], repo_root) != "main":
+                raise StageFailure("preflight", "main_not_checked_out")
+            if _main_tracked_changes(repo_root, task_id):
+                raise StageFailure("preflight", "main_tree_dirty")
+            baseline = _git(["rev-parse", "HEAD"], repo_root)
+            result.baseline = baseline
 
-        parent: str | None = None
+            # 2. A new isolated worktree outside the repository; earlier attempts are never removed.
+            result.stage = "worktree"
+            # task-0152: after the highest existing attempt, never into a gap.
+            attempt = max(_existing_attempts(repo_root, worktree_root, task_id), default=0) + 1
+            name = _attempt_name(task_id, attempt)
+            worktree = worktree_root / name
+            branch = f"jarvis/{name}"
+            result.branch = branch
+            result.worktree = str(worktree)
+            _ensure_outside_repo(worktree, repo_root)
+            worktree_root.mkdir(parents=True, exist_ok=True)
+            run_marker = _start_run_marker(worktree, task_id)
+            plan = None
+            if resume:
+                # Every resume check runs before a new worktree exists, so a refused resume leaves nothing.
+                result.stage = "resume"
+                plan = _plan_resume(repo_root, worktree_root, task_id, baseline, attempt)
+            _git(["worktree", "add", "-b", branch, str(worktree), baseline], repo_root)
+
+            # 3. Worker, or the previous attempt's changes on resume.
+            if plan is not None:
+                result.stage = "resume"
+                _report_progress(progress, "resume")
+                previous, result.resumed_from, paths = plan
+                _copy_attempt_changes(previous, worktree, paths)
+                # task-0220: the Owner's instructions go with the changes they produced.
+                carried = owner_revisions(
+                    repo_root, _git(["merge-base", result.resumed_from, baseline], repo_root), result.resumed_from
+                )
+                request = effective_request(request, carried)
+            else:
+                result.stage = "worker"
+                _report_progress(progress, "worker")
+                _run_worker(worktree, worker_prompt(task_id, request))
+
         while True:
             # 4. Scope, cumulative from the baseline.
             result.stage = "scope"
@@ -1690,7 +1820,13 @@ def _run_pipeline(
             changed = _cumulative_paths(worktree, baseline)
             result.changed_files = changed
             if not working:
-                raise StageFailure("scope", "no_changes" if parent is None else "repair_no_changes")
+                raise StageFailure(
+                    "scope",
+                    "no_changes" if parent is None else ("revise_no_changes" if revision is not None and result.repairs == 0 else "repair_no_changes"),
+                )
+            if revision is not None and not changed:
+                # task-0220: a revision that undoes the whole candidate leaves nothing to approve.
+                raise StageFailure("scope", "revise_empty_change_set")
             violations = _scope_violations(changed)
             if violations:
                 raise StageFailure("scope", "scope_violation", ", ".join(violations)[:200])
@@ -1708,8 +1844,24 @@ def _run_pipeline(
             # 6. Candidate commit on the attempt branch (a repair candidate's parent is the previous candidate).
             result.stage = "candidate"
             _git(["add", "--", *working], worktree)
-            label = "candidate" if parent is None else f"repair {result.repairs} candidate"
-            _git(["commit", "-q", "-m", f"feat({_active_kind().commit_scope}): {task_id} Jarvis worker {label}\n\n{request[:300]}"], worktree)
+            if parent is None:
+                label = "candidate"
+            elif revision is not None and result.repairs == 0:
+                label = f"owner revision {revision_number} candidate"
+            else:
+                label = f"repair {result.repairs} candidate"
+            # task-0220: the Owner's words stay with the commit that carries them, so a later
+            # revision or recheck can give them to the Reviewer whatever happened to the bot.
+            body = (
+                OWNER_REVISION_TRAILER + json.dumps(revision.instruction, ensure_ascii=False)
+                if revision is not None and result.repairs == 0
+                else request[:300]
+            )
+            if parent is None and carried:
+                body += "\n\n" + OWNER_REVISIONS_CARRIED + "".join(
+                    "\n" + OWNER_REVISION_TRAILER + json.dumps(text, ensure_ascii=False) for text in carried
+                )
+            _git(["commit", "-q", "-m", f"feat({_active_kind().commit_scope}): {task_id} Jarvis worker {label}\n\n{body}"], worktree)
             candidate = _git(["rev-parse", "HEAD"], worktree)
             result.candidate = candidate
             result.candidates.append(candidate)
@@ -1731,6 +1883,7 @@ def _run_pipeline(
                 evidence=_reviewer_evidence(result, repo_root, baseline, candidate, request, task_id, changed),
                 parent=parent,
                 repair=result.repairs,
+                revision=revision_number,
             )
             verdict, review_text = _run_reviewer(repo_root, call)
             if _review_invalid(verdict, review_text):
@@ -1820,6 +1973,11 @@ def _run_pipeline(
     except Exception as exc:  # noqa: BLE001 - the Owner must always get a report
         result.reason = "unexpected_error"
         result.detail = f"{type(exc).__name__}: {exc}"[:200]
+    if revision is not None and not approved:
+        # task-0220: the approval never applied, so the wait, its record and main are as they were.
+        result.accept_retryable = result.reason != "accept_transition_failed"
+        _end_run_marker(run_marker)
+        return result
     if result.reason != "qa_unverified_owner_review":
         failure_record = ""
     if record_result is not None:
@@ -1827,6 +1985,222 @@ def _run_pipeline(
             record_result(False, failure_record or f"{result.stage}:{result.reason}")
         except Exception:  # noqa: BLE001
             pass
+    _end_run_marker(run_marker)
+    return result
+
+
+@dataclass(frozen=True)
+class _OwnerRevision:
+    """task-0220: one `/go <id> revise`: the waiting record, the Owner's words, the approval transition."""
+
+    record: str
+    instruction: str
+    approve: Callable[[], tuple[bool, str]]
+
+
+def revise_candidate(
+    *,
+    task_id: str,
+    record: str,
+    request: str,
+    instruction: str,
+    approve: Callable[[], tuple[bool, str]],
+    approval_command: str,
+    repo_root: Path = REPO_ROOT,
+    worktree_root: Path | None = None,
+    record_result: Callable[[bool, str], tuple[bool, str]] | None = None,
+    record_awaiting: Callable[[str], tuple[bool, str]] | None = None,
+    work_kind: str | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> WorkerRunResult:
+    """task-0220: `/go <id> revise <instruction>`, a new Owner-approved run on the waiting attempt.
+
+    The Worker changes the waiting worktree, then the run goes through the same scope check, tests,
+    new candidate, fresh Reviewer (with its own repair budget) and QA as any run, and stops for the
+    Owner's final approval again. main is never touched. Never raises.
+    """
+
+    kind = work_kind_by_name(work_kind) if work_kind else DEFAULT_WORK_KIND
+    if kind is None:
+        result = _unknown_kind_result(task_id, str(work_kind), None, accepted=False)
+        result.accept_retryable = True
+        return result
+    token = _ACTIVE_WORK_KIND.set(kind)
+    usage: list[dict] = []
+    usage_token = _ACTIVE_USAGE.set((task_id, usage))
+    try:
+        result = _run_pipeline(
+            task_id=task_id,
+            request=request,
+            approval_command=approval_command,
+            repo_root=repo_root,
+            worktree_root=worktree_root,
+            record_result=record_result,
+            record_awaiting=record_awaiting,
+            resume=False,
+            repair_budget=None,
+            progress=progress,
+            revision=_OwnerRevision(record, instruction, approve),
+        )
+    finally:
+        _ACTIVE_USAGE.reset(usage_token)
+        _ACTIVE_WORK_KIND.reset(token)
+    result.work_kind = kind.name
+    result.usage = usage
+    result.revised = True
+    return result
+
+
+def recheck_candidate(
+    *,
+    task_id: str,
+    record: str,
+    request: str,
+    approval_command: str,
+    repo_root: Path = REPO_ROOT,
+    worktree_root: Path | None = None,
+    record_failure: Callable[[str], tuple[bool, str]] | None = None,
+    work_kind: str | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> WorkerRunResult:
+    """task-0220: `/go <id> recheck`, a fresh Reviewer and QA on the waiting candidate. No Worker.
+
+    PASS and QA pass: the task stays in NEEDS_APPROVAL with the same record and nothing is written.
+    FINDINGS, a failed QA check or entries QA cannot verify end the wait as FAILED through
+    record_failure. A Reviewer that could not judge, or a stop before a verdict, changes nothing.
+    """
+
+    kind = work_kind_by_name(work_kind) if work_kind else DEFAULT_WORK_KIND
+    if kind is None:
+        result = _unknown_kind_result(task_id, str(work_kind), None, accepted=False)
+        result.accept_retryable = True
+        return result
+    token = _ACTIVE_WORK_KIND.set(kind)
+    usage: list[dict] = []
+    usage_token = _ACTIVE_USAGE.set((task_id, usage))
+    try:
+        result = _recheck_candidate(
+            task_id=task_id,
+            record=record,
+            request=request,
+            approval_command=approval_command,
+            repo_root=repo_root,
+            worktree_root=worktree_root,
+            record_failure=record_failure,
+            progress=progress,
+        )
+    finally:
+        _ACTIVE_USAGE.reset(usage_token)
+        _ACTIVE_WORK_KIND.reset(token)
+    result.work_kind = kind.name
+    result.usage = usage
+    return result
+
+
+def _recheck_candidate(
+    *,
+    task_id: str,
+    record: str,
+    request: str,
+    approval_command: str,
+    repo_root: Path,
+    worktree_root: Path | None,
+    record_failure: Callable[[str], tuple[bool, str]] | None,
+    progress: Callable[[str], None] | None,
+) -> WorkerRunResult:
+    result = WorkerRunResult(task_id=task_id, rechecked=True)
+    worktree_root = worktree_root or WORKTREE_ROOT
+    run_marker: _RunMarker | None = None
+    ended: str = ""
+    try:
+        result.stage = "recheck"
+        parsed = parse_final_review_record(record)
+        if parsed is None:
+            raise StageFailure("recheck", "accept_record_invalid", record[:200])
+        worktree, branch, candidate, baseline, chain, changed = find_owner_review_attempt(
+            repo_root, worktree_root, task_id, record
+        )
+        name = _attempt_name(task_id, parsed[2])
+        result.worktree, result.branch, result.candidate, result.baseline = str(worktree), branch, candidate, baseline
+        result.candidates, result.repairs, result.changed_files = chain, _chain_repairs(repo_root, chain), changed
+        run_marker = _start_run_marker(worktree, task_id)
+        _accept_main_check(repo_root, baseline, task_id)
+        full_request = effective_request(request, owner_revisions(repo_root, baseline, candidate))
+
+        result.stage = "reviewer"
+        _report_progress(progress, "reviewer")
+        call = reviewer_call(
+            task_id=task_id,
+            candidate=candidate,
+            baseline=baseline,
+            changed_files=changed,
+            request=full_request,
+            approval_command=approval_command,
+            evidence=_reviewer_evidence(result, repo_root, baseline, candidate, full_request, task_id, changed),
+            parent=chain[-2] if len(chain) > 1 else None,
+            recheck=True,
+        )
+        verdict, review_text = _run_reviewer(repo_root, call)
+        if _review_invalid(verdict, review_text):
+            result.reviewer_retries += 1
+            verdict, review_text = _run_reviewer(repo_root, call)
+            if _review_invalid(verdict, review_text):
+                raise StageFailure("reviewer", "reviewer_self_deviation", "the re-review could not be used")
+        result.reviewer_verdict = verdict
+        unverified = report_field(review_text, "unverified")
+        result.reviewer_unverified = unverified if unverified is not None else [UNVERIFIED_UNREADABLE]
+        findings = review_text.split("findings:", 1)[-1] if "findings:" in review_text else review_text
+        result.reviewer_excerpt = " ".join(REPORT_FIELD_END.split(findings, maxsplit=1)[0].split())[:300]
+        _report_progress(
+            progress, "review", verdict if verdict == "PASS" or not result.reviewer_excerpt else f"{verdict}: {result.reviewer_excerpt}"
+        )
+        if verdict == "FINDINGS":
+            ended = "recheck:reviewer_findings"
+            raise StageFailure("recheck", "reviewer_findings", result.reviewer_excerpt)
+        if verdict != "PASS":
+            raise StageFailure("reviewer", f"reviewer_{verdict.lower()}", result.reviewer_excerpt)
+
+        result.stage = "qa"
+        _report_progress(progress, "qa")
+        qa = _qa_checks(repo_root, worktree, baseline, candidate, changed)
+        result.qa_checks = qa
+        if not all(qa.values()):
+            ended = "qa:qa_failed"
+            raise StageFailure("qa", "qa_failed", ",".join(k for k, v in qa.items() if not v))
+        result.test_summary = "passed in the QA rerun"
+        pending = unverified_pending(result.reviewer_unverified)
+        if pending:
+            ended = owner_review_record(candidate, baseline, parsed[2])
+            raise StageFailure("qa", "qa_unverified_owner_review", " | ".join(pending)[:300])
+        if _changed_paths(worktree):
+            ended = "qa:qa_failed"
+            raise StageFailure("qa", "qa_failed", "the QA run left changes in the attempt worktree")
+
+        result.stage = "owner_review"
+        _prepare_final_review(result, repo_root, name, full_request, baseline, candidate, review_text)
+        result.final_record = record
+        result.awaiting_owner = True
+        result.stage = "awaiting_owner"
+        _end_run_marker(run_marker)
+        return result
+    except StageFailure as failure:
+        result.stage = failure.stage
+        result.reason = failure.reason
+        result.detail = failure.detail
+    except Exception as exc:  # noqa: BLE001 - the Owner must always get a report
+        result.reason = "unexpected_error"
+        result.detail = f"{type(exc).__name__}: {exc}"[:200]
+    written = False
+    if ended and record_failure is not None:
+        try:
+            written = record_failure(ended)[0]
+        except Exception:  # noqa: BLE001
+            written = False
+        if not written:
+            # The verdict could not be written, so the wait and its record are still there.
+            result.reason = "recheck_transition_failed"
+    # Nothing was written unless a verdict ended the wait.
+    result.accept_retryable = not written
     _end_run_marker(run_marker)
     return result
 
@@ -1904,7 +2278,7 @@ def _accept_candidate(
             repo_root, worktree_root, task_id, record
         )
         result.worktree, result.branch, result.candidate, result.baseline = str(worktree), branch, candidate, baseline
-        result.candidates, result.repairs, result.changed_files = chain, len(chain) - 1, changed
+        result.candidates, result.repairs, result.changed_files = chain, _chain_repairs(repo_root, chain), changed
         run_marker = _start_run_marker(worktree, task_id)
         _accept_main_check(repo_root, baseline, task_id)
 

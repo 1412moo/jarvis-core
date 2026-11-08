@@ -371,7 +371,7 @@ TASK_HOLD_APPROVAL_NOTICE = (
 # task-0220: a Worker candidate waiting for final approval is decided by /go, not /approve.
 TASK_HOLD_FINAL_REVIEW_NOTICE = (
     "Hold does not approve or reject this Worker result. Resume returns it to "
-    "NEEDS_APPROVAL, where only Discord /go accept or /go reject decides it."
+    "NEEDS_APPROVAL, where only Discord /go accept, reject, revise or recheck decides it."
 )
 # task-0180: Close. Only a manual DOING Task (source_command is not /task), only to
 # CLOSED, with the Owner's closed_reason written in the same replace. CLOSED is final.
@@ -1831,7 +1831,8 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
     ):
         next_action = (
             "Worker result waits for the Owner's final approval; main is unchanged. "
-            f"Check it, then send /go {task_id} accept or /go {task_id} reject in Discord."
+            f"Check it, then send /go {task_id} accept, /go {task_id} reject, "
+            f"/go {task_id} revise <instruction> or /go {task_id} recheck in Discord."
         )
     return {
         "parse_state": "valid",
@@ -2206,6 +2207,14 @@ TASK_FAILURE_REASONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "qa_unverified_owner_review": (
         "QA는 통과했지만 QA로 확인할 수 없는 Reviewer 항목이 남아 반영하지 않았다. candidate는 보존돼 있고 Owner 확인을 기다린다.",
         (TASK_FAILURE_ACCEPT, TASK_FAILURE_RETRY),
+    ),
+    "revise_no_changes": (
+        "Owner의 수정 요청에 Worker가 파일을 바꾸지 않았다. main은 바뀌지 않았다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "revise_empty_change_set": (
+        "Owner의 수정 요청 뒤 candidate의 변경이 모두 사라져 승인할 내용이 없다. main은 바뀌지 않았다.",
+        TASK_FAILURE_RETRY_ONLY,
     ),
     "owner_rejected": (
         "Owner가 최종 승인 단계에서 candidate를 거절했다. main은 바뀌지 않았고 시도의 브랜치와 worktree는 보존돼 있다.",

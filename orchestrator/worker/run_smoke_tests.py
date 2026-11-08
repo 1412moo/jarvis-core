@@ -247,6 +247,8 @@ def git(args: list[str], cwd: Path) -> str:
 def make_env(tmp: Path) -> tuple[Path, Path]:
     clone = tmp / "repo"
     subprocess.run(["git", "clone", "-q", "--local", str(REPO_ROOT), str(clone)], check=True)
+    # task-0220: the clone stands for the main checkout, whatever branch this test runs from.
+    git(["checkout", "-q", "-B", "main"], clone)
     git(["config", "user.email", "smoke@example.invalid"], clone)
     git(["config", "user.name", "smoke"], clone)
     fake_dir = tmp / "bin"
@@ -1087,7 +1089,7 @@ def final_approval_bot_flow(bot, clone: Path, status_of) -> None:
           and git(["rev-parse", "HEAD"], clone) == moved_head and worktree.is_dir(), str(refused.get("reason")))
     refused_reply = bot._format_reply(refused)
     check("final approval bot: that reply offers accept, reject and the way back through resume",
-          "🟡 Owner 판단 필요" in refused_reply and f"`/go {task_id} accept` 다시 최종 승인" in refused_reply
+          "🟡 Owner 판단 필요" in refused_reply and f"`/go {task_id} accept` 최종 승인" in refused_reply
           and f"`/go {task_id} resume`" in refused_reply, refused_reply)
     git(["reset", "-q", "--hard", head], clone)
 
@@ -1135,6 +1137,229 @@ def final_approval_bot_flow(bot, clone: Path, status_of) -> None:
     check("final approval bot: after reject, resume runs a new attempt that waits again and leaves main alone",
           again.get("awaiting_owner") is True and status_of(rejected_id) == "NEEDS_APPROVAL" and again.get("resumed_from") == first["branch"]
           and git(["rev-parse", "HEAD"], clone) == after, f"{again.get('stage')}:{again.get('reason')}")
+
+
+def revise_recheck_flow(bot, clone: Path, status_of) -> None:
+    """task-0220 unit 2: /go revise makes a new candidate and waits again; /go recheck calls no Worker."""
+
+    log = clone.parent / "revise-fake-claude.log"
+    previous_log = os.environ.get("FAKE_LOG")
+    os.environ["FAKE_LOG"] = str(log)
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
+
+    def calls(kind: str) -> int:
+        return log.read_text(encoding="utf-8").count(f"{kind}\n") if log.exists() else 0
+
+    def job(task_id: str, started: dict) -> dict:
+        return bot._run_worker_job(task_id, started["request"], started["command"], False, False, None,
+                                   started["work_kind"], False, started.get("mode", ""), started.get("instruction", ""))
+
+    def waiting_task(text: str) -> tuple[str, dict]:
+        task_id = bot._run_command(f"/work {text}").get("task_id", "")
+        started = bot._run_command(f"/go {task_id}")
+        return task_id, bot._run_worker_job(task_id, started["request"], started["command"])
+
+    todo = bot._run_command("/work Studyroom glossary에 아직 시작 안 한 용어").get("task_id", "")
+    task_id, first = waiting_task("Studyroom glossary에 수정 요청 용어 추가")
+    path = clone / "memory" / "tasks" / f"{task_id}.md"
+    head = git(["rev-parse", "HEAD"], clone)
+    check("revise: refusals before anything runs",
+          bot._run_command(f"/go {task_id} revise").get("reason") == "usage:/go <task-id> revise <지시>"
+          and bot._run_command(f"/go {task_id} revise {'x' * 1001}").get("reason") == "revise_instruction_too_long"
+          and bot._run_command(f"/go {todo} revise 고쳐").get("reason") == "revise_requires_final_review:TODO"
+          and bot._run_command(f"/go {todo} recheck").get("reason") == "recheck_requires_final_review:TODO"
+          and status_of(task_id) == "NEEDS_APPROVAL" and not bot._worker_running())
+
+    instruction = "정의를 한 문장으로 줄이고 `예시`를 넣어줘"
+    log.write_text("", encoding="utf-8")
+    started = bot._run_command(f"/go {task_id} revise {instruction}")
+    check("revise: start keeps the wait and the locks, and a second decision is refused",
+          started.get("result_type") == "work_started" and started.get("mode") == "revise" and started.get("instruction") == instruction
+          and status_of(task_id) == "NEEDS_APPROVAL" and bot._run_command(f"/go {task_id} accept").get("reason") == "worker_busy"
+          and bot._format_reply(started).startswith(f"▶️ 수정 요청 시작: {task_id}"), str(started))
+    revised = job(task_id, started)
+    check("revise: a new candidate on the same attempt, waiting again, main unmoved",
+          revised.get("awaiting_owner") is True and status_of(task_id) == "NEEDS_APPROVAL" and git(["rev-parse", "HEAD"], clone) == head
+          and revised["candidate"] != first["candidate"] and git(["rev-parse", f"{revised['candidate']}^"], clone) == first["candidate"]
+          and revised["branch"] == first["branch"] and revised["worktree"] == first["worktree"]
+          and bot._final_review_record(path) == claude_worker.final_review_record(revised["candidate"], first["baseline"], 1),
+          f"{revised.get('stage')}:{revised.get('reason')}:{revised.get('detail')}")
+    seen = log.read_text(encoding="utf-8")
+    check("revise: one Worker and one fresh Reviewer, both given the Owner's words",
+          calls("WORKER") == 1 and calls("REVIEWER") == 1 and f"Owner instruction (verbatim): {instruction}" in seen
+          and f"Owner revision 1 (verbatim): {instruction}" in seen.split("REVIEWER\n", 1)[1]
+          and "fresh review after Owner revision 1" in seen, seen[-500:])
+    check("revise: the commit is an Owner revision and carries the instruction",
+          git(["log", "-1", "--format=%s", revised["candidate"]], clone).endswith("Jarvis worker owner revision 1 candidate")
+          and claude_worker.owner_revisions(clone, first["baseline"], revised["candidate"]) == [instruction])
+    check("revise: the report says so and offers all four decisions",
+          "- 수정 요청 반영" in bot._format_reply(revised) and all(f"`/go {task_id} {word}" in bot._format_reply(revised)
+                                                                 for word in ("accept", "reject", "revise", "recheck")),
+          bot._format_reply(revised))
+
+    # A second revision has its own automatic repair.
+    state = clone.parent / "revise-review-state"
+    state.unlink(missing_ok=True)
+    os.environ["FAKE_STATE"], os.environ["FAKE_REVIEW"] = str(state), "once"
+    log.write_text("", encoding="utf-8")
+    started = bot._run_command(f"/go {task_id} revise 두 번째 수정")
+    second = job(task_id, started)
+    chain = git(["rev-list", "--reverse", f"{first['baseline']}..{second['candidate']}"], clone).split()
+    check("revise: the run's own repair budget is 1 and the wait follows",
+          second.get("awaiting_owner") is True and second.get("repairs") == 1 and calls("WORKER") == 2 and len(chain) == 4
+          and git(["log", "-1", "--format=%s", chain[2]], clone).endswith("owner revision 2 candidate")
+          and git(["log", "-1", "--format=%s", chain[3]], clone).endswith("repair 1 candidate"),
+          f"{second.get('stage')}:{second.get('reason')}:{chain}")
+
+    # Recheck: a Reviewer and QA, no Worker, nothing written on PASS.
+    os.environ["FAKE_REVIEW"] = "pass"
+    log.write_text("", encoding="utf-8")
+    record = bot._final_review_record(path)
+    before = path.read_bytes()
+    started = bot._run_command(f"/go {task_id} recheck")
+    checked = job(task_id, started)
+    seen = log.read_text(encoding="utf-8")
+    check("recheck: Reviewer and QA only, the same candidate waits, the file is untouched, main unmoved",
+          checked.get("awaiting_owner") is True and checked.get("rechecked") is True and calls("WORKER") == 0 and calls("REVIEWER") == 1
+          and all(checked["qa_checks"].values()) and checked["candidate"] == second["candidate"] and path.read_bytes() == before
+          and bot._final_review_record(path) == record and git(["rev-parse", "HEAD"], clone) == head,
+          f"{checked.get('stage')}:{checked.get('reason')}:{checked.get('detail')}")
+    check("recheck: the Reviewer gets every Owner instruction and is told it is a re-review",
+          "Owner-requested re-review of this unchanged candidate" in seen and f"Owner revision 1 (verbatim): {instruction}" in seen
+          and "Owner revision 2 (verbatim): 두 번째 수정" in seen, seen[-500:])
+    check("recheck: the report says so", "- 재검토 통과" in bot._format_reply(checked), bot._format_reply(checked))
+
+    # A Reviewer that could not judge changes nothing.
+    os.environ["FAKE_REVIEW"] = "blocked"
+    started = bot._run_command(f"/go {task_id} recheck")
+    blocked = job(task_id, started)
+    check("recheck: a Reviewer that could not judge leaves the wait as it was",
+          blocked.get("reason") == "reviewer_blocked" and blocked.get("accept_retryable") is True and status_of(task_id) == "NEEDS_APPROVAL"
+          and path.read_bytes() == before and "다음 선택지: `/go" in bot._format_reply(blocked), str(blocked.get("reason")))
+
+    # main moving during the wait refuses revise and recheck like accept.
+    os.environ["FAKE_REVIEW"] = "pass"
+    git(["commit", "--allow-empty", "-q", "-m", "main moved during the wait"], clone)
+    log.write_text("", encoding="utf-8")
+    moved_revise = job(task_id, bot._run_command(f"/go {task_id} revise 안 되는 수정"))
+    moved_recheck = job(task_id, bot._run_command(f"/go {task_id} recheck"))
+    check("revise and recheck: main moved refuses both, no Worker or Reviewer ran, the wait stays",
+          moved_revise.get("reason") == "accept_baseline_moved" and moved_recheck.get("reason") == "accept_baseline_moved"
+          and moved_revise.get("accept_retryable") is True and calls("WORKER") == 0 and calls("REVIEWER") == 0
+          and status_of(task_id) == "NEEDS_APPROVAL" and path.read_bytes() == before, f"{moved_revise.get('reason')}:{moved_recheck.get('reason')}")
+    git(["reset", "-q", "--hard", head], clone)
+
+    # The whole chain integrates only on accept.
+    started = bot._run_command(f"/go {task_id} accept")
+    done = bot._run_worker_job(task_id, started["request"], started["command"], False, True, None, started.get("work_kind"))
+    check("revise: accept integrates the whole chain once and marks DONE",
+          done.get("ok") is True and status_of(task_id) == "DONE" and git(["rev-parse", "HEAD^"], clone) == second["candidate"]
+          and git(["rev-list", "--count", f"{head}..HEAD"], clone) == "5" and done.get("repairs") == 1,
+          f"{done.get('stage')}:{done.get('reason')}:{done.get('detail')}")
+
+    # Findings end the wait; a failed revision is an ordinary failed run.
+    finding_id, finding_first = waiting_task("Studyroom glossary에 재검토 지적 용어 추가")
+    after = git(["rev-parse", "HEAD"], clone)
+    os.environ["FAKE_REVIEW"] = "findings"
+    log.write_text("", encoding="utf-8")
+    found = job(finding_id, bot._run_command(f"/go {finding_id} recheck"))
+    finding_path = clone / "memory" / "tasks" / f"{finding_id}.md"
+    check("recheck: FINDINGS end the wait as FAILED, no Worker, main unmoved, candidate kept",
+          found.get("reason") == "reviewer_findings" and status_of(finding_id) == "FAILED" and calls("WORKER") == 0
+          and git(["rev-parse", "HEAD"], clone) == after and Path(finding_first["worktree"]).is_dir()
+          and "- execution_summary: `recheck:reviewer_findings`" in finding_path.read_text(encoding="utf-8")
+          and bot._run_command(f"/go {finding_id} accept").get("reason") == "accept_record_invalid", str(found.get("reason")))
+
+    os.environ["FAKE_REVIEW"] = "pass"
+    failing_id, failing_first = waiting_task("Studyroom glossary에 수정 실패 용어 추가")
+    os.environ["FAKE_WORKER"] = "fail"
+    failed = job(failing_id, bot._run_command(f"/go {failing_id} revise 실패할 수정"))
+    check("revise: a failed Worker is a failed run, main unmoved, the attempt kept",
+          failed.get("reason") == "worker_failed" and status_of(failing_id) == "FAILED" and git(["rev-parse", "HEAD"], clone) == after
+          and Path(failing_first["worktree"]).is_dir(), str(failed.get("reason")))
+    os.environ["FAKE_WORKER"] = "ok"
+    nochange_id, nochange_first = waiting_task("Studyroom glossary에 변경 없는 수정 용어 추가")
+    os.environ["FAKE_WORKER"] = "nothing"
+    nochange = job(nochange_id, bot._run_command(f"/go {nochange_id} revise 아무것도 안 바뀜"))
+    check("revise: a Worker that changes nothing has its own reason, main unmoved",
+          nochange.get("reason") == "revise_no_changes" and status_of(nochange_id) == "FAILED"
+          and git(["rev-parse", "HEAD"], clone) == after, str(nochange.get("reason")))
+    os.environ["FAKE_WORKER"] = "ok"
+
+    # A resumed attempt keeps the Owner's instructions.
+    carried_id, _carried_first = waiting_task("Studyroom glossary에 이어가기 용어 추가")
+    carried_text = "이어가도 남아야 하는 지시"
+    carried_revised = job(carried_id, bot._run_command(f"/go {carried_id} revise {carried_text}"))
+    bot._run_command(f"/go {carried_id} reject")
+    log.write_text("", encoding="utf-8")
+    resumed = bot._run_command(f"/go {carried_id} resume")
+    again = bot._run_worker_job(carried_id, resumed["request"], resumed["command"], True)
+    seen = log.read_text(encoding="utf-8")
+    check("resume after a revision: the Reviewer still gets the instruction and the new chain carries it",
+          again.get("awaiting_owner") is True and again.get("resumed_from") == carried_revised["branch"]
+          and f"Owner revision 1 (verbatim): {carried_text}" in seen
+          and claude_worker.owner_revisions(clone, again["baseline"], again["candidate"]) == [carried_text],
+          f"{again.get('stage')}:{again.get('reason')}:{again.get('detail')}")
+    log.write_text("", encoding="utf-8")
+    third = job(carried_id, bot._run_command(f"/go {carried_id} revise 이어간 뒤 첫 수정"))
+    check("resume after a revision: the next revision is number 1 of the new chain and waits",
+          third.get("awaiting_owner") is True
+          and git(["log", "-1", "--format=%s", third["candidate"]], clone).endswith("owner revision 1 candidate")
+          and claude_worker.owner_revisions(clone, again["baseline"], third["candidate"]) == [carried_text, "이어간 뒤 첫 수정"],
+          f"{third.get('stage')}:{third.get('reason')}:{third.get('detail')}")
+    log.write_text("", encoding="utf-8")
+    third_check = job(carried_id, bot._run_command(f"/go {carried_id} recheck"))
+    check("recheck: the report's test line is not blank",
+          "- 테스트: passed in the QA rerun" in bot._format_reply(third_check), bot._format_reply(third_check))
+
+    # A recheck verdict that cannot be written leaves the wait.
+    os.environ["FAKE_REVIEW"] = "findings"
+    real_apply = bot._apply_execution_result
+    bot._apply_execution_result = lambda *a, **k: (False, "transition_not_applied:write_failed")
+    unwritten = job(carried_id, bot._run_command(f"/go {carried_id} recheck"))
+    bot._apply_execution_result = real_apply
+    os.environ["FAKE_REVIEW"] = "pass"
+    check("recheck: a verdict that cannot be written reports that and keeps the wait",
+          unwritten.get("reason") == "recheck_transition_failed" and unwritten.get("accept_retryable") is True
+          and status_of(carried_id) == "NEEDS_APPROVAL", str(unwritten.get("reason")))
+
+    # The chain check refuses what the pipeline never makes.
+    head_now = git(["rev-parse", "HEAD"], clone)
+    branch = "chain-check"
+    prefix = "feat(studyroom): task-8999-chain Jarvis worker "
+    good = 'Owner-Revision: "x"'
+
+    def chain_of(*commits: tuple[str, str]) -> str:
+        git(["checkout", "-q", "-B", branch, head_now], clone)
+        for subject, body in commits:
+            git(["commit", "--allow-empty", "-q", "-m", subject, "-m", body or "b"], clone)
+        tip = git(["rev-parse", "HEAD"], clone)
+        git(["checkout", "-q", "main"], clone)
+        try:
+            with claude_worker_kind("studyroom_content"):
+                claude_worker._candidate_chain(clone, "task-8999-chain", head_now, tip)
+        except claude_worker.StageFailure as failure:
+            return failure.reason
+        return "ok"
+
+    check("chain: a candidate, its repair and a revision with its instruction pass",
+          chain_of((prefix + "candidate", ""), (prefix + "repair 1 candidate", ""), (prefix + "owner revision 1 candidate", good)) == "ok")
+    check("chain: a revision without its instruction is refused",
+          chain_of((prefix + "candidate", ""), (prefix + "owner revision 1 candidate", "no trailer")) == "accept_chain_mismatch")
+    check("chain: a revision number out of order is refused",
+          chain_of((prefix + "candidate", ""), (prefix + "owner revision 2 candidate", good)) == "accept_chain_mismatch")
+    check("chain: two repairs in one run are refused",
+          chain_of((prefix + "candidate", ""), (prefix + "repair 1 candidate", ""), (prefix + "repair 1 candidate", "")) == "accept_chain_mismatch")
+    check("chain: a commit not made by the pipeline is refused", chain_of(("hand edit", ""),) == "accept_chain_mismatch")
+    git(["branch", "-q", "-D", branch], clone)
+
+    source = Path(bot.__file__).read_text(encoding="utf-8")
+    check("revise: the Discord handler passes mode and instruction to the job",
+          'str(result.get("mode") or "")' in source and 'str(result.get("instruction") or "")' in source)
+    if previous_log is None:
+        os.environ.pop("FAKE_LOG", None)
+    else:
+        os.environ["FAKE_LOG"] = previous_log
 
 
 def lead_flow(bot, clone: Path, status_of) -> None:
@@ -1840,7 +2065,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           and not git(["status", "--porcelain", "--untracked-files=no"], clone), f"{done.get('stage')}:{done.get('reason')}")
     check("bot: /go resume on a non-FAILED task is refused", bot._run_command(f"/go {task_id} resume").get("reason", "").startswith(("resume_requires_failed", "status_not_startable")))
     # task-0167: the usage names recover too.
-    check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume|accept|reject|recover]")
+    check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume|accept|reject|revise <지시>|recheck|recover]")
     check("bot: finished task is not startable again", bot._run_command(f"/go {task_id}").get("reason") == "status_not_startable:DONE")
 
     # task-0151: /go <id> accept through the adapter.
@@ -1900,6 +2125,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
                                           "accepted": True, "qa_checks": {}}).split("- 테스트:")[1].split("\n")[0])
     # task-0183: last, so its own approval and execution audits leave the counts above alone.
     final_approval_bot_flow(bot, clone, status_of)
+    revise_recheck_flow(bot, clone, status_of)
     lead_flow(bot, clone, status_of)
     discussion_flow(bot, clone, status_of)
     call_flow(bot, clone)

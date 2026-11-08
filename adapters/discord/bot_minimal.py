@@ -814,6 +814,8 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
             "/go <task-id> accept - 최종 승인: 확인 대기 중인 candidate를 QA 재확인 뒤 main에 반영 (Owner)",
             "/go <task-id> reject - 최종 거절: 확인 대기 중인 candidate를 반영하지 않음, main 불변 (Owner)",
+            "/go <task-id> revise <지시> - 수정 요청: 대기 중인 candidate를 Worker가 고치고 Reviewer·QA 뒤 다시 대기 (Owner)",
+            "/go <task-id> recheck - 재검토: Worker 없이 대기 중인 candidate에 Reviewer·QA만 다시 실행, 지적이나 QA 실패가 나오면 대기가 끝나고 FAILED (Owner)",
             "/go <task-id> recover - 실행 중인 Worker 없이 멈춘 DOING을 FAILED로만 전환, 재실행 없음 (Owner)",
         ],
     }
@@ -1953,13 +1955,23 @@ def _run_go(command_text: str) -> dict[str, Any]:
     """
 
     parts = command_text.strip().split()
+    # task-0220: everything after `revise` is the Owner's instruction, verbatim.
+    instruction = ""
+    if len(parts) >= 3 and parts[2] == "revise":
+        pieces = command_text.strip().split(None, 3)
+        instruction = pieces[3].strip() if len(pieces) == 4 else ""
+        if not instruction:
+            return _error_payload("usage:/go <task-id> revise <지시>")
+        if len(instruction) > REVISE_INSTRUCTION_MAX_CHARS:
+            return _error_payload("revise_instruction_too_long")
+        parts = parts[:3]
     if (
         len(parts) not in (2, 3)
         or parts[0] != "/go"
         or not TASK_ID_PATTERN.fullmatch(parts[1].strip().lower())
-        or (len(parts) == 3 and parts[2] not in ("resume", "accept", "reject", "recover"))
+        or (len(parts) == 3 and parts[2] not in ("resume", "accept", "reject", "revise", "recheck", "recover"))
     ):
-        return _error_payload("usage:/go <task-id> [resume|accept|reject|recover]")
+        return _error_payload("usage:/go <task-id> [resume|accept|reject|revise <지시>|recheck|recover]")
     resume = len(parts) == 3 and parts[2] == "resume"
     task_id = parts[1].strip().lower()
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
@@ -1994,6 +2006,31 @@ def _run_go(command_text: str) -> dict[str, Any]:
             "retry": False,
             "resume": False,
             "accept": True,
+            "work_kind": work_kind,
+            "audit_error": None,
+        }
+    if len(parts) == 3 and parts[2] in ("revise", "recheck"):
+        # task-0220: only a waiting Worker candidate. Nothing is written here; the job re-reads the record.
+        mode = parts[2]
+        if status != "NEEDS_APPROVAL":
+            return _error_payload(f"{mode}_requires_final_review:{status or 'unknown'}")
+        if _task_source_command(task_file) != "/task":
+            return _error_payload(f"{mode}_not_worker_path")
+        if _final_review_record(task_file) is None:
+            return _error_payload(f"{mode}_record_invalid")
+        if not _acquire_worker_locks():
+            return _error_payload("worker_busy")
+        # The locks stay held until _run_worker_job finishes.
+        return {
+            "result_type": "work_started",
+            "task_id": task_id,
+            "request": _worker_request_for(request, metadata.get("summary", "")),
+            "command": command_text.strip(),
+            "retry": False,
+            "resume": False,
+            "accept": False,
+            "mode": mode,
+            "instruction": instruction,
             "work_kind": work_kind,
             "audit_error": None,
         }
@@ -2071,6 +2108,8 @@ def _run_go(command_text: str) -> dict[str, Any]:
 
 
 RECOVER_SUMMARY = "recover:stalled_doing"
+# task-0220: the Owner's revision instruction goes verbatim into a commit message and the Reviewer call.
+REVISE_INSTRUCTION_MAX_CHARS = 1000
 
 
 def _run_recover(task_id: str, task_file: Path, status: str, command: str, work_kind: str) -> dict[str, Any]:
@@ -2258,8 +2297,12 @@ def _run_worker_job(
     progress: Callable[[str], None] | None = None,
     work_kind: str | None = None,
     read_only: bool = False,
+    mode: str = "",
+    instruction: str = "",
 ) -> dict[str, Any]:
     """Run the pipeline once and record the outcome on the task. Releases the lock.
+
+    task-0220: mode "revise" or "recheck" continues a candidate waiting for final approval.
 
     task-0201: with read_only (settled by /go from the task title), run claude_worker.run_report.
 
@@ -2323,10 +2366,33 @@ def _run_worker_job(
         )
         return applied, reason
 
+    def record_recheck_failure(summary: str) -> tuple[bool, str]:
+        # task-0220: a recheck that found something ends the wait in one atomic write.
+        execution_request = _build_execution_request(candidate_info)
+        execution_request["source"] = "/go"
+        execution_result = {
+            "result_type": "execution_result",
+            "task_id": task_id,
+            "execution_type": "claude_worker",
+            "action": "claude_worker_pipeline",
+            "executed": True,
+            "success": False,
+            "output_summary": summary,
+            "error_reason": summary,
+        }
+        applied, reason = _apply_execution_result(
+            task_id, execution_result, candidate_info, execution_request,
+            transition_override=("NEEDS_APPROVAL", "FAILED"),
+        )
+        _audit_execution_result(
+            task_id=task_id, source="go", execution_result=execution_result, applied=applied, reason=reason
+        )
+        return applied, reason
+
     audit_errors: list[str | None] = []
     # task-0220: settled once, under the locks, from the task file.
     accept_status = ""
-    if accept:
+    if accept or mode:
         accept_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
         try:
             accept_status = (_read_task_metadata(accept_file) or {}).get("status", "") if accept_file.is_file() else ""
@@ -2347,7 +2413,8 @@ def _run_worker_job(
         applied, reason = _apply_task_status_transition(task_id, transition_from, "DOING")
         audit_errors.append(
             _audit_owner_approval(
-                command=command,
+                # task-0220: the instruction is in the commit; the audit keeps the bounded command.
+                command=f"/go {task_id} revise" if mode == "revise" else command,
                 decision="approve",
                 transition_from=transition_from,
                 transition_to="DOING",
@@ -2366,6 +2433,33 @@ def _run_worker_job(
                 approve=approve,
                 repo_root=REPO_ROOT,
                 record_result=record,
+                work_kind=work_kind,
+                progress=progress,
+            )
+        elif mode == "revise":
+            task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+            outcome = claude_worker.revise_candidate(
+                task_id=task_id,
+                record=(_accept_record(task_file, accept_status) if accept_status == "NEEDS_APPROVAL" else None) or "",
+                request=request,
+                instruction=instruction,
+                approve=approve,
+                approval_command=command,
+                repo_root=REPO_ROOT,
+                record_result=record,
+                record_awaiting=record_awaiting,
+                work_kind=work_kind,
+                progress=progress,
+            )
+        elif mode == "recheck":
+            task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+            outcome = claude_worker.recheck_candidate(
+                task_id=task_id,
+                record=(_accept_record(task_file, accept_status) if accept_status == "NEEDS_APPROVAL" else None) or "",
+                request=request,
+                approval_command=command,
+                repo_root=REPO_ROOT,
+                record_failure=record_recheck_failure,
                 work_kind=work_kind,
                 progress=progress,
             )
@@ -2392,7 +2486,7 @@ def _run_worker_job(
     finally:
         _release_worker_locks()
     payload = {"result_type": "work_result", **outcome.to_dict()}
-    if accept:
+    if accept or mode:
         payload["audit_error"] = audit_errors[-1] if audit_errors else None
         payload["final_review"] = accept_status == "NEEDS_APPROVAL"
     return payload
@@ -2787,6 +2881,10 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             f"실행을 승인하려면 `/go {task_id}`"
         )
     if result_type == "work_started":
+        if result.get("mode") == "revise":
+            return f"▶️ 수정 요청 시작: {task_id} → Worker 수정, Reviewer, QA 뒤 다시 최종 승인을 기다립니다. main은 바뀌지 않습니다."
+        if result.get("mode") == "recheck":
+            return f"▶️ 재검토 시작: {task_id} → Worker 없이 Reviewer와 QA만 다시 돌립니다. main은 바뀌지 않습니다. 지적이나 QA 실패가 나오면 대기가 끝나고 FAILED가 되어 accept할 수 없습니다."
         if result.get("accept"):
             return (
                 f"▶️ 승인됨 (accept): {task_id} → 보존된 candidate의 QA를 다시 확인한 뒤 반영합니다. "
@@ -2861,7 +2959,7 @@ def _format_work_reply(result: dict[str, Any]) -> str:
     elif result.get("final_review") and result.get("accept_retryable"):
         # task-0220: the task still waits in NEEDS_APPROVAL with its candidate.
         lines.append(
-            f"다음 선택지: `/go {task_id} accept` 다시 최종 승인 · `/go {task_id} reject` 거절 "
+            f"다음 선택지: `/go {task_id} accept` 최종 승인 · `/go {task_id} recheck` 재검토 · `/go {task_id} revise <지시>` 수정 요청 · `/go {task_id} reject` 거절 "
             f"(main이 움직였으면 거절한 뒤 `/go {task_id} resume`: Reviewer·QA·최종 승인을 다시 거치는 새 실행) · `/status {task_id}` 상태 확인"
         )
     elif result.get("read_only"):
@@ -2895,8 +2993,10 @@ def _final_review_reply(result: dict[str, Any]) -> str:
     files = ", ".join(changed)
     if len(files) > 400:
         files = f"{files[:400]}… (총 {len(changed)}개)"
+    note = "재검토 통과, " if result.get("rechecked") else ("수정 요청 반영, " if result.get("revised") else "")
     head = [
         f"{mention + ' ' if mention else ''}🟡 Owner 최종 승인 대기: {task_id}",
+        *([f"- {note.rstrip(', ')}"] if note else []),
         f"- main에는 아직 반영하지 않았습니다. candidate: {str(result.get('candidate'))[:7]} (브랜치 {result.get('branch')} 보존)",
         f"- 변경 파일: {_discord_safe(files)}",
         f"- Reviewer: {verdict}, 자동 repair {result.get('repairs', 0)}회",
@@ -2907,7 +3007,7 @@ def _final_review_reply(result: dict[str, Any]) -> str:
     tail = [
         f"- 전체 diff·Reviewer 보고·QA: {review_path}" if review_path else "- 전체 검토 파일을 저장하지 못했습니다. candidate 브랜치에서 확인하세요.",
         *([_usage_line(result)] if _usage_line(result) else []),
-        f"최종 승인 `/go {task_id} accept` · 거절 `/go {task_id} reject` (거절해도 main 불변)",
+        f"최종 승인 `/go {task_id} accept` · 거절 `/go {task_id} reject` · 수정 요청 `/go {task_id} revise <지시>` · 재검토 `/go {task_id} recheck` (승인 전까지 main 불변)",
     ]
     excerpt = _discord_safe(str(result.get("diff_excerpt") or "")).replace("```", "\'\'\'")
     fixed = "\n".join([*head, *tail])
@@ -5050,6 +5150,8 @@ async def _start_discord_bot() -> None:
                     _make_progress(str(result["task_id"]), send_line),
                     result.get("work_kind"),
                     bool(result.get("read_only")),
+                    str(result.get("mode") or ""),
+                    str(result.get("instruction") or ""),
                 )
                 # task-0191: the final result goes to the channel; the task thread is the fallback.
                 await _send_safely(_result_channel(message), channel, _format_reply(job))

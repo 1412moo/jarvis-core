@@ -312,7 +312,7 @@ the console. The console may only Hold it (D1 as amended by task-0173). An
 `ON_HOLD` Task is listed under On hold, after Ready and before Completed. A
 `CLOSED` Task is listed under Closed, after Completed (task-0180).
 
-A Worker run that waits for the Owner's final approval (task-0220) is a `NEEDS_APPROVAL` Task whose Next action names `/go <task-id> accept` and `/go <task-id> reject`; both are sent in Discord.
+A Worker run that waits for the Owner's final approval (task-0220) is a `NEEDS_APPROVAL` Task whose Next action names `/go <task-id> accept`, `reject`, `revise <instruction>` and `recheck`; all are sent in Discord.
 
 A Task run by the Worker pipeline also shows its recorded result read-only:
 **Execution result** (`success`, `failed` or `not_executed`, derived from

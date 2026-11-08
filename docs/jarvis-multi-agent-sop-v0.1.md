@@ -321,7 +321,7 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 | 읽기 전용 확인·보고 | task-0201부터. 요청(`/go`에서는 task 제목)에 정해진 문구(수정하지 마, 수정하지 말, 수정 금지, 고치지 마, 고치지 말, 변경하지 마, 변경하지 말, 변경 금지, 보고만, 확인만, 읽기 전용, read-only, read only, readonly. 소문자로, 공백을 하나로 줄여 봄)가 있으면 작업 종류 표지어와 관계없이 읽기 전용 실행이다. 아래 읽기 전용 문단 | `READ_ONLY_MARKERS`, `run_report` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar), `apps/research-council/run_smoke_tests.py`(research_council) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
-| 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `reject`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
+| 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `reject`, `revise`, `recheck`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
 
 자연어 호출(task-0184): 슬래시 없는 Discord 메시지가 `자비스` 또는 `jarvis` 뒤 쉼표·콜론, 또는 이 봇의 멘션으로
 시작하면, 호출어를 뗀 본문으로 `/work <본문>`과 똑같이 처리한다(같은 Owner 권한 검사와 경로). 호출어가 없는 메시지는
@@ -451,6 +451,15 @@ worktree를 지운다. 결과는 채널에 "검증 안 된 Worker 답"으로 보
     실행 결과 감사를 남긴다. main은 바뀌지 않고 attempt는 보존되며, 거절된 candidate는 accept할 수 없다. 다시 하려면 `/go`나
     `/go <id> resume`이다. 상태가 다르면 `reject_requires_final_review:<상태>`, `/work`로 만든 task가 아니면
     `reject_not_worker_path`, 잠금이 잡혀 있으면 `worker_busy`, 기록이 맞지 않으면 `reject_record_invalid`, 전이가 적용되지 않으면 `reject_transition_failed`다.
+    수정 요청. `/go <id> revise <지시>`는 최종 승인 대기 task에만 하며(task-0220) Owner가 승인한 새 실행이다. 12항의 candidate 식별과 main baseline 확인을
+    먼저 하고(`accept_*` 거절은 상태를 바꾸지 않음), 승인 전이 `NEEDS_APPROVAL→DOING`과 Owner 승인 감사 뒤 같은 worktree에서 Worker가 지시를 반영한다. 이어서
+    범위 검사, 테스트, 새 candidate, fresh Reviewer와 repair(3~6항), QA(8항)를 거쳐 9항의 대기로 돌아가며, 자동 repair는 실행마다 5항의 상한 1을 따른다. main은 바뀌지 않는다.
+    지시는 1000자까지이며 그 commit의 `Owner-Revision:` 줄에 원문이 남고 뒤의 Worker와 Reviewer는 요청 원문과 모든 지시를 받는다. resume은 이전 시도의 지시를 새 시도의 첫 commit에 옮겨 적어 함께 넘긴다.
+    candidate 사슬은 지시 하나씩을 가진 `owner revision <N> candidate` commit을 포함한다. 승인 전이 뒤의 실패는 일반 실행 실패(`DOING→FAILED`, attempt 보존)다. Worker가 바꾼 것이 없으면 `revise_no_changes`, 변경이 모두 사라지면 `revise_empty_change_set`이다.
+    재검토. `/go <id> recheck`는 최종 승인 대기 task에만 하며(task-0220) Worker를 부르지 않고 같은 candidate에 fresh Reviewer와 8항 QA만 다시 돌린다. 식별·baseline 거절은 12항과 같다.
+    모두 통과하면 상태·기록을 쓰지 않고 대기를 유지한다. FINDINGS(`recheck:reviewer_findings`), QA 실패(`qa:qa_failed`), 9항의 미확인 항목은
+    `NEEDS_APPROVAL→FAILED`로 끝나고(그 기록을 쓰지 못하면 `recheck_transition_failed`로 대기 유지) 그 candidate는 accept할 수 없다. Reviewer가 판정하지 못한 경우(BLOCKED, UNKNOWN, 시간 초과, 재시도 뒤에도 무효)는 아무것도 바꾸지 않고 다시 할 수 있다.
+    두 명령의 상태·경로·기록 거절은 `revise_requires_final_review:<상태>`·`recheck_requires_final_review:<상태>`, `revise_not_worker_path`·`recheck_not_worker_path`, `revise_record_invalid`·`recheck_record_invalid`다.
 13. Recover. `/go <id> recover`는 `/work`로 만든 DOING task에만, Owner가 명시적으로 요청할 때만
     한다(task-0167). 실행은 attempt를 만들 때부터 결과(DONE·FAILED·최종 승인 대기와 실행 기록)를 쓸 때까지
     attempt worktree 옆(저장소 밖)에 실행 표지를 두고 그 뒤 지운다(repair 1, run 전체). accept는
