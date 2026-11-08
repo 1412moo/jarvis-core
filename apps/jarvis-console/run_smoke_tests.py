@@ -2852,6 +2852,28 @@ def _test_task_close() -> None:
             assert failed_path.read_bytes() == closed_bytes(
                 failed_before, status="FAILED"
             )
+        # task-0220: Hold on a Worker result waiting for final approval names /go, and
+        # Hold then Resume leaves the status and the record as they were.
+        final_summary = f"qa:owner_final_review candidate={'a' * 40} baseline={'b' * 40} attempt=1"
+        waiting_path, _waiting_before = write_task(
+            "task-8710-waiting", "NEEDS_APPROVAL", "- source_command: `/task`",
+            "- executed: `true`", "- success: `true`", f"- execution_summary: `{final_summary}`",
+        )
+        status, payload = preview({"task_id": "task-8710-waiting", "action": "hold"})
+        assert status == HTTPStatus.OK, payload
+        assert payload["preview"]["approval_notice"] == run_web_app.TASK_HOLD_FINAL_REVIEW_NOTICE
+        assert "/go accept" in payload["preview"]["approval_notice"]
+        status, payload = confirm(payload["token"], "HOLD TASK")
+        assert status == HTTPStatus.OK, payload
+        status, payload = preview({"task_id": "task-8710-waiting", "action": "resume"})
+        assert status == HTTPStatus.OK, payload
+        status, payload = confirm(payload["token"], "RESUME TASK")
+        assert status == HTTPStatus.OK, payload
+        resumed_text = waiting_path.read_text(encoding="utf-8")
+        assert "- status: `NEEDS_APPROVAL`" in resumed_text
+        assert f"- execution_summary: `{final_summary}`" in resumed_text
+        assert "hold_from" not in resumed_text
+
         # task-0218: an ON_HOLD Task closes from the Console too, and the
         # Preview warns that Resume can no longer return it.
         for task_id, hold_from in (

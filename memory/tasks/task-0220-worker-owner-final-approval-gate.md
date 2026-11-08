@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-08 09:55 UTC`
-- updated_at: `2026-11-08 09:55 UTC`
+- updated_at: `2026-11-08 11:15 UTC`
 - summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. revise와 recheck는 2단위, Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
 - source_command: `Owner 지시: 결과 확인 후 반영 구조 구현, 정책 4건 승인 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `a7a28dcd8e4a1af78f652866541f142eb3b9f96a` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, repair 1은 아래 절) |
 
 ## Owner 결정 (원문, 작업 지시)
 
@@ -114,7 +114,7 @@ Console Create Local Task Preview를 확인하고 Confirm해 TODO 기록을 만�
 
 ## Implementer 검증 (작업 트리)
 
-- Worker smoke total=663 failed=0, Console smoke PYTHONUTF8=1과 없음 rc=0, `run_web_app.py --self-test` 통과, Discord `--self-check-suite` 109건 ok, SOP validator PASS, `node --check app.js` 통과, discord-intake smoke rc=0, `git diff --check` 통과.
+- repair 1 뒤 기준: Worker smoke total=664 failed=0, Console smoke PYTHONUTF8=1과 없음 rc=0, `run_web_app.py --self-test` 통과, Discord `--self-check-suite` 109건 ok, SOP validator PASS, `node --check app.js` 통과, discord-intake smoke rc=0, `git diff --check` 통과.
 
 ## Self-review
 
@@ -134,6 +134,19 @@ SOP §3의 `claude -p --agent self-reviewer`는 이 PC의 Claude CLI 로그인�
 12. minor: 기록의 "Owner 결정 2" 표현. A13으로 고쳤다.
 
 수정 뒤 전체 검사를 다시 돌렸고 사전 점검(`check_task_record.py --require-quotes`)은 candidate 직전 실행과 같다(PASS).
+
+## Reviewer 결과 (candidate `341f59662914d3a7e1d352913f3ac04a47a0558b`)
+
+verdict FINDINGS, `self_deviations` 1건(Reviewer가 git grep에 여러 패턴을 합침)이라 이 검토는 무효다. minor 두 건:
+
+1. 대기 task의 Hold 안내 분기와 Hold→Resume 보존을 확인하는 테스트가 없다.
+2. `_prepare_final_review`가 diff timeout을 잡지 않아 "실행에 영향 없음" 설명과 다르다(fail-closed이지만 FAILED로 끝남).
+
+## Repair 1 (`repair_count=1`)
+
+- Console smoke에 대기 task의 Hold Preview 안내와 Hold→Resume 뒤 상태·기록 보존 검사를 더했다.
+- `_prepare_final_review`가 `subprocess.TimeoutExpired`도 잡게 하고 Worker smoke에 검사를 더했다.
+- 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
 
 ## Manager 요약
 

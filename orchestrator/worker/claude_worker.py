@@ -1551,8 +1551,8 @@ def _prepare_final_review(
     try:
         result.diff_stat = _git(["diff", "--stat", baseline, candidate], repo_root)
         diff = _git(["diff", baseline, candidate], repo_root)
-    except StageFailure as exc:
-        print(f"[final-review] diff not read ({exc.reason}); the run goes on", file=sys.stderr)
+    except (StageFailure, subprocess.TimeoutExpired) as exc:
+        print(f"[final-review] diff not read ({type(exc).__name__}); the run goes on", file=sys.stderr)
         return
     result.diff_excerpt = diff[:FINAL_REVIEW_DIFF_EXCERPT_CHARS]
     qa_lines = "\n".join(f"- {name_}: {'PASS' if passed else 'FAIL'}" for name_, passed in result.qa_checks.items())

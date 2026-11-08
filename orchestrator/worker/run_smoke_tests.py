@@ -360,6 +360,23 @@ def final_approval_worker_flow(clone: Path, worktrees: Path) -> None:
           and git(["rev-list", "--count", f"{before}..HEAD"], clone) == "2" and not worktree.exists(),
           f"{done.stage}:{done.reason}:{done.detail}")
 
+    # task-0220 repair 1: a diff that times out is not a failure of the run.
+    real_git = claude_worker._git
+
+    def slow_diff(args, cwd):
+        if args[:1] == ["diff"]:
+            raise subprocess.TimeoutExpired("git diff", 1)
+        return real_git(args, cwd)
+
+    probe = claude_worker.WorkerRunResult(task_id="task-8000-probe")
+    claude_worker._git = slow_diff
+    try:
+        claude_worker._prepare_final_review(probe, clone, "task-8000-probe", "x", "HEAD", "HEAD", "review")
+    finally:
+        claude_worker._git = real_git
+    check("final approval: a timed-out diff leaves the review empty and does not raise",
+          probe.diff_stat == "" and probe.review_path == "")
+
     write_task(clone, "task-8000-finalfail")
     os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
     recorded: list[tuple[bool, str]] = []
