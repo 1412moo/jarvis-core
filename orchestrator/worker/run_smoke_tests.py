@@ -180,6 +180,9 @@ FAKE_CLAUDE = textwrap.dedent(
         data.append({"id": f"cite-term-{len(data)}", "term": "Cite", "dev_definition": "d", "simple_explanation": "s",
                      "jarvis_example": os.environ["FAKE_CITE"]})
         p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8", newline="\\n")
+    elif mode == "renamefile":
+        # task-0220: a change git would detect as a rename.
+        Path("apps/studyroom/rename-me.md").rename("apps/studyroom/renamed.md")
     elif mode == "revertfile":
         # task-0220: an Owner revision that restores a file to its baseline content.
         subprocess.run(["git", "checkout", os.environ["FAKE_REVERT_TO"], "--", os.environ["FAKE_REVERT_PATH"]], check=True)
@@ -1341,6 +1344,26 @@ def revise_recheck_flow(bot, clone: Path, status_of) -> None:
     check("revise: the reply for an emptied candidate does not offer resume, which could only fail",
           f"`/go {undo_id} resume`" not in bot._format_reply(emptied) and f"`/go {undo_id}` 처음부터" in bot._format_reply(emptied),
           bot._format_reply(emptied))
+
+    # A rename counts as both paths in the scope check and in QA.
+    # The file is on main first, so the candidate's change against the baseline is a rename.
+    (clone / "apps" / "studyroom" / "rename-me.md").write_text("A file the smoke renames.\n" * 20, encoding="utf-8")
+    git(["add", "--", "apps/studyroom/rename-me.md"], clone)
+    git(["commit", "-q", "-m", "a file to rename"], clone)
+    after = git(["rev-parse", "HEAD"], clone)
+    rename_id, _rename_first = waiting_task("Studyroom glossary에 이름 변경 수정 용어 추가")
+    os.environ["FAKE_WORKER"] = "renamefile"
+    renamed = job(rename_id, bot._run_command(f"/go {rename_id} revise README 이름을 바꿔"))
+    os.environ["FAKE_WORKER"] = "ok"
+    check("revise: a rename passes the scope check and QA, both paths listed",
+          renamed.get("awaiting_owner") is True and all(renamed["qa_checks"].values())
+          and {"apps/studyroom/rename-me.md", "apps/studyroom/renamed.md"} <= set(renamed["changed_files"]),
+          f"{renamed.get('stage')}:{renamed.get('reason')}:{renamed.get('detail')}:{renamed.get('changed_files')}")
+    log.write_text("", encoding="utf-8")
+    renamed_check = job(rename_id, bot._run_command(f"/go {rename_id} recheck"))
+    check("recheck: a candidate with a rename passes QA again",
+          renamed_check.get("awaiting_owner") is True and all(renamed_check["qa_checks"].values()),
+          f"{renamed_check.get('stage')}:{renamed_check.get('reason')}:{renamed_check.get('detail')}")
 
     # Owner decision: a QA failure on recheck leaves the wait.
     qa_id, _qa_first = waiting_task("Studyroom glossary에 일시 QA 실패 용어 추가")

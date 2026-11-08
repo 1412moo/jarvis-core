@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-08 09:55 UTC`
-- updated_at: `2026-11-08 15:02 UTC`
+- updated_at: `2026-11-08 15:40 UTC`
 - summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. 2단위는 /go revise로 수정한 새 candidate와 /go recheck로 Reviewer·QA만 재실행을 더한다. Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
 - source_command: `Owner 지시: 결과 확인 후 반영 구조 구현, 정책 4건 승인 (Claude Code 세션)`
 
@@ -264,7 +264,7 @@ push하지 않는다.
 | 항목 | 값 |
 | --- | --- |
 | baseline | `8b407323fb4ebc5391ec59ab2c84d571e8ba0a3f` (작업 브랜치 HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`(Owner 증액), `repair_count=2`(아래 Repair 절들). Manager 해석: 새 작업 단위라 SOP 기본값으로 시작한다. 1단위의 Reviewer 예외는 적용하지 않는다 |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=3`(Owner 증액 2회), `repair_count=3`(아래 Repair 절들). Manager 해석: 새 작업 단위라 SOP 기본값으로 시작한다. 1단위의 Reviewer 예외는 적용하지 않는다 |
 
 ## 2단위 구현
 
@@ -343,7 +343,26 @@ QA 실패: 대기 유지로 변경
 - resume은 지시 전체를 새 시도 옆에 저장해, 첫 commit 전에 실패해도 다시 resume할 때 이어진다.
 - recheck의 QA 실패는 대기를 유지한다(Owner 결정). Reviewer 지적과 미확인 항목의 종결은 유지한다.
 - revise 범위 검사에 `--no-renames`를 넣었다. 새 resume 사유의 Console 설명을 더했다. 비워진 candidate의 답에서 resume을 뺐다.
-- 아래 2단위 검증 절의 수치는 Owner 보고와 QA 결과가 기준이다.
+- 위 2단위 검증 절의 수치는 Owner 보고와 QA 결과가 기준이다.
+
+## 2단위 Reviewer 결과 (repair 2 candidate `ac8bb814777e389601a6c265a246e65a1fed224d`)
+
+verdict FINDINGS, minor 3건. `self_deviations` 1건(`git grep --`)으로 이 검토는 무효다. 지적: revise 범위와 QA 비교의 rename 처리가 어긋남, 기록의 "아래 2단위 검증 절" 위치, Reviewer에게 넘긴 요약의 A82 누락과 표 범위. repair 예산이 소진돼 Owner에게 보고했다.
+
+## Owner 결정 (원문, repair 3 증액)
+
+```text
+[Manager 질문]
+repair 1회 증액으로 마저 고칠까요?
+
+[Owner 답]
+repair 1회 증액
+```
+
+## 2단위 Repair 3 (`repair_count=3`, Owner 증액)
+
+- `_cumulative_paths`와 QA 비교에 `--no-renames`를 넣어 revise 범위 계산과 같게 했다. rename revise와 그 recheck의 smoke를 더했다.
+- 기록 문구와 Reviewer 요청의 요약 범위를 고쳤다.
 
 ## Manager 요약
 
@@ -437,10 +456,14 @@ QA 실패: 대기 유지로 변경
 | A84 | Owner 결정 (원문, 2단위) | "최종적으로 1·2단위 전체 기능과 테스트 결과를 확인한 뒤 Owner에게 최종 승인 여부를 요청해라." | QA 뒤 Owner에게 요청한다 |
 | A85 | Owner 결정 (원문, repair 증액과 recheck 정책) | "[Manager 제안]" | 제안의 표지 |
 | A86 | Owner 결정 (원문, repair 증액과 recheck 정책) | "repair 예산 1회 증액 (권장)" | Owner가 승인해 repair 2를 했다 |
-| A87 | Owner 결정 (원문, repair 증액과 recheck 정책) | "위 지적은 소스 수정이 필요하고, 예산 증액은 Owner만 정할 수 있습니다." | A92 답의 배경 |
+| A87 | Owner 결정 (원문, repair 증액과 recheck 정책) | "위 지적은 소스 수정이 필요하고, 예산 증액은 Owner만 정할 수 있습니다." | A93 답의 배경 |
 | A88 | Owner 결정 (원문, repair 증액과 recheck 정책) | "recheck가 문제를 찾았을 때의 동작" | 아래 세 줄의 주제 |
 | A89 | Owner 결정 (원문, repair 증액과 recheck 정책) | "Reviewer 지적: 대기 종료, FAILED, accept 불가 유지" | 유지했다 |
 | A90 | Owner 결정 (원문, repair 증액과 recheck 정책) | "QA 미확인 항목: 대기 종료, FAILED, 확인 후 accept 가능 유지" | 유지했다 |
 | A91 | Owner 결정 (원문, repair 증액과 recheck 정책) | "QA 실패: 대기 유지로 변경" | 대기 유지로 바꿨다 |
 | A92 | Owner 결정 (원문, repair 증액과 recheck 정책) | "[Owner 답]" | 답의 표지 |
 | A93 | Owner 결정 (원문, repair 증액과 recheck 정책) | "권장안으로 진행" | 위 두 결정의 승인 |
+| A94 | Owner 결정 (원문, repair 3 증액) | "[Manager 질문]" | 질문의 표지 |
+| A95 | Owner 결정 (원문, repair 3 증액) | "repair 1회 증액으로 마저 고칠까요?" | A97 답의 질문 |
+| A96 | Owner 결정 (원문, repair 3 증액) | "[Owner 답]" | 답의 표지 |
+| A97 | Owner 결정 (원문, repair 3 증액) | "repair 1회 증액" | repair 3을 했다 |

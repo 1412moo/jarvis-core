@@ -1342,7 +1342,8 @@ def _pending_revision_path(worktree: Path) -> Path:
 
 
 def _cumulative_paths(worktree: Path, baseline: str) -> list[str]:
-    committed = _git(["diff", "--name-only", baseline, "HEAD"], worktree).splitlines()
+    # task-0220: both paths of a rename, as _net_changed_paths and the QA comparison count them.
+    committed = _git(["diff", "--no-renames", "--name-only", baseline, "HEAD"], worktree).splitlines()
     return sorted(set(committed) | set(_changed_paths(worktree)))
 
 
@@ -1544,7 +1545,7 @@ def _qa_checks(repo_root: Path, worktree: Path, baseline: str, candidate: str, c
 
     qa: dict[str, bool] = {}
     qa["head_is_candidate"] = _git(["rev-parse", "HEAD"], worktree) == candidate
-    diff_names = sorted(_git(["diff", "--name-only", baseline, candidate], repo_root).splitlines())
+    diff_names = sorted(_git(["diff", "--no-renames", "--name-only", baseline, candidate], repo_root).splitlines())
     qa["change_set_matches"] = (
         diff_names == changed
         and not _scope_violations(diff_names)
