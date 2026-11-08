@@ -2458,6 +2458,29 @@ def _test_task_close() -> None:
         assert not set(run_web_app.TASK_CLOSE_ACTIONS) & (
             set(run_web_app.TASK_TRANSITION_ACTIONS) | set(run_web_app.TASK_HOLD_ACTIONS)
         )
+        # task-0220: a run waiting for final approval names the two Discord commands on its card.
+        final_record = f"qa:owner_final_review candidate={'a' * 40} baseline={'b' * 40} attempt=1"
+        waiting_view = run_web_app.parse_task_view_text(
+            "task-8631-waiting.md",
+            task_bytes(
+                "task-8631-waiting", "NEEDS_APPROVAL", "- source_command: `/task`",
+                "- executed: `true`", "- success: `true`", f"- execution_summary: `{final_record}`",
+            ).decode("utf-8"),
+        )
+        assert waiting_view["parse_state"] == "valid", waiting_view
+        assert "/go task-8631-waiting accept" in waiting_view["next_action"]
+        assert "/go task-8631-waiting reject" in waiting_view["next_action"]
+        plain_view = run_web_app.parse_task_view_text(
+            "task-8632-plain.md", task_bytes("task-8632-plain", "NEEDS_APPROVAL").decode("utf-8")
+        )
+        assert "/go" not in plain_view["next_action"]
+        rejected_record = f"owner:owner_rejected candidate={'a' * 40} baseline={'b' * 40} attempt=1"
+        rejected_guidance = run_web_app.task_failure_guidance(
+            {"parse_state": "valid", "status": "FAILED", "id": "task-8633-x", "source_command": "/task",
+             "execution": {"summary": rejected_record}}
+        )
+        assert rejected_guidance["known"] is True and "거절" in rejected_guidance["meaning"]
+        assert not any(" accept" in option for option in rejected_guidance["options"])
         assert "CLOSED" in run_web_app.TASK_ALLOWED_STATUSES
         assert "closed_reason" in run_web_app.TASK_VIEW_ALLOWED_FIELDS
         assert run_web_app.TASK_VIEW_STATUS_RULES["CLOSED"][0] == "closed"
@@ -3138,6 +3161,8 @@ def _test_task_transition_vertical_slice() -> None:
                 ("DOING", "CLOSED"),
                 ("FAILED", "CLOSED"),
                 ("ON_HOLD", "CLOSED"),
+                # task-0220: only with the run's execution record, in the Discord bot.
+                ("DOING", "NEEDS_APPROVAL"),
             }
         )
         close_transitions = frozenset(
@@ -3154,7 +3179,7 @@ def _test_task_transition_vertical_slice() -> None:
         # sync until task-0098. The count keeps a coordinated shrink of both
         # sides from passing quietly.
         assert official_transitions == TASK_STATUS_TRANSITIONS
-        assert len(official_transitions) == 13
+        assert len(official_transitions) == 14
         assert hold_transitions == TASK_HOLD_TRANSITIONS
         assert len(hold_transitions) == 4
         assert close_transitions == TASK_CLOSE_TRANSITIONS
@@ -3162,6 +3187,18 @@ def _test_task_transition_vertical_slice() -> None:
         assert not any(source == "CLOSED" for source, _target in official_transitions)
         # The generic writer refuses the close pair: written there, closed_reason
         # would be missing.
+        # task-0220: a wait is written only with the run's record.
+        awaiting_path, awaiting_before = write_task("task-7004-generic-awaiting", "DOING")
+        assert run_web_app.transition_task_file_status(
+            tasks_dir=tasks_dir,
+            task_id="task-7004-generic-awaiting",
+            expected_digest=hashlib.sha256(awaiting_before).hexdigest(),
+            current_status="DOING",
+            target_status="NEEDS_APPROVAL",
+            planned_updated_at=planned_complete,
+        ).reason == "awaiting_transition_requires_execution_record"
+        assert awaiting_path.read_bytes() == awaiting_before
+        awaiting_path.unlink()
         generic_path, generic_before = write_task("task-7003-generic-close", "DOING")
         assert run_web_app.transition_task_file_status(
             tasks_dir=tasks_dir,
@@ -3264,7 +3301,8 @@ def _test_task_transition_vertical_slice() -> None:
                 assert hold_result.current_status == "ON_HOLD"
                 assert hold_path.read_bytes() == held_bytes
         for index, (source_status, target_status) in enumerate(
-            sorted(official_transitions - hold_transitions - close_transitions),
+            # task-0220: the wait is written only with its execution record, checked below.
+            sorted(official_transitions - hold_transitions - close_transitions - {("DOING", "NEEDS_APPROVAL")}),
             start=7101,
         ):
             positive_id = f"task-{index:04d}-positive-transition"

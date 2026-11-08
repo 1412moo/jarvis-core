@@ -50,15 +50,16 @@
 - 기본: `TODO → DOING → DONE`
 - 차단 해소 흐름: `TODO → BLOCKED → DOING → DONE`
 - 승인 기반 흐름: `TODO → NEEDS_APPROVAL → DOING`
+- Worker 최종 승인 흐름(task-0220): `TODO → DOING → NEEDS_APPROVAL → DOING → DONE`
 
 운영 규칙:
 - `DONE`은 검증 근거가 있을 때만 사용한다.
 - `BLOCKED`는 차단 사유를 `summary`에 명시한다.
-- `NEEDS_APPROVAL`는 승인 요청 항목/사유를 `summary`에 남긴다.
+- `NEEDS_APPROVAL`는 승인 요청 항목/사유를 `summary`에 남긴다. Worker 최종 승인 대기는 `execution_summary`의 최종 승인 대기 기록이 그 역할을 한다(task-0220).
 
 ### 5-1) 허용 전이 계약
 
-코드가 적용하는 상태 전이는 아래 13쌍뿐이다. 표에 없는 전이는 durable writer가
+코드가 적용하는 상태 전이는 아래 14쌍뿐이다. 표에 없는 전이는 durable writer가
 거부한다.
 
 | from | to |
@@ -66,6 +67,7 @@
 | `TODO` | `DOING` |
 | `DOING` | `DONE` |
 | `DOING` | `FAILED` |
+| `DOING` | `NEEDS_APPROVAL` |
 | `FAILED` | `TODO` |
 | `NEEDS_APPROVAL` | `DOING` |
 | `NEEDS_APPROVAL` | `FAILED` |
@@ -90,6 +92,8 @@ writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수
 닫은 뒤에는 Resume으로 돌아갈 수 없다. `DOING`은 `ON_HOLD`로 가지 않으므로 `ON_HOLD`인 동안에는 실행이 없다.
 `CLOSED`에서 나가는 전이는 없다(13절).
 
+`DOING` → `NEEDS_APPROVAL`은 Reviewer와 QA를 통과한 Worker 실행이 Owner 최종 승인을 기다릴 때 그 실행 기록과 함께 실행 결과 writer로만 적용하고, 일반 전이 writer는 거부한다(task-0220). 이 상태의 main은 바뀌지 않았고 candidate는 attempt 브랜치와 worktree에 보존돼 있다.
+
 자동 전이는 Owner가 승인한 실행의 결과로 코드가 적용하는 전이를 뜻한다. 그런
 실행 없이 스스로 일어나는 전이는 없다.
 
@@ -105,6 +109,9 @@ writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수
 | Discord `/go` (`/work`로 만든 TODO task, task-0182) | `TODO` → `DOING` |
 | Discord `/go` 재시도·resume (`/work`로 만든 FAILED task, task-0182. `/retry`는 task-0179에서 폐기) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
 | Discord `/go <id> accept` (`qa_unverified_owner_review` 기록이 있는 FAILED task, QA 재실행 통과 뒤에만) | `FAILED` → `TODO`, 바로 이어서 `TODO` → `DOING` |
+| Discord `/go <id> accept` (최종 승인 대기 기록이 있는 NEEDS_APPROVAL task, QA 재실행 통과 뒤에만, task-0220) | `NEEDS_APPROVAL` → `DOING` |
+| Discord `/go <id> reject` (최종 승인 대기 기록이 있는 NEEDS_APPROVAL task, 거절 기록과 함께, main 불변, task-0220) | `NEEDS_APPROVAL` → `FAILED` |
+| 실행 결과 기록 `_apply_execution_result` (Reviewer·QA를 통과한 Worker 실행의 최종 승인 대기, task-0220) | `DOING` → `NEEDS_APPROVAL` |
 | Discord `/approve` 승인 / 거절 | `NEEDS_APPROVAL` → `DOING` / `NEEDS_APPROVAL` → `FAILED` |
 | 실행 결과 기록 `_apply_execution_result` (`/approve`·`/go` 실행 뒤. `/run`·`/retry`는 task-0179에서 폐기) | 성공 `DOING` → `DONE`, 실패 `DOING` → `FAILED` |
 | Discord `/go <id> recover` (`/work`로 만든 DOING task, 실행 중인 Worker가 없고 마지막 시도의 실행 표지가 가리키는 프로세스가 모두 끝났을 때만, task-0167) | `DOING` → `FAILED` (실패 기록과 함께, 재실행 없음) |
@@ -113,7 +120,7 @@ writer는 이 4쌍을 거부한다. `DOING`에서는 실행이 진행 중일 수
 | Jarvis Console Close (표시된 수동 DOING task, FAILED task 또는 ON_HOLD task, `CLOSE TASK`, Owner가 적은 `closed_reason`을 함께 기록하고 ON_HOLD에서는 `hold_from`을 지움, task-0180·task-0206·task-0218) | `DOING` → `CLOSED`, `FAILED` → `CLOSED`, `ON_HOLD` → `CLOSED` |
 
 Hold와 Resume은 승인도 거절도 아니며 실행하지 않는다. 승인 대기였던 task는 Resume 뒤에도
-`NEEDS_APPROVAL`이므로 실행에 이르는 길은 Discord `/approve`뿐이다.
+`NEEDS_APPROVAL`이므로 실행에 이르는 길은 Discord `/approve`뿐이다. Worker 최종 승인 대기였던 task는 Resume 뒤에도 Discord `/go <id> accept`·`reject`로만 결정한다(task-0220).
 
 Close는 실행하지 않고 되돌릴 수 없다. Discord에는 종료 명령이 없고, `/go`·`/go <id> accept`·
 `/go <id> recover`는 `CLOSED` task를 받지 않는다.
@@ -152,6 +159,8 @@ records them after the execution flow produces a result, in the same atomic repl
 that applies the resulting status transition (task-0055). They live **inside the
 metadata header block** — the contiguous run of metadata lines at the top of the file —
 not appended at the end of the document (task-0054).
+
+Worker 최종 승인 대기와 그 accept 실행 중의 `success: true`는 Reviewer·QA 통과를 뜻하며 main 반영이 아니다(task-0220).
 
 ### Stored fields
 Exactly these eight fields are stored on disk. Any other `- name:` line inside the

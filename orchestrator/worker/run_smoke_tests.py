@@ -267,7 +267,9 @@ def write_task(clone: Path, task_id: str) -> None:
 
 def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: str = "pass", prepare=None,
              request: str = "Studyroom glossary에 용어 1개 추가", task_id: str | None = None, resume: bool = False, repair_budget: int | None = None,
-             progress=None, on_record=None, work_kind: str | None = None):
+             progress=None, on_record=None, work_kind: str | None = None, accept: bool = True):
+    # task-0220: a run stops for the Owner's final approval; accept=True then accepts it, as most
+    # cases only care that the candidate can reach main. accept=False leaves it waiting.
     os.environ["FAKE_WORKER"] = worker
     os.environ["FAKE_REVIEW"] = review
     task_id = task_id or f"task-8000-{name}"
@@ -291,15 +293,87 @@ def run_case(name: str, clone: Path, worktrees: Path, *, worker: str, review: st
         repo_root=clone,
         worktree_root=worktrees,
         record_result=record,
+        record_awaiting=lambda final_record: (True, ""),
         resume=resume,
         repair_budget=repair_budget,
         progress=progress,
         work_kind=work_kind,
     )
+    if result.awaiting_owner and accept:
+        # QA already reported in the run; the accept's own QA is not a new stage for these cases.
+        later = (lambda stage, detail=None: progress(stage) if stage != "qa" else None) if progress else None
+        done = claude_worker.accept_candidate(
+            task_id=task_id, record=result.final_record, approve=lambda: (True, ""), repo_root=clone,
+            worktree_root=worktrees, record_result=record, work_kind=work_kind, progress=later,
+        )
+        for name_ in ("ok", "stage", "reason", "detail", "checkpoint", "accepted", "accept_retryable"):
+            setattr(result, name_, getattr(done, name_))
+        result.awaiting_owner = False
     after = git(["rev-parse", "HEAD"], clone)
     check(f"{name}: no push", git(["rev-parse", "origin/main"], clone) == origin_before and not result.pushed)
     check(f"{name}: jarvis.bat never in main index or tree", not git(["ls-files", "--", "jarvis.bat"], clone))
     return result, calls, before, after
+
+
+def run_to_done(bot, task_id: str, request: str, command: str, progress=None, work_kind=None) -> dict:
+    """task-0220: one run to its final approval, then `/go <id> accept`, as the Owner would send it."""
+
+    waiting = bot._run_worker_job(task_id, request, command, progress=progress, work_kind=work_kind)
+    if not waiting.get("awaiting_owner"):
+        return waiting
+    started = bot._run_command(f"/go {task_id} accept")
+    if started.get("result_type") != "work_started":
+        return started
+    later = (lambda stage, detail=None: progress(stage, detail) if stage != "qa" else None) if progress else None
+    done = bot._run_worker_job(task_id, started["request"], started["command"], False, True, later, started.get("work_kind"))
+    for key in ("reviewer_verdict", "reviewer_unverified", "usage", "test_summary"):
+        done[key] = waiting.get(key)
+    return done
+
+
+def final_approval_worker_flow(clone: Path, worktrees: Path) -> None:
+    """task-0220: a run that passes Reviewer and QA stops; only accept_candidate reaches main."""
+
+    r, calls, before, after = run_case("finalwait", clone, worktrees, worker="ok", accept=False)
+    worktree = Path(r.worktree)
+    check("final approval: a passing run stops at awaiting_owner and main does not move",
+          (not r.ok) and r.awaiting_owner and r.stage == "awaiting_owner" and before == after and not r.checkpoint
+          and git(["rev-parse", "main"], clone) == before, f"{r.stage}:{r.reason}:{r.detail}")
+    check("final approval: nothing is recorded as a success or a failure", calls == [], str(calls))
+    check("final approval: the candidate stays on its branch and worktree",
+          worktree.is_dir() and git(["rev-parse", f"refs/heads/{r.branch}"], clone) == r.candidate
+          and not (worktrees / f"task-8000-finalwait{claude_worker.WORKER_MARKER_SUFFIX}").exists(), r.branch)
+    check("final approval: the record names the exact candidate, baseline and attempt",
+          claude_worker.parse_final_review_record(r.final_record) == (r.candidate, r.baseline, 1)
+          and claude_worker.parse_owner_review_record(r.final_record) is None, r.final_record)
+    review = Path(r.review_path).read_text(encoding="utf-8") if r.review_path else ""
+    check("final approval: the Owner gets the changed files, the diff, the Reviewer report and the QA results",
+          "apps/studyroom/content/glossary.json" in r.diff_stat and r.diff_excerpt.startswith("diff --git")
+          and all(part in review for part in ("## Changed files", "## Reviewer (PASS)", "## QA", "## Diff", "diff --git", "- tests_rerun: PASS")),
+          r.review_path)
+
+    done = claude_worker.accept_candidate(
+        task_id="task-8000-finalwait", record=r.final_record, approve=lambda: (True, ""), repo_root=clone, worktree_root=worktrees,
+    )
+    check("final approval: accept integrates the candidate and the checkpoint, and cleans up",
+          done.ok and done.stage == "done" and git(["rev-parse", "HEAD^"], clone) == r.candidate
+          and git(["rev-list", "--count", f"{before}..HEAD"], clone) == "2" and not worktree.exists(),
+          f"{done.stage}:{done.reason}:{done.detail}")
+
+    write_task(clone, "task-8000-finalfail")
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
+    recorded: list[tuple[bool, str]] = []
+    head = git(["rev-parse", "HEAD"], clone)
+    r = claude_worker.run_pipeline(
+        task_id="task-8000-finalfail", request="Studyroom glossary에 용어 1개 추가", approval_command="/go task-8000-finalfail",
+        repo_root=clone, worktree_root=worktrees,
+        record_result=lambda success, summary: (recorded.append((success, summary)) or (True, "")),
+        record_awaiting=lambda final_record: (False, "disk full"),
+    )
+    check("final approval: a record that cannot be written fails the run and leaves main alone",
+          (not r.ok) and (not r.awaiting_owner) and r.reason == "awaiting_not_recorded"
+          and recorded == [(False, "owner_review:awaiting_not_recorded")] and git(["rev-parse", "HEAD"], clone) == head,
+          f"{r.stage}:{r.reason}:{recorded}")
 
 
 def research_council_flow(clone: Path, worktrees: Path, tmp: Path) -> None:
@@ -836,7 +910,7 @@ def recover_flow(clone: Path, worktrees: Path) -> None:
 
     os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
     again = bot._run_command(f"/go {task_id}")
-    done = bot._run_worker_job(task_id, again["request"], again["command"]) if again.get("result_type") == "work_started" else {}
+    done = run_to_done(bot, task_id, again["request"], again["command"]) if again.get("result_type") == "work_started" else {}
     check("recover: after recover, /go retries the task through the pipeline to DONE",
           again.get("retry") is True and done.get("ok") is True and status_of(task_id) == "DONE", f"{again} {done.get('reason')}")
 
@@ -945,6 +1019,105 @@ risk: low
 owner_decision: none
 worker_request: apps/studyroom/content/glossary.json 끝에 rag 용어 항목 1개를 기존 형식으로 추가
 """
+
+
+def final_approval_bot_flow(bot, clone: Path, status_of) -> None:
+    """task-0220: /go stops at NEEDS_APPROVAL; only /go accept reaches main; reject leaves it alone."""
+
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
+    task_id = bot._run_command("/work Studyroom glossary에 최종 승인 용어 추가").get("task_id", "")
+    path = clone / "memory" / "tasks" / f"{task_id}.md"
+    head = git(["rev-parse", "HEAD"], clone)
+    started = bot._run_command(f"/go {task_id}")
+    waiting = bot._run_worker_job(task_id, started["request"], started["command"])
+    record = bot._final_review_record(path)
+    worktree = Path(waiting["worktree"])
+    check("final approval bot: /go ends at NEEDS_APPROVAL with the exact record and main unmoved",
+          status_of(task_id) == "NEEDS_APPROVAL" and waiting.get("awaiting_owner") is True
+          and record == claude_worker.final_review_record(waiting["candidate"], waiting["baseline"], 1)
+          and git(["rev-parse", "HEAD"], clone) == head, f"{waiting.get('stage')}:{waiting.get('reason')}:{record}")
+    reply = bot._format_reply(waiting)
+    check("final approval bot: the report shows files, Reviewer, QA, the diff and both commands, within one message",
+          reply.splitlines()[0].endswith(f"🟡 Owner 최종 승인 대기: {task_id}") and "apps/studyroom/content/glossary.json" in reply
+          and "- Reviewer: PASS" in reply and "- QA: 6/6 통과" in reply and "```diff" in reply and waiting["review_path"] in reply
+          and f"`/go {task_id} accept`" in reply and f"`/go {task_id} reject`" in reply and len(reply) <= bot.DISCORD_MESSAGE_CHARS, reply)
+    many = dict(waiting, changed_files=[f"apps/studyroom/content/file-{n:03d}.json" for n in range(200)], test_summary="t" * 3000)
+    long_reply = bot._format_reply(many)
+    check("final approval bot: a long file list keeps the review file and both commands within one message",
+          len(long_reply) <= bot.DISCORD_MESSAGE_CHARS and "(총 200개)" in long_reply and waiting["review_path"] in long_reply
+          and f"`/go {task_id} accept`" in long_reply and f"`/go {task_id} reject`" in long_reply, str(len(long_reply)))
+    # A restart loses only what is in memory: the status and the record are in the file, the candidate in git.
+    check("final approval bot: the wait survives a restart (no lock held, state only in the file and git)",
+          not bot._worker_running() and bot._WORKER_PROCESS_LOCK is None and bot._final_review_record(path) == record
+          and claude_worker.find_owner_review_attempt(clone, worktree.parent, task_id, record)[2] == waiting["candidate"]
+          and task_id not in str(bot._stalled_doing_scan()), str(bot._stalled_doing_scan()))
+    check("final approval bot: /approve, /go, resume and recover do not take a waiting task",
+          bot._run_command(f"/approve {task_id} approve").get("reason") == "approve_not_for_final_review"
+          and bot._run_command(f"/approve {task_id} reject").get("reason") == "approve_not_for_final_review"
+          and bot._run_command(f"/go {task_id}").get("reason") == "status_not_startable:NEEDS_APPROVAL"
+          and bot._run_command(f"/go {task_id} resume").get("reason") == "status_not_startable:NEEDS_APPROVAL"
+          and bot._run_command(f"/go {task_id} recover").get("reason") == "recover_requires_doing:NEEDS_APPROVAL"
+          and status_of(task_id) == "NEEDS_APPROVAL" and git(["rev-parse", "HEAD"], clone) == head)
+
+    # main moves while the candidate waits: the baseline rule refuses it and the wait stays.
+    git(["commit", "--allow-empty", "-q", "-m", "main moved during the wait"], clone)
+    moved_head = git(["rev-parse", "HEAD"], clone)
+    started = bot._run_command(f"/go {task_id} accept")
+    refused = bot._run_worker_job(task_id, started["request"], started["command"], False, True)
+    check("final approval bot: main moved during the wait refuses accept and keeps the wait",
+          refused.get("reason") == "accept_baseline_moved" and refused.get("accept_retryable") is True
+          and status_of(task_id) == "NEEDS_APPROVAL" and bot._final_review_record(path) == record
+          and git(["rev-parse", "HEAD"], clone) == moved_head and worktree.is_dir(), str(refused.get("reason")))
+    refused_reply = bot._format_reply(refused)
+    check("final approval bot: that reply offers accept, reject and the way back through resume",
+          "🟡 Owner 판단 필요" in refused_reply and f"`/go {task_id} accept` 다시 최종 승인" in refused_reply
+          and f"`/go {task_id} resume`" in refused_reply, refused_reply)
+    git(["reset", "-q", "--hard", head], clone)
+
+    # One accept reaches main once.
+    started = bot._run_command(f"/go {task_id} accept")
+    check("final approval bot: a second accept while one runs is refused",
+          started.get("result_type") == "work_started" and bot._run_command(f"/go {task_id} accept").get("reason") == "worker_busy")
+    done = bot._run_worker_job(task_id, started["request"], started["command"], False, True)
+    check("final approval bot: accept integrates exactly once and marks DONE",
+          done.get("ok") is True and status_of(task_id) == "DONE" and git(["rev-parse", "HEAD^"], clone) == waiting["candidate"]
+          and git(["rev-list", "--count", f"{head}..HEAD"], clone) == "2", f"{done.get('stage')}:{done.get('reason')}")
+    after = git(["rev-parse", "HEAD"], clone)
+    check("final approval bot: accept after DONE is refused and main stays",
+          bot._run_command(f"/go {task_id} accept").get("reason") == "accept_requires_failed:DONE" and git(["rev-parse", "HEAD"], clone) == after)
+    # The race: a second accept that passed the status check before the first one finished.
+    check("final approval bot: the locks are free for the late accept", bot._acquire_worker_locks())
+    late = bot._run_worker_job(task_id, "x", f"/go {task_id} accept", False, True)
+    check("final approval bot: a late accept finds no record, integrates nothing",
+          late.get("reason") == "accept_record_invalid" and status_of(task_id) == "DONE" and git(["rev-parse", "HEAD"], clone) == after,
+          str(late.get("reason")))
+
+    # Reject.
+    rejected_id = bot._run_command("/work Studyroom glossary에 거절할 용어 추가").get("task_id", "")
+    rejected_path = clone / "memory" / "tasks" / f"{rejected_id}.md"
+    started = bot._run_command(f"/go {rejected_id}")
+    first = bot._run_worker_job(rejected_id, started["request"], started["command"])
+    decisions: list[dict] = []
+    real_audit = bot._audit_owner_approval
+    bot._audit_owner_approval = lambda **kw: decisions.append(kw) or None
+    answer = bot._run_command(f"/go {rejected_id} reject")
+    bot._audit_owner_approval = real_audit
+    check("final approval bot: reject fails the task, audits the decision and leaves main and the candidate",
+          answer.get("result_type") == "reject_result" and status_of(rejected_id) == "FAILED" and git(["rev-parse", "HEAD"], clone) == after
+          and Path(first["worktree"]).is_dir() and git(["rev-parse", f"refs/heads/{first['branch']}"], clone) == first["candidate"]
+          and [(d["decision"], d["transition_from"], d["transition_to"], d["applied"]) for d in decisions] == [("reject", "NEEDS_APPROVAL", "FAILED", True)],
+          str(answer))
+    check("final approval bot: the reply says main did not change", "main은 변경되지 않았고" in bot._format_reply(answer))
+    check("final approval bot: a rejected candidate cannot be accepted or rejected again",
+          bot._run_command(f"/go {rejected_id} accept").get("reason") == "accept_record_invalid"
+          and bot._run_command(f"/go {rejected_id} reject").get("reason") == "reject_requires_final_review:FAILED")
+    check("final approval bot: the rejection record is in the task file",
+          f"owner:owner_rejected candidate={first['candidate']} baseline={first['baseline']} attempt=1" in rejected_path.read_text(encoding="utf-8"))
+    resumed = bot._run_command(f"/go {rejected_id} resume")
+    again = bot._run_worker_job(rejected_id, resumed["request"], resumed["command"], True)
+    check("final approval bot: after reject, resume runs a new attempt that waits again and leaves main alone",
+          again.get("awaiting_owner") is True and status_of(rejected_id) == "NEEDS_APPROVAL" and again.get("resumed_from") == first["branch"]
+          and git(["rev-parse", "HEAD"], clone) == after, f"{again.get('stage')}:{again.get('reason')}")
 
 
 def lead_flow(bot, clone: Path, status_of) -> None:
@@ -1226,7 +1399,7 @@ def lead_flow(bot, clone: Path, status_of) -> None:
             check("lead e2e: /go starts the lead's task with the Owner's words and the title's kind",
                   started.get("result_type") == "work_started" and status_of(task_id) == "DOING"
                   and started.get("request") == "RAG 용어 추가해 줘" and started.get("work_kind") == "studyroom_content", str(started))
-            done = bot._run_worker_job(task_id, started["request"], started["command"], work_kind=started["work_kind"])
+            done = run_to_done(bot, task_id, started["request"], started["command"], work_kind=started["work_kind"])
             seen = log.read_text(encoding="utf-8") if log.exists() else ""
             check("lead e2e: the run reaches DONE through Reviewer and QA", done.get("ok") is True and status_of(task_id) == "DONE"
                   and done.get("reviewer_verdict") == "PASS", f"{done.get('stage')}:{done.get('reason')}:{done.get('detail')}")
@@ -1242,7 +1415,7 @@ def lead_flow(bot, clone: Path, status_of) -> None:
             radar_id = radar_job.get("task_id") or ""
             os.environ["FAKE_WORKER"] = "radar"
             radar_started = bot._run_command(f"/go {radar_id}")
-            radar_done = bot._run_worker_job(radar_id, radar_started["request"], radar_started["command"],
+            radar_done = run_to_done(bot, radar_id, radar_started["request"], radar_started["command"],
                                              work_kind=radar_started["work_kind"])
             check("lead e2e: a Radar plan runs as Radar although the Owner's words name no kind",
                   radar_started.get("work_kind") == "daily_ai_radar" and radar_started.get("request") == "보고서 문구를 다듬어 줘"
@@ -1272,7 +1445,7 @@ def discussion_flow(bot, clone: Path, status_of) -> None:
     os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "once"
     started = bot._run_command(f"/go {task_id}")
     lines: list[str] = []
-    done = bot._run_worker_job(task_id, started["request"], started["command"],
+    done = run_to_done(bot, task_id, started["request"], started["command"],
                                progress=bot._make_progress(task_id, lines.append), work_kind=started["work_kind"])
     heads = [line.split(":", 1)[0] for line in lines]
     finding = next((line for line in lines if line.startswith(f"🗣️ {task_id}")), "")
@@ -1303,7 +1476,7 @@ def discussion_flow(bot, clone: Path, status_of) -> None:
     def down(_line: str) -> None:
         raise ConnectionError("discord down")
 
-    lost = bot._run_worker_job(lost_id, started["request"], started["command"],
+    lost = run_to_done(bot, lost_id, started["request"], started["command"],
                                progress=bot._make_progress(lost_id, down), work_kind=started["work_kind"])
     check("discussion: every progress message failing changes nothing (repaired, DONE)",
           lost.get("ok") is True and lost.get("repairs") == 1 and status_of(lost_id) == "DONE", f"{lost.get('stage')}:{lost.get('reason')}")
@@ -1533,7 +1706,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     retry = bot._run_command(f"/go {task_id}")
     check("bot: /go on FAILED retries (FAILED -> TODO -> DOING)", retry.get("result_type") == "work_started" and retry.get("retry") is True and status_of(task_id) == "DOING")
     done_lines: list[str] = []
-    done = bot._run_worker_job(task_id, retry["request"], retry["command"],
+    done = run_to_done(bot, task_id, retry["request"], retry["command"],
                                progress=bot._make_progress(task_id, done_lines.append))
     check("bot: success reply and task DONE", done.get("ok") is True and status_of(task_id) == "DONE" and "✅" in bot._format_reply(done), f"{done.get('stage')}:{done.get('reason')}:{done.get('detail')}")
     # task-0183: plus the Reviewer's verdict line between the review and QA.
@@ -1543,9 +1716,10 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     check("bot: checkpoint commit tracks the task record", git(["log", "-1", "--format=%H"], clone) == done.get("checkpoint")
           and f"memory/tasks/{task_id}.md" in git(["show", "--name-only", "--format=", "HEAD"], clone)
           and git(["rev-list", "--count", f"{head_before}..HEAD"], clone) == "2")
-    check("bot: execution results audited", audits.count("execution") == 2)
-    check("bot: /go execution audits send source go", execution_sources == ["go", "go"], str(execution_sources))
-    check("bot: /go execution audits pass the payload validator", execution_audit_errors == [None, None], str(execution_audit_errors))
+    # task-0220: the failed run, the run that waits for the Owner and the accepted result.
+    check("bot: execution results audited", audits.count("execution") == 3)
+    check("bot: /go execution audits send source go", execution_sources == ["go", "go", "go"], str(execution_sources))
+    check("bot: /go execution audits pass the payload validator", execution_audit_errors == [None, None, None], str(execution_audit_errors))
 
     # task-0164: a Daily AI Radar task through the real /work -> /go -> pipeline path. The kind is
     # chosen from the request, and its allowed path and test command must reach the Worker, the
@@ -1562,7 +1736,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           and "apps/daily-ai-radar/" in bot._format_reply(radar_plan) and status_of(radar_id) == "TODO", str(radar_plan))
     radar_started = bot._run_command(f"/go {radar_id}")
     radar_head = git(["rev-parse", "HEAD"], clone)
-    radar_done = bot._run_worker_job(radar_id, radar_started["request"], radar_started["command"])
+    radar_done = run_to_done(bot, radar_id, radar_started["request"], radar_started["command"])
     radar_text = radar_log.read_text(encoding="utf-8") if radar_log.exists() else ""
     radar_worker_prompt = radar_text.split("REVIEWER\n", 1)[0]
     check("radar: /go runs the pipeline with the Radar kind to DONE",
@@ -1605,7 +1779,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     both_plan = bot._run_command("/work Studyroom glossary에 Daily AI Radar 용어 추가")
     both_id = both_plan.get("task_id", "")
     started = bot._run_command(f"/go {both_id}")
-    both_done = bot._run_worker_job(both_id, started["request"], started["command"])
+    both_done = run_to_done(bot, both_id, started["request"], started["command"])
     check("studyroom: a request with both markers stays Studyroom from /work through the pipeline",
           both_plan.get("work_kind") == "studyroom_content" and started.get("work_kind") == "studyroom_content"
           and both_done.get("ok") is True and both_done.get("work_kind") == "studyroom_content"
@@ -1614,7 +1788,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     plain_task = bot._run_command("/task radar 레이더 문구 정리")
     plain_id = plain_task.get("task_id", "")
     started = bot._run_command(f"/go {plain_id}")
-    plain_done = bot._run_worker_job(plain_id, started["request"], started["command"]) if started.get("result_type") == "work_started" else {}
+    plain_done = run_to_done(bot, plain_id, started["request"], started["command"]) if started.get("result_type") == "work_started" else {}
     check("studyroom: a /task title with only the plain words radar/레이더 stays Studyroom at /go",
           plain_task.get("result_type") == "success" and started.get("work_kind") == "studyroom_content"
           and plain_done.get("ok") is True and plain_done.get("work_kind") == "studyroom_content"
@@ -1630,7 +1804,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     tracked_todo = bot._run_command("/work Studyroom glossary에 용어 1개 추가")["task_id"]
     commit_record(tracked_todo)
     started = bot._run_command(f"/go {tracked_todo}")
-    done = bot._run_worker_job(tracked_todo, started["request"], started["command"])
+    done = run_to_done(bot, tracked_todo, started["request"], started["command"])
     check("bot: /go on a TODO task with a committed record runs to DONE", started.get("result_type") == "work_started"
           and done.get("ok") is True and status_of(tracked_todo) == "DONE"
           and not git(["status", "--porcelain", "--untracked-files=no"], clone), f"{done.get('stage')}:{done.get('reason')}")
@@ -1642,14 +1816,14 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     commit_record(tracked_failed)
     os.environ["FAKE_WORKER"] = "ok"
     retry = bot._run_command(f"/go {tracked_failed}")
-    done = bot._run_worker_job(tracked_failed, retry["request"], retry["command"])
+    done = run_to_done(bot, tracked_failed, retry["request"], retry["command"])
     check("bot: /go retry of a FAILED task with a committed record runs to DONE (task-0143 shape)",
           retry.get("retry") is True and done.get("ok") is True and status_of(tracked_failed) == "DONE"
           and f"memory/tasks/{tracked_failed}.md" in git(["show", "--name-only", "--format=", "HEAD"], clone)
           and not git(["status", "--porcelain", "--untracked-files=no"], clone), f"{done.get('stage')}:{done.get('reason')}")
     check("bot: /go resume on a non-FAILED task is refused", bot._run_command(f"/go {task_id} resume").get("reason", "").startswith(("resume_requires_failed", "status_not_startable")))
     # task-0167: the usage names recover too.
-    check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume|accept|recover]")
+    check("bot: /go with an unknown argument is a usage error", bot._run_command(f"/go {task_id} again").get("reason") == "usage:/go <task-id> [resume|accept|reject|recover]")
     check("bot: finished task is not startable again", bot._run_command(f"/go {task_id}").get("reason") == "status_not_startable:DONE")
 
     # task-0151: /go <id> accept through the adapter.
@@ -1708,6 +1882,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
           "통과" not in bot._format_reply({"ok": True, "result_type": "work_result", "task_id": owner_task,
                                           "accepted": True, "qa_checks": {}}).split("- 테스트:")[1].split("\n")[0])
     # task-0183: last, so its own approval and execution audits leave the counts above alone.
+    final_approval_bot_flow(bot, clone, status_of)
     lead_flow(bot, clone, status_of)
     discussion_flow(bot, clone, status_of)
     call_flow(bot, clone)
@@ -2406,6 +2581,8 @@ def main() -> int:
         usage_checks(clone, worktrees, tmp)
         report_flow(clone, worktrees, tmp)
 
+        final_approval_worker_flow(clone, worktrees)
+
         r, calls, before, after = run_case("success", clone, worktrees, worker="ok")
         check("success: ok and stage done", r.ok and r.stage == "done", f"{r.stage}:{r.reason}:{r.detail}")
         check("success: only allowed files changed", r.changed_files == ["apps/studyroom/content/glossary.json"], str(r.changed_files))
@@ -2495,8 +2672,12 @@ def main() -> int:
         expect_fail("trackedneighbour", "ok", "preflight", "main_tree_dirty", prepare=other_record)
         git(["checkout", "--", "memory/tasks/task-8000-trackedrecord.md"], clone)
 
-        expect_fail("trackedintegrate", "ok", "integrate", "main_tree_dirty", review="dirtymain",
-                    prepare=tracked_record("task-8000-trackedintegrate"))
+        # task-0220: the checks before integrate now run at the Owner's accept, which refuses without recording.
+        r, calls, before, after = run_case("trackedintegrate", clone, worktrees, worker="ok", review="dirtymain",
+                                           prepare=tracked_record("task-8000-trackedintegrate"))
+        check("trackedintegrate: a dirty main refuses the accept, nothing recorded, main unmoved",
+              (not r.ok) and r.reason == "accept_main_dirty" and r.accept_retryable and not calls and before == after,
+              f"{r.stage}:{r.reason}:{calls}")
         git(["checkout", "--", "README.md", "memory/tasks/task-8000-trackedintegrate.md"], clone)
 
         run_case("trackedresume", clone, worktrees, worker="ok", review="findings", task_id="task-8000-trackedresume")
@@ -2504,7 +2685,12 @@ def main() -> int:
                          prepare=tracked_record("task-8000-trackedresume"))
         check("tracked record: resume with a committed, changed own record integrates", r.ok
               and r.resumed_from == "jarvis/task-8000-trackedresume", f"{r.stage}:{r.reason}:{r.resumed_from}")
-        expect_fail("moved", "ok", "integrate", "baseline_moved", review="move")
+        # task-0220: main moving while a candidate waits refuses the accept; the candidate is not integrated.
+        r, calls, before, after = run_case("moved", clone, worktrees, worker="ok", review="move")
+        check("moved: main moving before the accept refuses it, nothing recorded, no ff",
+              (not r.ok) and r.reason == "accept_baseline_moved" and r.accept_retryable and not calls
+              and r.candidate not in git(["rev-list", "HEAD"], clone).splitlines(),
+              f"{r.stage}:{r.reason}:{calls}")
 
         # task-0143 follow-up: evidence paths reach the Reviewer, retries keep earlier attempts.
         r, *_ = run_case("evidence", clone, worktrees, worker="ok", review="needevidence",

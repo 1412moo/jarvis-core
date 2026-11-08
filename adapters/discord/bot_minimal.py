@@ -113,7 +113,8 @@ ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     # DURABLE_STATUS_TRANSITIONS off task_file_writer's table instead of this one;
     # that indirection stays, and this entry makes the two agree rather than
     # merely overlap.
-    "DOING": ("DONE", "FAILED"),
+    # task-0220: NEEDS_APPROVAL is where a Worker run waits for the Owner's final approval.
+    "DOING": ("DONE", "FAILED", "NEEDS_APPROVAL"),
     "FAILED": ("TODO",),
     "NEEDS_APPROVAL": ("DOING", "FAILED"),
 }
@@ -811,7 +812,8 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "자비스, <요청> (또는 봇 멘션 뒤 요청) - `/work <요청>`과 같음 (Owner)",
             "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
             "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
-            "/go <task-id> accept - Owner 확인 대기로 멈춘 candidate를 QA 재확인 뒤 반영 (Owner)",
+            "/go <task-id> accept - 최종 승인: 확인 대기 중인 candidate를 QA 재확인 뒤 main에 반영 (Owner)",
+            "/go <task-id> reject - 최종 거절: 확인 대기 중인 candidate를 반영하지 않음, main 불변 (Owner)",
             "/go <task-id> recover - 실행 중인 Worker 없이 멈춘 DOING을 FAILED로만 전환, 재실행 없음 (Owner)",
         ],
     }
@@ -1538,6 +1540,7 @@ def _apply_execution_result(
     execution_result: dict[str, Any],
     execution_candidate: dict[str, Any] | None,
     execution_request: dict[str, Any] | None,
+    transition_override: tuple[str, str] | None = None,
 ) -> tuple[bool, str]:
     """Record the execution metadata and its status transition in one atomic write.
 
@@ -1546,6 +1549,8 @@ def _apply_execution_result(
     claiming a finished execution on an unfinished task: execution_status "success"
     with the task still DOING, which a completed flow cannot produce and which
     nothing detects, because such a file validates fine. One replace, or nothing.
+    task-0220: the one exception is a Worker accept in progress, where "success" is the
+    Reviewer and QA result of the waiting candidate, not a change on main.
 
     Returns the (applied, reason) pair the caller already expected, where applied
     refers to the status transition. Writing metadata without a transition is a
@@ -1568,7 +1573,8 @@ def _apply_execution_result(
     elif not isinstance(success, bool):
         reason = "execution_success_not_boolean"
     else:
-        transition = ("DOING", "DONE" if success else "FAILED")
+        # task-0220: a run waiting for the Owner, and the Owner's rejection, name their own pair.
+        transition = transition_override or ("DOING", "DONE" if success else "FAILED")
 
     tasks_dir = REPO_ROOT / "memory" / "tasks"
     task_file = tasks_dir / f"{task_id}.md"
@@ -1758,6 +1764,12 @@ def _run_approve_parse(command_text: str) -> dict[str, Any]:
         return _error_payload("usage:/approve <task-id> approve|reject")
     if decision not in ("approve", "reject"):
         return _error_payload("usage:/approve <task-id> approve|reject")
+    # task-0220: a Worker run waiting for final approval is decided by /go accept or reject only.
+    # /approve would start the old execution path and leave the candidate behind.
+    if TASK_ID_PATTERN.fullmatch(task_id.lower()):
+        waiting_file = REPO_ROOT / "memory" / "tasks" / f"{task_id.lower()}.md"
+        if waiting_file.is_file() and _final_review_record(waiting_file) is not None:
+            return _error_payload("approve_not_for_final_review")
 
     parse_result = {
         "result_type": "approve_parse",
@@ -1934,9 +1946,10 @@ def _run_go(command_text: str) -> dict[str, Any]:
     task-0144: `/go <task-id> resume` (FAILED only) carries the latest failed attempt's
     changes onto a new attempt from the current main instead of starting over.
 
-    task-0151: `/go <task-id> accept` (FAILED at qa_unverified_owner_review only) takes the
-    recorded candidate after the Owner has checked the pending entries. Here it only checks
-    the record and takes the lock; the status stays FAILED until the job has re-run QA.
+    task-0151: `/go <task-id> accept` (FAILED at qa_unverified_owner_review, or task-0220
+    NEEDS_APPROVAL at the final approval) takes the recorded candidate after the Owner has
+    checked it. Here it only checks the record and takes the lock; the status stays as it is
+    until the job has re-run QA.
     """
 
     parts = command_text.strip().split()
@@ -1944,9 +1957,9 @@ def _run_go(command_text: str) -> dict[str, Any]:
         len(parts) not in (2, 3)
         or parts[0] != "/go"
         or not TASK_ID_PATTERN.fullmatch(parts[1].strip().lower())
-        or (len(parts) == 3 and parts[2] not in ("resume", "accept", "recover"))
+        or (len(parts) == 3 and parts[2] not in ("resume", "accept", "reject", "recover"))
     ):
-        return _error_payload("usage:/go <task-id> [resume|accept|recover]")
+        return _error_payload("usage:/go <task-id> [resume|accept|reject|recover]")
     resume = len(parts) == 3 and parts[2] == "resume"
     task_id = parts[1].strip().lower()
     task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
@@ -1960,12 +1973,15 @@ def _run_go(command_text: str) -> dict[str, Any]:
     # task-0201: so is a read-only check, from the same title.
     read_only = claude_worker.is_read_only_request(request)
     if len(parts) == 3 and parts[2] == "accept":
-        if status != "FAILED":
+        # task-0220: NEEDS_APPROVAL is the normal final approval; FAILED stays for a stop that left
+        # entries QA could not verify. A second accept finds DONE and is refused here; two at once
+        # are refused by the locks below, which are re-checked against the record in the job.
+        if status not in ("FAILED", "NEEDS_APPROVAL"):
             return _error_payload(f"accept_requires_failed:{status or 'unknown'}")
         # task-0182: the same Worker-path rule as a plain /go, before the record is read.
         if _task_source_command(task_file) != "/task":
             return _error_payload("go_requires_worker_path")
-        if _owner_review_record(task_file) is None:
+        if _accept_record(task_file, status) is None:
             return _error_payload("accept_record_invalid")
         if not _acquire_worker_locks():
             return _error_payload("worker_busy")
@@ -1981,6 +1997,8 @@ def _run_go(command_text: str) -> dict[str, Any]:
             "work_kind": work_kind,
             "audit_error": None,
         }
+    if len(parts) == 3 and parts[2] == "reject":
+        return _run_reject(task_id, task_file, status, command_text.strip(), work_kind)
     if len(parts) == 3 and parts[2] == "recover":
         return _run_recover(task_id, task_file, status, command_text.strip(), work_kind)
     if status == "DOING":
@@ -2121,6 +2139,97 @@ def _run_recover(task_id: str, task_file: Path, status: str, command: str, work_
     }
 
 
+def _run_reject(task_id: str, task_file: Path, status: str, command: str, work_kind: str) -> dict[str, Any]:
+    """task-0220: `/go <id> reject`, the Owner's refusal of a candidate waiting for final approval.
+
+    Only NEEDS_APPROVAL -> FAILED, written with a rejection record in one atomic write and audited.
+    main is not touched and the attempt's branch and worktree stay. The rejected record is not an
+    accept record, so a rejected candidate cannot be accepted afterwards.
+    """
+
+    if status != "NEEDS_APPROVAL":
+        return _error_payload(f"reject_requires_final_review:{status or 'unknown'}")
+    if _task_source_command(task_file) != "/task":
+        return _error_payload("reject_not_worker_path")
+    if not _acquire_worker_locks():
+        return _error_payload("worker_busy")
+    try:
+        record = _final_review_record(task_file)
+        parsed = claude_worker.parse_final_review_record(record or "")
+        if parsed is None:
+            return _error_payload("reject_record_invalid")
+        rejected = claude_worker.owner_rejected_record(*parsed)
+        candidate_info = {
+            "result_type": "execution_candidate",
+            "task_id": task_id,
+            "execution_type": "claude_worker",
+            "action": "claude_worker_pipeline",
+            "target": work_kind,
+        }
+        execution_request = _build_execution_request(candidate_info)
+        execution_request["source"] = "/go"
+        execution_result = {
+            "result_type": "execution_result",
+            "task_id": task_id,
+            "execution_type": "claude_worker",
+            "action": "claude_worker_pipeline",
+            "executed": True,
+            "success": False,
+            "output_summary": rejected,
+            "error_reason": rejected,
+        }
+        applied, reason = _apply_execution_result(
+            task_id, execution_result, candidate_info, execution_request,
+            transition_override=("NEEDS_APPROVAL", "FAILED"),
+        )
+        audit_error = _audit_owner_approval(
+            command=command,
+            decision="reject",
+            transition_from="NEEDS_APPROVAL",
+            transition_to="FAILED",
+            applied=applied,
+            reason=reason,
+        )
+        execution_audit_error = _audit_execution_result(
+            task_id=task_id, source="go", execution_result=execution_result, applied=applied, reason=reason
+        )
+    finally:
+        _release_worker_locks()
+    if not applied:
+        return _error_payload(f"reject_transition_failed:{reason}")
+    return {
+        "result_type": "reject_result",
+        "task_id": task_id,
+        "candidate": parsed[0],
+        "audit_error": audit_error or execution_audit_error,
+    }
+
+
+def _final_review_record(task_file: Path) -> str | None:
+    """task-0220: the final-review record of a NEEDS_APPROVAL Worker task, when it is exactly one.
+
+    Read from the task file alone, so it survives a bot restart like the candidate's branch does.
+    """
+
+    metadata = _read_task_metadata(task_file) or {}
+    execution = _read_execution_review_metadata(task_file)
+    record = execution.get("execution_summary", "")
+    if (
+        metadata.get("status") != "NEEDS_APPROVAL"
+        or execution.get("executed") != "true"
+        or execution.get("success") != "true"
+        or claude_worker.parse_final_review_record(record) is None
+    ):
+        return None
+    return record
+
+
+def _accept_record(task_file: Path, status: str) -> str | None:
+    """task-0220: the record accept takes for this status, or None."""
+
+    return _final_review_record(task_file) if status == "NEEDS_APPROVAL" else _owner_review_record(task_file)
+
+
 def _owner_review_record(task_file: Path) -> str | None:
     """task-0151: the task's qa_unverified_owner_review failure record, when it is exactly one.
 
@@ -2191,19 +2300,56 @@ def _run_worker_job(
         )
         return applied, reason
 
+    def record_awaiting(final_record: str) -> tuple[bool, str]:
+        # task-0220: the run's record and DOING -> NEEDS_APPROVAL in one atomic write.
+        execution_request = _build_execution_request(candidate_info)
+        execution_request["source"] = "/go"
+        execution_result = {
+            "result_type": "execution_result",
+            "task_id": task_id,
+            "execution_type": "claude_worker",
+            "action": "claude_worker_pipeline",
+            "executed": True,
+            "success": True,
+            "output_summary": final_record,
+            "error_reason": "",
+        }
+        applied, reason = _apply_execution_result(
+            task_id, execution_result, candidate_info, execution_request,
+            transition_override=("DOING", "NEEDS_APPROVAL"),
+        )
+        _audit_execution_result(
+            task_id=task_id, source="go", execution_result=execution_result, applied=applied, reason=reason
+        )
+        return applied, reason
+
     audit_errors: list[str | None] = []
+    # task-0220: settled once, under the locks, from the task file.
+    accept_status = ""
+    if accept:
+        accept_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
+        try:
+            accept_status = (_read_task_metadata(accept_file) or {}).get("status", "") if accept_file.is_file() else ""
+        except (OSError, UnicodeDecodeError):
+            # The locks must still be released below; no status means no record, so accept refuses.
+            accept_status = ""
 
     def approve() -> tuple[bool, str]:
-        # The same approval transition and audit as /go on a FAILED task.
-        applied, reason = _apply_task_status_transition(task_id, "FAILED", "TODO")
-        if not applied:
-            return False, reason
-        applied, reason = _apply_task_status_transition(task_id, "TODO", "DOING")
+        # The same approval audit as /go; the transition depends on where accept started.
+        if accept_status == "NEEDS_APPROVAL":
+            # task-0220: the Owner's final approval of a waiting candidate.
+            transition_from = "NEEDS_APPROVAL"
+        else:
+            transition_from = "TODO"
+            applied, reason = _apply_task_status_transition(task_id, "FAILED", "TODO")
+            if not applied:
+                return False, reason
+        applied, reason = _apply_task_status_transition(task_id, transition_from, "DOING")
         audit_errors.append(
             _audit_owner_approval(
                 command=command,
                 decision="approve",
-                transition_from="TODO",
+                transition_from=transition_from,
                 transition_to="DOING",
                 applied=applied,
                 reason=reason,
@@ -2216,7 +2362,7 @@ def _run_worker_job(
             task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
             outcome = claude_worker.accept_candidate(
                 task_id=task_id,
-                record=(_owner_review_record(task_file) if task_file.is_file() else None) or "",
+                record=(_accept_record(task_file, accept_status) if task_file.is_file() else None) or "",
                 approve=approve,
                 repo_root=REPO_ROOT,
                 record_result=record,
@@ -2238,6 +2384,7 @@ def _run_worker_job(
                 approval_command=command,
                 repo_root=REPO_ROOT,
                 record_result=record,
+                record_awaiting=record_awaiting,
                 resume=resume,
                 work_kind=work_kind,
                 progress=progress,
@@ -2247,6 +2394,7 @@ def _run_worker_job(
     payload = {"result_type": "work_result", **outcome.to_dict()}
     if accept:
         payload["audit_error"] = audit_errors[-1] if audit_errors else None
+        payload["final_review"] = accept_status == "NEEDS_APPROVAL"
     return payload
 
 
@@ -2635,8 +2783,8 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             "- Worker: Claude Code 1개, 격리된 worktree, 명령 실행 없음\n"
             f"- 수정 허용: {result.get('allowed_paths')}\n"
             f"- 테스트: {result.get('test_command')}\n"
-            "- 성공 시: Reviewer → QA → main ff-only → checkpoint commit (push 없음)\n"
-            f"승인하려면 `/go {task_id}`"
+            f"- 성공 시: Reviewer → QA → Owner 최종 승인 대기 (`/go {task_id} accept` 뒤에만 main 반영, push 없음)\n"
+            f"실행을 승인하려면 `/go {task_id}`"
         )
     if result_type == "work_started":
         if result.get("accept"):
@@ -2648,6 +2796,8 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         if result.get("read_only"):
             return f"▶️ 승인됨{retry}: {task_id} → 읽기 전용 확인 시작. 끝나면 이 채널에 보고합니다."
         return f"▶️ 승인됨{retry}: {task_id} → Claude Worker 시작. 끝나면 이 채널에 보고합니다."
+    if result.get("awaiting_owner"):
+        return _final_review_reply(result)
     if result.get("ok") and result.get("read_only"):
         return _report_reply(result)
     if result.get("ok"):
@@ -2704,7 +2854,17 @@ def _format_work_reply(result: dict[str, Any]) -> str:
         if result.get("reason") == "qa_unverified_owner_review" or result.get("accept_retryable")
         else ""
     )
-    if result.get("read_only"):
+    if result.get("final_review") and result.get("reason") == "accept_transition_failed":
+        lines.append(
+            f"다음 선택지: `/status {task_id}`로 상태를 확인한 뒤 `/go {task_id} accept` 또는 `/go {task_id} reject`"
+        )
+    elif result.get("final_review") and result.get("accept_retryable"):
+        # task-0220: the task still waits in NEEDS_APPROVAL with its candidate.
+        lines.append(
+            f"다음 선택지: `/go {task_id} accept` 다시 최종 승인 · `/go {task_id} reject` 거절 "
+            f"(main이 움직였으면 거절한 뒤 `/go {task_id} resume`: Reviewer·QA·최종 승인을 다시 거치는 새 실행) · `/status {task_id}` 상태 확인"
+        )
+    elif result.get("read_only"):
         # task-0201: nothing to resume or accept; the worktree is kept only when files changed.
         kept = f" · 직접 확인(worktree {result.get('worktree')})" if result.get("reason") == "report_changed_files" else ""
         lines.append(f"다음 선택지: `/go {task_id}` 다시 실행 · `/status {task_id}` 상태 확인{kept}")
@@ -2720,6 +2880,41 @@ def _format_work_reply(result: dict[str, Any]) -> str:
             len(result.get("qa_checks") or {}), pending, len("\n".join(lines))
         )
     return "\n".join(lines)
+
+
+def _final_review_reply(result: dict[str, Any]) -> str:
+    """task-0220: what the Owner decides from: files, diff, Reviewer and QA results, and the two commands."""
+
+    task_id = result.get("task_id", "")
+    mention = _owner_mention()
+    qa = result.get("qa_checks") or {}
+    passed = sum(1 for value in qa.values() if value)
+    verdict = _discord_safe(str(result.get("reviewer_verdict") or ""))
+    # The whole list is in the review file; the commands at the end must always fit.
+    changed = list(result.get("changed_files") or [])
+    files = ", ".join(changed)
+    if len(files) > 400:
+        files = f"{files[:400]}… (총 {len(changed)}개)"
+    head = [
+        f"{mention + ' ' if mention else ''}🟡 Owner 최종 승인 대기: {task_id}",
+        f"- main에는 아직 반영하지 않았습니다. candidate: {str(result.get('candidate'))[:7]} (브랜치 {result.get('branch')} 보존)",
+        f"- 변경 파일: {_discord_safe(files)}",
+        f"- Reviewer: {verdict}, 자동 repair {result.get('repairs', 0)}회",
+        f"- QA: {passed}/{len(qa)} 통과 ({', '.join(qa)})",
+        f"- 테스트: {_discord_safe(str(result.get('test_summary') or ''))[:200]}",
+    ]
+    review_path = str(result.get("review_path") or "")
+    tail = [
+        f"- 전체 diff·Reviewer 보고·QA: {review_path}" if review_path else "- 전체 검토 파일을 저장하지 못했습니다. candidate 브랜치에서 확인하세요.",
+        *([_usage_line(result)] if _usage_line(result) else []),
+        f"최종 승인 `/go {task_id} accept` · 거절 `/go {task_id} reject` (거절해도 main 불변)",
+    ]
+    excerpt = _discord_safe(str(result.get("diff_excerpt") or "")).replace("```", "\'\'\'")
+    fixed = "\n".join([*head, *tail])
+    room = DISCORD_MESSAGE_CHARS - len(fixed) - len("\n- 변경 내용(앞부분):\n```diff\n\n```\n")
+    if excerpt and room > 80:
+        head.append(f"- 변경 내용(앞부분):\n```diff\n{excerpt[:room]}\n```")
+    return "\n".join([*head, *tail])
 
 
 REPORT_CUT_NOTE = "\n…(Discord 길이 제한으로 잘림)"
@@ -2997,6 +3192,16 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             "- Worker 작업: `/go <task-id>`\n"
             "- 상태 변경: Jarvis Console"
         )
+    if result_type == "reject_result":
+        task_id = pipeline_result.get("task_id")
+        lines = [
+            f"🚫 최종 거절: {task_id} — candidate {str(pipeline_result.get('candidate'))[:7]}를 반영하지 않았습니다.",
+            "- main은 변경되지 않았고, 시도의 브랜치와 worktree는 보존했습니다.",
+            f"- 다음 선택지: `/go {task_id}` 처음부터 다시 · `/go {task_id} resume` 이 변경을 현재 main 위에서 다시 검증 · Console Close로 종결",
+        ]
+        if pipeline_result.get("audit_error"):
+            lines.append(f"- 감사 기록 경고: `{pipeline_result.get('audit_error')}`")
+        return "\n".join(lines)
     if result_type == "recover_result":
         task_id = pipeline_result.get("task_id")
         lines = [f"♻️ 복구됨: {task_id} → FAILED (멈춘 DOING, Owner recover). 다시 실행하지 않았습니다."]
@@ -3046,6 +3251,12 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
             "⛔ `/go`는 `/work`로 만든 task만 시작합니다. 이 task는 수동 task라 아무것도 실행하거나 바꾸지 않았습니다.\n"
             "- 수동 task의 상태 변경은 Jarvis Console을 씁니다.\n"
             "- reason: `go_requires_worker_path`"
+        )
+    if reason == "approve_not_for_final_review":
+        return (
+            "⛔ 이 task는 Worker 결과의 최종 승인 대기 중입니다. `/approve`는 받지 않습니다.\n"
+            "- `/go <task-id> accept`(반영) 또는 `/go <task-id> reject`(거절)를 쓰세요. 상태와 기록은 바꾸지 않았습니다.\n"
+            f"- reason: `{reason}`"
         )
     if reason == "stalled_doing":
         # task-0167: a Worker-path DOING task with no Worker running, whatever an earlier attempt recorded.

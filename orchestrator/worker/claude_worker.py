@@ -5,8 +5,11 @@ the terminal:
 
     isolated git worktree -> Claude Code worker -> tests -> candidate commit
     -> Reviewer (claude --agent reviewer) -> deterministic QA
-    -> ff-only onto main (only if main is still at the baseline) -> task result
-    -> checkpoint commit
+    -> stop for the Owner's final approval (NEEDS_APPROVAL, candidate preserved, main untouched)
+
+task-0220: the run never integrates. accept_candidate(), started by `/go <id> accept`, is the only
+path by which a Worker change reaches main: ff-only (only if main is still at the baseline) -> task
+result -> checkpoint commit. A read-only report changes no file and still commits its task record.
 
 task-0151: accept_candidate() takes a candidate preserved at qa_unverified_owner_review once
 the Owner sends `/go <id> accept`: the six QA checks again, then the same integrate and
@@ -685,7 +688,12 @@ UNVERIFIED_UNREADABLE = "unverified field missing or malformed"
 OWNER_REVIEW_RECORD_PATTERN = re.compile(
     r"qa:qa_unverified_owner_review candidate=([0-9a-f]{40}) baseline=([0-9a-f]{40}) attempt=([1-9][0-9]*)"
 )
+FINAL_REVIEW_RECORD_PATTERN = re.compile(
+    r"qa:owner_final_review candidate=([0-9a-f]{40}) baseline=([0-9a-f]{40}) attempt=([1-9][0-9]*)"
+)
 TASK_REF_PATTERN = re.compile(r"task-(\d{4})(?!\d)")
+# task-0220: how much of the diff the Discord report carries; the whole diff is in the review file.
+FINAL_REVIEW_DIFF_EXCERPT_CHARS = 900
 
 
 @dataclass
@@ -725,6 +733,12 @@ class WorkerRunResult:
     read_only: bool = False
     report: str = ""
     report_path: str = ""
+    # task-0220: the run passed Reviewer and QA and waits for the Owner; main is untouched.
+    awaiting_owner: bool = False
+    final_record: str = ""
+    diff_stat: str = ""
+    diff_excerpt: str = ""
+    review_path: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -1117,6 +1131,28 @@ def parse_owner_review_record(text: str) -> tuple[str, str, int] | None:
     return (matched.group(1), matched.group(2), int(matched.group(3))) if matched else None
 
 
+def final_review_record(candidate: str, baseline: str, attempt: int) -> str:
+    """task-0220: the record of a run waiting for the Owner's final approval (NEEDS_APPROVAL)."""
+
+    return f"qa:owner_final_review candidate={candidate} baseline={baseline} attempt={attempt}"
+
+
+def parse_final_review_record(text: str) -> tuple[str, str, int] | None:
+    """task-0220: (candidate, baseline, attempt) from an exact final-review record, else None."""
+
+    matched = FINAL_REVIEW_RECORD_PATTERN.fullmatch(text or "")
+    return (matched.group(1), matched.group(2), int(matched.group(3))) if matched else None
+
+
+OWNER_REJECTED_REASON = "owner_rejected"
+
+
+def owner_rejected_record(candidate: str, baseline: str, attempt: int) -> str:
+    """task-0220: the failure record of `/go <id> reject`. accept never takes it."""
+
+    return f"owner:{OWNER_REJECTED_REASON} candidate={candidate} baseline={baseline} attempt={attempt}"
+
+
 def _review_invalid(verdict: str, review_text: str) -> bool:
     """True when a readable review reports self_deviations or its field cannot be read.
 
@@ -1343,13 +1379,13 @@ def _candidate_chain(repo_root: Path, task_id: str, baseline: str, candidate: st
 def find_owner_review_attempt(
     repo_root: Path, worktree_root: Path, task_id: str, record: str
 ) -> tuple[Path, str, str, str, list[str], list[str]]:
-    """task-0151: the preserved attempt a qa_unverified_owner_review record points at.
+    """task-0151: the preserved attempt a qa_unverified_owner_review or (task-0220) final-review record points at.
 
     Returns (worktree, branch, candidate, baseline, candidate chain, changed files), or raises
     StageFailure when anything does not match exactly. Nothing is changed either way.
     """
 
-    parsed = parse_owner_review_record(record)
+    parsed = parse_owner_review_record(record) or parse_final_review_record(record)
     if parsed is None:
         raise StageFailure("accept", "accept_record_invalid", record[:200])
     candidate, baseline, attempt = parsed
@@ -1497,6 +1533,48 @@ def _unknown_kind_result(
     return result
 
 
+def _prepare_final_review(
+    result: WorkerRunResult,
+    repo_root: Path,
+    name: str,
+    request: str,
+    baseline: str,
+    candidate: str,
+    review_text: str,
+) -> None:
+    """task-0220: what the Owner looks at before deciding: the diff, the Reviewer report, the QA checks.
+
+    The whole of it goes to a file outside the repository, as a read-only report does. A failure
+    here never fails the run: nothing has been integrated, and the candidate stays on its branch.
+    """
+
+    try:
+        result.diff_stat = _git(["diff", "--stat", baseline, candidate], repo_root)
+        diff = _git(["diff", baseline, candidate], repo_root)
+    except StageFailure as exc:
+        print(f"[final-review] diff not read ({exc.reason}); the run goes on", file=sys.stderr)
+        return
+    result.diff_excerpt = diff[:FINAL_REVIEW_DIFF_EXCERPT_CHARS]
+    qa_lines = "\n".join(f"- {name_}: {'PASS' if passed else 'FAIL'}" for name_, passed in result.qa_checks.items())
+    text = (
+        f"# {result.task_id} final review\n\n"
+        f"- Owner request: {request}\n- candidate: {candidate}\n- baseline: {baseline}\n"
+        f"- branch: {result.branch}\n- worktree: {result.worktree}\n\n"
+        f"## Changed files\n\n{result.diff_stat}\n\n"
+        f"## Reviewer ({result.reviewer_verdict})\n\n{review_text}\n\n"
+        f"## QA\n\n{qa_lines}\n- tests: {result.test_summary}\n\n"
+        f"## Diff\n\n{diff}\n"
+    )
+    try:
+        _ensure_outside_repo(REPORT_DIR, repo_root)
+        REPORT_DIR.mkdir(parents=True, exist_ok=True)
+        target = REPORT_DIR / f"{name}-final-review.md"
+        target.write_text(text, encoding="utf-8")
+        result.review_path = str(target)
+    except (OSError, StageFailure) as exc:
+        print(f"[final-review] file not written ({type(exc).__name__}); the run goes on", file=sys.stderr)
+
+
 def run_pipeline(
     *,
     task_id: str,
@@ -1505,6 +1583,7 @@ def run_pipeline(
     repo_root: Path = REPO_ROOT,
     worktree_root: Path | None = None,
     record_result: Callable[[bool, str], tuple[bool, str]] | None = None,
+    record_awaiting: Callable[[str], tuple[bool, str]] | None = None,
     resume: bool = False,
     repair_budget: int | None = None,
     work_kind: str | None = None,
@@ -1513,6 +1592,7 @@ def run_pipeline(
     """Run the whole slice once for one registry kind (Studyroom by default). Never raises.
 
     task-0165: progress, when given, is called with a PROGRESS_STAGES name as each stage starts.
+    task-0220: a run that passes stops with awaiting_owner, after record_awaiting wrote its record.
     """
 
     kind = work_kind_by_name(work_kind) if work_kind else DEFAULT_WORK_KIND
@@ -1529,6 +1609,7 @@ def run_pipeline(
             repo_root=repo_root,
             worktree_root=worktree_root,
             record_result=record_result,
+            record_awaiting=record_awaiting,
             resume=resume,
             repair_budget=repair_budget,
             progress=progress,
@@ -1549,6 +1630,7 @@ def _run_pipeline(
     repo_root: Path,
     worktree_root: Path | None,
     record_result: Callable[[bool, str], tuple[bool, str]] | None,
+    record_awaiting: Callable[[str], tuple[bool, str]] | None,
     resume: bool,
     repair_budget: int | None,
     progress: Callable[[str], None] | None = None,
@@ -1718,19 +1800,17 @@ def _run_pipeline(
             failure_record = owner_review_record(candidate, baseline, attempt)
             raise StageFailure("qa", "qa_unverified_owner_review", " | ".join(pending)[:300])
 
-        # 10. Integrate: ff-only, and only if main has not moved.
-        # 11. Task result (DOING -> DONE) and checkpoint commit.
-        _report_progress(progress, "integrate")
-        _integrate_and_checkpoint(
-            repo_root,
-            result,
-            baseline=baseline,
-            branch=branch,
-            worktree=worktree,
-            candidate=candidate,
-            record_result=record_result,
-            summary=f"worker candidate {candidate[:7]} passed Reviewer and QA after {result.repairs} repair(s)",
-        )
+        # 10. task-0220: stop for the Owner's final approval. The candidate stays on its attempt
+        # branch and worktree, and main is not touched; only accept_candidate() integrates it.
+        result.stage = "owner_review"
+        _prepare_final_review(result, repo_root, name, request, baseline, candidate, review_text)
+        result.final_record = final_review_record(candidate, baseline, attempt)
+        if record_awaiting is not None:
+            applied, why = record_awaiting(result.final_record)
+            if not applied:
+                raise StageFailure("owner_review", "awaiting_not_recorded", why)
+        result.awaiting_owner = True
+        result.stage = "awaiting_owner"
         _end_run_marker(run_marker)
         return result
     except StageFailure as failure:
@@ -1800,13 +1880,14 @@ def _accept_candidate(
     record_result: Callable[[bool, str], tuple[bool, str]] | None,
     progress: Callable[[str], None] | None = None,
 ) -> WorkerRunResult:
-    """task-0151: `/go <id> accept` for a task stopped at qa_unverified_owner_review.
+    """task-0151: `/go <id> accept` for a task stopped at qa_unverified_owner_review, and
+    (task-0220) the Owner's final approval of a task waiting in NEEDS_APPROVAL.
 
     Order: find the recorded candidate -> main at its baseline -> the six QA checks again
-    -> approve (the Owner approval transition FAILED -> TODO -> DOING) -> the same integrate
-    and checkpoint steps as run_pipeline. The Reviewer is not called again. Until approve()
-    has applied, nothing is changed or recorded, so the task keeps its FAILED status and its
-    record and can be accepted again. From then on a failure is recorded like any pipeline
+    -> approve (the Owner approval transition: FAILED -> TODO -> DOING, or NEEDS_APPROVAL ->
+    DOING) -> the integrate and checkpoint steps. The Reviewer is not called again. Until
+    approve() has applied, nothing is changed or recorded, so the task keeps its status and
+    its record and can be accepted again. From then on a failure is recorded like any pipeline
     failure. Never raises; the result says where it stopped.
     """
 
@@ -1862,7 +1943,7 @@ def _accept_candidate(
         result.reason = "unexpected_error"
         result.detail = f"{type(exc).__name__}: {exc}"[:200]
     if not approved:
-        # The approval transition never applied: FAILED and the record are as they were.
+        # The approval transition never applied: the status and the record are as they were.
         result.accept_retryable = result.reason != "accept_transition_failed"
         _end_run_marker(run_marker)
         return result

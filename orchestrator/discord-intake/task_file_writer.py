@@ -148,6 +148,9 @@ TASK_STATUS_TRANSITIONS = frozenset(
         ("NEEDS_APPROVAL", "DOING"),
         ("NEEDS_APPROVAL", "FAILED"),
         ("DOING", "FAILED"),
+        # task-0220. A Worker run that passed Reviewer and QA waits for the Owner's final approval.
+        # Written only with the run's execution record; main has not been touched.
+        ("DOING", "NEEDS_APPROVAL"),
         ("FAILED", "TODO"),
         # task-0173. Console Hold and Resume, written only by hold_task_file() and
         # resume_task_file(), which change hold_from in the same replace. DOING is not
@@ -171,6 +174,7 @@ TASK_STATUS_TRANSITIONS = frozenset(
         ("ON_HOLD", "CLOSED"),
     }
 )
+TASK_AWAITING_TRANSITION = ("DOING", "NEEDS_APPROVAL")
 TASK_CLOSED_STATUS = "CLOSED"
 TASK_CLOSED_REASON_FIELD = "closed_reason"
 TASK_CLOSE_TRANSITIONS = frozenset(
@@ -911,6 +915,9 @@ def transition_task_file_status(
     # task-0180: likewise, a close written here would leave closed_reason out.
     if (current_status, target_status) in TASK_CLOSE_TRANSITIONS:
         return TaskStatusTransitionResult("hold", "close_transition_requires_close_writer")
+    # task-0220: a wait without its record could not be accepted, and /approve would take it.
+    if (current_status, target_status) == TASK_AWAITING_TRANSITION:
+        return TaskStatusTransitionResult("hold", "awaiting_transition_requires_execution_record")
     if not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
         return TaskStatusTransitionResult("hold", "invalid_expected_digest")
     try:

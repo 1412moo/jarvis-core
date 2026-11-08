@@ -207,7 +207,8 @@ approve or reject action and no approval queue. Its only transitions that touch
 `NEEDS_APPROVAL` are Hold (`NEEDS_APPROVAL → ON_HOLD`) and the Resume that returns
 a Task whose `hold_from` is `NEEDS_APPROVAL` to that status. Neither approves,
 rejects, executes or changes the summary, so a Task that waited for approval
-still reaches execution only through Discord `/approve`. Hold and Resume are
+still reaches execution only through Discord `/approve` (a Worker result waiting
+for final approval: `/go <task-id> accept` or `reject`, task-0220). Hold and Resume are
 general transitions (G in `docs/task-0044-audit-hash-chain-design.md` section 3.1),
 not approval transitions, and write no audit entry.
 
@@ -310,6 +311,8 @@ complete Task work, and it has no approval queue. The decision is made outside
 the console. The console may only Hold it (D1 as amended by task-0173). An
 `ON_HOLD` Task is listed under On hold, after Ready and before Completed. A
 `CLOSED` Task is listed under Closed, after Completed (task-0180).
+
+A Worker run that waits for the Owner's final approval (task-0220) is a `NEEDS_APPROVAL` Task whose Next action names `/go <task-id> accept` and `/go <task-id> reject`; both are sent in Discord.
 
 A Task run by the Worker pipeline also shows its recorded result read-only:
 **Execution result** (`success`, `failed` or `not_executed`, derived from

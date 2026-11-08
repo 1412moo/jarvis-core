@@ -321,7 +321,7 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 | 읽기 전용 확인·보고 | task-0201부터. 요청(`/go`에서는 task 제목)에 정해진 문구(수정하지 마, 수정하지 말, 수정 금지, 고치지 마, 고치지 말, 변경하지 마, 변경하지 말, 변경 금지, 보고만, 확인만, 읽기 전용, read-only, read only, readonly. 소문자로, 공백을 하나로 줄여 봄)가 있으면 작업 종류 표지어와 관계없이 읽기 전용 실행이다. 아래 읽기 전용 문단 | `READ_ONLY_MARKERS`, `run_report` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar), `apps/research-council/run_smoke_tests.py`(research_council) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
-| 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
+| 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `reject`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
 
 자연어 호출(task-0184): 슬래시 없는 Discord 메시지가 `자비스` 또는 `jarvis` 뒤 쉼표·콜론, 또는 이 봇의 멘션으로
 시작하면, 호출어를 뗀 본문으로 `/work <본문>`과 똑같이 처리한다(같은 Owner 권한 검사와 경로). 호출어가 없는 메시지는
@@ -410,20 +410,27 @@ worktree를 지운다. 결과는 채널에 "검증 안 된 Worker 답"으로 보
    새 상태 없음). 이때 실패 기록은
    `qa:qa_unverified_owner_review candidate=<40hex> baseline=<40hex> attempt=<N>`이다(12항).
    `unverified` 필드가 없거나 `[]`도 `- {...}` 항목 목록도 아니면
-   분류할 수 없는 항목이 있는 것으로 보고 같이 멈춘다. 그다음 main HEAD가 baseline과 같을 때만 ff-only로 반영한다. main이
-   움직였으면 반영하지 않고 실패한다. 실행 전, accept 승인 전, 반영 직전에 main의 tracked 변경이 있으면
+   분류할 수 없는 항목이 있는 것으로 보고 같이 멈춘다. 모든 항목이 확인돼도 파이프라인은 반영하지 않고 Owner 최종 승인을
+   기다린다(task-0220). `/go`는 실행 승인이고 main 반영 승인이 아니다. 실행 기록은
+   `qa:owner_final_review candidate=<40hex> baseline=<40hex> attempt=<N>`이고 `DOING→NEEDS_APPROVAL`과 한 번의
+   원자적 쓰기로 적용한다. 쓰지 못하면 `awaiting_not_recorded`로 실패한다. 이 대기 동안 main은 바뀌지 않고 candidate는 attempt
+   브랜치와 worktree에 남으며, 상태와 기록은 task 파일에, candidate는 git에 있어 봇을 재시작해도 그대로다. 보고에는 변경 파일,
+   diff 앞부분, Reviewer 판정, QA 결과, 저장소 밖 검토 파일(`%LOCALAPPDATA%\jarvis-core\reports\<attempt>-final-review.md`, 전체 diff·
+   Reviewer 보고·QA)의 경로와 승인·거절 명령이 들어간다. 대기 중인 task는 `/go`·`resume`·`recover`를 받지 않고
+   `/approve`도 `approve_not_for_final_review`로 거절한다. main 반영은 12항 accept로만 하며, main HEAD가 baseline과 같을 때만
+   ff-only로 한다. main이 움직였으면 반영하지 않고 거절한다. 대기 중 다른 작업이나 읽기 전용 보고의 커밋으로 main이 움직여도 같다. 실행 전, accept 승인 전, 반영 직전에 main의 tracked 변경이 있으면
    멈추되, `/go`의 상태 전이와 실행 결과 기록이 쓰는 실행 대상 task 자신의 기록(`memory/tasks/<task-id>.md`)
    한 파일만 예외다(task-0157).
-10. 자동 DONE. 9가 성공한 경우에만 실행 결과 기록과 함께 `DOING→DONE`을 한 번의
+10. 자동 DONE. 12항 accept의 ff-only 반영이 성공한 경우에만 실행 결과 기록과 함께 `DOING→DONE`을 한 번의
     원자적 쓰기로 적용하고 task 파일을 checkpoint commit한다. 이것은 파이프라인
     경로에만 적용되는 예외이며 수동 SOP 작업의 DONE 경로(§8)를 바꾸지 않는다.
 11. 실패 처리. DONE 기록 전의 실패는 `DOING→FAILED`로 기록한다. DONE 기록 뒤의
-    실패는 task가 DONE으로 남으므로 Owner 확인 대상이다. 9 이전의 실패는 main에
-    반영되지 않는다. 9 뒤의 기록·checkpoint 단계에서 실패하면 candidate는 이미
+    실패는 task가 DONE으로 남으므로 Owner 확인 대상이다. ff-only 반영 이전의 실패는 main에
+    반영되지 않는다. ff-only 뒤의 기록·checkpoint 단계에서 실패하면 candidate는 이미
     main에 있으므로 Owner 확인 대상이다. 실패한 시도는 보존한다.
-12. Accept. `/go <id> accept`는 9항의 실패 기록이 있는 FAILED task에만, Owner가 확인 대기
+12. Accept. `/go <id> accept`는 9항의 최종 승인 대기 기록이 있는 NEEDS_APPROVAL task와(최종 승인, task-0220) 9항의 실패 기록이 있는 FAILED task에만, Owner가 확인 대기
     항목을 확인한 뒤 명시적으로 요청할 때만 한다. 순서는 candidate 식별 → main baseline 확인 →
-    8항 QA 6개 재실행 → 승인 전이(`FAILED→TODO→DOING`, `/go`와 같은 Owner 승인 감사) → baseline
+    8항 QA 6개 재실행 → 승인 전이(`FAILED→TODO→DOING`, 최종 승인 대기면 `NEEDS_APPROVAL→DOING`, `/go`와 같은 Owner 승인 감사) → baseline
     재확인 → ff-only → `DOING→DONE` → checkpoint이며 Reviewer는 다시 호출하지 않는다. 식별은
     기록된 candidate·baseline·attempt를 git 상태와 대조한다. 기록 형식이 다르면
     `accept_record_invalid`, attempt 이름이 다른 task와 겹치면 `accept_attempt_ambiguous`, 기록보다
@@ -437,9 +444,15 @@ worktree를 지운다. 결과는 채널에 "검증 안 된 Worker 답"으로 보
     `accept_main_dirty`, QA가 실패하면 `accept_qa_failed`로 거절한다. 이 거절들은 승인 전이 전이라
     상태·실패 기록·main·attempt를 바꾸지 않고 감사도 남기지 않으므로 다시 accept할 수 있다. 승인
     전이가 적용되지 않으면 `accept_transition_failed`다. 승인 전이 뒤의 실패는 9~11항과 같이
-    처리하며 다시 accept하지 않는다. main이 baseline과 다르면 rebase·merge·resume으로 우회하지 않는다.
+    처리하며 다시 accept하지 않는다. main이 baseline과 다르면 accept 안에서 rebase·merge·resume으로 우회하지 않는다. 거절 뒤의 resume은 Reviewer·QA·최종 승인을 다시 거치는 새 실행이다.
+    잠금과 상태로 중복 반영을 막는다. 실행 중인 accept가 있으면 `worker_busy`, 이미 DONE이면 `accept_requires_failed:<상태>`다.
+    거절. `/go <id> reject`는 최종 승인 대기 task에만 하며(task-0220) `NEEDS_APPROVAL→FAILED`와 거절 기록
+    `owner:owner_rejected candidate=<40hex> baseline=<40hex> attempt=<N>`을 한 번의 원자적 쓰기로 적용하고 Owner 승인 감사와
+    실행 결과 감사를 남긴다. main은 바뀌지 않고 attempt는 보존되며, 거절된 candidate는 accept할 수 없다. 다시 하려면 `/go`나
+    `/go <id> resume`이다. 상태가 다르면 `reject_requires_final_review:<상태>`, `/work`로 만든 task가 아니면
+    `reject_not_worker_path`, 잠금이 잡혀 있으면 `worker_busy`, 기록이 맞지 않으면 `reject_record_invalid`, 전이가 적용되지 않으면 `reject_transition_failed`다.
 13. Recover. `/go <id> recover`는 `/work`로 만든 DOING task에만, Owner가 명시적으로 요청할 때만
-    한다(task-0167). 실행은 attempt를 만들 때부터 결과(DONE·FAILED와 실행 기록)를 쓸 때까지
+    한다(task-0167). 실행은 attempt를 만들 때부터 결과(DONE·FAILED·최종 승인 대기와 실행 기록)를 쓸 때까지
     attempt worktree 옆(저장소 밖)에 실행 표지를 두고 그 뒤 지운다(repair 1, run 전체). accept는
     기록된 attempt를 찾은 뒤(QA 전)부터 결과를 쓸 때까지 같은 표지를 둔다. 표지는 run을 실행하는
     봇 프로세스와, run이 시작해 아직 실행 중인 자식 프로세스(Worker·Reviewer·테스트·QA·git, 모두

@@ -368,6 +368,11 @@ TASK_HOLD_APPROVAL_NOTICE = (
     "Hold does not approve or reject this Task. Resume returns it to "
     "NEEDS_APPROVAL, where only Discord /approve can approve it."
 )
+# task-0220: a Worker candidate waiting for final approval is decided by /go, not /approve.
+TASK_HOLD_FINAL_REVIEW_NOTICE = (
+    "Hold does not approve or reject this Worker result. Resume returns it to "
+    "NEEDS_APPROVAL, where only Discord /go accept or /go reject decides it."
+)
 # task-0180: Close. Only a manual DOING Task (source_command is not /task), only to
 # CLOSED, with the Owner's closed_reason written in the same replace. CLOSED is final.
 # task-0206: also any FAILED Task, Worker path included.
@@ -1818,6 +1823,16 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
         }
 
     group_id, display_rank, next_action = status_rule
+    # task-0220: this approval is given in Discord, on a preserved candidate.
+    if (
+        status == "NEEDS_APPROVAL"
+        and execution is not None
+        and TASK_FINAL_REVIEW_PATTERN.fullmatch(execution["summary"] or "")
+    ):
+        next_action = (
+            "Worker result waits for the Owner's final approval; main is unchanged. "
+            f"Check it, then send /go {task_id} accept or /go {task_id} reject in Discord."
+        )
     return {
         "parse_state": "valid",
         "id": task_id,
@@ -2090,6 +2105,10 @@ TASK_FAILURE_SUMMARY_PATTERN = re.compile(
 TASK_FAILURE_OWNER_REVIEW_PATTERN = re.compile(
     r"qa:qa_unverified_owner_review candidate=([0-9a-f]{40}) baseline=([0-9a-f]{40}) attempt=([1-9][0-9]*)"
 )
+# task-0220: a Worker run waiting for the Owner's final approval (claude_worker.py FINAL_REVIEW_RECORD_PATTERN).
+TASK_FINAL_REVIEW_PATTERN = re.compile(
+    r"qa:owner_final_review candidate=([0-9a-f]{40}) baseline=([0-9a-f]{40}) attempt=([1-9][0-9]*)"
+)
 TASK_FAILURE_RETRY = "retry"
 TASK_FAILURE_RESUME = "resume"
 TASK_FAILURE_ACCEPT = "accept"
@@ -2187,6 +2206,14 @@ TASK_FAILURE_REASONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "qa_unverified_owner_review": (
         "QA는 통과했지만 QA로 확인할 수 없는 Reviewer 항목이 남아 반영하지 않았다. candidate는 보존돼 있고 Owner 확인을 기다린다.",
         (TASK_FAILURE_ACCEPT, TASK_FAILURE_RETRY),
+    ),
+    "owner_rejected": (
+        "Owner가 최종 승인 단계에서 candidate를 거절했다. main은 바뀌지 않았고 시도의 브랜치와 worktree는 보존돼 있다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
+    ),
+    "awaiting_not_recorded": (
+        "Reviewer와 QA는 통과했지만 최종 승인 대기 기록을 쓰지 못했다. main은 바뀌지 않았다.",
+        TASK_FAILURE_RETRY_OR_RESUME,
     ),
     "baseline_moved": (
         "반영 직전에 main이 baseline에서 움직여 반영하지 않았다.",
@@ -3449,7 +3476,12 @@ def preview_task_transition(
         # Hold. Shown so the Owner can see whether it is there; not evaluated.
         preview["summary"] = snapshot_view["summary"]
         if snapshot_status == "NEEDS_APPROVAL":
-            preview["approval_notice"] = TASK_HOLD_APPROVAL_NOTICE
+            execution = snapshot_view.get("execution")
+            preview["approval_notice"] = (
+                TASK_HOLD_FINAL_REVIEW_NOTICE
+                if execution is not None and TASK_FINAL_REVIEW_PATTERN.fullmatch(execution["summary"] or "")
+                else TASK_HOLD_APPROVAL_NOTICE
+            )
     elif action == "resume":
         preview["notice"] = TASK_RESUME_NOTICE
         preview["hold_from"] = snapshot_view["hold_from"]
