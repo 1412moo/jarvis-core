@@ -2666,6 +2666,7 @@ def _needs_owner_decision(result: dict[str, Any]) -> bool:
         result.get("reason") in OWNER_DECISION_REASONS
         or (result.get("reason") == "reviewer_findings" and "exhausted" in str(result.get("detail") or ""))
         or bool(result.get("accept_retryable"))
+        or bool(result.get("accept_blocked"))
     )
 
 
@@ -2945,14 +2946,20 @@ def _format_work_reply(result: dict[str, Any]) -> str:
     if _usage_line(result):
         lines.append(_usage_line(result))
     # task-0151: while the task still holds the record accept needs, the accept choice is always
-    # offered. It is placed before the owner review lines are sized (repair 1), so those lines
+    # offered, unless Reviewer findings block it (task-0220). It is placed before the owner review lines are sized (repair 1), so those lines
     # narrow or collapse to make room for it, never the other way round.
     accept = (
         f"`/go {task_id} accept` 확인을 마친 candidate 반영 · "
         if result.get("reason") == "qa_unverified_owner_review" or result.get("accept_retryable")
         else ""
     )
-    if result.get("final_review") and result.get("reason") == "accept_transition_failed":
+    if result.get("final_review") and result.get("accept_blocked"):
+        # task-0220: the wait is still recorded, but Reviewer findings keep this candidate from main.
+        lines.append("- Reviewer 지적이 남아 있어 이 candidate는 accept할 수 없습니다.")
+        lines.append(
+            f"다음 선택지: `/go {task_id} recheck` 재검토 · `/go {task_id} revise <지시>` 수정 요청 · `/go {task_id} reject` 거절 · `/status {task_id}` 상태 확인"
+        )
+    elif result.get("final_review") and result.get("reason") == "accept_transition_failed":
         lines.append(
             f"다음 선택지: `/status {task_id}`로 상태를 확인한 뒤 `/go {task_id} accept` 또는 `/go {task_id} reject`"
         )

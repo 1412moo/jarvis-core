@@ -699,6 +699,10 @@ OWNER_REVISION_TRAILER = "Owner-Revision: "
 OWNER_REVISIONS_CARRIED = "Owner-Revisions-Carried:"
 # task-0220: beside the attempt worktree, the JSON list of instructions no commit of it holds yet.
 OWNER_REVISION_PENDING_SUFFIX = ".owner-revision.json"
+# task-0220: beside the attempt worktree, the candidate whose recheck findings could not be written.
+RECHECK_FINDINGS_SUFFIX = ".recheck-findings"
+RECHECK_FINDINGS_RECORD = "recheck:recheck_findings"
+RECHECK_FINDINGS_HASH = re.compile(r"[0-9a-f]{40}")
 
 
 @dataclass
@@ -726,6 +730,8 @@ class WorkerRunResult:
     # task-0151: an accept run, and whether a failed one left the task and its record as they were.
     accepted: bool = False
     accept_retryable: bool = False
+    # task-0220: Reviewer findings on this candidate still stand, so accept is refused.
+    accept_blocked: bool = False
     pushed: bool = False
     # task-0164: the registry kind the run used.
     work_kind: str = ""
@@ -1339,6 +1345,29 @@ def _net_changed_paths(worktree: Path, baseline: str) -> list[str]:
 
 def _pending_revision_path(worktree: Path) -> Path:
     return worktree.parent / f"{worktree.name}{OWNER_REVISION_PENDING_SUFFIX}"
+
+
+def _recheck_findings_path(worktree: Path) -> Path:
+    return worktree.parent / f"{worktree.name}{RECHECK_FINDINGS_SUFFIX}"
+
+
+def _recheck_findings_hold(worktree: Path, candidate: str) -> bool:
+    """task-0220: True while unwritten recheck findings stand for this candidate; a damaged marker holds."""
+
+    try:
+        marked = _recheck_findings_path(worktree).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        return True
+    return marked == candidate or not RECHECK_FINDINGS_HASH.fullmatch(marked)
+
+
+def _write_recheck_findings(worktree: Path, candidate: str) -> None:
+    path = _recheck_findings_path(worktree)
+    temporary = path.with_name(f"{path.name}.tmp")
+    temporary.write_text(candidate, encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def _cumulative_paths(worktree: Path, baseline: str) -> list[str]:
@@ -2018,7 +2047,10 @@ def _run_pipeline(
         result.detail = f"{type(exc).__name__}: {exc}"[:200]
     if revision is not None and not approved:
         # task-0220: the approval never applied, so the wait, its record and main are as they were.
-        result.accept_retryable = result.reason != "accept_transition_failed"
+        result.accept_blocked = bool(result.worktree and result.candidate) and _recheck_findings_hold(
+            Path(result.worktree), result.candidate
+        )
+        result.accept_retryable = result.reason != "accept_transition_failed" and not result.accept_blocked
         _end_run_marker(run_marker)
         return result
     if result.reason != "qa_unverified_owner_review":
@@ -2198,10 +2230,12 @@ def _recheck_candidate(
             progress, "review", verdict if verdict == "PASS" or not result.reviewer_excerpt else f"{verdict}: {result.reviewer_excerpt}"
         )
         if verdict == "FINDINGS":
-            ended = "recheck:recheck_findings"
+            ended = RECHECK_FINDINGS_RECORD
             raise StageFailure("recheck", "recheck_findings", result.reviewer_excerpt)
         if verdict != "PASS":
             raise StageFailure("reviewer", f"reviewer_{verdict.lower()}", result.reviewer_excerpt)
+        # A fresh Reviewer PASS replaces findings that could not be written earlier, whatever QA says next.
+        _recheck_findings_path(worktree).unlink(missing_ok=True)
 
         result.stage = "qa"
         _report_progress(progress, "qa")
@@ -2241,8 +2275,24 @@ def _recheck_candidate(
         if not written:
             # The verdict could not be written, so the wait and its record are still there.
             result.reason = "recheck_transition_failed"
-    # Nothing was written unless a verdict ended the wait.
-    result.accept_retryable = not written
+    held = ended == RECHECK_FINDINGS_RECORD and not written
+    if result.worktree:
+        marker_worktree = Path(result.worktree)
+        try:
+            if held:
+                # The wait is still there, but these findings keep the candidate from main.
+                _write_recheck_findings(marker_worktree, result.candidate)
+            elif written:
+                _recheck_findings_path(marker_worktree).unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"[recheck] findings marker not updated ({type(exc).__name__})", file=sys.stderr)
+            if held:
+                result.detail = f"거절 표지를 쓰지 못함({type(exc).__name__}): accept 명령이 막히지 않으니 쓰지 마세요. {result.detail}"[:300]
+        if not held and not written:
+            held = _recheck_findings_hold(marker_worktree, result.candidate)
+    result.accept_blocked = held
+    # No task record was written unless a verdict ended the wait.
+    result.accept_retryable = not written and not held
     _end_run_marker(run_marker)
     return result
 
@@ -2299,7 +2349,7 @@ def _accept_candidate(
     """task-0151: `/go <id> accept` for a task stopped at qa_unverified_owner_review, and
     (task-0220) the Owner's final approval of a task waiting in NEEDS_APPROVAL.
 
-    Order: find the recorded candidate -> main at its baseline -> the six QA checks again
+    Order: find the recorded candidate -> no unwritten recheck findings -> main at its baseline -> the six QA checks again
     -> approve (the Owner approval transition: FAILED -> TODO -> DOING, or NEEDS_APPROVAL ->
     DOING) -> the integrate and checkpoint steps. The Reviewer is not called again. Until
     approve() has applied, nothing is changed or recorded, so the task keeps its status and
@@ -2322,6 +2372,8 @@ def _accept_candidate(
         result.worktree, result.branch, result.candidate, result.baseline = str(worktree), branch, candidate, baseline
         result.candidates, result.repairs, result.changed_files = chain, _chain_repairs(repo_root, chain), changed
         run_marker = _start_run_marker(worktree, task_id)
+        if _recheck_findings_hold(worktree, candidate):
+            raise StageFailure("accept", "accept_recheck_findings", "Reviewer findings from a recheck still stand")
         _accept_main_check(repo_root, baseline, task_id)
 
         _report_progress(progress, "qa")
@@ -2360,7 +2412,8 @@ def _accept_candidate(
         result.detail = f"{type(exc).__name__}: {exc}"[:200]
     if not approved:
         # The approval transition never applied: the status and the record are as they were.
-        result.accept_retryable = result.reason != "accept_transition_failed"
+        result.accept_blocked = result.reason == "accept_recheck_findings"
+        result.accept_retryable = result.reason != "accept_transition_failed" and not result.accept_blocked
         _end_run_marker(run_marker)
         return result
     if record_result is not None:

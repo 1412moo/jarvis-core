@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-08 09:55 UTC`
-- updated_at: `2026-11-08 15:40 UTC`
+- updated_at: `2026-11-08 23:18 UTC`
 - summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. 2단위는 /go revise로 수정한 새 candidate와 /go recheck로 Reviewer·QA만 재실행을 더한다. Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
 - source_command: `Owner 지시: 결과 확인 후 반영 구조 구현, 정책 4건 승인 (Claude Code 세션)`
 
@@ -264,7 +264,7 @@ push하지 않는다.
 | 항목 | 값 |
 | --- | --- |
 | baseline | `8b407323fb4ebc5391ec59ab2c84d571e8ba0a3f` (작업 브랜치 HEAD) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=3`(Owner 증액 2회), `repair_count=3`(아래 Repair 절들). Manager 해석: 새 작업 단위라 SOP 기본값으로 시작한다. 1단위의 Reviewer 예외는 적용하지 않는다 |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=4`(Owner 증액 3회), `repair_count=4`(아래 Repair 절들). Manager 해석: 새 작업 단위라 SOP 기본값으로 시작한다. 1단위의 Reviewer 예외는 적용하지 않는다 |
 
 ## 2단위 구현
 
@@ -281,7 +281,7 @@ push하지 않는다.
 
 ## 2단위 검증 (작업 트리, 지정 worktree)
 
-- Self-review 수정 뒤에 돌렸고, repair 뒤에는 candidate 커밋 직전마다 다시 돌렸다(마지막 기준은 Repair 2 뒤 QA). Worker smoke, Console smoke PYTHONUTF8=1과 없음, `run_web_app.py --self-test`, Discord `--self-check-suite`, discord-intake smoke, SOP validator, `node --check`, `git diff --check`를 다시 돌렸다. 수치는 candidate 직전 실행의 결과로 Owner 보고에 적는다.
+- Self-review 수정 뒤에 돌렸고, repair 뒤에는 candidate 커밋 직전마다 다시 돌렸다(마지막 기준은 최종 candidate의 QA). Worker smoke, Console smoke PYTHONUTF8=1과 없음, `run_web_app.py --self-test`, Discord `--self-check-suite`, discord-intake smoke, SOP validator, `node --check`, `git diff --check`를 다시 돌렸다. 수치는 candidate 직전 실행의 결과로 Owner 보고에 적는다.
 
 ## Self-review (2단위)
 
@@ -363,6 +363,27 @@ repair 1회 증액
 
 - `_cumulative_paths`와 QA 비교에 `--no-renames`를 넣어 revise 범위 계산과 같게 했다. rename revise와 그 recheck의 smoke를 더했다.
 - 기록 문구와 Reviewer 요청의 요약 범위를 고쳤다.
+
+## 2단위 Reviewer 결과 (repair 3 candidate `8fdbf5147c1c584467171c90ed5ae8fd74aa90a8`)
+
+verdict FINDINGS, minor 4건, `self_deviations` 없음. 지적: recheck FINDINGS를 기록하지 못한 대기에서 accept가 안내되고 가능함, 이 기록의 "마지막 기준" 문구, Reviewer에게 넘긴 요약의 A67과 A11/A35 누락. repair 예산이 소진돼 Owner에게 보고했다.
+
+## Owner 결정 (원문, repair 4 증액)
+
+```text
+[Manager 질문]
+minor 4건을 수용하고 QA로 갈까요?
+
+[Owner 답]
+repair 1회 더
+```
+
+## 2단위 Repair 4 (`repair_count=4`, Owner 증액)
+
+- recheck FINDINGS를 기록하지 못하면 attempt worktree 옆 `.recheck-findings`에 candidate를 적고 accept를 `accept_recheck_findings`로 거절한다. 답장에서 accept 안내를 뺐고, 표지가 남은 대기에서 revise나 판정 없는 recheck가 실패해도 안내하지 않는다. 같은 candidate의 다음 recheck에서 Reviewer PASS(뒤의 QA 결과와 무관)나 FINDINGS 기록 성공이 표지를 지운다. 표지를 읽지 못하거나 전체 hash가 아니면 거절한다. 표지는 임시 파일 뒤 교체로 쓴다.
+- 표지 파일까지 쓰지 못하면 답장에서만 accept가 빠지고 거절 근거는 남지 않는다. 답장의 상세에 그 사실을 적는다.
+- 절차 차이: `claude` CLI가 여전히 로그아웃(`loggedIn: false`)이라 SOP §3의 `claude -p --agent self-reviewer` 대신 같은 정의를 세션 subagent로 돌렸다. Reviewer 판정이 아니다. 지적 6건(모두 minor): revise 실패 경로의 accept 안내, 깨진 표지와 비원자적 쓰기, 표지 쓰기 실패가 SOP와 답장에 없음, "recheck PASS" 문구, smoke가 지나지 않는 경로와 check 이름, 낡은 주석 3곳. 모두 candidate 전에 고쳤다.
+- 기록의 "마지막 기준" 문구를 고치고, Reviewer 요청의 요약은 전체 표를 넘긴다.
 
 ## Manager 요약
 
@@ -467,3 +488,7 @@ repair 1회 증액
 | A95 | Owner 결정 (원문, repair 3 증액) | "repair 1회 증액으로 마저 고칠까요?" | A97 답의 질문 |
 | A96 | Owner 결정 (원문, repair 3 증액) | "[Owner 답]" | 답의 표지 |
 | A97 | Owner 결정 (원문, repair 3 증액) | "repair 1회 증액" | repair 3을 했다 |
+| A98 | Owner 결정 (원문, repair 4 증액) | "[Manager 질문]" | 질문의 표지 |
+| A99 | Owner 결정 (원문, repair 4 증액) | "minor 4건을 수용하고 QA로 갈까요?" | A101 답의 질문 |
+| A100 | Owner 결정 (원문, repair 4 증액) | "[Owner 답]" | 답의 표지 |
+| A101 | Owner 결정 (원문, repair 4 증액) | "repair 1회 더" | repair 4를 했다 |

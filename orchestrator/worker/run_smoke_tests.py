@@ -1422,8 +1422,93 @@ def revise_recheck_flow(bot, clone: Path, status_of) -> None:
     bot._apply_execution_result = real_apply
     os.environ["FAKE_REVIEW"] = "pass"
     check("recheck: a verdict that cannot be written reports that and keeps the wait",
-          unwritten.get("reason") == "recheck_transition_failed" and unwritten.get("accept_retryable") is True
+          unwritten.get("reason") == "recheck_transition_failed" and unwritten.get("accept_blocked") is True
+          and unwritten.get("accept_retryable") is False
           and status_of(carried_id) == "NEEDS_APPROVAL", str(unwritten.get("reason")))
+    unwritten_reply = bot._format_reply(unwritten)
+    check("recheck: unwritten findings are reported and accept is not offered",
+          "accept할 수 없습니다" in unwritten_reply and f"/go {carried_id} accept" not in unwritten_reply
+          and f"/go {carried_id} recheck" in unwritten_reply, unwritten_reply)
+    main_before = git(["rev-parse", "main"], clone)
+    log.write_text("", encoding="utf-8")
+    held_started = bot._run_command(f"/go {carried_id} accept")
+    held = bot._run_worker_job(carried_id, held_started["request"], held_started["command"], False, True)
+    held_reply = bot._format_reply(held)
+    check("accept: refused while unwritten recheck findings stand, QA not run, main unchanged",
+          held.get("reason") == "accept_recheck_findings" and held.get("accept_blocked") is True
+          and not held.get("qa_checks") and status_of(carried_id) == "NEEDS_APPROVAL"
+          and git(["rev-parse", "main"], clone) == main_before
+          and f"/go {carried_id} accept" not in held_reply,
+          f"{held.get('reason')}:{held_reply}")
+    real_main_check = claude_worker._accept_main_check
+
+    def moved_main(*_args: object, **_kwargs: object) -> None:
+        raise claude_worker.StageFailure("accept", "accept_baseline_moved", "smoke")
+
+    claude_worker._accept_main_check = moved_main
+    failed_revise = job(carried_id, bot._run_command(f"/go {carried_id} revise 표지가 있을 때 실패하는 수정"))
+    claude_worker._accept_main_check = real_main_check
+    failed_revise_reply = bot._format_reply(failed_revise)
+    check("revise: a failure before approval keeps the block and does not offer accept",
+          failed_revise.get("reason") == "accept_baseline_moved" and failed_revise.get("accept_blocked") is True
+          and failed_revise.get("accept_retryable") is False and f"/go {carried_id} accept" not in failed_revise_reply,
+          f"{failed_revise.get('reason')}:{failed_revise_reply}")
+    os.environ["FAKE_REVIEW"] = "blocked"
+    undecided = job(carried_id, bot._run_command(f"/go {carried_id} recheck"))
+    os.environ["FAKE_REVIEW"] = "pass"
+    check("recheck: a run with no verdict keeps the block",
+          undecided.get("reason") == "reviewer_blocked" and undecided.get("accept_blocked") is True
+          and undecided.get("accept_retryable") is False, f"{undecided.get('reason')}")
+    log.write_text("", encoding="utf-8")
+    still_blocked = job(carried_id, bot._run_command(f"/go {carried_id} recheck"))
+    check("recheck: a fresh PASS clears the unwritten findings and accept is offered again",
+          still_blocked.get("awaiting_owner") is True and not still_blocked.get("accept_blocked")
+          and not claude_worker._recheck_findings_hold(Path(still_blocked["worktree"]), still_blocked["candidate"])
+          and f"/go {carried_id} accept" in bot._format_reply(still_blocked),
+          f"{still_blocked.get('stage')}:{still_blocked.get('reason')}")
+    marker_of = claude_worker._recheck_findings_path(Path(still_blocked["worktree"]))
+
+    def no_marker_write(*_args: object, **_kwargs: object) -> None:
+        raise OSError("smoke")
+
+    real_write = claude_worker._write_recheck_findings
+    claude_worker._write_recheck_findings = no_marker_write
+    os.environ["FAKE_REVIEW"] = "findings"
+    bot._apply_execution_result = lambda *a, **k: (False, "transition_not_applied:write_failed")
+    no_marker = job(carried_id, bot._run_command(f"/go {carried_id} recheck"))
+    bot._apply_execution_result = real_apply
+    claude_worker._write_recheck_findings = real_write
+    check("recheck: a marker that cannot be written is told to the Owner, accept not offered",
+          no_marker.get("accept_blocked") is True and not marker_of.exists()
+          and "거절 표지를 쓰지 못함" in bot._format_reply(no_marker)
+          and f"`/go {carried_id} accept`" not in bot._format_reply(no_marker), bot._format_reply(no_marker))
+    bot._apply_execution_result = lambda *a, **k: (False, "transition_not_applied:write_failed")
+    job(carried_id, bot._run_command(f"/go {carried_id} recheck"))
+    bot._apply_execution_result = real_apply
+    marked = marker_of.exists()
+    written_verdict = job(carried_id, bot._run_command(f"/go {carried_id} recheck"))
+    os.environ["FAKE_REVIEW"] = "pass"
+    check("recheck: a FINDINGS verdict that is written ends the wait and removes the marker",
+          marked and written_verdict.get("reason") == "recheck_findings" and status_of(carried_id) == "FAILED"
+          and not marker_of.exists(), f"{marked}:{written_verdict.get('reason')}:{status_of(carried_id)}")
+    hold_dir = Path(tempfile.mkdtemp(prefix="jarvis-hold-"))
+    hold_tree = hold_dir / "attempt"
+    hold_file = claude_worker._recheck_findings_path(hold_tree)
+    hash_a, hash_b = "a" * 40, "b" * 40
+    absent = claude_worker._recheck_findings_hold(hold_tree, hash_a)
+    claude_worker._write_recheck_findings(hold_tree, hash_a)
+    same = claude_worker._recheck_findings_hold(hold_tree, hash_a)
+    other = claude_worker._recheck_findings_hold(hold_tree, hash_b)
+    hold_file.write_text("", encoding="utf-8")
+    empty = claude_worker._recheck_findings_hold(hold_tree, hash_a)
+    hold_file.write_text(hash_a[:10], encoding="utf-8")
+    cut = claude_worker._recheck_findings_hold(hold_tree, hash_a)
+    hold_file.write_bytes(b"\xff\xfe\xff")
+    unreadable = claude_worker._recheck_findings_hold(hold_tree, hash_a)
+    shutil.rmtree(hold_dir, ignore_errors=True)
+    check("findings marker: absent is free, same candidate holds, another is free, a damaged marker holds",
+          (absent, same, other, empty, cut, unreadable) == (False, True, False, True, True, True),
+          str((absent, same, other, empty, cut, unreadable)))
 
     # The chain check refuses what the pipeline never makes.
     head_now = git(["rev-parse", "HEAD"], clone)
