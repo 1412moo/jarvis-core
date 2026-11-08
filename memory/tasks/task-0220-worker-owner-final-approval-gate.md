@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-08 09:55 UTC`
-- updated_at: `2026-11-08 11:46 UTC`
+- updated_at: `2026-11-08 12:41 UTC`
 - summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. revise와 recheck는 2단위, Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
 - source_command: `Owner 지시: 결과 확인 후 반영 구조 구현, 정책 4건 승인 (Claude Code 세션)`
 
@@ -198,6 +198,41 @@ push는 하지 않는다.
 
 첫 candidate 커밋 때 Manager의 명령이 Console smoke 실패를 확인하지 않아, 실패한 상태로 커밋이 만들어졌다. Reviewer에 넘기기 전에 `git reset --soft`로 되돌려 고친 뒤 다시 커밋했다(`341f596`). 이 task의 status는 DOING이며 Owner 최종 승인 전이라 Complete하지 않았다. 이 기록의 Reviewer 경과·예외·QA 절은 작업 트리에만 있고 커밋하지 않았다.
 
+## Owner 결정 (원문, 브랜치 분리)
+
+```text
+브랜치로 분리하는 방향을 선택한다.
+이번 task-0220의 목적은 Owner 최종 승인 전까지 main을 변경하지 않는 구조를 만드는 것이다.
+현재 두 커밋이 로컬 main에 들어간 것은 최초 승인 조건과 맞지 않으므로 다음과 같이 처리해라.
+`341f596`, `44e5ada`를 별도 작업 브랜치에 안전하게 보존한다.
+로컬 main을 기존 기준점 `a7a28dc`로 복구한다.
+origin/main과 로컬 main이 다시 일치하는지 확인한다.
+`jarvis.bat`은 절대 건드리지 않는다.
+push는 하지 않는다.
+task-0220은 이 단계에서 DONE 처리하지 않는다.
+2단위 revise/recheck는 분리한 작업 브랜치에서 진행할 수 있도록 상태와 절차를 정리한다.
+특히 브랜치 분리 전에 현재 작업물과 task 기록, 예외 결정 기록이 모두 보존되는지 확인해라.
+Git reset이나 branch 이동은 먼저 복구 가능한 백업과 참조점을 확보한 뒤 실행해라.
+작업이 끝나면 main, origin/main, 작업 브랜치의 HEAD와 task 상태를 각각 보고해라.
+이번 단계에서는 봇 재시작이나 push를 하지 말고 먼저 보고해라.
+```
+
+번호만 뺀 Owner 메시지다.
+
+## 브랜치 분리 실행
+
+순서: 백업 ref `refs/backup/task-0220/main-before-split`(`44e5ada`)와 bundle, 기록 사본 생성 → 저장소 밖 worktree에 `work/task-0220-final-approval` 생성 → 커밋되지 않았던 기록(재검토 경과, 예외 결정, QA)을 그대로 복사해 `aaff7c2`로 커밋 → 기록 blob이 원본과 같고 두 candidate가 조상임을 확인 → main의 기록 변경 복원 → `git reset --keep a7a28dc`. main 체크아웃은 main을 떠나지 않았다.
+
+결과: 로컬 main, origin/main, 원격 조회가 `a7a28dc`로 일치한다. `jarvis.bat`의 크기와 수정 시각은 전후로 같다. push와 봇 재시작은 하지 않았다. 이 task는 DOING이며 기록은 이 브랜치에만 있다.
+
+## 2단위 절차
+
+- 작업 위치: worktree `jarvis-core-worktrees/task-0220-final-approval`(브랜치 `work/task-0220-final-approval`). 봇이 쓰는 main 체크아웃은 `main_not_checked_out`을 피하려고 main에 둔다.
+- Reviewer와 QA를 통과한 candidate는 `44e5ada`까지다. 2단위 baseline은 이 브랜치의 HEAD다.
+- 도구: `scripts/commit_candidate.py`, `check_task_record.py`, Console은 각자 자기 체크아웃을 기준으로 동작하므로 worktree 안에서 실행한다.
+- 최종 반영: Owner 승인 뒤에만 main을 이 브랜치로 ff-only 한다. 그 전에 main이 움직이면 브랜치를 새 main 위로 옮기고 Reviewer와 QA를 다시 한다.
+- 주의: main이 `a7a28dc`인 동안 봇 코드에는 최종 승인 대기가 없어 `/go`는 이전처럼 자동 반영한다. main에서 새 task를 만들면 이 task의 번호 0220을 다시 쓸 수 있다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -255,3 +290,17 @@ push는 하지 않는다.
 | A49 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "push는 하지 않는다." | 하지 않았다 |
 | A50 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "이번 예외는 task-0220의 해당 Reviewer 검토에만 적용한다." | task-0220의 이 검토에만 적용한다 |
 | A51 | Owner 결정 (원문, Reviewer 무효 규칙 예외) | "이후 작업부터는 기존 SOP의 Reviewer 무효 규칙을 그대로 적용한다." | 이 예외를 다른 task의 근거로 쓰지 않는다 |
+| A52 | Owner 결정 (원문, 브랜치 분리) | "브랜치로 분리하는 방향을 선택한다." | 이 절의 실행 근거다 |
+| A53 | Owner 결정 (원문, 브랜치 분리) | "이번 task-0220의 목적은 Owner 최종 승인 전까지 main을 변경하지 않는 구조를 만드는 것이다." | Manager 해석: 이 task의 수동 candidate 커밋도 Owner 최종 승인 전에는 main에 두지 않는다 |
+| A54 | Owner 결정 (원문, 브랜치 분리) | "현재 두 커밋이 로컬 main에 들어간 것은 최초 승인 조건과 맞지 않으므로 다음과 같이 처리해라." | 조건의 표지 |
+| A55 | Owner 결정 (원문, 브랜치 분리) | "`341f596`, `44e5ada`를 별도 작업 브랜치에 안전하게 보존한다." | `work/task-0220-final-approval`에 두 커밋이 조상으로 있다 |
+| A56 | Owner 결정 (원문, 브랜치 분리) | "로컬 main을 기존 기준점 `a7a28dc`로 복구한다." | `git reset --keep`으로 복구했다 |
+| A57 | Owner 결정 (원문, 브랜치 분리) | "origin/main과 로컬 main이 다시 일치하는지 확인한다." | main, origin/main, 원격 조회가 모두 `a7a28dc`다 |
+| A58 | Owner 결정 (원문, 브랜치 분리) | "`jarvis.bat`은 절대 건드리지 않는다." | 크기와 수정 시각이 전후로 같다 |
+| A59 | Owner 결정 (원문, 브랜치 분리) | "push는 하지 않는다." | 하지 않았다 |
+| A60 | Owner 결정 (원문, 브랜치 분리) | "task-0220은 이 단계에서 DONE 처리하지 않는다." | status는 DOING이다 |
+| A61 | Owner 결정 (원문, 브랜치 분리) | "2단위 revise/recheck는 분리한 작업 브랜치에서 진행할 수 있도록 상태와 절차를 정리한다." | 아래 2단위 절차 절이다 |
+| A62 | Owner 결정 (원문, 브랜치 분리) | "특히 브랜치 분리 전에 현재 작업물과 task 기록, 예외 결정 기록이 모두 보존되는지 확인해라." | 복구 전에 기록 blob과 두 candidate가 브랜치에 있음을 확인했다 |
+| A63 | Owner 결정 (원문, 브랜치 분리) | "Git reset이나 branch 이동은 먼저 복구 가능한 백업과 참조점을 확보한 뒤 실행해라." | 복구 전에 백업 ref, bundle, 기록 사본을 만들었다 |
+| A64 | Owner 결정 (원문, 브랜치 분리) | "작업이 끝나면 main, origin/main, 작업 브랜치의 HEAD와 task 상태를 각각 보고해라." | Owner 보고에 적었다 |
+| A65 | Owner 결정 (원문, 브랜치 분리) | "이번 단계에서는 봇 재시작이나 push를 하지 말고 먼저 보고해라." | 둘 다 하지 않았다 |
