@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-09 06:48 UTC`
-- updated_at: `2026-11-09 08:49 UTC`
+- updated_at: `2026-11-09 09:32 UTC`
 - summary: `task-0220에서 Owner가 수용한 Reviewer minor 5건을 정리한다. 현재 규칙인 SOP의 recheck 표지 안내 문구만 실제 동작에 맞게 고치고, task-0220 DONE 기록의 요약 세 행은 History라 고치지 않고 이 기록에 정정을 남기며, smoke diff 보기 한도 건은 변경이 없다. 코드 변경과 push는 범위 밖이다.`
 - source_command: `Owner 지시: 진행해 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `dd0efa205ec08646412f862bee8fc16aceeaec51` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, repair 1은 아래 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (SOP §5 기본값 1회에 Owner가 1회 증액, repair 1·2는 아래 절) |
 
 ## Owner 결정 (원문)
 
@@ -57,7 +57,7 @@ Manager 해석: 질문의 "문구 정리"를 위 표로 나눴다. AGENTS.md 기
 
 ## 구현
 
-`docs/jarvis-multi-agent-sop-v0.1.md`의 recheck 항목에서 "거절하고 안내하지 않으며"를 네 부분으로 나눴다: accept는 `accept_recheck_findings`로 거절한다, 이 거절을 판정한 답장(`accept_blocked`)은 accept를 안내하지 않는다, 그 판정을 거치지 않는 안내(예: Console Next action, `/approve` 거절 답장, 깨진 표지가 남은 뒤의 revise 성공이나 미확인 항목 답장, candidate를 찾지 못한 실패 답장)는 accept를 안내할 수 있다, 그래도 실제 accept는 표지 확인(candidate 식별이 계속 실패하면 그 식별 단계)에서 거절된다. 목록은 예시이며 전부가 아니다.
+`docs/jarvis-multi-agent-sop-v0.1.md`의 recheck 항목에서 "거절하고 안내하지 않으며"를 네 부분으로 나눴다: accept는 `accept_recheck_findings`로 거절한다, 이 거절을 판정한 답장은 accept를 안내하지 않는다, 그 판정을 거치지 않는 안내(예: Console Next action, `/approve` 거절 답장, 깨진 표지가 남은 뒤의 revise 성공이나 미확인 항목 답장, candidate를 찾지 못한 실패 답장)는 accept를 안내할 수 있다, 그래도 실제 accept는 표지 확인(candidate 식별이 계속 실패하면 그 식별 단계)에서 거절된다. 목록은 예시이며 전부가 아니다.
 
 확인한 코드(baseline 기준):
 - `orchestrator/worker/claude_worker.py`의 `_recheck_findings_hold`는 깨진 표지면 candidate와 무관하게 True를 돌려준다.
@@ -103,6 +103,31 @@ SOP 문장 1건만 수정하고, task-0220 DONE 기록의 요약 3행(A8, A73, A
 
 Reviewer minor 2건을 budget 안에서 고쳤다(`repair_count=1`). 지적 1은 SOP 문장과 구현 절에 식별 단계를 구분해 넣었고, 지적 2는 위 Owner 결정으로 분할을 승인받아 기록했다. 코드는 바꾸지 않았다.
 
+## Reviewer 결과 (repair 1 candidate `a49d1435bcf1aeb858444dfb2990857650191440`)
+
+verdict PASS, findings 없음. 다만 `self_deviations` 3건(`git grep`의 `-o` 옵션 1건, 패턴의 파이프 문자 2건)이 있어 `.claude/agents/reviewer.md` 규칙상 이 검토는 무효다. 아래 QA 실패로 candidate가 바뀌므로 같은 candidate의 재검토는 하지 않았다.
+
+## QA 결과 (같은 candidate)
+
+- 새 detached worktree(`core.autocrlf=true`)에서 돌렸다. HEAD = candidate, 작업 트리 깨끗, 변경 파일은 범위의 2개, 코드 변경 0, `jarvis.bat` 트리에 없음. QA worktree는 지웠다.
+- `git diff --check`, 사전 점검, Console self-test, Console smoke, discord-intake smoke, Discord self-check, secrets(findings 0)는 통과했다.
+- SOP validator가 rc=1로 실패했다: `pipeline_reason_parity`, SOP에만 있는 `accept_blocked`. self-review 지적을 고치며 SOP에 코드 표기로 넣은 낱말을 validator가 파이프라인 사유 코드로 읽었다.
+- QA 판정: FAIL. Manager는 candidate 전에 validator를 돌리지 않았다.
+
+## Owner 결정 (원문, repair 증액)
+
+```text
+[Manager 질문]
+task-0222의 repair 예산을 1회 늘릴까요?
+
+[Owner 답]
+repair 1회 증액
+```
+
+## Repair 2
+
+SOP 문장에서 괄호의 코드 표기 하나만 지웠고 구현 절을 같게 맞췄다. 코드는 바꾸지 않았다. candidate 전에 validator를 돌렸다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -118,3 +143,7 @@ Reviewer minor 2건을 budget 안에서 고쳤다(`repair_count=1`). 지적 1은
 | A7 | Owner 결정 (원문, 5건 처리) | "SOP 문장 1건만 수정하고, task-0220 DONE 기록의 요약 3행(A8, A73, A89)은 그대로 둔 채 task-0222 기록에 정정을 남기며, smoke diff 보기 한도 1건은 변경하지 않습니다." | A9 답의 질문 내용. "5건 처리" 절과 같다 |
 | A8 | Owner 결정 (원문, 5건 처리) | "[Owner 답]" | 답의 표지 |
 | A9 | Owner 결정 (원문, 5건 처리) | "이대로 승인 (Recommended)" | 5건 처리 분할 승인. SOP 문장만 고치고 task-0220 기록은 그대로 두었으며 smoke 건은 변경하지 않았다 |
+| A10 | Owner 결정 (원문, repair 증액) | "[Manager 질문]" | 질문의 표지 |
+| A11 | Owner 결정 (원문, repair 증액) | "task-0222의 repair 예산을 1회 늘릴까요?" | A13 답의 질문 |
+| A12 | Owner 결정 (원문, repair 증액) | "[Owner 답]" | 답의 표지 |
+| A13 | Owner 결정 (원문, repair 증액) | "repair 1회 증액" | repair_budget을 2로 늘렸고 repair 2를 썼다. Owner 증액은 이 task에만 효력이 있다 |
