@@ -95,3 +95,4 @@ Studyroom 자체의 정적 파일, JSON 스키마, HTTP 서버 라우팅, 디렉
 ```powershell
 python -B apps/studyroom/run_smoke_tests.py
 ```
+Owner 최종 승인 구조 시험
