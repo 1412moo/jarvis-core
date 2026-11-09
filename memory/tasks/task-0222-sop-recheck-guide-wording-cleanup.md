@@ -2,11 +2,12 @@
 
 - id: `task-0222-sop-recheck-guide-wording-cleanup`
 - title: `SOP recheck 표지 안내 문구 정리와 task-0220 minor 정정 기록`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-09 06:48 UTC`
-- updated_at: `2026-11-09 09:32 UTC`
+- updated_at: `2026-11-09 09:56 UTC`
 - summary: `task-0220에서 Owner가 수용한 Reviewer minor 5건을 정리한다. 현재 규칙인 SOP의 recheck 표지 안내 문구만 실제 동작에 맞게 고치고, task-0220 DONE 기록의 요약 세 행은 History라 고치지 않고 이 기록에 정정을 남기며, smoke diff 보기 한도 건은 변경이 없다. 코드 변경과 push는 범위 밖이다.`
+- completion_evidence: `candidate 434a8d7206184824e4c9f47d1aebb74b4ab23378: Reviewer PASS (no findings, no self deviations); QA PASS in a fresh worktree (validator, preflight, Console smoke, intake smoke, Discord self-check, secrets 0); Owner final approval recorded in the task file`
 - source_command: `Owner 지시: 진행해 (Claude Code 세션)`
 
 ## 기준선
@@ -128,6 +129,34 @@ repair 1회 증액
 
 SOP 문장에서 괄호의 코드 표기 하나만 지웠고 구현 절을 같게 맞췄다. 코드는 바꾸지 않았다. candidate 전에 validator를 돌렸다.
 
+## Reviewer 결과 (repair 2 candidate `434a8d7206184824e4c9f47d1aebb74b4ab23378`)
+
+verdict PASS, findings 없음, `self_deviations` 없음. 이 절과 아래 두 절은 candidate 뒤의 기록이다.
+
+Reviewer unverified: validator와 사전 점검 결과, 이전 QA 결과, self-review 실행 사실, baseline과 origin/main의 관계, Owner 답의 실제 여부. 앞의 둘은 아래 QA에서 확인했다.
+
+## QA 결과 (같은 candidate)
+
+- 새 detached worktree(`core.autocrlf=true`)에서 돌렸다. HEAD = candidate, 작업 트리 깨끗(실행 전후), 변경 파일은 범위의 2개, 코드 변경 0, `jarvis.bat` 트리에 없음. QA worktree는 지웠다.
+- `git diff --check`, 사전 점검, SOP validator, Console self-test, Console smoke, discord-intake smoke, Discord self-check 모두 rc=0, secrets findings 0. 옛 문구 "거절하고 안내하지 않으며"는 SOP에 남아 있지 않다.
+- main과 origin/main은 `dd0efa2`, `jarvis.bat` 크기 94, 수정 시각 2026-10-11 02:13:50(+0900). 내용은 열지 않았다.
+- QA 판정: PASS. Docs는 `not_required`(문서 변경이 candidate에 포함됨).
+- 확인하지 못한 것: SOP 문장이 설명하는 답장 경로의 실제 실행. 코드 읽기로만 대조했다. Worker smoke는 코드 변경이 없어 돌리지 않았다.
+
+## Owner 결정 (원문, 최종 승인)
+
+```text
+[Manager 질문]
+task-0222를 최종 승인해 main에 반영할까요?
+
+[Owner 답]
+최종 승인
+```
+
+## Complete
+
+Owner 최종 승인에 따라 Record Completion Evidence(Preview 확인 뒤 Confirm)로 completion_evidence를 남기고, Console Complete Preview(DOING → DONE)를 확인한 뒤 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-09 09:56 UTC`). Console은 worktree에서 띄웠고 끈 상태다. 이 기록의 DONE checkpoint와 master-plan 항목을 브랜치에 커밋한 뒤 로컬 main을 ff-only로 옮겼다. push는 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -147,3 +176,7 @@ SOP 문장에서 괄호의 코드 표기 하나만 지웠고 구현 절을 같�
 | A11 | Owner 결정 (원문, repair 증액) | "task-0222의 repair 예산을 1회 늘릴까요?" | A13 답의 질문 |
 | A12 | Owner 결정 (원문, repair 증액) | "[Owner 답]" | 답의 표지 |
 | A13 | Owner 결정 (원문, repair 증액) | "repair 1회 증액" | repair_budget을 2로 늘렸고 repair 2를 썼다. Owner 증액은 이 task에만 효력이 있다 |
+| A14 | Owner 결정 (원문, 최종 승인) | "[Manager 질문]" | 질문의 표지 |
+| A15 | Owner 결정 (원문, 최종 승인) | "task-0222를 최종 승인해 main에 반영할까요?" | A17 답의 질문 |
+| A16 | Owner 결정 (원문, 최종 승인) | "[Owner 답]" | 답의 표지 |
+| A17 | Owner 결정 (원문, 최종 승인) | "최종 승인" | Console로 완료 근거를 남기고 Complete한 뒤 main을 ff-only로 옮겼다. push는 포함하지 않는다 |
