@@ -2,11 +2,12 @@
 
 - id: `task-0220-worker-owner-final-approval-gate`
 - title: `Worker 결과의 Owner 최종 승인 뒤에만 main 반영 (1단위: 대기·accept·reject)`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-08 09:55 UTC`
-- updated_at: `2026-11-08 23:18 UTC`
+- updated_at: `2026-11-09 00:30 UTC`
 - summary: `Worker 파이프라인이 /go 실행 승인만으로 Reviewer와 QA 뒤 main에 반영하던 것을 바꾼다. 통과한 실행은 NEEDS_APPROVAL로 멈춰 candidate를 보존하고 main을 건드리지 않으며, Owner의 /go accept 때만 QA 재실행 뒤 ff-only 반영하고 /go reject는 main 불변으로 FAILED로 끝낸다. 2단위는 /go revise로 수정한 새 candidate와 /go recheck로 Reviewer·QA만 재실행을 더한다. Lead 종합 보고·Worker Backend·Gemma·push는 범위 밖이다.`
+- completion_evidence: `candidate ecb820c487351f3f43212ae35d6baaee311d75ce: Owner accepted Reviewer minor 5 for this candidate; QA PASS in a fresh worktree, Worker smoke 708/0; Owner final approval recorded in the task file`
 - source_command: `Owner 지시: 결과 확인 후 반영 구조 구현, 정책 4건 승인 (Claude Code 세션)`
 
 ## 기준선
@@ -385,6 +386,52 @@ repair 1회 더
 - 절차 차이: `claude` CLI가 여전히 로그아웃(`loggedIn: false`)이라 SOP §3의 `claude -p --agent self-reviewer` 대신 같은 정의를 세션 subagent로 돌렸다. Reviewer 판정이 아니다. 지적 6건(모두 minor): revise 실패 경로의 accept 안내, 깨진 표지와 비원자적 쓰기, 표지 쓰기 실패가 SOP와 답장에 없음, "recheck PASS" 문구, smoke가 지나지 않는 경로와 check 이름, 낡은 주석 3곳. 모두 candidate 전에 고쳤다.
 - 기록의 "마지막 기준" 문구를 고치고, Reviewer 요청의 요약은 전체 표를 넘긴다.
 
+## 2단위 Reviewer 결과 (repair 4 candidate `ecb820c487351f3f43212ae35d6baaee311d75ce`)
+
+verdict FINDINGS, minor 5건, `self_deviations` 없음. 이 절과 아래 두 절은 candidate 뒤의 기록이라 작업 트리에만 두고 candidate를 바꾸지 않았다.
+
+1. 요약 A89: task 기록과 표지 쓰기가 함께 실패하면 표지가 없어 accept가 막히지 않는데 "유지했다"로만 적었다.
+2. SOP 12항의 "안내하지 않으며": Console Next action, `/approve` 거절 답, 깨진 표지가 남은 뒤의 revise 성공 답은 표지를 보지 않고 accept를 안내한다. accept 거절 자체는 유지된다.
+3. 요약 A8의 "Reviewer·QA·repair는 바꾸지 않았고": 2단위는 QA 비교의 `--no-renames`와 Reviewer 호출의 recheck·revision 분기를 더했다.
+4. 요약 A73의 "main을 바꾸는 호출은 accept의 ff-only뿐": 읽기 전용 보고의 기록 commit과 accept 뒤 checkpoint commit도 main을 움직인다.
+5. smoke diff가 도구 한도를 넘어 Reviewer가 baseline에서 삭제된 줄을 보지 못했다. Manager와 QA가 확인했다: 삭제 줄 3개, 그중 `check` 줄 1개는 사용법 문구 검사이고 같은 이름의 check가 candidate에 있다.
+
+Reviewer unverified: 검사 실행 결과, `claude_worker.py` 변경 줄 전부를 읽었는지, main·origin 위치, 작업 위치, `jarvis.bat` 속성, 실제 봇 재시작, self-review 실행 사실. 앞의 세 번째까지와 `jarvis.bat`은 QA 결과 절에 적었다.
+
+## Owner 결정 (원문, minor 5건 수용)
+
+```text
+[Manager 질문]
+minor 5건을 이 candidate에 한해 수용하고 QA로 갈까요?
+
+[Owner 답]
+수용하고 QA로
+```
+
+Manager 해석: 질문 앞의 보고가 5건을 하나씩 적었고 답 하나가 그 5건 전부를 받는다. SOP §8의 수용으로 기록하며 이 candidate에만 효력이 있고 candidate가 바뀌면 무효다. 위 1~5의 문구와 드문 이중 실패는 그대로 남는다.
+
+## 2단위 QA 결과 (candidate `ecb820c487351f3f43212ae35d6baaee311d75ce`)
+
+- scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗(실행 전후), 변경 파일 9개, `jarvis.bat` 트리에 없음. QA worktree는 지웠다.
+- `git diff --check` 통과, SOP validator PASS, `run_web_app.py --self-test` 통과, Console smoke PYTHONUTF8=1과 없음 모두 rc=0, `node --check app.js` 통과, Worker smoke total=708 failed=0, discord-intake smoke rc=0, Discord `--self-check-suite` rc=0, Studyroom smoke 5/5, `check_no_secrets.py` findings 0.
+- Reviewer unverified 중: main과 origin/main은 `a7a28dc`, 브랜치 HEAD는 candidate, main 체크아웃은 `jarvis.bat` untracked만 있다. `jarvis.bat` 크기 94, 수정 시각 2026-10-11 02:13:50(+0900). 내용은 열지 않았다.
+- QA 판정: PASS. Docs는 `not_required`(문서 변경이 candidate에 포함됨).
+- 확인하지 못한 것: 실제 봇 프로세스 재시작과 Discord 실전 실행, `claude_worker.py` 전체 줄 단위 diff 검토. 실행 중인 봇은 이 코드를 아직 읽지 않았고 이 PC의 `claude` CLI는 로그아웃 상태다.
+
+## Owner 결정 (원문, 최종 승인)
+
+```text
+[Manager 질문]
+task-0220을 최종 승인해 main에 반영할까요?
+
+[Owner 답]
+최종 승인
+```
+
+## Complete
+
+Owner 최종 승인에 따라 Record Completion Evidence(Preview 확인 뒤 Confirm)로 completion_evidence를 남기고, Console Complete Preview(DOING → DONE)를 확인한 뒤 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-09 00:30 UTC`). Console은 worktree에서 띄웠고 끈 상태다. 이 기록의 DONE checkpoint와 master-plan 항목을 브랜치에 커밋한 뒤 로컬 main을 ff-only로 옮겼다. push와 봇 재시작은 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다. 오른쪽 칸에서 "Manager 해석"이라고 적은 부분은 승인 원문에 없는 내용이다.
@@ -492,3 +539,11 @@ repair 1회 더
 | A99 | Owner 결정 (원문, repair 4 증액) | "minor 4건을 수용하고 QA로 갈까요?" | A101 답의 질문 |
 | A100 | Owner 결정 (원문, repair 4 증액) | "[Owner 답]" | 답의 표지 |
 | A101 | Owner 결정 (원문, repair 4 증액) | "repair 1회 더" | repair 4를 했다 |
+| A102 | Owner 결정 (원문, minor 5건 수용) | "[Manager 질문]" | 질문의 표지 |
+| A103 | Owner 결정 (원문, minor 5건 수용) | "minor 5건을 이 candidate에 한해 수용하고 QA로 갈까요?" | A105 답의 질문 |
+| A104 | Owner 결정 (원문, minor 5건 수용) | "[Owner 답]" | 답의 표지 |
+| A105 | Owner 결정 (원문, minor 5건 수용) | "수용하고 QA로" | 5건을 이 candidate에 한해 수용하고 QA를 돌렸다 |
+| A106 | Owner 결정 (원문, 최종 승인) | "[Manager 질문]" | 질문의 표지 |
+| A107 | Owner 결정 (원문, 최종 승인) | "task-0220을 최종 승인해 main에 반영할까요?" | A109 답의 질문 |
+| A108 | Owner 결정 (원문, 최종 승인) | "[Owner 답]" | 답의 표지 |
+| A109 | Owner 결정 (원문, 최종 승인) | "최종 승인" | Console로 완료 근거를 남기고 Complete한 뒤 main을 ff-only로 옮겼다. push와 봇 재시작은 포함하지 않는다 |
