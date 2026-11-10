@@ -2924,7 +2924,8 @@ GOAL_VERDICT_MARKS = {"auto": "✅ auto", "needs_owner": "🟡 needs_owner", "fo
 GOAL_MODE_LABELS = {"edit": "수정", "read_only": "읽기 전용"}
 
 
-GOAL_TAIL_LINE_CHARS = 500
+# task-0225 repair 2: a verdict-reasons line longer than this goes to its own messages, uncut.
+GOAL_INLINE_REASONS_CHARS = 1000
 
 
 def _fit_message(text: str, limit: int = DISCORD_MESSAGE_CHARS) -> str:
@@ -2934,15 +2935,34 @@ def _fit_message(text: str, limit: int = DISCORD_MESSAGE_CHARS) -> str:
 
 
 def _fit_head_tail(head: list[str], tail: list[str]) -> str:
-    """task-0225 repair 1: one message of at most 2000 characters whose tail lines (verdict reasons, the
-    not-executed notice, the plan file and hash) always stay whole; only the head's free text is cut."""
+    """task-0225 repair 1: one message of at most 2000 characters whose tail lines stay whole; only the
+    head's free text is cut. Callers keep the tail short (the overview's notice, plan file, hash and
+    usage; a task's reasons line only up to GOAL_INLINE_REASONS_CHARS)."""
 
-    tail_text = "\n".join(_fit_message(line, GOAL_TAIL_LINE_CHARS) for line in tail)
+    tail_text = "\n".join(tail)
     head_text = _fit_message("\n".join(head), DISCORD_MESSAGE_CHARS - len(tail_text) - 1)
     return f"{head_text}\n{tail_text}" if tail_text else head_text
 
 
-def _goal_task_block(task: dict[str, Any], verdict: dict[str, Any], allowed_path: str | None) -> str:
+def _reason_messages(task_id: str, labels: list[str]) -> list[str]:
+    """task-0225 repair 2: every verdict reason, uncut, in as many messages as it takes."""
+
+    messages: list[str] = []
+    current = f"**{task_id}** 판정 근거 (이어서):"
+    for label in labels:
+        piece = f"\n- {label}"
+        if len(current) + len(piece) > DISCORD_MESSAGE_CHARS:
+            messages.append(current)
+            current = f"**{task_id}** 판정 근거 (이어서):"
+        current += piece
+    messages.append(current)
+    return messages
+
+
+def _goal_task_block(task: dict[str, Any], verdict: dict[str, Any], allowed_path: str | None) -> list[str]:
+    """One sub-task as one message, or, when its verdict reasons are long, the block and then every
+    reason in further messages. A reason is never cut."""
+
     safe = {key: (_discord_safe(value) if isinstance(value, str) else value) for key, value in task.items()}
     kind = safe.get("kind") or "없음 (등록된 작업 종류 밖)"
     if allowed_path:
@@ -2950,7 +2970,8 @@ def _goal_task_block(task: dict[str, Any], verdict: dict[str, Any], allowed_path
     deps = ", ".join(safe.get("depends_on") or []) or "없음"
     paths = ", ".join(_discord_safe(path) for path in safe.get("paths") or []) or "없음"
     criteria = "\n".join(f"  · {_discord_safe(item)}" for item in safe.get("acceptance") or [])
-    reasons = ", ".join(policy_gate.reason_label(_discord_safe(r)) for r in verdict.get("reasons") or []) or "없음"
+    labels = [policy_gate.reason_label(_discord_safe(r)) for r in verdict.get("reasons") or []]
+    reasons = ", ".join(labels) or "없음"
     lines = [
         f"**{safe.get('id')}** [{GOAL_VERDICT_MARKS.get(verdict.get('verdict'), verdict.get('verdict'))}] {safe.get('title')}",
         f"- 종류: {kind} · 방식: {GOAL_MODE_LABELS.get(safe.get('mode'), safe.get('mode'))} · 팀장 위험도: {safe.get('risk')}",
@@ -2962,7 +2983,11 @@ def _goal_task_block(task: dict[str, Any], verdict: dict[str, Any], allowed_path
     ]
     if safe.get("owner_decision"):
         lines.append(f"- 팀장이 본 Owner 결정 필요: {safe.get('owner_decision')}")
-    return _fit_head_tail(lines, [f"- 판정 근거: {reasons}"])
+    reasons_line = f"- 판정 근거: {reasons}"
+    if len(reasons_line) <= GOAL_INLINE_REASONS_CHARS:
+        return [_fit_head_tail(lines, [reasons_line])]
+    return [_fit_head_tail(lines, [f"- 판정 근거: {len(labels)}개, 다음 메시지에 모두"]),
+            *_reason_messages(str(safe.get("id")), labels)]
 
 
 def _goal_reply_messages(result: dict[str, Any]) -> list[str]:
@@ -3022,12 +3047,12 @@ def _goal_reply_messages(result: dict[str, Any]) -> list[str]:
     allowed = result.get("allowed_paths") or {}
     current = ""
     for task_id in plan.get("order") or []:
-        block = _goal_task_block(tasks.get(task_id) or {}, verdicts.get(task_id) or {}, allowed.get(task_id))
-        if current and len(current) + 2 + len(block) > DISCORD_MESSAGE_CHARS:
-            messages.append(current)
-            current = block
-        else:
-            current = f"{current}\n\n{block}" if current else block
+        for block in _goal_task_block(tasks.get(task_id) or {}, verdicts.get(task_id) or {}, allowed.get(task_id)):
+            if current and len(current) + 2 + len(block) > DISCORD_MESSAGE_CHARS:
+                messages.append(current)
+                current = block
+            else:
+                current = f"{current}\n\n{block}" if current else block
     if current:
         messages.append(current)
     return messages

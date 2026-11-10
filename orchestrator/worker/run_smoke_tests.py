@@ -2130,10 +2130,16 @@ def goal_flow(bot, clone: Path) -> None:
         claude_lead._run_claude = answer(goal_answer(widest, goal_summary="바" * 300, flow="사" * 500))
         wide_job = bot._run_goal_job("Studyroom 최대 길이 점검")
         wide = bot._goal_reply_messages(wide_job)
-        check("goal job: at maximum field lengths every message fits and keeps the notice, hash and every verdict reason",
+        wide_text = "\n".join(wide)
+        every_reason = [policy_gate.reason_label(r) for item in wide_job["verdict"]["tasks"] for r in item["reasons"]]
+        check("goal job: at maximum field lengths every message fits and keeps the notice and hash whole",
               wide_job.get("ok") is True and all(len(m) <= bot.DISCORD_MESSAGE_CHARS for m in wide)
-              and wide[0].endswith("auto 판정도 실행 권한이 아닙니다.") and "- 계획 hash: `" in wide[0]
-              and sum(m.count("- 판정 근거: ") for m in wide[1:]) == 8, str([len(m) for m in wide]))
+              and wide[0].endswith("auto 판정도 실행 권한이 아닙니다.") and "- 계획 hash: `" in wide[0],
+              str([len(m) for m in wide]))
+        # task-0225 repair 2: a long reasons list moves to its own messages, every reason uncut.
+        check("goal job: at maximum field lengths every verdict reason is shown uncut",
+              len(every_reason) == 8 * 12 + 7 and all(f"- {label}" in wide_text for label in every_reason)
+              and wide_text.count("판정 근거 (이어서):") >= 8, str(len(every_reason)))
 
         claude_lead._run_claude = answer(goal_answer(three[:2] + [goal_task("T3", paths=["jarvis.bat"], depends_on=["T2"])]))
         shown = bot._format_reply(bot._run_goal_job("Studyroom 정리"))

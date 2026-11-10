@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-10 07:39 UTC`
-- updated_at: `2026-11-10 09:03 UTC`
+- updated_at: `2026-11-10 09:31 UTC`
 - summary: `Owner가 /goal로 목표 하나를 주면 읽기 전용 Lead가 하위 작업(kind, 목적, 의존성, 완료 조건, 순서, 위험도, worker_request)으로 분해하고, 코드의 결정론적 Policy Gate가 작업마다 auto, needs_owner, forbidden을 판정해 Discord에 보여 준다. task 생성, Worker 실행, 배정, Dispatcher, 백그라운드 실행, main 통합은 하지 않는다. 판정 기준은 Owner 승인 전 제안이며 실행 권한이 아니다.`
 - source_command: `Owner 지시: Lead Goal Plan Dry-run 1단계 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `c1946fb66763eeb7ab7f798b8840bf2165d304ab` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, repair 1은 아래 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (SOP §5 기본값 1회에 Owner가 1회 증액, repair 1·2는 아래 절) |
 | 작업 위치 | 저장소 밖 worktree `jarvis-core-worktrees/task-0225-lead-goal-plan`, 브랜치 `work/task-0225-lead-goal-plan`. main 체크아웃은 그대로 둔다 |
 
 ## Owner 결정 (원문, 작업 지시)
@@ -152,11 +152,33 @@ Reviewer 지적(minor): /goal은 계획 전체를 저장소 밖 %LOCALAPPDATA%\j
 ## Repair 1 (`repair_count=1`)
 
 - 지적 1: `policy_gate._is_protected`가 경로와 `PROTECTED_PATHS`를 소문자로 맞춰 비교하고 `.git`도 대소문자 무시로 본다. smoke에 `JARVIS.BAT`, `apps/studyroom/Studyroom.BAT`, `.GIT/config`, `apps/studyroom/.ENV`, `OpenRouter_Advisor.py` 변형을 더했다.
-- 지적 2: `_fit_head_tail`이 개요의 끝(주의 신호, 계획 파일, hash, 사용량, 실행 안 함 안내)과 작업 블록의 판정 근거를 온전히 두고 앞쪽 자유 문장만 자른다(끝 줄은 줄마다 500자 상한). smoke에 파서 최대 길이 계획을 더했다.
+- 지적 2: `_fit_head_tail`이 개요의 끝(주의 신호, 계획 파일, hash, 사용량, 실행 안 함 안내)과 작업 블록의 판정 근거를 끝 줄로 두고 앞쪽 자유 문장만 자르게 했다. 이 repair에서는 끝 줄에 줄마다 500자 상한이 있어 긴 판정 근거는 잘렸다(repair 2에서 고침). smoke에 파서 최대 길이 계획을 더했다.
 - 지적 3·4: Owner 답에 따라 동작은 그대로 두고 요약 A14·A27의 근거를 Owner 답으로 고쳤다.
 - unverified 중 `usage_of`: 같은 stdout을 읽으므로 `run_goal_plan`의 예외 처리 안으로 옮기고, 최상위 stdout이 너무 깊은 경우의 smoke를 더했다.
 - 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
 - repair 뒤 검증(작업 트리): Worker smoke total=750 failed=0, SOP validator, Discord self-check, `git diff --check`, 사전 점검.
+
+## Reviewer 결과 (repair 1 candidate `e2cd0533bc14012536038577e5aacef7f82e36ad`)
+
+verdict FINDINGS, `self_deviations` 없음(유효). minor 1건: `_fit_head_tail`이 끝 줄을 줄마다 500자로 잘라, 최대 길이 입력에서 판정 근거 줄이 잘린다. 주석, smoke check 이름, 이 기록의 Repair 1은 온전히 둔다고 적었고 smoke는 "- 판정 근거: " 머리말 개수만 셌다. Reviewer unverified: 검사 실행 결과, 실제 dry-run, `run_lead` 동작 불변, SOP 문단과 master-plan 잠금의 일관성, 대소문자 밖의 Windows 이름 변형(끝의 점·공백, 8.3 짧은 이름). repair 예산이 소진돼 Owner에게 물었다.
+
+## Owner 결정 (원문, repair 2 증액)
+
+```text
+[Manager 질문]
+task-0225 repair candidate e2cd053의 Reviewer minor 1건: 최대 길이 입력에서 Discord의 '판정 근거' 줄이 500자에서 잘리는데(전체 근거는 판정과 계획 파일에 남음) 주석·테스트 이름·기록은 '온전히 둔다'고 적었습니다. repair 예산 1회는 소진됐습니다. 어떻게 할까요?
+
+[Owner 답]
+repair 1회 증액해 고침
+```
+
+## Repair 2 (`repair_count=2`, Owner 증액)
+
+- 판정 근거를 자르지 않는다. 판정 근거 줄이 1000자(`GOAL_INLINE_REASONS_CHARS`) 이하면 작업 블록 끝에 그대로 두고, 넘으면 블록에는 개수와 "다음 메시지에 모두"만 적고 근거 전부를 "판정 근거 (이어서)" 메시지들에 한 줄씩 보낸다(메시지마다 2000자 이하). `_fit_head_tail`의 줄당 500자 상한을 없앴고 주석을 실제 동작에 맞췄다.
+- smoke: 최대 길이 계획에서 판정 근거 103개가 모두 잘리지 않고 보이는지 확인한다(check 이름도 나눴다).
+- repair 뒤 검증(작업 트리): Worker smoke total=751 failed=0, SOP validator, Discord self-check, `git diff --check`, 사전 점검.
+- 대소문자 밖의 Windows 이름 변형(끝의 점·공백, 8.3 짧은 이름)은 Policy Gate v0 밖으로 두고 Owner 보고에 적는다(Manager 해석: 실행 때의 경계는 파이프라인 범위 검사다).
+- 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
 
 ## Manager 요약
 
@@ -221,3 +243,7 @@ Reviewer 지적(minor): /goal은 계획 전체를 저장소 밖 %LOCALAPPDATA%\j
 | A55 | Owner 결정 (원문, Reviewer 지적 질문) | "유지할까요?" | Owner 답은 "유지". 계획 파일 쓰기를 그대로 둔다 |
 | A56 | Owner 결정 (원문, Reviewer 지적 질문) | "[Owner 답]" | 답의 표지 |
 | A57 | Owner 결정 (원문, Reviewer 지적 질문) | "허용: 계획 1회는 금지 대상 아님" | 팀장 계획 1회를 이벤트 루프 밖에서 돌리는 현재 방식을 유지한다. 이 답은 이 task에만 효력이 있다 |
+| A58 | Owner 결정 (원문, repair 2 증액) | "task-0225 repair candidate e2cd053의 Reviewer minor 1건: 최대 길이 입력에서 Discord의 '판정 근거' 줄이 500자에서 잘리는데(전체 근거는 판정과 계획 파일에 남음) 주석·테스트 이름·기록은 '온전히 둔다'고 적었습니다." | repair 1 candidate의 Reviewer 지적 |
+| A59 | Owner 결정 (원문, repair 2 증액) | "repair 예산 1회는 소진됐습니다." | 증액 전 `repair_count=1`, `repair_budget=1` |
+| A60 | Owner 결정 (원문, repair 2 증액) | "어떻게 할까요?" | 답은 A61 |
+| A61 | Owner 결정 (원문, repair 2 증액) | "repair 1회 증액해 고침" | `repair_budget=2`. Repair 2 절에서 판정 근거를 자르지 않게 고쳤다 |
