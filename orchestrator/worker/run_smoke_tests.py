@@ -2190,7 +2190,7 @@ def goal_flow(bot, clone: Path) -> None:
               and failure_saved.get("executed") is False and "SECRET-DO-NOT-SHOW" not in failure_file.read_text(encoding="utf-8")
               and "plan" not in failure_saved, str(failure_saved))
         check("goal job: a failed plan's reply explains the reason in Korean and names the failure record",
-              "- 이유: 팀장 답이 계획 형식에 맞지 않습니다: JSON 객체 하나가 아닙니다" in failed_reply
+              "- 이유: 팀장 답이 계획 형식에 맞지 않습니다: JSON으로 읽을 수 없습니다" in failed_reply
               and f"- 실패 기록(팀장 답 원문 없음): {failure_file}" in failed_reply
               and "task를 만들거나 실행하지 않았습니다" in failed_reply, failed_reply)
         check("goal bot: failure labels name the sub-task, and an unknown code gets no label",
@@ -2199,6 +2199,14 @@ def goal_flow(bot, clone: Path) -> None:
               and bot._goal_failure_label("lead_failed:RuntimeError") == "팀장 실행이 실패했습니다"
               and bot._goal_failure_label("goal_answer_malformed:task_reason:T1") == ""
               and bot._goal_failure_label("something_else") == "")
+        # task-0226 repair 1: every reason the parser gives has a wording, and the wording names the
+        # case that gave it (a backtick title, a repeated prerequisite).
+        unlabelled = {name: r for name, (p, r) in refused.items() if not bot._goal_failure_label(r)}
+        backtick = bot._goal_failure_label(refused["a backtick title"][1])
+        repeated = goal_plan.parse_goal_answer(goal_answer([goal_task("T1"), goal_task("T2", depends_on=["T1", "T1"])]))[1]
+        check("goal bot: every malformed reason has a Korean wording that covers its case",
+              not unlabelled and "백틱" in backtick and repeated == "goal_answer_malformed:task_depends_on:T2"
+              and "되풀이" in bot._goal_failure_label(repeated), f"{unlabelled} | {backtick} | {repeated}")
 
         # task-0226: the first live /goal case, a Console goal whose sub-task gave no reason, now shows a plan.
         claude_lead._run_claude = answer(goal_answer(no_reason))
@@ -2215,6 +2223,13 @@ def goal_flow(bot, clone: Path) -> None:
         check("goal job: a plan folder inside the repository is not written, and the plan is still shown",
               inside.get("ok") is True and inside.get("plan_path") is None and not (clone / "goal-plans-inside").exists()
               and "쓰지 못함" in bot._goal_reply_messages(inside)[0])
+        # task-0226 repair 1: a failed plan writes no failure record inside the repository either.
+        claude_lead._run_claude = answer("nonsense")
+        inside_failed = bot._run_goal_job("x")
+        check("goal job: a failed plan's record is not written inside the repository, and the reply names none",
+              inside_failed.get("ok") is False and inside_failed.get("failure_path") is None
+              and not (clone / "goal-plans-inside").exists()
+              and "실패 기록" not in bot._format_reply(inside_failed))
     finally:
         claude_lead._run_claude, bot.GOAL_PLAN_DIR = real_run_claude, real_plan_dir
         claude_lead.LEAD_REPO_ROOT = None

@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-10 11:34 UTC`
-- updated_at: `2026-11-10 12:35 UTC`
+- updated_at: `2026-11-10 12:50 UTC`
 - summary: `첫 실제 /goal이 goal_answer_malformed:task_reason:T1로 실패했다. 등록된 작업 종류가 없는 하위 작업이 Owner 결정 사유를 빠뜨려도 계획 전체를 거절하지 않고, Policy Gate가 그런 하위 작업을 방식과 관계없이 needs_owner로 판정해 사유 누락을 근거로 남긴다. 팀장 안내 문구를 분명히 하고, 실패 메시지에 등록된 사유 코드의 한국어 설명을 더하고, 팀장 답 원문 없는 실패 기록 파일을 쓴다. task 생성, Worker 실행, 자동 실행은 범위 밖이다.`
 - source_command: `Owner 지시: task-0226으로 고쳐 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `5d55d1175ab2f3bc31a4472df6f99ca33f032c2e` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, repair 1은 아래 절) |
 | 작업 위치 | 저장소 밖 worktree `jarvis-core-worktrees/task-0226-goal-kind-none`, 브랜치 `work/task-0226-goal-kind-none-reason`. main 체크아웃은 그대로 둔다 |
 
 ## Owner 제보 (원문, 실제 /goal 실패)
@@ -97,6 +97,24 @@ task-0226 self-review 지적: 승인하신 제안 3의 '거절된 팀장 답 원
 원문 저장 빼는 것 수용 (Recommended)
 ```
 
+## Reviewer 결과 (candidate `5bd1c70465c442678af119ca366f1d5b60f5db05`)
+
+verdict FINDINGS, `self_deviations` 없음. minor 3건:
+
+1. `task_text` 설명이 제목의 백틱 때문에 같은 코드가 나는 경우를 말하지 않는다.
+2. `task_depends_on` 설명이 선행 작업 목록이 문자열 목록이 아니거나 같은 id가 되풀이되는 경우를 말하지 않는다.
+3. Manager 요약 A6이 Owner 수용 행을 A11로 가리키는데 수용 답은 A12다.
+
+Reviewer unverified: candidate에서의 검사 실행 결과, 저장소 안 계획 폴더에서 실패한 계획이 실패 기록을 쓰지 않는지(smoke 없음), 실제 봇의 `/goal`.
+
+## Repair 1 (`repair_count=1`)
+
+- 지적 1·2를 고치면서 설명 전체를 `goal_plan`의 실패 조건과 대조했다. `json`, `fields`, `text`, `tasks`, `task_fields`, `task_paths`, `task_acceptance` 설명도 원인 일부만 말하고 있어, 각 설명이 그 코드를 내는 모든 경우를 말하도록 고쳤다.
+- 지적 3: A6의 참조를 A12로 고쳤다.
+- smoke: 형식 오류 목록의 모든 사유에 설명이 있는지, 백틱 제목과 되풀이된 선행 작업의 설명이 그 경우를 말하는지, 저장소 안 계획 폴더에서 실패한 계획이 실패 기록을 쓰지 않고 답에 기록 경로도 없는지 확인을 더했다(Reviewer unverified 항목).
+- repair 뒤 검증(작업 트리): Worker smoke total=761 failed=0(새 검사 2건), SOP validator, Discord self-check, `git diff --check`, 사전 점검.
+- 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -115,7 +133,7 @@ task-0226 self-review 지적: 승인하신 제안 3의 '거절된 팀장 답 원
 | A3 | Owner 결정 (원문, 작업 지시) | "[Manager 질문]" | 질문의 표지 |
 | A4 | Owner 결정 (원문, 작업 지시) | "새 task-0226으로 이 실패를 고칠까요?" | A6 답의 질문. 고칠 방향은 질문 앞 Manager 보고의 제안 1~3이다 |
 | A5 | Owner 결정 (원문, 작업 지시) | "[Owner 답]" | 답의 표지 |
-| A6 | Owner 결정 (원문, 작업 지시) | "task-0226으로 고쳐" | 제안 1·2를 구현했다. 제안 3은 한국어 설명과 원문 없는 실패 기록으로 구현하고, 팀장 답 원문 저장은 기존 규칙 때문에 하지 않았고 Owner가 A11에서 수용했다 |
+| A6 | Owner 결정 (원문, 작업 지시) | "task-0226으로 고쳐" | 제안 1·2를 구현했다. 제안 3은 한국어 설명과 원문 없는 실패 기록으로 구현하고, 팀장 답 원문 저장은 기존 규칙 때문에 하지 않았고 Owner가 A12에서 수용했다 |
 | A7 | Owner 결정 (원문, self-review 지적 질문) | "[Manager 질문]" | 질문의 표지 |
 | A8 | Owner 결정 (원문, self-review 지적 질문) | "task-0226 self-review 지적: 승인하신 제안 3의 '거절된 팀장 답 원문을 저장소 밖에 저장'을 빼고, 원문 없는 실패 기록(목표·사유 코드·사용량)과 한국어 이유 설명만 넣었습니다." | self-review 지적 3 |
 | A9 | Owner 결정 (원문, self-review 지적 질문) | "기존 규칙(task-0183 repair 2)이 팀장 답 원문을 파싱된 계획으로만 밖에 내보내고, 팀장이 읽은 내용이 답에 섞이면 그대로 파일에 남기 때문입니다." | 축소의 근거 |
