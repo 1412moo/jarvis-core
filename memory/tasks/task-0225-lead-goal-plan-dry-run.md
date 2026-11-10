@@ -2,11 +2,12 @@
 
 - id: `task-0225-lead-goal-plan-dry-run`
 - title: `Lead 목표 계획 dry-run: 하위 작업 분해와 결정론적 Policy Gate 판정 (실행 없음)`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-10 07:39 UTC`
-- updated_at: `2026-11-10 09:31 UTC`
+- updated_at: `2026-11-10 11:16 UTC`
 - summary: `Owner가 /goal로 목표 하나를 주면 읽기 전용 Lead가 하위 작업(kind, 목적, 의존성, 완료 조건, 순서, 위험도, worker_request)으로 분해하고, 코드의 결정론적 Policy Gate가 작업마다 auto, needs_owner, forbidden을 판정해 Discord에 보여 준다. task 생성, Worker 실행, 배정, Dispatcher, 백그라운드 실행, main 통합은 하지 않는다. 판정 기준은 Owner 승인 전 제안이며 실행 권한이 아니다.`
+- completion_evidence: `candidate 73de44255944041ac113fa86e4e8964a0754e9c8: Reviewer PASS (no findings, no self deviations); QA PASS in a fresh worktree (Worker smoke 751/0, validator, preflight, Console self-test and smoke, intake smoke, Discord self-check, Studyroom 5/5, secrets 0, live goal dry-run); Owner final approval recorded in the task file`
 - source_command: `Owner 지시: Lead Goal Plan Dry-run 1단계 (Claude Code 세션)`
 
 ## 기준선
@@ -180,6 +181,33 @@ repair 1회 증액해 고침
 - 대소문자 밖의 Windows 이름 변형(끝의 점·공백, 8.3 짧은 이름)은 Policy Gate v0 밖으로 두고 Owner 보고에 적는다(Manager 해석: 실행 때의 경계는 파이프라인 범위 검사다).
 - 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
 
+## Reviewer 결과 (repair 2 candidate `73de44255944041ac113fa86e4e8964a0754e9c8`)
+
+verdict PASS, 지적 0, `self_deviations` 없음. 이 절과 아래 QA 절은 candidate 뒤의 기록이라 작업 트리에만 두고 candidate를 바꾸지 않았다. Reviewer unverified: 검사 실행 결과, candidate 코드의 실제 dry-run(기록의 실행은 repair 전 코드), `run_lead` 동작 불변(읽기로만), 기록 140~183행 전체를 한 번에 읽지 못함(diff와 grep으로 읽음), 대소문자 밖의 Windows 이름 변형. 앞의 셋은 QA에서 확인했다.
+
+## QA 결과 (candidate `73de44255944041ac113fa86e4e8964a0754e9c8`)
+
+- scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗(실행 전후), 변경 파일 9개(범위 owned 행과 같음), `jarvis.bat` 트리에 없음. QA worktree는 지웠다.
+- `git diff --check` 통과, SOP validator PASS, 사전 점검 PASS(violations 0, 미인용 0), `run_web_app.py --self-test` 통과, Console smoke PYTHONUTF8=1과 없음 모두 rc=0, `node --check apps/jarvis-console/web/app.js` 통과, Worker smoke total=751 failed=0(기존 팀장 검사 포함), discord-intake smoke rc=0, Discord `--self-check-suite` rc=0, Studyroom smoke 5/5, `check_no_secrets.py` findings 0.
+- 실제 dry-run(candidate 코드, QA worktree): 같은 목표로 62초, 팀장 사용량 추정 $0.42, `goal-20261110-093539-955`, 계획 hash `a51c2a95951d…`. 하위 작업 6개, auto 4 · needs_owner 2(T5 push 전 확인: 팀장의 Owner 결정 사유와 외부 공개 신호, T6 push: 종류 밖·경로 없음·외부 공개·팀장 위험도 high·선행 작업), 4단계, 메시지 4개(최대 1999자). 실행 뒤 임시 팀장 worktree는 남지 않았다.
+- main과 origin/main은 `c1946fb`, main 체크아웃은 `jarvis.bat` untracked만 있다. `jarvis.bat` 크기 94, 수정 시각 2026-10-11 02:13:50(+0900). 내용은 열지 않았다.
+- QA 판정: PASS. Docs는 `not_required`(문서 변경이 candidate에 포함됨).
+- 확인하지 못한 것: 실제 봇 프로세스에서의 `/goal`(봇 재시작은 승인 밖), 대소문자 밖의 Windows 이름 변형(끝의 점·공백, 8.3 짧은 이름)에 대한 판정.
+
+## Owner 결정 (원문, 최종 승인)
+
+```text
+[Manager 질문]
+task-0225를 최종 승인해 main에 반영할까요?
+
+[Owner 답]
+최종 승인
+```
+
+## Complete
+
+Owner 최종 승인에 따라 Record Completion Evidence(Preview 확인 뒤 Confirm)로 completion_evidence를 남기고, Console Complete Preview(DOING → DONE)를 확인한 뒤 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-10 11:16 UTC`). Console은 worktree에서 띄웠고 끈 상태다. 이 기록의 DONE checkpoint와 master-plan 항목을 브랜치에 커밋한 뒤 로컬 main을 ff-only로 옮겼다. push와 봇 재시작은 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -247,3 +275,7 @@ repair 1회 증액해 고침
 | A59 | Owner 결정 (원문, repair 2 증액) | "repair 예산 1회는 소진됐습니다." | 증액 전 `repair_count=1`, `repair_budget=1` |
 | A60 | Owner 결정 (원문, repair 2 증액) | "어떻게 할까요?" | 답은 A61 |
 | A61 | Owner 결정 (원문, repair 2 증액) | "repair 1회 증액해 고침" | `repair_budget=2`. Repair 2 절에서 판정 근거를 자르지 않게 고쳤다 |
+| A62 | Owner 결정 (원문, 최종 승인) | "[Manager 질문]" | 질문의 표지 |
+| A63 | Owner 결정 (원문, 최종 승인) | "task-0225를 최종 승인해 main에 반영할까요?" | A65 답의 질문 |
+| A64 | Owner 결정 (원문, 최종 승인) | "[Owner 답]" | 답의 표지 |
+| A65 | Owner 결정 (원문, 최종 승인) | "최종 승인" | Console로 완료 근거를 남기고 Complete한 뒤 main을 ff-only로 옮긴다. push와 봇 재시작은 포함하지 않는다 |
