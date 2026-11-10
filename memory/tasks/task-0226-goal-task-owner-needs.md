@@ -2,11 +2,12 @@
 
 - id: `task-0226-goal-task-owner-needs`
 - title: `/goal: 작업 종류 없는 하위 작업의 사유 누락을 거절 대신 needs_owner로, 실패 이유 설명과 실패 기록`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-10 11:34 UTC`
-- updated_at: `2026-11-10 14:03 UTC`
+- updated_at: `2026-11-10 15:21 UTC`
 - summary: `첫 실제 /goal이 goal_answer_malformed:task_reason:T1로 실패했다. 등록된 작업 종류가 없는 하위 작업이 Owner 결정 사유를 빠뜨려도 계획 전체를 거절하지 않고, Policy Gate가 그런 하위 작업을 방식과 관계없이 needs_owner로 판정해 사유 누락을 근거로 남긴다. 팀장 안내 문구를 분명히 하고, 실패 메시지에 등록된 사유 코드의 한국어 설명을 더하고, 팀장 답 원문 없는 실패 기록 파일을 쓴다. task 생성, Worker 실행, 자동 실행은 범위 밖이다.`
+- completion_evidence: `candidate 2acf7b1caab72c9602efbd659990c1d7d1fdaabd: Reviewer FINDINGS minor 1 (record summary row A18) accepted by the Owner for this candidate (SOP section 8), no self deviations; QA PASS in a fresh worktree (Worker smoke 761/0, validator, preflight, Console self-test and smoke, intake smoke, Discord self-check, Studyroom smoke, secrets 0, live Console goal dry-run); Owner final approval recorded in the task file`
 - source_command: `Owner 지시: task-0226으로 고쳐 (Claude Code 세션)`
 
 ## 기준선
@@ -137,6 +138,47 @@ repair 1회 증액해 고침 (Recommended)
 - repair 뒤 검증(작업 트리): Worker smoke total=761 failed=0(기존 설명 검사에 조건만 더해 검사 수는 같음), SOP validator, Discord self-check, `git diff --check`, 사전 점검.
 - 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
 
+## Reviewer 결과 (repair 2 candidate `2acf7b1caab72c9602efbd659990c1d7d1fdaabd`)
+
+verdict FINDINGS, `self_deviations` 없음. 이 절과 아래 절들은 candidate 뒤의 기록이라 작업 트리에만 두고 candidate를 바꾸지 않았다. minor 1건: Manager 요약 A18이 "Repair 2 절에서 두 설명을 고쳤다"고 적었지만 repair 2는 `task_paths`, `task_acceptance`와 함께 `task_id` 설명도 바꿨다(Repair 2 절 본문에는 세 개 모두 적혀 있다). Reviewer unverified: candidate에서의 검사 실행 결과, 실제 봇의 `/goal`, 실제 실패 기록 파일. repair 예산이 소진돼 Owner에게 물었다.
+
+## Owner 결정 (원문, repair 2 Reviewer 지적 질문)
+
+```text
+[Manager 질문]
+task-0226 repair 2 candidate 2acf7b1의 Reviewer minor 1건: 코드 문제가 아니라 task 기록 Manager 요약 A18 행이 'Repair 2에서 두 설명을 고쳤다'고 적었는데 실제로는 task_id 설명까지 세 개를 바꿨습니다(Repair 2 절 본문에는 세 개 모두 적혀 있음). repair 예산 2회는 소진됐습니다. 어떻게 할까요?
+
+[Owner 답]
+minor 수용, DONE 기록에 정정 (Recommended)
+```
+
+정정(A18): repair 2는 설명 세 개(`task_paths`, `task_acceptance`, `task_id`)를 바꿨다. `task_id`는 Owner 질문에 없던 변경이며, Repair 2 절의 재대조에서 같은 종류의 누락(문자열이 아닌 id)을 찾아 함께 고쳤다. 후보 기록의 A18은 History로 그대로 두고 이 정정이 우선한다.
+
+## QA 결과 (candidate `2acf7b1caab72c9602efbd659990c1d7d1fdaabd`)
+
+- scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗(실행 전후), 변경 파일 7개(범위 owned 행과 같음), `jarvis.bat` 트리에 없음. QA worktree는 지웠다.
+- `git diff --check` 통과, 사전 점검 PASS, SOP validator PASS, `run_web_app.py --self-test` 통과, Console smoke PYTHONUTF8=1과 없음 모두 rc=0, `node --check apps/jarvis-console/web/app.js` 통과, Worker smoke total=761 failed=0, discord-intake smoke rc=0, Discord `--self-check-suite` rc=0, Studyroom smoke rc=0, `check_no_secrets.py` findings 0.
+- 실제 dry-run(candidate 코드, QA worktree, 실제 `claude` CLI): Owner가 처음 실패한 목표 원문 그대로. 55초, 팀장 사용량 추정 $0.25, `goal-20261110-144334-029`, 계획 hash `98582e2ae9bf…`. 하위 작업 6개, auto 0 · needs_owner 6 · forbidden 0, 5단계, 메시지 6개(최대 1712자). 모든 작업이 종류 `none`이고 근거에 "등록된 작업 종류 밖"이 있다. 이번 실행에서 팀장은 모든 작업에 Owner 결정 사유를 적어 "팀장이 Owner 결정 사유를 적지 않음"은 나오지 않았다(그 경로는 smoke가 확인). T1·T2는 "/api/" 문구 때문에 외부 서비스 신호도 붙었다(신호 목록이 일부러 넓은 결과, 판정은 이미 needs_owner).
+- main과 origin/main은 `5d55d11`, main 체크아웃은 `jarvis.bat` untracked만 있다. `jarvis.bat` 크기 94, 수정 시각 2026-10-11 02:13:50(+0900). 내용은 열지 않았다.
+- QA 판정: PASS. Docs는 `not_required`(문서 변경이 candidate에 포함됨).
+- 확인하지 못한 것: 실제 봇 프로세스에서의 `/goal`(봇 재시작은 이 task 승인 밖), 실제 실패 기록 파일(실제 실행은 성공해 실패 기록이 생기지 않음, 실패 경로는 smoke가 확인).
+
+## Owner 결정 (원문, 최종 승인)
+
+```text
+[Manager 질문]
+task-0226를 최종 승인해 main에 반영할까요?
+
+[Owner 답]
+최종 승인
+```
+
+## Complete
+
+Owner 최종 승인에 따라 Record Completion Evidence(Preview 확인 뒤 Confirm)로 completion_evidence를 남기고, Console Complete Preview(DOING → DONE)를 확인한 뒤 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-10 15:21 UTC`). Console은 worktree에서 띄웠고 끈 상태다. 이 기록의 DONE checkpoint와 master-plan 항목을 브랜치에 커밋한 뒤 로컬 main을 ff-only로 옮겼다. push와 봇 재시작은 하지 않았다.
+
+처음 쓴 master-plan 항목(약 1,100바이트)으로 `docs/master-plan.md`가 128,240바이트가 되어 Console의 읽기 한도 `MASTER_PLAN_MAX_BYTES = 128_000`을 넘었다. `/api/overview`가 500을 내 Console self-test가 실패했다. 항목을 짧게 줄여 127,574바이트로 맞췄고 Console self-test와 smoke가 다시 통과했다. 남은 여유는 426바이트라 다음 task의 master-plan 항목은 들어가지 않는다. 한도를 올릴지, 지난 항목을 다른 곳으로 옮길지는 Owner 결정으로 보고한다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -168,3 +210,13 @@ repair 1회 증액해 고침 (Recommended)
 | A16 | Owner 결정 (원문, repair 2 증액) | "어떻게 할까요?" | 답은 A18 |
 | A17 | Owner 결정 (원문, repair 2 증액) | "[Owner 답]" | 답의 표지 |
 | A18 | Owner 결정 (원문, repair 2 증액) | "repair 1회 증액해 고침 (Recommended)" | `repair_budget=2`. Repair 2 절에서 두 설명을 고쳤다. 증액은 이 task에만 효력이 있다 |
+| A19 | Owner 결정 (원문, repair 2 Reviewer 지적 질문) | "[Manager 질문]" | 질문의 표지 |
+| A20 | Owner 결정 (원문, repair 2 Reviewer 지적 질문) | "task-0226 repair 2 candidate 2acf7b1의 Reviewer minor 1건: 코드 문제가 아니라 task 기록 Manager 요약 A18 행이 'Repair 2에서 두 설명을 고쳤다'고 적었는데 실제로는 task_id 설명까지 세 개를 바꿨습니다(Repair 2 절 본문에는 세 개 모두 적혀 있음)." | repair 2 candidate의 Reviewer 지적 |
+| A21 | Owner 결정 (원문, repair 2 Reviewer 지적 질문) | "repair 예산 2회는 소진됐습니다." | `repair_count=2`, `repair_budget=2` |
+| A22 | Owner 결정 (원문, repair 2 Reviewer 지적 질문) | "어떻게 할까요?" | 답은 A24 |
+| A23 | Owner 결정 (원문, repair 2 Reviewer 지적 질문) | "[Owner 답]" | 답의 표지 |
+| A24 | Owner 결정 (원문, repair 2 Reviewer 지적 질문) | "minor 수용, DONE 기록에 정정 (Recommended)" | SOP §8 예외로 이 candidate에 한해 minor를 수용하고 QA로 갔다. 정정은 Reviewer 결과 절 아래에 남겼다 |
+| A25 | Owner 결정 (원문, 최종 승인) | "[Manager 질문]" | 질문의 표지 |
+| A26 | Owner 결정 (원문, 최종 승인) | "task-0226를 최종 승인해 main에 반영할까요?" | A28 답의 질문 |
+| A27 | Owner 결정 (원문, 최종 승인) | "[Owner 답]" | 답의 표지 |
+| A28 | Owner 결정 (원문, 최종 승인) | "최종 승인" | Console로 완료 근거를 남기고 Complete한 뒤 main을 ff-only로 옮긴다. push와 봇 재시작은 포함하지 않는다 |
