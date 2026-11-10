@@ -179,9 +179,8 @@ def _parse_task(raw: object, kinds: set[str]) -> tuple[GoalTask | None, str]:
     criteria = [_line(item, GOAL_MAX_CRITERION_CHARS) for item in criteria_raw]
     if None in criteria:
         return None, f"task_acceptance:{task_id}"
-    if kind == "none" and owner_decision.lower() == "none":
-        # A sub-task no registered Worker kind can take must say why, for the Owner (as in task-0183).
-        return None, f"task_reason:{task_id}"
+    # task-0226: a kind none sub-task whose owner_decision is none is accepted instead of refusing the
+    # whole plan; the Policy Gate gives every kind none sub-task needs_owner and names the missing reason.
     return GoalTask(
         id=task_id,
         title=title,
@@ -259,7 +258,8 @@ def goal_prompt(goal: str) -> str:
         "Rules:\n"
         f"- At most {GOAL_MAX_TASKS} sub-tasks, ids T1, T2, ... Keep each one small enough for one Worker run.\n"
         "- Give a sub-task a kind only if all of its changes stay under that kind's path; otherwise kind none, "
-        "and say why in owner_decision.\n"
+        "and say why in owner_decision. This holds for read_only sub-tasks too: a kind none sub-task never "
+        "has owner_decision none.\n"
         "- paths lists the repository-relative files or folders (folders end with /) the sub-task expects to "
         "change; for read_only, the ones it reads. Never list jarvis.bat or any .env file.\n"
         "- depends_on lists the ids that must finish first. order is every id once, prerequisites first.\n"

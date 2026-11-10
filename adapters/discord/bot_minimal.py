@@ -1912,6 +1912,51 @@ def _run_lead_job(request: str) -> dict[str, Any]:
 GOAL_MAX_CHARS = 1500
 # task-0225: where a goal plan's review file goes, outside the repository like the run reports.
 GOAL_PLAN_DIR = Path(os.environ.get("JARVIS_GOAL_PLAN_DIR") or claude_worker.REPORT_DIR.parent / "goal-plans")
+# task-0226: Korean wording for a failed goal plan's reason code. The code itself is still shown.
+GOAL_FAILURE_LABELS = {
+    "lead_busy": "팀장이 다른 계획을 세우는 중입니다. 끝난 뒤 다시 보내 주세요",
+    "lead_timeout": "팀장이 제한 시간 안에 답하지 않았습니다",
+    "lead_failed:worktree": "팀장용 임시 worktree를 만들지 못했습니다",
+    "lead_failed:exit": "팀장 실행이 오류로 끝났습니다",
+}
+GOAL_MALFORMED_LABELS = {
+    "json": "JSON 객체 하나가 아닙니다",
+    "fields": "계획의 항목 이름이 정해진 것과 다릅니다",
+    "text": "목표 요약이나 진행 흐름이 비었거나 너무 깁니다",
+    "tasks": "하위 작업 수가 1~8개가 아닙니다",
+    "task_fields": "어느 하위 작업의 항목 이름이 정해진 것과 다릅니다",
+    "task_id": "하위 작업 id 형식이 T1, T2 … 가 아닙니다",
+    "task_text": "{id}의 제목·목적·지시·사유 중 빈 칸이나 너무 긴 칸이 있습니다",
+    "task_kind": "{id}의 작업 종류가 등록된 이름도 none도 아닙니다",
+    "task_mode": "{id}의 방식이 edit나 read_only가 아닙니다",
+    "task_risk": "{id}의 위험도가 low, medium, high가 아닙니다",
+    "task_paths": "{id}의 경로 목록이 형식에 맞지 않습니다",
+    "task_depends_on": "{id}의 선행 작업이 없는 id이거나 자기 자신입니다",
+    "task_acceptance": "{id}의 완료 조건이 1~5개가 아니거나 너무 깁니다",
+    "duplicate": "id {id}가 두 번 나옵니다",
+    "cycle": "선행 작업이 순환합니다",
+    "order": "order가 모든 id를 한 번씩 담지 않습니다",
+    "order_dependency": "order에서 선행 작업이 뒤에 옵니다",
+    "unreadable": "답을 읽지 못했습니다",
+}
+
+
+def _goal_failure_label(reason: str) -> str:
+    """task-0226: the Korean wording for a failed goal plan's reason code, or "" for an unknown code."""
+
+    if reason in GOAL_FAILURE_LABELS:
+        return GOAL_FAILURE_LABELS[reason]
+    if reason.startswith("lead_failed:"):
+        # Any other lead failure (a stage failure or an exception name) shares one wording.
+        return "팀장 실행이 실패했습니다"
+    prefix = "goal_answer_malformed:"
+    if not reason.startswith(prefix):
+        return ""
+    code, _, task_id = reason[len(prefix):].partition(":")
+    template = GOAL_MALFORMED_LABELS.get(code)
+    if template is None:
+        return ""
+    return "팀장 답이 계획 형식에 맞지 않습니다: " + template.replace("{id}", _discord_safe(task_id) or "어느 작업")
 
 
 def _run_goal(command_text: str) -> dict[str, Any]:
@@ -1929,7 +1974,8 @@ def _run_goal(command_text: str) -> dict[str, Any]:
 
 def _write_goal_plan_file(record: dict[str, Any]) -> str | None:
     """task-0225: the whole checked plan and its verdicts as JSON, for review and for later stages to
-    read. Outside the repository only; a failed write changes nothing but the missing path."""
+    read; task-0226: or a failed plan's record (reason and usage, never the answer text). Outside the
+    repository only; a failed write changes nothing but the missing path."""
 
     try:
         claude_worker._ensure_outside_repo(GOAL_PLAN_DIR, REPO_ROOT)
@@ -1945,7 +1991,7 @@ def _write_goal_plan_file(record: dict[str, Any]) -> str | None:
 def _run_goal_job(goal: str) -> dict[str, Any]:
     """task-0225: ask the read-only lead for a goal plan and judge it with the Policy Gate. A dry run:
     no task file is written, no Worker is called and nothing is queued. The only write is the plan
-    file outside the repository."""
+    file, or for a failed plan its failure record (task-0226), outside the repository."""
 
     created_at = datetime.now(UTC)
     goal_id = "goal-" + created_at.strftime("%Y%m%d-%H%M%S-%f")[:-3]
@@ -1959,7 +2005,18 @@ def _run_goal_job(goal: str) -> dict[str, Any]:
         "usage": planned.usage,
     }
     if not planned.ok or planned.plan is None or planned.verdict is None:
-        # As for /work: only the reason code, never the model's answer text.
+        # As for /work: only the reason code, never the model's answer text. task-0226: a failure
+        # record without the answer text is kept next to the plan files, so a failure can be traced.
+        result["failure_path"] = _write_goal_plan_file({
+            "goal_id": goal_id,
+            "created_at": created_at.strftime("%Y-%m-%d %H:%M UTC"),
+            "goal": goal,
+            "dry_run": True,
+            "executed": False,
+            "ok": False,
+            "reason": planned.reason,
+            "usage": planned.usage,
+        })
         return result
     plan = planned.plan
     result["plan"] = plan.to_dict()
@@ -3007,12 +3064,18 @@ def _goal_reply_messages(result: dict[str, Any]) -> list[str]:
     plan = result.get("plan") or {}
     verdict = result.get("verdict") or {}
     if not result.get("ok") or not plan or not verdict:
+        reason = str(result.get("reason") or "")
         lines = [
-            "⚠️ 목표 계획 실패: 아무것도 만들거나 실행하지 않았습니다.",
-            f"- reason: `{_discord_safe(result.get('reason') or '')}`",
+            "⚠️ 목표 계획 실패: task를 만들거나 실행하지 않았습니다.",
+            f"- reason: `{_discord_safe(reason)}`",
         ]
+        label = _goal_failure_label(reason)
+        if label:
+            lines.append(f"- 이유: {label}")
         if usage_text:
             lines.append(usage_text)
+        if result.get("failure_path"):
+            lines.append(f"- 실패 기록(팀장 답 원문 없음): {result['failure_path']}")
         return [_fit_message("\n".join(lines))]
     tasks = {task.get("id"): task for task in plan.get("tasks") or []}
     verdicts = {item.get("task_id"): item for item in verdict.get("tasks") or []}

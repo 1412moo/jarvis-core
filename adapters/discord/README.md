@@ -130,8 +130,10 @@ Owner 전용. 작업 종류는 `studyroom_content`(Studyroom 앱 전체 `apps/st
 1. Owner 전용. 목표(1500자 이하)를 받으면 즉시 "목표 계획 시작 (dry-run)"으로 답하고 그 메시지에 스레드를 연다.
 2. 백그라운드에서 `/work` 팀장과 같은 읽기 전용 팀장(같은 잠금이라 다른 팀장이 실행 중이면 `lead_busy`)이 목표를 하위 작업 1~8개로 나눈다. 하위 작업마다 작업 종류, 방식(수정·읽기 전용), 목적, 경로, 선행 작업, 완료 조건, 팀장 위험도, Owner 결정 사유, Worker 지시를 받는다(`orchestrator/worker/goal_plan.py`, 형식이 어긋나면 실패).
 3. 결정론적 Policy Gate(`orchestrator/worker/policy_gate.py`)가 작업마다 `auto`·`needs_owner`·`forbidden`을 판정한다. 기준은 Owner 승인 전 제안이고 `auto`는 실행 권한이 아니다.
-4. 스레드에 개요(목표 요약, 판정 집계, 단계별 실행 순서, 진행 흐름, 계획 파일, 계획 hash, 팀장 사용량 추정)와 작업별 블록(판정 근거 포함)을 2000자 이하 메시지로 올린다. 실패하면 사유 코드만 보낸다.
-5. 계획 파일은 저장소 밖 `%LOCALAPPDATA%\jarvis-core\goal-plans\<goal-id>.json`(환경 변수 `JARVIS_GOAL_PLAN_DIR`로 변경)에 쓴다. task 생성, Worker 실행, 배정, 반영은 하지 않는다. 설계: `docs/lead-goal-plan-design.md`.
+4. 스레드에 개요(목표 요약, 판정 집계, 단계별 실행 순서, 진행 흐름, 계획 파일, 계획 hash, 팀장 사용량 추정)와 작업별 블록(판정 근거 포함)을 2000자 이하 메시지로 올린다. 실패하면 팀장 답 원문 없이 사유 코드, 한국어 설명(등록된 코드에만, `lead_failed:`로 시작하는 그 밖의 코드는 공통 설명), 사용량, 실패 기록 경로를 보낸다(task-0226).
+5. 계획 파일은 저장소 밖 `%LOCALAPPDATA%\jarvis-core\goal-plans\<goal-id>.json`(환경 변수 `JARVIS_GOAL_PLAN_DIR`로 변경)에 쓴다. 실패하면 같은 곳에 팀장 답 원문 없이 goal id, 시각, 목표, `dry_run`, `executed: false`, `ok: false`, 사유 코드, 사용량을 담은 실패 기록을 쓴다(task-0226).
+6. 등록된 작업 종류가 없는(`none`) 하위 작업은 수정이든 읽기 전용이든 `needs_owner`다. 팀장이 그 사유를 적지 않아도 계획 전체를 거절하지 않고 판정 근거에 "팀장이 Owner 결정 사유를 적지 않음"을 붙인다(task-0226).
+7. task 생성, Worker 실행, 배정, 반영은 하지 않는다. 설계: `docs/lead-goal-plan-design.md`.
 
 ### `/help`
 1. 지원 명령 목록을 고정 텍스트로 안내한다.

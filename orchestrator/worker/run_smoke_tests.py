@@ -1936,7 +1936,6 @@ def goal_flow(bot, clone: Path) -> None:
         "six criteria": goal_answer([goal_task("T1", acceptance=["c"] * 6)]),
         "eleven paths": goal_answer([goal_task("T1", paths=[f"apps/studyroom/{n}.json" for n in range(11)])]),
         "a path with a space": goal_answer([goal_task("T1", paths=["apps/studyroom/a b.json"])]),
-        "a kind none without a reason": goal_answer([goal_task("T1", kind="none")]),
         "an unknown prerequisite": goal_answer([goal_task("T1", depends_on=["T9"])]),
         "a self prerequisite": goal_answer([goal_task("T1", depends_on=["T1"])]),
         "a cycle": goal_answer([goal_task("T1", depends_on=["T2"]), goal_task("T2", depends_on=["T1"])]),
@@ -1950,8 +1949,34 @@ def goal_flow(bot, clone: Path) -> None:
     check("goal: the reasons name what was wrong",
           refused["a cycle"][1] == "goal_answer_malformed:cycle"
           and refused["an order with a prerequisite last"][1] == "goal_answer_malformed:order_dependency"
-          and refused["a kind none without a reason"][1] == "goal_answer_malformed:task_reason:T1"
           and refused["an extra plan field"][1] == "goal_answer_malformed:fields", str(refused))
+
+    # task-0226: a kind none sub-task without a reason no longer refuses the whole plan (the first live
+    # /goal failed so); every kind none sub-task needs the Owner, read-only or not, and the missing
+    # reason is named.
+    no_reason = [goal_task("T1", kind="none", mode="read_only", paths=["apps/jarvis-console/"],
+                           title="T1 Console 구조 확인"),
+                 goal_task("T2", kind="none", paths=["apps/jarvis-console/web/app.js"], depends_on=["T1"],
+                           title="T2 Console 대시보드 추가"),
+                 goal_task("T3", kind="none", owner_decision="Console은 등록된 작업 종류 밖", depends_on=["T2"],
+                           paths=["apps/jarvis-console/web/app.js"], title="T3 Console 대시보드 다듬기")]
+    accepted, accepted_reason = goal_plan.parse_goal_answer(goal_answer(no_reason))
+    check("goal: a kind none sub-task without a reason is accepted, not a malformed plan",
+          accepted is not None and accepted_reason == "" and accepted.task("T1").kind is None
+          and accepted.task("T1").owner_decision is None, accepted_reason)
+    no_reason_gate = policy_gate.judge_plan(accepted, "Console에 대시보드를 추가해 줘") if accepted else None
+    check("gate: every kind none sub-task needs the Owner, read-only or not, and a missing reason is named",
+          no_reason_gate is not None
+          and [item.verdict for item in no_reason_gate.tasks] == ["needs_owner"] * 3
+          and no_reason_gate.of("T1").reasons[:2] == ["no_registered_kind", "lead_reason_missing"]
+          and "lead_reason_missing" in no_reason_gate.of("T2").reasons
+          and "lead_reason_missing" not in no_reason_gate.of("T3").reasons
+          and "lead_owner_decision" in no_reason_gate.of("T3").reasons,
+          str(no_reason_gate.to_dict() if no_reason_gate else None))
+    check("gate: the missing reason has a Korean label",
+          policy_gate.reason_label("lead_reason_missing") == "팀장이 Owner 결정 사유를 적지 않음")
+    check("goal: the lead prompt says a kind none sub-task always gives a reason, read-only too",
+          "a kind none sub-task never has owner_decision none" in goal_plan.goal_prompt("x"))
 
     # The Policy Gate: fixed rules, and the lead's words can only make a verdict stricter.
     def verdict_of(**fields) -> policy_gate.TaskVerdict:
@@ -2156,6 +2181,33 @@ def goal_flow(bot, clone: Path) -> None:
         check("goal job: a failed plan shows only its reason code and writes no plan file",
               failed.get("ok") is False and "goal_answer_malformed:json" in failed_reply
               and "SECRET-DO-NOT-SHOW" not in failed_reply and "plan_path" not in failed, failed_reply)
+        # task-0226: the reason is explained in Korean and a failure record without the answer is kept.
+        failure_file = Path(failed.get("failure_path") or "")
+        failure_saved = json.loads(failure_file.read_text(encoding="utf-8")) if failed.get("failure_path") else {}
+        check("goal job: a failed plan keeps a failure record outside the repository, without the answer text",
+              failure_file.parent == plan_dir and failure_saved.get("ok") is False
+              and failure_saved.get("reason") == "goal_answer_malformed:json" and failure_saved.get("goal") == "x"
+              and failure_saved.get("executed") is False and "SECRET-DO-NOT-SHOW" not in failure_file.read_text(encoding="utf-8")
+              and "plan" not in failure_saved, str(failure_saved))
+        check("goal job: a failed plan's reply explains the reason in Korean and names the failure record",
+              "- 이유: 팀장 답이 계획 형식에 맞지 않습니다: JSON 객체 하나가 아닙니다" in failed_reply
+              and f"- 실패 기록(팀장 답 원문 없음): {failure_file}" in failed_reply
+              and "task를 만들거나 실행하지 않았습니다" in failed_reply, failed_reply)
+        check("goal bot: failure labels name the sub-task, and an unknown code gets no label",
+              bot._goal_failure_label("goal_answer_malformed:task_kind:T2") == "팀장 답이 계획 형식에 맞지 않습니다: T2의 작업 종류가 등록된 이름도 none도 아닙니다"
+              and bot._goal_failure_label("lead_busy").startswith("팀장이 다른 계획을")
+              and bot._goal_failure_label("lead_failed:RuntimeError") == "팀장 실행이 실패했습니다"
+              and bot._goal_failure_label("goal_answer_malformed:task_reason:T1") == ""
+              and bot._goal_failure_label("something_else") == "")
+
+        # task-0226: the first live /goal case, a Console goal whose sub-task gave no reason, now shows a plan.
+        claude_lead._run_claude = answer(goal_answer(no_reason))
+        console_job = bot._run_goal_job("Console에 대시보드를 추가해 줘")
+        console_text = "\n".join(bot._goal_reply_messages(console_job))
+        check("goal job: a Console goal with an unexplained kind none sub-task shows a plan of needs_owner tasks",
+              console_job.get("ok") is True and console_job["verdict"]["counts"] == {"auto": 0, "needs_owner": 3, "forbidden": 0}
+              and "팀장이 Owner 결정 사유를 적지 않음" in console_text and console_job.get("plan_path"),
+              console_text[:800])
 
         bot.GOAL_PLAN_DIR = clone / "goal-plans-inside"
         claude_lead._run_claude = answer(goal_answer(three))

@@ -159,9 +159,13 @@ def judge_task(task: GoalTask) -> TaskVerdict:
             # A wildcard cannot be checked against the kind's path; the Owner looks at it.
             owner.append(f"path_pattern:{path}")
     kind = claude_worker.work_kind_by_name(task.kind) if task.kind else None
+    if kind is None:
+        # task-0226: no registered Worker kind can take it, read-only or not, so the Owner decides who
+        # does it. A missing lead reason is named too, so the Owner knows the lead gave none.
+        owner.append("no_registered_kind")
+        if not task.owner_decision:
+            owner.append("lead_reason_missing")
     if task.mode == "edit":
-        if kind is None:
-            owner.append("no_registered_kind")
         if not task.paths:
             owner.append("paths_missing")
         elif kind is not None:
@@ -206,6 +210,7 @@ def judge_plan(plan: GoalPlan, goal_text: str = "") -> GoalVerdict:
 # Korean labels for the reason codes shown to the Owner. Unknown codes are shown as they are.
 REASON_LABELS = {
     "no_registered_kind": "등록된 작업 종류 밖",
+    "lead_reason_missing": "팀장이 Owner 결정 사유를 적지 않음",
     "paths_missing": "변경 경로 없음",
     "path_outside_kind": "작업 종류 허용 경로 밖",
     "path_outside_repository": "저장소 밖 경로",
