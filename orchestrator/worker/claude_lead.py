@@ -10,6 +10,10 @@ with only Read, Grep and Glob, in plan permission mode, under a time limit.
 It takes no Worker lock. Its answer is untrusted data: anything outside the fixed fields fails
 closed, and nothing here creates a task or starts a run. The bot does that, and a run still
 starts only with the Owner's /go.
+
+task-0225: for a /goal, run_goal_plan asks the same lead, in the same way, to break one goal into
+sub-tasks (goal_plan.py) and judges each with the deterministic Policy Gate (policy_gate.py). That is
+a dry run: it creates no task and starts nothing.
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_worker  # noqa: E402
+import goal_plan  # noqa: E402
+import policy_gate  # noqa: E402
 
 LEAD_TIMEOUT_SECONDS = 300
 LEAD_ALLOWED_TOOLS = "Read,Grep,Glob"
@@ -255,6 +261,47 @@ def _remove_lead_worktree(repo_root: Path, path: Path) -> None:
         pass
 
 
+def _consult(
+    prompt: str,
+    repo_root: Path | None,
+    runner: Callable[[str, Path], subprocess.CompletedProcess] | None,
+) -> tuple[subprocess.CompletedProcess | None, str]:
+    """Run the lead once on `prompt` in a clean worktree, one lead at a time. Returns (completed, "")
+    for a zero exit, else (None, reason). Never raises. task-0225: run_lead's own steps, moved here
+    unchanged so run_lead and run_goal_plan share them."""
+
+    if not _LEAD_LOCK.acquire(blocking=False):
+        return None, "lead_busy"
+    try:
+        root = repo_root or LEAD_REPO_ROOT or claude_worker.REPO_ROOT
+        try:
+            tree = _lead_worktree(root)
+        except Exception:  # noqa: BLE001 - no clean tree, no lead
+            return None, "lead_failed:worktree"
+        try:
+            completed = (runner or _run_claude)(prompt, tree)
+        except subprocess.TimeoutExpired:
+            return None, "lead_timeout"
+        except claude_worker.StageFailure as exc:
+            return None, f"lead_failed:{exc.reason}"
+        except Exception as exc:  # noqa: BLE001 - the lead never takes the bot down
+            return None, f"lead_failed:{type(exc).__name__}"
+        finally:
+            _remove_lead_worktree(root, tree)
+        if completed.returncode != 0:
+            return None, "lead_failed:exit"
+        return completed, ""
+    finally:
+        _LEAD_LOCK.release()
+
+
+def _answer_text(stdout: str) -> str:
+    try:
+        return str(json.loads(stdout).get("result", stdout))
+    except (json.JSONDecodeError, AttributeError):
+        return stdout
+
+
 def run_lead(
     request: str,
     repo_root: Path | None = None,
@@ -266,37 +313,46 @@ def run_lead(
     its reason code (task-0183 repair 2).
     """
 
-    if not _LEAD_LOCK.acquire(blocking=False):
-        return LeadResult(False, "lead_busy")
+    completed, reason = _consult(lead_prompt(request), repo_root, runner)
+    if completed is None:
+        return LeadResult(False, reason)
+    plan, reason = parse_lead_answer(_answer_text(completed.stdout))
+    if plan is None:
+        return LeadResult(False, reason)
+    return LeadResult(True, plan=plan)
+
+
+@dataclass
+class GoalPlanResult:
+    ok: bool
+    reason: str = ""
+    plan: goal_plan.GoalPlan | None = None
+    verdict: policy_gate.GoalVerdict | None = None
+    digest: str = ""
+    usage: dict = field(default_factory=dict)
+
+
+def run_goal_plan(
+    goal: str,
+    repo_root: Path | None = None,
+    runner: Callable[[str, Path], subprocess.CompletedProcess] | None = None,
+) -> GoalPlanResult:
+    """task-0225: ask the lead once to break a goal into sub-tasks, then judge each one with the Policy
+    Gate. A dry run: nothing is created, assigned or started here or by the caller. Never raises; a
+    failure carries only its reason code, never the model's text (as run_lead)."""
+
+    completed, reason = _consult(goal_plan.goal_prompt(goal), repo_root, runner)
+    if completed is None:
+        return GoalPlanResult(False, reason)
+    usage = claude_worker.usage_of("lead_goal", completed.stdout, completed.returncode)
     try:
-        root = repo_root or LEAD_REPO_ROOT or claude_worker.REPO_ROOT
-        try:
-            tree = _lead_worktree(root)
-        except Exception:  # noqa: BLE001 - no clean tree, no lead
-            return LeadResult(False, "lead_failed:worktree")
-        try:
-            completed = (runner or _run_claude)(lead_prompt(request), tree)
-        except subprocess.TimeoutExpired:
-            return LeadResult(False, "lead_timeout")
-        except claude_worker.StageFailure as exc:
-            return LeadResult(False, f"lead_failed:{exc.reason}")
-        except Exception as exc:  # noqa: BLE001 - the lead never takes the bot down
-            return LeadResult(False, f"lead_failed:{type(exc).__name__}")
-        finally:
-            _remove_lead_worktree(root, tree)
-        if completed.returncode != 0:
-            return LeadResult(False, "lead_failed:exit")
-        text = completed.stdout
-        try:
-            text = str(json.loads(completed.stdout).get("result", completed.stdout))
-        except (json.JSONDecodeError, AttributeError):
-            pass
-        plan, reason = parse_lead_answer(text)
-        if plan is None:
-            return LeadResult(False, reason)
-        return LeadResult(True, plan=plan)
-    finally:
-        _LEAD_LOCK.release()
+        plan, reason = goal_plan.parse_goal_answer(_answer_text(completed.stdout))
+    except Exception:  # noqa: BLE001 - e.g. RecursionError on a deeply nested answer; fail closed
+        plan, reason = None, "goal_answer_malformed:unreadable"
+    if plan is None:
+        return GoalPlanResult(False, reason, usage=usage)
+    return GoalPlanResult(True, plan=plan, verdict=policy_gate.judge_plan(plan, goal),
+                          digest=goal_plan.plan_digest(plan), usage=usage)
 
 
 def task_title_for(plan: LeadPlan) -> str | None:

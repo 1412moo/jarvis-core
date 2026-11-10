@@ -125,13 +125,21 @@ Owner 전용. 작업 종류는 `studyroom_content`(Studyroom 앱 전체 `apps/st
 4. 끝나면 결과를 채널에 보고한다(task-0191). 보고에는 이번 실행의 Worker·Reviewer 호출이 스스로 알린 사용량 한 줄("사용량(API 환산 추정): Worker n회 $x, Reviewer m회 $y, 합계 t초")이 붙는다(task-0199, 구독 사용이면 실제 청구액이 아님). 같은 값이 호출마다 저장소 밖 `%LOCALAPPDATA%\jarvis-core\logs\agent-usage.jsonl`(환경 변수 `JARVIS_USAGE_LOG`로 변경)에 한 줄씩 쌓인다. 프롬프트와 답 내용은 남기지 않는다. `/go`를 스레드 안에서 보냈으면 그 스레드의 상위 채널이고, 상위 채널을 알 수 없거나 채널 전송이 실패하면 작업 스레드로 보낸다. 실패·timeout·범위 위반이면 task를 `FAILED`로 기록하고 단계, 사유, 선택지(`/go` 재시도, `/status`, 보존된 worktree·브랜치)를 보고한다.
 5. push, 외부 API, credential, `jarvis.bat` 접근은 하지 않는다. 검증: `python -B orchestrator/worker/run_smoke_tests.py`(가짜 claude 사용).
 
+### `/goal <목표>` (목표 계획 dry-run, task-0225)
+
+1. Owner 전용. 목표(1500자 이하)를 받으면 즉시 "목표 계획 시작 (dry-run)"으로 답하고 그 메시지에 스레드를 연다.
+2. 백그라운드에서 `/work` 팀장과 같은 읽기 전용 팀장(같은 잠금이라 다른 팀장이 실행 중이면 `lead_busy`)이 목표를 하위 작업 1~8개로 나눈다. 하위 작업마다 작업 종류, 방식(수정·읽기 전용), 목적, 경로, 선행 작업, 완료 조건, 팀장 위험도, Owner 결정 사유, Worker 지시를 받는다(`orchestrator/worker/goal_plan.py`, 형식이 어긋나면 실패).
+3. 결정론적 Policy Gate(`orchestrator/worker/policy_gate.py`)가 작업마다 `auto`·`needs_owner`·`forbidden`을 판정한다. 기준은 Owner 승인 전 제안이고 `auto`는 실행 권한이 아니다.
+4. 스레드에 개요(목표 요약, 판정 집계, 단계별 실행 순서, 진행 흐름, 계획 파일, 계획 hash, 팀장 사용량 추정)와 작업별 블록(판정 근거 포함)을 2000자 이하 메시지로 올린다. 실패하면 사유 코드만 보낸다.
+5. 계획 파일은 저장소 밖 `%LOCALAPPDATA%\jarvis-core\goal-plans\<goal-id>.json`(환경 변수 `JARVIS_GOAL_PLAN_DIR`로 변경)에 쓴다. task 생성, Worker 실행, 배정, 반영은 하지 않는다. 설계: `docs/lead-goal-plan-design.md`.
+
 ### `/help`
 1. 지원 명령 목록을 고정 텍스트로 안내한다.
 2. usage 불일치는 `error(reason=usage:/help)` 반환
 
 ### Discord 일반 메시지 선필터의 현재 거절 안내 문구
 - 코드의 일반 메시지 선필터 응답은 현재 아래 목록을 안내한다.
-- ``이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`, `/work <요청>`, `/go <task-id>`만 지원합니다.``
+- ``이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`, `/work <요청>`, `/goal <목표>`, `/go <task-id>`만 지원합니다.``
 - 참고: `_run_command()` 라우팅은 `/run`·`/retry`를 폐기 안내(`command_retired`)로 보낸다(task-0179).
 
 ### 안전 규칙

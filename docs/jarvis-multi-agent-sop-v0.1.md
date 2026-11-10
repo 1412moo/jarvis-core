@@ -321,7 +321,7 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 | 읽기 전용 확인·보고 | task-0201부터. 요청(`/go`에서는 task 제목)에 정해진 문구(수정하지 마, 수정하지 말, 수정 금지, 고치지 마, 고치지 말, 변경하지 마, 변경하지 말, 변경 금지, 보고만, 확인만, 읽기 전용, read-only, read only, readonly. 소문자로, 공백을 하나로 줄여 봄)가 있으면 작업 종류 표지어와 관계없이 읽기 전용 실행이다. 아래 읽기 전용 문단 | `READ_ONLY_MARKERS`, `run_report` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar), `apps/research-council/run_smoke_tests.py`(research_council) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
-| 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `reject`, `revise`, `recheck`, `recover` 포함), 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
+| 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `reject`, `revise`, `recheck`, `recover` 포함), `/goal`(task-0225, task를 만들거나 실행하지 않고 계획만 보임, Worker 잠금이 아니라 팀장 잠금을 써서 `lead_busy`로 거절, 아래 목표 계획 문단). Worker는 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
 
 자연어 호출(task-0184): 슬래시 없는 Discord 메시지가 `자비스` 또는 `jarvis` 뒤 쉼표·콜론, 또는 이 봇의 멘션으로
 시작하면, 호출어를 뗀 본문으로 `/work <본문>`과 똑같이 처리한다(같은 Owner 권한 검사와 경로). 호출어가 없는 메시지는
@@ -347,6 +347,16 @@ Discord에는 작업별 스레드에 팀장 계획, 단계 진행, Reviewer 판�
 상위 채널이고, 상위 채널을 알 수 없거나 채널 전송이 실패하면 작업 스레드로 보낸다. 이 알림은 파이프라인이 이미 가진
 값만 전하고, 실패해도 판정·repair·QA·반영과 task 기록을 바꾸지 않는다. 스레드를 만들 수 없거나 스레드 전송이
 실패하면 원래 채널로 보낸다.
+
+목표 계획 dry-run(task-0225): Owner 전용 `/goal <목표>`(1500자 이하)는 위 팀장과 같은 방식(같은 잠금, 임시 worktree, 도구,
+권한 모드, 시간 제한)으로 팀장을 한 번 실행해 목표를 하위 작업 1~8개로 나눈다. 하위 작업마다 작업 종류(또는 없음), 방식(수정
+또는 읽기 전용), 목적, 경로, 선행 작업, 완료 조건, 팀장 위험도, Owner 결정 사유, Worker 지시를 받고, 답은 정해진 JSON 형식만
+받아 어긋나면(순환 의존, 선행 작업보다 앞선 순서 포함) 실패로 본다(`orchestrator/worker/goal_plan.py`). 코드의 Policy Gate
+(`orchestrator/worker/policy_gate.py`)가 하위 작업마다 auto, needs_owner, forbidden을 판정한다. 팀장의 위험도와 Owner 결정 사유는
+판정을 엄격하게만 만들고 느슨하게 만들지 않는다. 이 판정 기준은 Owner 승인 전 제안이며 auto는 실행 권한이 아니다. 봇은 계획과
+판정을 작업 스레드에(스레드를 쓸 수 없으면 채널에) 2000자 이하 메시지로 보이고, 검토 자료로 저장소 밖에 계획 파일 한 개를 쓴다
+(저장소 안을 가리키거나 쓰기에 실패하면 쓰지 않은 것으로 보고 계획은 그대로 보인다). task 생성, Worker 실행, 배정, 큐, 반영은 하지 않고
+계획 파일을 다시 읽는 기능도 없다. 실패하면 사유 코드만 보낸다. 이 문단은 §9 금지의 예외를 넓히지 않는다.
 
 읽기 전용 확인·보고(task-0201): `/work` 요청에 위 표의 읽기 전용 문구가 있으면 팀장을 거치지 않고 TODO task를
 만들고, 작업 준비 메시지에 읽기 전용이라고 보인다. Owner의 `/go`로만 시작하며 같은 잠금과 승인 전이·감사를 쓴다. 실행은

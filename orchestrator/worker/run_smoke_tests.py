@@ -1860,6 +1860,296 @@ def lead_flow(bot, clone: Path, status_of) -> None:
             path.unlink(missing_ok=True)
 
 
+def goal_task(task_id: str, **fields) -> dict:
+    """task-0225: one well-formed sub-task of a goal plan answer, with fields overridden."""
+
+    task = {
+        "id": task_id, "title": f"{task_id} Studyroom 용어 정리", "kind": "studyroom_content", "mode": "edit",
+        "purpose": "용어집을 정리한다", "paths": ["apps/studyroom/content/glossary.json"], "depends_on": [],
+        "acceptance": ["glossary.json이 유효한 JSON이다", "Studyroom smoke가 통과한다"], "risk": "low",
+        "owner_decision": "none", "worker_request": "glossary.json의 표기를 맞춘다",
+    }
+    task.update(fields)
+    return task
+
+
+def goal_answer(tasks: list[dict], order: list[str] | None = None, **fields) -> str:
+    answer = {"goal_summary": "Studyroom 용어집을 정리하고 확인한다", "tasks": tasks,
+              "order": order if order is not None else [task["id"] for task in tasks],
+              "flow": "확인 뒤 정리하고 마지막에 점검한다"}
+    answer.update(fields)
+    return json.dumps(answer, ensure_ascii=False)
+
+
+def goal_flow(bot, clone: Path) -> None:
+    """task-0225: the goal plan dry run. The lead's goal answer is parsed strictly, every sub-task gets a
+    deterministic Policy Gate verdict, and /goal shows the plan without creating or running anything."""
+
+    import claude_lead
+    import goal_plan
+    import policy_gate
+
+    def answer(text: str, returncode: int = 0, cost: float | None = 0.12):
+        payload = {"result": text}
+        if cost is not None:
+            payload["total_cost_usd"] = cost
+        return lambda prompt, root: subprocess.CompletedProcess(["claude"], returncode, json.dumps(payload), "")
+
+    three = [goal_task("T1", mode="read_only", title="T1 용어 현황 확인", depends_on=[]),
+             goal_task("T2", depends_on=["T1"]),
+             goal_task("T3", kind="daily_ai_radar", paths=["apps/daily-ai-radar/"], depends_on=["T1"],
+                       title="T3 Radar 보고서 문구 다듬기")]
+
+    # The parser: a well-formed answer, its stages and digest; one code fence is allowed.
+    plan, reason = goal_plan.parse_goal_answer(goal_answer(three))
+    check("goal: a well-formed answer becomes a plan with stages from the dependencies",
+          plan is not None and reason == "" and plan.order == ["T1", "T2", "T3"]
+          and plan.stages() == [["T1"], ["T2", "T3"]] and plan.task("T2").depends_on == ["T1"]
+          and plan.task("T1").mode == "read_only" and plan.task("T2").acceptance[1] == "Studyroom smoke가 통과한다",
+          f"{reason}:{plan}")
+    fenced, _ = goal_plan.parse_goal_answer("```json\n" + goal_answer(three) + "\n```")
+    check("goal: one code fence around the answer is accepted",
+          fenced is not None and goal_plan.plan_digest(fenced) == goal_plan.plan_digest(plan))
+    other = goal_plan.parse_goal_answer(goal_answer(three, flow="다른 흐름"))[0]
+    check("goal: the digest is stable and changes with the plan",
+          len(goal_plan.plan_digest(plan)) == 64 and goal_plan.plan_digest(other) != goal_plan.plan_digest(plan))
+
+    malformed = {
+        "not json": "plan: T1 then T2",
+        "prose around the JSON": "Here is the plan:\n" + goal_answer(three),
+        "two fences": "```json\n{}\n```\n```json\n{}\n```",
+        "an extra plan field": goal_answer(three, extra="x"),
+        "a missing plan field": json.dumps({"goal_summary": "x", "tasks": three, "order": ["T1", "T2", "T3"]}),
+        "no tasks": goal_answer([], order=[]),
+        "nine tasks": goal_answer([goal_task(f"T{n}") for n in range(1, 10)]),
+        "an extra task field": goal_answer([goal_task("T1", note="x")]),
+        "a missing task field": goal_answer([{k: v for k, v in goal_task("T1").items() if k != "acceptance"}]),
+        "a bad id": goal_answer([goal_task("task1")], order=["task1"]),
+        "a duplicate id": goal_answer([goal_task("T1"), goal_task("T1")], order=["T1", "T1"]),
+        "an unknown kind": goal_answer([goal_task("T1", kind="docs")]),
+        "a bad mode": goal_answer([goal_task("T1", mode="run")]),
+        "a bad risk": goal_answer([goal_task("T1", risk="none")]),
+        "a backtick title": goal_answer([goal_task("T1", title="`x`")]),
+        "an empty purpose": goal_answer([goal_task("T1", purpose="  ")]),
+        "a long worker request": goal_answer([goal_task("T1", worker_request="가" * 301)]),
+        "no acceptance": goal_answer([goal_task("T1", acceptance=[])]),
+        "six criteria": goal_answer([goal_task("T1", acceptance=["c"] * 6)]),
+        "eleven paths": goal_answer([goal_task("T1", paths=[f"apps/studyroom/{n}.json" for n in range(11)])]),
+        "a path with a space": goal_answer([goal_task("T1", paths=["apps/studyroom/a b.json"])]),
+        "a kind none without a reason": goal_answer([goal_task("T1", kind="none")]),
+        "an unknown prerequisite": goal_answer([goal_task("T1", depends_on=["T9"])]),
+        "a self prerequisite": goal_answer([goal_task("T1", depends_on=["T1"])]),
+        "a cycle": goal_answer([goal_task("T1", depends_on=["T2"]), goal_task("T2", depends_on=["T1"])]),
+        "an order missing an id": goal_answer(three, order=["T1", "T2"]),
+        "an order with a prerequisite last": goal_answer(three, order=["T2", "T1", "T3"]),
+    }
+    refused = {name: goal_plan.parse_goal_answer(text) for name, text in malformed.items()}
+    check("goal: every malformed answer fails closed with a goal_answer_malformed reason",
+          all(p is None and r.startswith("goal_answer_malformed:") for p, r in refused.values()),
+          str({name: r for name, (p, r) in refused.items() if p is not None or not r.startswith("goal_answer_malformed:")}))
+    check("goal: the reasons name what was wrong",
+          refused["a cycle"][1] == "goal_answer_malformed:cycle"
+          and refused["an order with a prerequisite last"][1] == "goal_answer_malformed:order_dependency"
+          and refused["a kind none without a reason"][1] == "goal_answer_malformed:task_reason:T1"
+          and refused["an extra plan field"][1] == "goal_answer_malformed:fields", str(refused))
+
+    # The Policy Gate: fixed rules, and the lead's words can only make a verdict stricter.
+    def verdict_of(**fields) -> policy_gate.TaskVerdict:
+        task, why = goal_plan._parse_task(goal_task("T1", **fields), {k.name for k in claude_worker.WORK_KINDS})
+        assert task is not None, why
+        return policy_gate.judge_task(task)
+
+    check("gate: a sub-task inside its kind's path with no signal is auto", verdict_of().verdict == "auto"
+          and verdict_of(paths=["apps/studyroom/"]).verdict == "auto")
+    forbidden_paths = ["jarvis.bat", "apps/studyroom/studyroom.bat", "apps/research-council/.env.example",
+                       ".env", "apps/studyroom/.env.local", ".git/config", "../outside.txt", "/etc/passwd",
+                       "C:/Windows/x.txt", "~/x", "apps/research-council/research_council/openrouter_advisor.py"]
+    forbidden = {path: verdict_of(paths=[path], kind="research_council" if "research" in path else "studyroom_content")
+                 for path in forbidden_paths}
+    check("gate: protected paths, .env files, git internals and paths outside the repository are forbidden",
+          all(v.verdict == "forbidden" for v in forbidden.values()),
+          str({p: v.verdict for p, v in forbidden.items() if v.verdict != "forbidden"}))
+    check("gate: a low lead risk never loosens a forbidden path",
+          verdict_of(paths=["jarvis.bat"], risk="low").verdict == "forbidden")
+    check("gate: a folder that holds a protected file is not forbidden by itself",
+          verdict_of(paths=["apps/research-council/"], kind="research_council").verdict == "auto")
+    owner_cases = {
+        "outside the kind": verdict_of(paths=["docs/README.md"]),
+        "kind none": verdict_of(kind="none", owner_decision="등록된 종류 밖"),
+        "no paths": verdict_of(paths=[]),
+        "a wildcard": verdict_of(paths=["apps/studyroom/content/*.json"]),
+        "lead owner decision": verdict_of(owner_decision="비용 확인 필요"),
+        "lead risk high": verdict_of(risk="high"),
+    }
+    check("gate: outside the kind, no kind, no paths, a wildcard, a lead decision and a high risk need the Owner",
+          all(v.verdict == "needs_owner" for v in owner_cases.values()),
+          str({name: (v.verdict, v.reasons) for name, v in owner_cases.items()}))
+    signal_texts = {
+        "external_publication": "결과를 GitHub에 push 한다", "data_deletion": "오래된 항목을 삭제한다",
+        "cost": "유료 플랜 비용을 확인한다", "external_service": "외부 API로 번역한다",
+        "security_or_permission": "토큰 권한을 바꾼다", "install_or_dependency": "새 패키지를 설치한다",
+        "automation_or_schedule": "매일 스케줄로 돌린다",
+    }
+    signals = {category: verdict_of(worker_request=text) for category, text in signal_texts.items()}
+    check("gate: each signal category needs the Owner and names its category",
+          all(v.verdict == "needs_owner" and f"signal:{category}" in v.reasons for category, v in signals.items()),
+          str({c: (v.verdict, v.reasons) for c, v in signals.items()}))
+    check("gate: signals are read in the title, purpose and acceptance too",
+          verdict_of(title="배포 준비").verdict == "needs_owner" and verdict_of(purpose="remove old entries").verdict == "needs_owner"
+          and verdict_of(acceptance=["PR이 열린다"]).verdict == "needs_owner")
+    read_only, _ = goal_plan._parse_task(goal_task("T1", mode="read_only", paths=["docs/master-plan.md"]),
+                                         {k.name for k in claude_worker.WORK_KINDS})
+    check("gate: a read-only sub-task may read outside its kind's path", policy_gate.judge_task(read_only).verdict == "auto")
+    chained = goal_plan.parse_goal_answer(goal_answer([
+        goal_task("T1", worker_request="오래된 항목을 삭제한다"),
+        goal_task("T2", depends_on=["T1"]),
+        goal_task("T3", paths=["jarvis.bat"]),
+        goal_task("T4", depends_on=["T3"]),
+        goal_task("T5"),
+    ]))[0]
+    gate = policy_gate.judge_plan(chained, "Studyroom을 정리해 줘")
+    check("gate: a sub-task after a non-auto prerequisite needs the Owner and says which",
+          gate.of("T2").verdict == "needs_owner" and "depends_on_needs_owner:T1" in gate.of("T2").reasons
+          and gate.of("T4").verdict == "needs_owner" and "depends_on_forbidden:T3" in gate.of("T4").reasons
+          and gate.of("T5").verdict == "auto", str(gate.to_dict()))
+    check("gate: counts, overall and the policy version are reported",
+          gate.counts() == {"auto": 1, "needs_owner": 3, "forbidden": 1} and gate.overall() == "forbidden"
+          and gate.to_dict()["policy_version"] == policy_gate.POLICY_VERSION and gate.goal_signals == [])
+    check("gate: signals in the goal text are reported for the whole goal",
+          policy_gate.judge_plan(chained, "정리 뒤 배포해 줘").goal_signals == ["external_publication"])
+
+    # run_goal_plan: the same read-only lead, its lock and its clean worktree; failures give reasons only.
+    claude_lead.LEAD_REPO_ROOT = clone
+    prompts: list[str] = []
+    try:
+        def recording(prompt: str, root: Path) -> subprocess.CompletedProcess:
+            prompts.append(prompt)
+            return answer(goal_answer(three))(prompt, root)
+
+        planned = claude_lead.run_goal_plan("Studyroom 용어집을 정리해 줘", runner=recording)
+        check("goal lead: a well-formed answer gives a plan, a verdict, a digest and the usage",
+              planned.ok and planned.plan is not None and planned.verdict is not None
+              and planned.digest == goal_plan.plan_digest(planned.plan) and planned.usage.get("cost_usd") == 0.12
+              and planned.usage.get("stage") == "lead_goal", str(planned))
+        check("goal lead: the prompt carries the goal verbatim, every kind and its path, and forbids jarvis.bat",
+              bool(prompts) and "Owner goal (verbatim): Studyroom 용어집을 정리해 줘\n" in prompts[0]
+              and all(k.name in prompts[0] and k.allowed_prefix in prompts[0] for k in claude_worker.WORK_KINDS)
+              and "jarvis.bat" in prompts[0] and "never change anything" in prompts[0] and "Nothing runs" in prompts[0])
+        bad = claude_lead.run_goal_plan("x", runner=answer("SECRET-DO-NOT-SHOW not a plan"))
+        check("goal lead: a malformed answer fails closed and keeps no model text",
+              not bad.ok and bad.reason == "goal_answer_malformed:json" and "SECRET" not in str(bad), str(bad))
+        nested = claude_lead.run_goal_plan("x", runner=answer("[" * 100000 + "]" * 100000))
+        check("goal lead: an answer the parser cannot even read fails closed instead of raising",
+              not nested.ok and nested.reason.startswith("goal_answer_malformed:"), nested.reason)
+        check("goal lead: a non-zero exit and an exception give reason codes",
+              claude_lead.run_goal_plan("x", runner=answer("", returncode=1)).reason == "lead_failed:exit"
+              and claude_lead.run_goal_plan("x", runner=lambda p, r: (_ for _ in ()).throw(RuntimeError("boom"))).reason
+              == "lead_failed:RuntimeError")
+        claude_lead._LEAD_LOCK.acquire()
+        try:
+            busy = claude_lead.run_goal_plan("x", runner=answer(goal_answer(three)))
+        finally:
+            claude_lead._LEAD_LOCK.release()
+        check("goal lead: it shares the one-lead-at-a-time lock with /work", busy.reason == "lead_busy")
+        check("goal lead: run_lead still answers as before through the shared helper",
+              claude_lead.run_lead("x", runner=answer(LEAD_OK)).ok)
+    finally:
+        claude_lead.LEAD_REPO_ROOT = None
+
+    # The bot: /goal is Owner-only, starts nothing but the background plan, and the job creates no task,
+    # takes no Worker lock and changes no file in the repository; only the plan file outside it.
+    check("goal bot: /goal is a privileged command", bot._is_privileged_command("/goal Studyroom 정리")
+          and bot._authorize_command("/goal x", "not-an-owner")[0] is False)
+    check("goal bot: /goal without a goal shows its usage and is not taken for /go",
+          bot._run_command("/goal")["reason"] == "usage:/goal <목표>"
+          and bot._run_command("/goal    ")["reason"] == "usage:/goal <목표>")
+    check("goal bot: /goal starts the background plan with the goal's whitespace folded",
+          bot._run_command("/goal  Studyroom   용어 정리 ") == {"result_type": "goal_started", "goal": "Studyroom 용어 정리"})
+    check("goal bot: a goal over the limit is refused before the lead runs",
+          bot._run_command("/goal " + "가" * (bot.GOAL_MAX_CHARS + 1))["reason"] == f"goal_too_long:max_{bot.GOAL_MAX_CHARS}")
+    check("goal bot: /goalx is not /goal", bot._run_command("/goalx Studyroom").get("result_type") != "goal_started")
+    started_reply = bot._format_reply({"result_type": "goal_started", "goal": "Studyroom @everyone 정리"})
+    check("goal bot: the start notice says nothing will be created or run, and pings nobody",
+          "dry-run" in started_reply and "task 생성과 실행은 하지 않습니다" in started_reply and "@everyone" not in started_reply)
+
+    tasks_dir = clone / "memory" / "tasks"
+    plan_dir = clone.parent / "goal-plans"
+    real_run_claude, real_plan_dir = claude_lead._run_claude, bot.GOAL_PLAN_DIR
+    claude_lead.LEAD_REPO_ROOT = clone
+    bot.GOAL_PLAN_DIR = plan_dir
+    try:
+        def tree_state() -> tuple:
+            return (sorted(p.name for p in tasks_dir.glob("*.md")), git(["rev-parse", "HEAD"], clone),
+                    git(["status", "--porcelain", "--untracked-files=all"], clone), git(["branch", "--list"], clone),
+                    git(["worktree", "list", "--porcelain"], clone))
+
+        before = tree_state()
+        long_tasks = [goal_task(f"T{n}", title=f"T{n} " + "긴 제목" * 15, purpose="목적 " * 70,
+                                worker_request="@everyone 지시 " * 20, acceptance=["조건 " * 60] * 5,
+                                depends_on=[f"T{n - 1}"] if n > 1 else [],
+                                paths=[f"apps/studyroom/content/file{m}.json" for m in range(10)])
+                      for n in range(1, 9)]
+        claude_lead._run_claude = answer(goal_answer(long_tasks))
+        job = bot._run_goal_job("Studyroom 용어집 전체 정리")
+        after = tree_state()
+        check("goal job: the dry run creates no task, commits nothing and changes no file in the repository",
+              before == after and job.get("ok") is True and "task_id" not in job, f"{before} | {after}")
+        check("goal job: no Worker lock is held afterwards and none was needed",
+              not bot._WORKER_LOCK.locked() and not claude_lead._LEAD_LOCK.locked())
+        saved = json.loads(Path(job["plan_path"]).read_text(encoding="utf-8")) if job.get("plan_path") else {}
+        check("goal job: the plan file outside the repository holds the whole plan, its verdicts and its digest",
+              Path(job.get("plan_path") or "").parent == plan_dir and saved.get("dry_run") is True and saved.get("executed") is False
+              and saved.get("goal") == "Studyroom 용어집 전체 정리" and len(saved.get("plan", {}).get("tasks", [])) == 8
+              and saved.get("plan_sha256") == job.get("digest") and saved.get("verdict", {}).get("counts") == job["verdict"]["counts"],
+              str(saved)[:300])
+        messages = bot._goal_reply_messages(job)
+        joined = "\n".join(messages)
+        check("goal job: the plan is shown in messages of at most 2000 characters, overview first",
+              len(messages) >= 3 and all(len(m) <= bot.DISCORD_MESSAGE_CHARS for m in messages)
+              and messages[0].startswith("🗺️ 목표 계획 (dry-run)") and "8단계" in messages[0]
+              and all(f"**T{n}**" in joined for n in range(1, 9)), str([len(m) for m in messages]))
+        check("goal job: model text never pings anyone", "@everyone" not in joined)
+        check("goal job: the overview says nothing ran and auto is not a permission",
+              "실행하지 않았습니다" in messages[0] and "auto 판정도 실행 권한이 아닙니다" in messages[0]
+              and policy_gate.POLICY_VERSION in messages[0] and "팀장 사용량 추정: $0.12" in messages[0])
+
+        claude_lead._run_claude = answer(goal_answer(three[:2] + [goal_task("T3", paths=["jarvis.bat"], depends_on=["T2"])]))
+        shown = bot._format_reply(bot._run_goal_job("Studyroom 정리"))
+        check("goal job: each sub-task shows its verdict, prerequisites, criteria, paths, instruction and reasons",
+              "**T1** [✅ auto] T1 용어 현황 확인" in shown and "방식: 읽기 전용" in shown
+              and "**T3** [⛔ forbidden]" in shown and "보호 경로 (jarvis.bat)" in shown
+              and "선행 작업: T1" in shown and "· Studyroom smoke가 통과한다" in shown
+              and "수정 허용 apps/studyroom/" in shown and "Worker 지시(제안): glossary.json의 표기를 맞춘다" in shown
+              and "1단계: T1 [auto]" in shown and "3단계: T3 [forbidden]" in shown, shown[:1500])
+
+        claude_lead._run_claude = answer("SECRET-DO-NOT-SHOW nonsense")
+        failed = bot._run_goal_job("x")
+        failed_reply = bot._format_reply(failed)
+        check("goal job: a failed plan shows only its reason code and writes no plan file",
+              failed.get("ok") is False and "goal_answer_malformed:json" in failed_reply
+              and "SECRET-DO-NOT-SHOW" not in failed_reply and "plan_path" not in failed, failed_reply)
+
+        bot.GOAL_PLAN_DIR = clone / "goal-plans-inside"
+        claude_lead._run_claude = answer(goal_answer(three))
+        inside = bot._run_goal_job("Studyroom 정리")
+        check("goal job: a plan folder inside the repository is not written, and the plan is still shown",
+              inside.get("ok") is True and inside.get("plan_path") is None and not (clone / "goal-plans-inside").exists()
+              and "쓰지 못함" in bot._goal_reply_messages(inside)[0])
+    finally:
+        claude_lead._run_claude, bot.GOAL_PLAN_DIR = real_run_claude, real_plan_dir
+        claude_lead.LEAD_REPO_ROOT = None
+
+    source = Path(bot.__file__).read_text(encoding="utf-8")
+    job_source = source[source.index("def _run_goal_job"):source.index("def _run_work(")]
+    check("goal bot: the goal job calls no task writer, Worker, pipeline or git",
+          all(name not in job_source for name in ("write_task_file", "_run_worker_job", "run_pipeline", "_git(",
+                                                     "accept_candidate", "_run_task_pipeline", "subprocess")))
+    handler = source[source.index("async def _report_goal"):]
+    handler = handler[:handler.index("_BACKGROUND_TASKS.add")]
+    check("goal bot: the Discord handler only runs the plan job and sends its messages",
+          "_run_goal_job" in handler and "_run_worker_job" not in handler and "_run_lead_job" not in handler)
+
+
 def discussion_flow(bot, clone: Path, status_of) -> None:
     """task-0183: what the Owner sees in Discord while the AIs work: the Reviewer's finding, the
     Worker's repair and the re-review, in order; a lost message never changes the run; the task
@@ -2314,6 +2604,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     final_approval_bot_flow(bot, clone, status_of)
     revise_recheck_flow(bot, clone, status_of)
     lead_flow(bot, clone, status_of)
+    goal_flow(bot, clone)
     discussion_flow(bot, clone, status_of)
     call_flow(bot, clone)
     report_bot_flow(bot, clone, status_of)

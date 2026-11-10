@@ -75,6 +75,7 @@ if str(WORKER_DIR) not in sys.path:
     sys.path.insert(0, str(WORKER_DIR))
 import claude_worker  # noqa: E402
 import claude_lead  # noqa: E402
+import policy_gate  # noqa: E402
 import threading  # noqa: E402
 
 TASK_ID_PATTERN = re.compile(r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -158,7 +159,7 @@ EXECUTION_OUTPUT_MAX_CHARS = 220
 # (/status, /report, /help, /plan, /review-task, /retro) stay open to everyone
 # and are deliberately absent from this set. /run and /retry are retired
 # (task-0179) and change nothing; they stay here so the permission check is unchanged.
-PRIVILEGED_COMMANDS = frozenset({"/approve", "/run", "/retry", "/task", "/work", "/go"})
+PRIVILEGED_COMMANDS = frozenset({"/approve", "/run", "/retry", "/task", "/work", "/go", "/goal"})
 # task-0142: one Claude Worker run at a time.
 _WORKER_LOCK = threading.Lock()
 # Name of the env var holding the Owner allowlist. The NAME is safe to log;
@@ -810,6 +811,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/retro today - 오늘 회고 요약",
             "/work <요청> - Studyroom 콘텐츠 또는 Daily AI Radar 작업 준비. 작업 종류가 없는 요청은 팀장이 읽기 전용으로 계획 (Owner)",
             "자비스, <요청> (또는 봇 멘션 뒤 요청) - `/work <요청>`과 같음 (Owner)",
+            "/goal <목표> - 팀장이 목표를 하위 작업으로 나누고 작업마다 정책 판정(auto/needs_owner/forbidden)을 보임. 계획만, task 생성·실행 없음 (Owner)",
             "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
             "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
             "/go <task-id> accept - 최종 승인: 확인 대기 중인 candidate를 QA 재확인 뒤 main에 반영 (Owner)",
@@ -1906,6 +1908,85 @@ def _run_lead_job(request: str) -> dict[str, Any]:
     return result
 
 
+# task-0225: the goal text goes into the lead's prompt and the plan file, so it is bounded.
+GOAL_MAX_CHARS = 1500
+# task-0225: where a goal plan's review file goes, outside the repository like the run reports.
+GOAL_PLAN_DIR = Path(os.environ.get("JARVIS_GOAL_PLAN_DIR") or claude_worker.REPORT_DIR.parent / "goal-plans")
+
+
+def _run_goal(command_text: str) -> dict[str, Any]:
+    """task-0225: `/goal <목표>` starts a read-only goal plan in the background (on_message). Nothing is
+    created or run here."""
+
+    parts = command_text.strip().split(maxsplit=1)
+    goal = " ".join(parts[1].split()) if len(parts) == 2 else ""
+    if parts[:1] != ["/goal"] or not goal:
+        return _error_payload("usage:/goal <목표>")
+    if len(goal) > GOAL_MAX_CHARS:
+        return _error_payload(f"goal_too_long:max_{GOAL_MAX_CHARS}")
+    return {"result_type": "goal_started", "goal": goal}
+
+
+def _write_goal_plan_file(record: dict[str, Any]) -> str | None:
+    """task-0225: the whole checked plan and its verdicts as JSON, for review and for later stages to
+    read. Outside the repository only; a failed write changes nothing but the missing path."""
+
+    try:
+        claude_worker._ensure_outside_repo(GOAL_PLAN_DIR, REPO_ROOT)
+        GOAL_PLAN_DIR.mkdir(parents=True, exist_ok=True)
+        target = GOAL_PLAN_DIR / f"{record['goal_id']}.json"
+        target.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return str(target)
+    except (OSError, claude_worker.StageFailure) as exc:
+        print(f"[goal-plan] file not written ({type(exc).__name__}); the plan is still shown")
+        return None
+
+
+def _run_goal_job(goal: str) -> dict[str, Any]:
+    """task-0225: ask the read-only lead for a goal plan and judge it with the Policy Gate. A dry run:
+    no task file is written, no Worker is called and nothing is queued. The only write is the plan
+    file outside the repository."""
+
+    created_at = datetime.now(UTC)
+    goal_id = "goal-" + created_at.strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    planned = claude_lead.run_goal_plan(goal)
+    result: dict[str, Any] = {
+        "result_type": "goal_result",
+        "goal_id": goal_id,
+        "goal": goal,
+        "ok": planned.ok,
+        "reason": planned.reason,
+        "usage": planned.usage,
+    }
+    if not planned.ok or planned.plan is None or planned.verdict is None:
+        # As for /work: only the reason code, never the model's answer text.
+        return result
+    plan = planned.plan
+    result["plan"] = plan.to_dict()
+    result["stages"] = plan.stages()
+    result["verdict"] = planned.verdict.to_dict()
+    result["digest"] = planned.digest
+    result["allowed_paths"] = {
+        task.id: (claude_worker.work_kind_by_name(task.kind).allowed_prefix if task.kind else None)
+        for task in plan.tasks
+    }
+    record = {
+        "goal_id": goal_id,
+        "created_at": created_at.strftime("%Y-%m-%d %H:%M UTC"),
+        "goal": goal,
+        "dry_run": True,
+        "executed": False,
+        "plan_version": plan.version,
+        "plan_sha256": planned.digest,
+        "plan": result["plan"],
+        "stages": result["stages"],
+        "verdict": result["verdict"],
+        "usage": planned.usage,
+    }
+    result["plan_path"] = _write_goal_plan_file(record)
+    return result
+
+
 def _run_work(command_text: str) -> dict[str, Any]:
     """Prepare one task of a registered Worker kind. Creates a TODO task; nothing runs yet."""
 
@@ -2839,6 +2920,107 @@ def _format_lead_reply(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+GOAL_VERDICT_MARKS = {"auto": "✅ auto", "needs_owner": "🟡 needs_owner", "forbidden": "⛔ forbidden"}
+GOAL_MODE_LABELS = {"edit": "수정", "read_only": "읽기 전용"}
+
+
+def _fit_message(text: str) -> str:
+    if len(text) <= DISCORD_MESSAGE_CHARS:
+        return text
+    return text[: DISCORD_MESSAGE_CHARS - 1] + "…"
+
+
+def _goal_task_block(task: dict[str, Any], verdict: dict[str, Any], allowed_path: str | None) -> str:
+    safe = {key: (_discord_safe(value) if isinstance(value, str) else value) for key, value in task.items()}
+    kind = safe.get("kind") or "없음 (등록된 작업 종류 밖)"
+    if allowed_path:
+        kind += f" (수정 허용 {allowed_path})"
+    deps = ", ".join(safe.get("depends_on") or []) or "없음"
+    paths = ", ".join(_discord_safe(path) for path in safe.get("paths") or []) or "없음"
+    criteria = "\n".join(f"  · {_discord_safe(item)}" for item in safe.get("acceptance") or [])
+    reasons = ", ".join(policy_gate.reason_label(_discord_safe(r)) for r in verdict.get("reasons") or []) or "없음"
+    lines = [
+        f"**{safe.get('id')}** [{GOAL_VERDICT_MARKS.get(verdict.get('verdict'), verdict.get('verdict'))}] {safe.get('title')}",
+        f"- 종류: {kind} · 방식: {GOAL_MODE_LABELS.get(safe.get('mode'), safe.get('mode'))} · 팀장 위험도: {safe.get('risk')}",
+        f"- 목적: {safe.get('purpose')}",
+        f"- 선행 작업: {deps}",
+        f"- 경로: {paths}",
+        f"- 완료 조건:\n{criteria}",
+        f"- Worker 지시(제안): {safe.get('worker_request')}",
+    ]
+    if safe.get("owner_decision"):
+        lines.append(f"- 팀장이 본 Owner 결정 필요: {safe.get('owner_decision')}")
+    lines.append(f"- 판정 근거: {reasons}")
+    return _fit_message("\n".join(lines))
+
+
+def _goal_reply_messages(result: dict[str, Any]) -> list[str]:
+    """task-0225: the /goal start notice, or the whole plan as Discord messages of at most 2000
+    characters each: an overview with the stages, then one block per sub-task in the lead's order."""
+
+    goal = _discord_safe(str(result.get("goal") or ""))
+    if result.get("result_type") == "goal_started":
+        return [_fit_message(
+            f"🗺️ 목표 계획 시작 (dry-run): {goal[:300]}\n"
+            "- 팀장이 읽기 전용으로 저장소를 살펴 하위 작업으로 나누고, 작업마다 정책 판정을 붙입니다.\n"
+            "- task 생성과 실행은 하지 않습니다. 끝나면 이 메시지에 여는 스레드에 올립니다(스레드를 열 수 없으면 이 채널)."
+        )]
+    usage = result.get("usage") or {}
+    cost = usage.get("cost_usd") if isinstance(usage, dict) else None
+    usage_text = f"- 팀장 사용량 추정: ${cost:.2f}" if isinstance(cost, (int, float)) else ""
+    plan = result.get("plan") or {}
+    verdict = result.get("verdict") or {}
+    if not result.get("ok") or not plan or not verdict:
+        lines = [
+            "⚠️ 목표 계획 실패: 아무것도 만들거나 실행하지 않았습니다.",
+            f"- reason: `{_discord_safe(result.get('reason') or '')}`",
+        ]
+        if usage_text:
+            lines.append(usage_text)
+        return [_fit_message("\n".join(lines))]
+    tasks = {task.get("id"): task for task in plan.get("tasks") or []}
+    verdicts = {item.get("task_id"): item for item in verdict.get("tasks") or []}
+    counts = verdict.get("counts") or {}
+    stage_lines = []
+    for index, stage in enumerate(result.get("stages") or [], start=1):
+        entries = ", ".join(
+            f"{task_id} [{(verdicts.get(task_id) or {}).get('verdict')}] {_discord_safe(str((tasks.get(task_id) or {}).get('title') or ''))}"
+            for task_id in stage
+        )
+        stage_lines.append(f"  {index}단계: {entries}")
+    overview = [
+        f"🗺️ 목표 계획 (dry-run) `{result.get('goal_id')}`",
+        f"- 목표 요약: {_discord_safe(str(plan.get('goal_summary') or ''))}",
+        f"- 하위 작업 {len(tasks)}개 · 판정: auto {counts.get('auto', 0)} · needs_owner {counts.get('needs_owner', 0)}"
+        f" · forbidden {counts.get('forbidden', 0)} (`{verdict.get('policy_version')}`, Owner 승인 전 제안 기준)",
+        "- 실행 순서 (같은 단계는 서로 의존하지 않음):",
+        *stage_lines,
+        f"- 진행 흐름: {_discord_safe(str(plan.get('flow') or ''))}",
+    ]
+    signals = verdict.get("goal_signals") or []
+    if signals:
+        overview.append("- 목표 문장의 주의 신호: " + ", ".join(policy_gate.reason_label(f"signal:{s}") for s in signals))
+    overview.append(f"- 계획 파일: {result.get('plan_path') or '쓰지 못함 (계획은 이 메시지에만 있음)'}")
+    if result.get("digest"):
+        overview.append(f"- 계획 hash: `{str(result.get('digest'))[:12]}`")
+    if usage_text:
+        overview.append(usage_text)
+    overview.append("⏸️ 실행하지 않았습니다. task도 만들지 않았습니다. 이 계획을 실행하는 기능은 아직 없고, auto 판정도 실행 권한이 아닙니다.")
+    messages = [_fit_message("\n".join(overview))]
+    allowed = result.get("allowed_paths") or {}
+    current = ""
+    for task_id in plan.get("order") or []:
+        block = _goal_task_block(tasks.get(task_id) or {}, verdicts.get(task_id) or {}, allowed.get(task_id))
+        if current and len(current) + 2 + len(block) > DISCORD_MESSAGE_CHARS:
+            messages.append(current)
+            current = block
+        else:
+            current = f"{current}\n\n{block}" if current else block
+    if current:
+        messages.append(current)
+    return messages
+
+
 def _usage_line(result: dict[str, Any]) -> str:
     """task-0199: one line on what the run's Worker and Reviewer calls reported, or "" when none ran."""
 
@@ -3107,6 +3289,9 @@ def _run_command(command_text: str) -> dict[str, Any]:
         return _run_approve_parse(content)
     if content.startswith("/work"):
         return _run_work(content)
+    if _command_name(content) == "/goal":
+        # task-0225: before /go, which /goal also starts with.
+        return _run_goal(content)
     if content.startswith("/go"):
         return _run_go(content)
     if content == "/report today" or content.startswith("/report today "):
@@ -3122,6 +3307,8 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         return _format_work_reply(pipeline_result)
     if result_type in ("lead_started", "lead_result"):
         return _format_lead_reply(pipeline_result)
+    if result_type in ("goal_started", "goal_result"):
+        return "\n\n".join(_goal_reply_messages(pipeline_result))
     if result_type == "help":
         lines = pipeline_result.get("lines") or []
         body = "\n".join(f"- {line}" for line in lines) if lines else "- (없음)"
@@ -5117,7 +5304,7 @@ async def _start_discord_bot() -> None:
             and not content.startswith("/go")
         ):
             await message.reply(
-                "이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`, `/work <요청>`, `/go <task-id>`만 지원합니다."
+                "이 봇은 현재 `/help`, `/plan <request>`, `/task <내용>`, `/status <task-id>`, `/review-task <task-id>`, `/report`, `/report today`, `/retro today`, `/approve <task-id> approve|reject`, `/work <요청>`, `/goal <목표>`, `/go <task-id>`만 지원합니다."
             )
             return
 
@@ -5176,6 +5363,19 @@ async def _start_discord_bot() -> None:
                 await _send_safely(thread, message.channel, _format_reply(lead_result))
 
             _BACKGROUND_TASKS.add(asyncio.create_task(_report_lead()))
+            return
+
+        # task-0225: the goal plan is the same read-only lead, so it also runs off the event loop.
+        # It is a dry run: the messages below are all it produces besides the plan file.
+        if result.get("result_type") == "goal_started":
+
+            async def _report_goal() -> None:
+                thread = await _task_thread(message, f"목표: {result['goal']}")
+                goal_result = await asyncio.to_thread(_run_goal_job, str(result["goal"]))
+                for text in _goal_reply_messages(goal_result):
+                    await _send_safely(thread, message.channel, text)
+
+            _BACKGROUND_TASKS.add(asyncio.create_task(_report_goal()))
             return
 
         # Best-effort outbound notification. Runs off the event loop so a
