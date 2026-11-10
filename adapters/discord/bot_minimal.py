@@ -2924,10 +2924,22 @@ GOAL_VERDICT_MARKS = {"auto": "✅ auto", "needs_owner": "🟡 needs_owner", "fo
 GOAL_MODE_LABELS = {"edit": "수정", "read_only": "읽기 전용"}
 
 
-def _fit_message(text: str) -> str:
-    if len(text) <= DISCORD_MESSAGE_CHARS:
+GOAL_TAIL_LINE_CHARS = 500
+
+
+def _fit_message(text: str, limit: int = DISCORD_MESSAGE_CHARS) -> str:
+    if len(text) <= limit:
         return text
-    return text[: DISCORD_MESSAGE_CHARS - 1] + "…"
+    return text[: max(limit - 1, 0)] + "…"
+
+
+def _fit_head_tail(head: list[str], tail: list[str]) -> str:
+    """task-0225 repair 1: one message of at most 2000 characters whose tail lines (verdict reasons, the
+    not-executed notice, the plan file and hash) always stay whole; only the head's free text is cut."""
+
+    tail_text = "\n".join(_fit_message(line, GOAL_TAIL_LINE_CHARS) for line in tail)
+    head_text = _fit_message("\n".join(head), DISCORD_MESSAGE_CHARS - len(tail_text) - 1)
+    return f"{head_text}\n{tail_text}" if tail_text else head_text
 
 
 def _goal_task_block(task: dict[str, Any], verdict: dict[str, Any], allowed_path: str | None) -> str:
@@ -2950,8 +2962,7 @@ def _goal_task_block(task: dict[str, Any], verdict: dict[str, Any], allowed_path
     ]
     if safe.get("owner_decision"):
         lines.append(f"- 팀장이 본 Owner 결정 필요: {safe.get('owner_decision')}")
-    lines.append(f"- 판정 근거: {reasons}")
-    return _fit_message("\n".join(lines))
+    return _fit_head_tail(lines, [f"- 판정 근거: {reasons}"])
 
 
 def _goal_reply_messages(result: dict[str, Any]) -> list[str]:
@@ -2997,16 +3008,17 @@ def _goal_reply_messages(result: dict[str, Any]) -> list[str]:
         *stage_lines,
         f"- 진행 흐름: {_discord_safe(str(plan.get('flow') or ''))}",
     ]
+    tail = []
     signals = verdict.get("goal_signals") or []
     if signals:
-        overview.append("- 목표 문장의 주의 신호: " + ", ".join(policy_gate.reason_label(f"signal:{s}") for s in signals))
-    overview.append(f"- 계획 파일: {result.get('plan_path') or '쓰지 못함 (계획은 이 메시지에만 있음)'}")
+        tail.append("- 목표 문장의 주의 신호: " + ", ".join(policy_gate.reason_label(f"signal:{s}") for s in signals))
+    tail.append(f"- 계획 파일: {result.get('plan_path') or '쓰지 못함 (계획은 이 메시지에만 있음)'}")
     if result.get("digest"):
-        overview.append(f"- 계획 hash: `{str(result.get('digest'))[:12]}`")
+        tail.append(f"- 계획 hash: `{str(result.get('digest'))[:12]}`")
     if usage_text:
-        overview.append(usage_text)
-    overview.append("⏸️ 실행하지 않았습니다. task도 만들지 않았습니다. 이 계획을 실행하는 기능은 아직 없고, auto 판정도 실행 권한이 아닙니다.")
-    messages = [_fit_message("\n".join(overview))]
+        tail.append(usage_text)
+    tail.append("⏸️ 실행하지 않았습니다. task도 만들지 않았습니다. 이 계획을 실행하는 기능은 아직 없고, auto 판정도 실행 권한이 아닙니다.")
+    messages = [_fit_head_tail(overview, tail)]
     allowed = result.get("allowed_paths") or {}
     current = ""
     for task_id in plan.get("order") or []:

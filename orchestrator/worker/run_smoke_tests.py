@@ -1963,7 +1963,10 @@ def goal_flow(bot, clone: Path) -> None:
           and verdict_of(paths=["apps/studyroom/"]).verdict == "auto")
     forbidden_paths = ["jarvis.bat", "apps/studyroom/studyroom.bat", "apps/research-council/.env.example",
                        ".env", "apps/studyroom/.env.local", ".git/config", "../outside.txt", "/etc/passwd",
-                       "C:/Windows/x.txt", "~/x", "apps/research-council/research_council/openrouter_advisor.py"]
+                       "C:/Windows/x.txt", "~/x", "apps/research-council/research_council/openrouter_advisor.py",
+                       # task-0225 repair 1: any letter case names the same file on Windows.
+                       "JARVIS.BAT", "apps/studyroom/Studyroom.BAT", ".GIT/config", "apps/studyroom/.ENV",
+                       "apps/research-council/research_council/OpenRouter_Advisor.py"]
     forbidden = {path: verdict_of(paths=[path], kind="research_council" if "research" in path else "studyroom_content")
                  for path in forbidden_paths}
     check("gate: protected paths, .env files, git internals and paths outside the repository are forbidden",
@@ -2039,6 +2042,10 @@ def goal_flow(bot, clone: Path) -> None:
         check("goal lead: a malformed answer fails closed and keeps no model text",
               not bad.ok and bad.reason == "goal_answer_malformed:json" and "SECRET" not in str(bad), str(bad))
         nested = claude_lead.run_goal_plan("x", runner=answer("[" * 100000 + "]" * 100000))
+        deep_stdout = claude_lead.run_goal_plan("x", runner=lambda p, r: subprocess.CompletedProcess(
+            ["claude"], 0, "[" * 100000 + "]" * 100000, ""))
+        check("goal lead: a top-level stdout too deep to read fails closed instead of raising",
+              not deep_stdout.ok and deep_stdout.reason.startswith("goal_answer_malformed:"), deep_stdout.reason)
         check("goal lead: an answer the parser cannot even read fails closed instead of raising",
               not nested.ok and nested.reason.startswith("goal_answer_malformed:"), nested.reason)
         check("goal lead: a non-zero exit and an exception give reason codes",
@@ -2112,6 +2119,21 @@ def goal_flow(bot, clone: Path) -> None:
         check("goal job: the overview says nothing ran and auto is not a permission",
               "실행하지 않았습니다" in messages[0] and "auto 판정도 실행 권한이 아닙니다" in messages[0]
               and policy_gate.POLICY_VERSION in messages[0] and "팀장 사용량 추정: $0.12" in messages[0])
+
+        # task-0225 repair 1: at the parser's maximum field lengths the verdict reasons and the closing
+        # notice still reach the Owner whole; only free text is cut.
+        widest = [goal_task(f"T{n}", title=f"T{n}" + "가" * 97, purpose="나" * 300, worker_request="다" * 300,
+                            owner_decision="라" * 300, risk="high", acceptance=["마" * 200] * 5,
+                            paths=[f"docs/{n}{m}" + "x" * 190 for m in range(10)],
+                            depends_on=[f"T{n - 1}"] if n > 1 else [])
+                  for n in range(1, 9)]
+        claude_lead._run_claude = answer(goal_answer(widest, goal_summary="바" * 300, flow="사" * 500))
+        wide_job = bot._run_goal_job("Studyroom 최대 길이 점검")
+        wide = bot._goal_reply_messages(wide_job)
+        check("goal job: at maximum field lengths every message fits and keeps the notice, hash and every verdict reason",
+              wide_job.get("ok") is True and all(len(m) <= bot.DISCORD_MESSAGE_CHARS for m in wide)
+              and wide[0].endswith("auto 판정도 실행 권한이 아닙니다.") and "- 계획 hash: `" in wide[0]
+              and sum(m.count("- 판정 근거: ") for m in wide[1:]) == 8, str([len(m) for m in wide]))
 
         claude_lead._run_claude = answer(goal_answer(three[:2] + [goal_task("T3", paths=["jarvis.bat"], depends_on=["T2"])]))
         shown = bot._format_reply(bot._run_goal_job("Studyroom 정리"))

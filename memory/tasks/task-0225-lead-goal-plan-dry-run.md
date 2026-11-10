@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-10 07:39 UTC`
-- updated_at: `2026-11-10 07:39 UTC`
+- updated_at: `2026-11-10 09:03 UTC`
 - summary: `Owner가 /goal로 목표 하나를 주면 읽기 전용 Lead가 하위 작업(kind, 목적, 의존성, 완료 조건, 순서, 위험도, worker_request)으로 분해하고, 코드의 결정론적 Policy Gate가 작업마다 auto, needs_owner, forbidden을 판정해 Discord에 보여 준다. task 생성, Worker 실행, 배정, Dispatcher, 백그라운드 실행, main 통합은 하지 않는다. 판정 기준은 Owner 승인 전 제안이며 실행 권한이 아니다.`
 - source_command: `Owner 지시: Lead Goal Plan Dry-run 1단계 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `c1946fb66763eeb7ab7f798b8840bf2165d304ab` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=0` (SOP §5 기본값) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, repair 1은 아래 절) |
 | 작업 위치 | 저장소 밖 worktree `jarvis-core-worktrees/task-0225-lead-goal-plan`, 브랜치 `work/task-0225-lead-goal-plan`. main 체크아웃은 그대로 둔다 |
 
 ## Owner 결정 (원문, 작업 지시)
@@ -126,6 +126,38 @@ SOP §3대로 staged 변경에 `claude -p --agent self-reviewer --tools Read,Gre
   - 3단계 T5(GitHub push, T1~T4 뒤, needs_owner: 등록된 작업 종류 밖, 변경 경로 없음, 외부 공개·전송, 팀장이 Owner 결정 필요로 표시)
 - 목표 문장의 주의 신호: 외부 공개·전송. 실행 뒤 main과 worktree의 git 상태는 그대로였고 임시 팀장 worktree는 남지 않았다. 계획 파일은 `%LOCALAPPDATA%\jarvis-core\goal-plans\`에 하나 생겼다.
 
+## Reviewer 결과 (candidate `6576e61e561041179f8c85e45ae40a1b4fdae439`)
+
+verdict FINDINGS, `self_deviations` 없음(유효). major 2건, minor 2건:
+
+1. major: 보호 경로와 `.git` 비교가 대소문자를 구분해 `apps/studyroom/Studyroom.BAT`, `OpenRouter_Advisor.py`, `.GIT/config` 같은 변형이 auto가 된다.
+2. minor: 최대 길이 입력에서 개요 끝의 실행 안 함 안내·계획 hash와 작업 블록의 판정 근거가 2000자 자르기로 잘린다.
+3. major: 요약 A14의 "백그라운드 Worker 실행이 아니다"가 승인 원문의 "백그라운드 실행"을 좁혔다. `/goal`은 팀장 계획을 이벤트 루프 밖에서 돌린다.
+4. minor: 요약 A27이 계획 파일을 승인 원문이 뒷받침하는 것처럼 적었다(Manager 해석).
+
+Reviewer unverified: 검사 실행 결과, 실제 dry-run, `run_lead` 동작 불변(읽기로만 확인), `usage_of`가 예외 처리 밖에 있음, SOP 변경과 master-plan 잠금의 일관성. 3·4는 소스 수정이 아니라 Owner 결정이 필요해 아래와 같이 물었다.
+
+## Owner 결정 (원문, Reviewer 지적 질문)
+
+```text
+[Manager 질문]
+Reviewer 지적(major): 승인 원문은 '백그라운드 실행은 구현하거나 활성화하지 않는다'입니다. /goal은 기존 /work 팀장과 똑같이, 읽기 전용 팀장 계획 1회를 봇 이벤트 루프 밖 스레드에서 돌리고 끝나면 결과를 스레드에 올립니다(Worker·큐·상시 실행 없음). 이것을 금지된 '백그라운드 실행'으로 볼까요?
+Reviewer 지적(minor): /goal은 계획 전체를 저장소 밖 %LOCALAPPDATA%\jarvis-core\goal-plans\<goal-id>.json에 검토 자료로 남깁니다(아무 코드도 다시 읽지 않음). 승인 원문에 없는 Manager 해석입니다. 유지할까요?
+
+[Owner 답]
+허용: 계획 1회는 금지 대상 아님
+유지
+```
+
+## Repair 1 (`repair_count=1`)
+
+- 지적 1: `policy_gate._is_protected`가 경로와 `PROTECTED_PATHS`를 소문자로 맞춰 비교하고 `.git`도 대소문자 무시로 본다. smoke에 `JARVIS.BAT`, `apps/studyroom/Studyroom.BAT`, `.GIT/config`, `apps/studyroom/.ENV`, `OpenRouter_Advisor.py` 변형을 더했다.
+- 지적 2: `_fit_head_tail`이 개요의 끝(주의 신호, 계획 파일, hash, 사용량, 실행 안 함 안내)과 작업 블록의 판정 근거를 온전히 두고 앞쪽 자유 문장만 자른다(끝 줄은 줄마다 500자 상한). smoke에 파서 최대 길이 계획을 더했다.
+- 지적 3·4: Owner 답에 따라 동작은 그대로 두고 요약 A14·A27의 근거를 Owner 답으로 고쳤다.
+- unverified 중 `usage_of`: 같은 stdout을 읽으므로 `run_goal_plan`의 예외 처리 안으로 옮기고, 최상위 stdout이 너무 깊은 경우의 smoke를 더했다.
+- 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
+- repair 뒤 검증(작업 트리): Worker smoke total=750 failed=0, SOP validator, Discord self-check, `git diff --check`, 사전 점검.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -145,7 +177,7 @@ SOP §3대로 staged 변경에 `claude -p --agent self-reviewer --tools Read,Gre
 | A11 | Owner 결정 (원문, 작업 지시) | "전체 목표의 예상 진행 흐름" | `flow`와 단계 |
 | A12 | Owner 결정 (원문, 작업 지시) | "핵심 요구사항" | 아래 행들의 표제 |
 | A13 | Owner 결정 (원문, 작업 지시) | "이번 단계에서는 계획만 생성한다." | job은 task 기록과 Worker를 건드리지 않고, git은 임시 팀장 worktree(기존 `/work` 팀장과 같음)의 추가·제거만 한다. smoke가 job 뒤 task 목록, HEAD, status, 브랜치, worktree 목록 불변을 확인한다 |
-| A14 | Owner 결정 (원문, 작업 지시) | "실제 Worker 실행, 자동 배정, Dispatcher, 백그라운드 실행은 구현하거나 활성화하지 않는다." | 구현하지 않았다. 팀장 계획 자체는 기존 `/work` 팀장처럼 봇의 이벤트 루프 밖 스레드에서 돈다(Manager 해석: 백그라운드 Worker 실행이 아니다) |
+| A14 | Owner 결정 (원문, 작업 지시) | "실제 Worker 실행, 자동 배정, Dispatcher, 백그라운드 실행은 구현하거나 활성화하지 않는다." | 구현하지 않았다. 팀장 계획 1회는 기존 `/work` 팀장처럼 봇의 이벤트 루프 밖 스레드에서 돈다. 이것이 금지된 백그라운드 실행이 아니라는 것은 질문 A50~A52에 대한 Owner 답 A57이다 |
 | A15 | Owner 결정 (원문, 작업 지시) | "기존 Worker의 단일 작업 파이프라인은 유지한다." | `claude_worker.py`를 바꾸지 않았다 |
 | A16 | Owner 결정 (원문, 작업 지시) | "향후 하위 작업 실행에 재사용할 수 있도록 설계한다." | 하위 작업 하나 = 실행 한 번(kind, paths, mode, acceptance). 설계 기록 4절 |
 | A17 | Owner 결정 (원문, 작업 지시) | "Lead가 생성한 작업별 `worker_request`가 실제 Worker에게 전달되어야 한다는 점을 설계에 반영한다." | 작업마다 `worker_request`를 받고 계획 hash를 둔다. 전달 방식은 설계 기록 5절 |
@@ -158,7 +190,7 @@ SOP §3대로 staged 변경에 `claude -p --agent self-reviewer --tools Read,Gre
 | A24 | Owner 결정 (원문, 작업 지시) | "우선 현재 코드와 문서를 다시 확인한다." | 조사 절 |
 | A25 | Owner 결정 (원문, 작업 지시) | "기존 Lead, Worker, Reviewer, QA, task model의 실제 구조를 기준으로 설계한다." | 조사 절과 설계 기록 4·5절 |
 | A26 | Owner 결정 (원문, 작업 지시) | "기존 구현을 불필요하게 변경하지 않는다." | 기존 코드 변경은 `run_lead`의 실행 단계를 공유 함수로 옮긴 것, `/goal` 분기·도움말, 지원 명령 안내 문구, `PRIVILEGED_COMMANDS`에 `/goal`을 명시한 것(접두어 판정에 기대지 않으려고)뿐이다 |
-| A27 | Owner 결정 (원문, 작업 지시) | "이번 단계는 Dry-run이므로 계획 생성 및 정책 판정 결과를 확인할 수 있는 수준까지만 구현한다." | 계획과 판정을 보이고 계획 파일을 남긴다 |
+| A27 | Owner 결정 (원문, 작업 지시) | "이번 단계는 Dry-run이므로 계획 생성 및 정책 판정 결과를 확인할 수 있는 수준까지만 구현한다." | 계획과 판정을 보인다. 계획 파일은 승인 원문에 없는 Manager 해석이었고 질문 A53~A55에 대한 Owner 답 "유지"로 남긴다 |
 | A28 | Owner 결정 (원문, 작업 지시) | "실제 자동 실행이나 main 통합 자동화는 절대 추가하지 않는다." | 추가하지 않았다. smoke의 소스 검사가 `_run_goal_job` 본문(그 함수만)에 task writer, Worker, pipeline, git 호출이 없음을 확인하고, 실행 검사가 job 전후 저장소 상태 불변을 확인한다 |
 | A29 | Owner 결정 (원문, 작업 지시) | "테스트를 작성하고 실행하여 기존 기능에 영향이 없는지 검증한다." | `goal_flow`와 기존 smoke 전부. 검증 절 |
 | A30 | Owner 결정 (원문, 작업 지시) | "Owner에게 제시할 결과" | 아래 행들의 표제 |
@@ -180,3 +212,12 @@ SOP §3대로 staged 변경에 `claude -p --agent self-reviewer --tools Read,Gre
 | A46 | Owner 결정 (원문, 작업 지시) | "현재 Lead가 할 수 있게 된 일과 아직 할 수 없는 일" | Owner 보고 |
 | A47 | Owner 결정 (원문, 작업 지시) | "다음 단계에서 필요한 Owner 결정" | 설계 기록 8절과 Owner 보고 |
 | A48 | Owner 결정 (원문, 작업 지시) | "중요한 것은 단순히 작업 목록을 출력하는 것이 아니라, 실제 자율 실행 시스템으로 확장할 수 있는 Goal 단위의 계획 구조를 만드는 것이다." | 검증된 구조(단계, hash, 판정 버전)와 저장소 밖 계획 파일. 다음 단계의 Goal Store·Dispatcher·지시 묶음의 입력 형식이다 |
+| A49 | Owner 결정 (원문, Reviewer 지적 질문) | "[Manager 질문]" | Reviewer 지적 3·4에 대한 bounded question의 표지 |
+| A50 | Owner 결정 (원문, Reviewer 지적 질문) | "Reviewer 지적(major): 승인 원문은 '백그라운드 실행은 구현하거나 활성화하지 않는다'입니다." | Reviewer 지적 3 |
+| A51 | Owner 결정 (원문, Reviewer 지적 질문) | "/goal은 기존 /work 팀장과 똑같이, 읽기 전용 팀장 계획 1회를 봇 이벤트 루프 밖 스레드에서 돌리고 끝나면 결과를 스레드에 올립니다(Worker·큐·상시 실행 없음)." | 실제 동작 설명. 코드와 같다 |
+| A52 | Owner 결정 (원문, Reviewer 지적 질문) | "이것을 금지된 '백그라운드 실행'으로 볼까요?" | 답은 A57 |
+| A53 | Owner 결정 (원문, Reviewer 지적 질문) | "Reviewer 지적(minor): /goal은 계획 전체를 저장소 밖 %LOCALAPPDATA%\jarvis-core\goal-plans\<goal-id>.json에 검토 자료로 남깁니다(아무 코드도 다시 읽지 않음)." | Reviewer 지적 4 |
+| A54 | Owner 결정 (원문, Reviewer 지적 질문) | "승인 원문에 없는 Manager 해석입니다." | A27 행에 그렇게 적었다 |
+| A55 | Owner 결정 (원문, Reviewer 지적 질문) | "유지할까요?" | Owner 답은 "유지". 계획 파일 쓰기를 그대로 둔다 |
+| A56 | Owner 결정 (원문, Reviewer 지적 질문) | "[Owner 답]" | 답의 표지 |
+| A57 | Owner 결정 (원문, Reviewer 지적 질문) | "허용: 계획 1회는 금지 대상 아님" | 팀장 계획 1회를 이벤트 루프 밖에서 돌리는 현재 방식을 유지한다. 이 답은 이 task에만 효력이 있다 |

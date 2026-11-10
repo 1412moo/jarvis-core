@@ -344,8 +344,10 @@ def run_goal_plan(
     completed, reason = _consult(goal_plan.goal_prompt(goal), repo_root, runner)
     if completed is None:
         return GoalPlanResult(False, reason)
-    usage = claude_worker.usage_of("lead_goal", completed.stdout, completed.returncode)
+    usage: dict = {}
     try:
+        # task-0225 repair 1: usage_of reads the same stdout, so it sits inside the guard too.
+        usage = claude_worker.usage_of("lead_goal", completed.stdout, completed.returncode)
         plan, reason = goal_plan.parse_goal_answer(_answer_text(completed.stdout))
     except Exception:  # noqa: BLE001 - e.g. RecursionError on a deeply nested answer; fail closed
         plan, reason = None, "goal_answer_malformed:unreadable"

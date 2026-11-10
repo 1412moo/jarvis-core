@@ -120,14 +120,15 @@ def _is_protected(path: str) -> bool:
     merely holds a protected file (apps/studyroom/ holds studyroom.bat) is not: the pipeline's scope
     check still refuses a change to that one file when anything runs."""
 
-    parts = PurePosixPath(path.rstrip("/")).parts
+    # task-0225 repair 1: compared case-folded, since Windows names a protected file in any letter case.
+    parts = PurePosixPath(path.rstrip("/").lower()).parts
     if not parts:
         return False
-    if any(part == ".git" or part.lower().startswith(".env") for part in parts):
+    if any(part == ".git" or part.startswith(".env") for part in parts):
         return True
-    if parts[-1].lower() == "jarvis.bat":
+    if parts[-1] == "jarvis.bat":
         return True
-    return "/".join(parts) in claude_worker.PROTECTED_PATHS
+    return "/".join(parts) in {protected.lower() for protected in claude_worker.PROTECTED_PATHS}
 
 
 def _outside_repository(path: str) -> bool:
