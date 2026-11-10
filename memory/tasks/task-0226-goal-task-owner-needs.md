@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-10 11:34 UTC`
-- updated_at: `2026-11-10 12:50 UTC`
+- updated_at: `2026-11-10 14:03 UTC`
 - summary: `첫 실제 /goal이 goal_answer_malformed:task_reason:T1로 실패했다. 등록된 작업 종류가 없는 하위 작업이 Owner 결정 사유를 빠뜨려도 계획 전체를 거절하지 않고, Policy Gate가 그런 하위 작업을 방식과 관계없이 needs_owner로 판정해 사유 누락을 근거로 남긴다. 팀장 안내 문구를 분명히 하고, 실패 메시지에 등록된 사유 코드의 한국어 설명을 더하고, 팀장 답 원문 없는 실패 기록 파일을 쓴다. task 생성, Worker 실행, 자동 실행은 범위 밖이다.`
 - source_command: `Owner 지시: task-0226으로 고쳐 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `5d55d1175ab2f3bc31a4472df6f99ca33f032c2e` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=1`, `repair_count=1` (SOP §5 기본값, repair 1은 아래 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=2`, `repair_count=2` (SOP §5 기본값 1회에 Owner가 1회 증액, repair 1·2는 아래 절) |
 | 작업 위치 | 저장소 밖 worktree `jarvis-core-worktrees/task-0226-goal-kind-none`, 브랜치 `work/task-0226-goal-kind-none-reason`. main 체크아웃은 그대로 둔다 |
 
 ## Owner 제보 (원문, 실제 /goal 실패)
@@ -115,6 +115,28 @@ Reviewer unverified: candidate에서의 검사 실행 결과, 저장소 안 계�
 - repair 뒤 검증(작업 트리): Worker smoke total=761 failed=0(새 검사 2건), SOP validator, Discord self-check, `git diff --check`, 사전 점검.
 - 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
 
+## Reviewer 결과 (repair 1 candidate `3b5d3c33142782a4b9a89c1e5ff78fca9d744329`)
+
+verdict FINDINGS, `self_deviations` 없음. minor 2건: `task_paths`와 `task_acceptance` 설명이 목록 안에 문자열이 아닌 항목이 있는 경우를 말하지 않아, Repair 1 절의 "모든 경우를 말하도록 고쳤다"가 이 두 코드에서 맞지 않는다. Reviewer unverified: candidate에서의 검사 실행 결과, 실제 봇의 `/goal`, 팀장이 읽은 내용이 섞인 다른 형식 오류 답에서도 실패 기록에 원문이 없는지. repair 예산이 소진돼 Owner에게 물었다.
+
+## Owner 결정 (원문, repair 2 증액)
+
+```text
+[Manager 질문]
+task-0226 repair candidate 3b5d3c3의 Reviewer minor 2건: /goal 실패 시 보이는 한국어 설명 중 task_paths와 task_acceptance 두 개가 '목록 안에 문자열이 아닌 항목'인 경우를 말하지 않습니다(사유 코드는 그대로 보이고, 판정·실행에는 영향 없음). repair 예산 1회는 소진됐습니다. 어떻게 할까요?
+
+[Owner 답]
+repair 1회 증액해 고침 (Recommended)
+```
+
+## Repair 2 (`repair_count=2`, Owner 증액)
+
+- `task_paths`, `task_acceptance` 설명에 문자열이 아닌 항목을 더했다. Repair 1의 대조가 이 두 경우를 놓쳤으므로 설명 전부를 `goal_plan`의 실패 경로와 다시 하나씩 대조했고, `task_id` 설명도 id가 문자열이 아닌 경우와 실제 형식(T1~T99)을 말하도록 고쳤다. 나머지 설명은 그 코드를 내는 경우를 모두 말한다(`task_kind`, `task_mode`, `task_risk`는 어떤 값이든 정해진 값이 아니면 같은 설명이 맞다).
+- smoke: 경로, 완료 조건, id에 문자열이 아닌 값을 넣은 답의 사유 코드와 그 설명이 "문자열이 아니"를 말하는지 확인을 기존 설명 검사에 더했다.
+- 실패 기록은 `_run_goal_job`이 파싱 결과의 `reason`과 `usage`만 넣어 쓰므로 팀장 답의 형식 오류 종류와 관계없이 원문이 들어가지 않는다(코드 읽기, Reviewer unverified 셋째 항목에 대한 Manager 해석).
+- repair 뒤 검증(작업 트리): Worker smoke total=761 failed=0(기존 설명 검사에 조건만 더해 검사 수는 같음), SOP validator, Discord self-check, `git diff --check`, 사전 점검.
+- 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -140,3 +162,9 @@ Reviewer unverified: candidate에서의 검사 실행 결과, 저장소 안 계�
 | A10 | Owner 결정 (원문, self-review 지적 질문) | "어떻게 할까요?" | 답은 A12 |
 | A11 | Owner 결정 (원문, self-review 지적 질문) | "[Owner 답]" | 답의 표지 |
 | A12 | Owner 결정 (원문, self-review 지적 질문) | "원문 저장 빼는 것 수용 (Recommended)" | 원문 저장 없이 진행한다. 이 답은 이 task에만 효력이 있다 |
+| A13 | Owner 결정 (원문, repair 2 증액) | "[Manager 질문]" | 질문의 표지 |
+| A14 | Owner 결정 (원문, repair 2 증액) | "task-0226 repair candidate 3b5d3c3의 Reviewer minor 2건: /goal 실패 시 보이는 한국어 설명 중 task_paths와 task_acceptance 두 개가 '목록 안에 문자열이 아닌 항목'인 경우를 말하지 않습니다(사유 코드는 그대로 보이고, 판정·실행에는 영향 없음)." | repair 1 candidate의 Reviewer 지적 |
+| A15 | Owner 결정 (원문, repair 2 증액) | "repair 예산 1회는 소진됐습니다." | 증액 전 `repair_count=1`, `repair_budget=1` |
+| A16 | Owner 결정 (원문, repair 2 증액) | "어떻게 할까요?" | 답은 A18 |
+| A17 | Owner 결정 (원문, repair 2 증액) | "[Owner 답]" | 답의 표지 |
+| A18 | Owner 결정 (원문, repair 2 증액) | "repair 1회 증액해 고침 (Recommended)" | `repair_budget=2`. Repair 2 절에서 두 설명을 고쳤다. 증액은 이 task에만 효력이 있다 |

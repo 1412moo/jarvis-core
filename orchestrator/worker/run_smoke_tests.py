@@ -2204,9 +2204,17 @@ def goal_flow(bot, clone: Path) -> None:
         unlabelled = {name: r for name, (p, r) in refused.items() if not bot._goal_failure_label(r)}
         backtick = bot._goal_failure_label(refused["a backtick title"][1])
         repeated = goal_plan.parse_goal_answer(goal_answer([goal_task("T1"), goal_task("T2", depends_on=["T1", "T1"])]))[1]
+        # task-0226 repair 2: a list entry that is not a string is named too.
+        not_string = {field: goal_plan.parse_goal_answer(goal_answer([goal_task("T1", **{field: value})]))[1]
+                      for field, value in (("paths", [7]), ("acceptance", [7]), ("id", 7))}
         check("goal bot: every malformed reason has a Korean wording that covers its case",
               not unlabelled and "백틱" in backtick and repeated == "goal_answer_malformed:task_depends_on:T2"
-              and "되풀이" in bot._goal_failure_label(repeated), f"{unlabelled} | {backtick} | {repeated}")
+              and "되풀이" in bot._goal_failure_label(repeated)
+              and not_string["paths"] == "goal_answer_malformed:task_paths:T1"
+              and not_string["acceptance"] == "goal_answer_malformed:task_acceptance:T1"
+              and not_string["id"] == "goal_answer_malformed:task_id"
+              and all("문자열이 아니" in bot._goal_failure_label(r) for r in not_string.values()),
+              f"{unlabelled} | {backtick} | {repeated} | {not_string}")
 
         # task-0226: the first live /goal case, a Console goal whose sub-task gave no reason, now shows a plan.
         claude_lead._run_claude = answer(goal_answer(no_reason))
