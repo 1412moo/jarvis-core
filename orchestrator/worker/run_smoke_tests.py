@@ -2049,6 +2049,9 @@ def goal_flow(bot, clone: Path) -> None:
         "문서에 https://example.com/download 링크를 적는다", "https://example.com/docs/getting-started 를 참고한다",
         "GET /api/overview 형식은 https://example.com/docs 를 따른다",
         "POST /api/tasks 경로는 https://example.com/spec 에 적혀 있다",
+        # task-0227 repair 3: a method before a route word without a path, next to a documentation URL.
+        "새 GET route는 https://example.com/docs 를 따른다", "GET or POST endpoint 형식은 https://example.com/spec 에 있다",
+        "GET 경로는 https://example.com/docs 를 따른다", "GET/POST route 설명은 https://example.com/docs 에 있다",
     ]
     calls = [
         "외부 API로 번역한다", "Call the OpenAI API", "the API returns rate limits", "send an HTTP request",
@@ -2063,6 +2066,7 @@ def goal_flow(bot, clone: Path) -> None:
         "https://example.com/data.zip 을 다운로드한다", "https://example.com/x 에 업로드한다",
         "https://api.example.com 에 연결한다", "connect to https://api.example.com", "access https://example.com/feed",
         "https://example.com/feed is fetched daily", "post results to https://hooks.example.com/x",
+        "GET 요청을 https://api.example.com 에 보낸다", "get the list from https://example.com/feed",
     ]
     flagged = [text for text in not_calls if "external_service" in policy_gate.text_signals(text)]
     missed = [text for text in calls if "external_service" not in policy_gate.text_signals(text)]

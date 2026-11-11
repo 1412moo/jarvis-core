@@ -37,9 +37,15 @@ VERDICT_RANK = {AUTO: 0, NEEDS_OWNER: 1, FORBIDDEN: 2}
 # in English and Korean alike). Repair 2: before the external service signals are read, every URL is
 # replaced by one marker word (externalurl, or localurl for this machine) and an HTTP method with its
 # route (GET /api/overview) by "route", so a word inside a URL or a route's method is not a call word.
+# Repair 3: a method named before a route word without a path (GET route, GET or POST endpoint, GET 경로)
+# is a route too.
 _URL = re.compile(r"https?://\S+")
 _LOCAL_URL = re.compile(r"https?://(?:localhost|127\.0\.0\.1|\[::1\])(?![\w.\-])\S*")
-_METHOD_ROUTE = re.compile(r"\b(?:get|post|put|patch|delete|head)\s+/\S*", re.ASCII)
+_METHOD = r"(?:get|post|put|patch|delete|head)"
+_METHOD_ROUTE = re.compile(
+    rf"\b{_METHOD}(?:\s*(?:/|,|\bor\b|\band\b|또는|이나|나)\s*{_METHOD})*\s*"
+    r"(?:/\S*|(?:routes?|endpoints?|paths?|handlers?|methods?)\b|경로|엔드포인트|라우트|메서드|핸들러)",
+    re.ASCII)
 _CALL_WORD = (r"(?:\b(?:fetch|request|call|query|get|post|send|poll|crawl|scrap|download|upload|load|connect|access"
               r"|sync|stream)\w*|가져|호출|요청|받아|받는|수집|접속|전송|보내|보낸|다운로드|업로드|연결|동기화|불러)")
 _CALL_BEFORE_EXTERNAL_URL = _CALL_WORD + r"[^.;]{0,60}?\bexternalurl\b"
