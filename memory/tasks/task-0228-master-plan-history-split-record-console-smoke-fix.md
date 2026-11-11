@@ -2,11 +2,12 @@
 
 - id: `task-0228-master-plan-history-split-record-console-smoke-fix`
 - title: `master-plan 완료 기록을 history 파일로 분리하고 Console smoke의 크기 의존 수정`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-11 09:38 UTC`
-- updated_at: `2026-11-11 10:56 UTC`
+- updated_at: `2026-11-11 11:37 UTC`
 - summary: `docs/master-plan.md가 Console 읽기 한도 128,000바이트에 닿아 task-0227 완료 기록을 넣지 못했다. Owner Dashboard 절의 완료 날짜 항목 81개를 새 docs/master-plan-history.md로 순서와 원문 그대로 옮기고, master-plan에는 현재 상태 줄과 history 링크만 남긴다. AGENTS.md History 목록과 master-plan 10절 갱신 규칙을 고치고 task-0227 기록을 history에 넣는다. Console smoke의 값 길이 거부 검사가 실제 문서의 남은 여유에 기대지 않도록 파서가 읽는 부분만 뽑은 fixture로 돌린다. 크기 한도, Console 파서와 API는 바꾸지 않는다.`
+- completion_evidence: `candidate 3f85ca05d06808e71e0189381a38441832ba6f4a: Reviewer PASS with no findings and no self deviations; QA PASS in a fresh worktree (81 moved entries byte-identical by git blob comparison, validator phrases kept, Console self-test and smoke, Hermes Manager smoke, Worker smoke 767/0, intake smoke, Discord self-check, Studyroom smoke, secrets 0, near-limit smoke check: baseline fails and candidate passes); Owner final approval recorded in the task file`
 - source_command: `Owner 지시: 조사 보고서 검토 후 A안과 smoke 취약성 수정 구현 승인 (Claude Code 세션)`
 
 ## 기준선
@@ -142,6 +143,36 @@ task-0228 self-review 지적: '기존 master-plan.md에는 현재 상태와 기�
 §4는 그대로 둠 (Recommended)
 ```
 
+## Reviewer 결과 (candidate `3f85ca05d06808e71e0189381a38441832ba6f4a`)
+
+verdict PASS, findings 없음, `self_deviations` 없음, 사용량 추정 $0.89. 이 절과 아래 절들은 candidate 뒤의 기록이다. Reviewer unverified: 81개 항목의 줄·바이트 단위 보존과 master-plan의 나머지 줄 불변(출력이 커서 diffstat, task-0227 항목 위치, 첫 항목 일치만 확인), candidate에서의 검사 실행 결과, validator 필수 문구 8개가 남았는지, 한도 근처 사본에서의 smoke(baseline 실패, candidate 통과), `jarvis.bat` 메타데이터와 비밀 검사, 이번 task의 history 항목(DONE checkpoint 몫). 이 항목들은 QA가 확인한다.
+
+## QA 결과 (candidate `3f85ca05d06808e71e0189381a38441832ba6f4a`)
+
+- scratchpad의 새 detached worktree를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗(실행 전후), baseline 대비 변경 파일 5개(범위 owned 행과 같음), `jarvis.bat` 트리에 없음. QA worktree는 지웠다.
+- 81개 보존(git blob 기준 기계 대조): baseline 항목 81개 75,121바이트(LF), sha256 앞 16자 `db5af8d23bf15bbc`. candidate history의 연속된 81줄이 순서·바이트까지 같고(sha256 같음) 각 항목이 정확히 한 번, 그 뒤 날짜 항목은 task-0227 하나. candidate master-plan에 날짜 항목 0개. difflib로 master-plan 삭제 줄이 이동한 81줄과 순서까지 같고, 추가는 링크 한 줄과 §10 문단뿐(빈 줄 포함). master-plan 52,243바이트(LF)·52,928바이트(작업 트리 CRLF), history 77,032바이트(LF).
+- task-0227 항목: candidate `1cef35b`, QA PASS, Owner 최종 승인, `5822cd1`이 task-0227 기록과 맞고, 실제 봇 확인의 근거를 이 기록 조사 절로 적었다(self-review 지적 1 처리).
+- validator 필수 문구 8개가 candidate master-plan에 모두 남아 있다(각 1~3회).
+- `git diff --check` 통과, SOP validator PASS, `run_web_app.py --self-test` 통과, Console smoke PYTHONUTF8=1과 없음 모두 rc=0, `node --check apps/jarvis-console/web/app.js` 통과, Hermes Manager smoke 통과, Worker smoke total=767 failed=0, discord-intake smoke rc=0, Discord `--self-check-suite` rc=0, Studyroom smoke rc=0, `check_no_secrets.py` findings 0.
+- smoke 취약성 따로 검증(A35): baseline worktree와 candidate worktree의 master-plan 끝에 채움 줄을 붙여 둘 다 127,700바이트로 만들었다. baseline Console smoke는 "master plan exceeds the read-only display limit"로 실패했고(task-0227 DONE 때와 같은 실패), candidate Console smoke는 통과했다. candidate를 한도와 같은 128,000바이트로 키워도 Console smoke가 통과했다. 128,001바이트에서는 `read_master_plan_snapshot`이 "master plan exceeds the read-only display limit"로 거부하고 self-test가 실패해, 한도 동작은 그대로다. 채운 worktree들은 지웠다.
+- main과 origin/main은 `5822cd1`, main 체크아웃은 `jarvis.bat` untracked만 있다. `jarvis.bat` 크기 94, 수정 시각 2026-10-11 02:13:50(+0900). 내용은 열지 않았다. push, main 반영, 봇 재시작은 하지 않았다.
+- QA 판정: PASS. Docs는 `not_required`(문서 변경이 candidate에 포함됨).
+- 이번 task의 history 항목(A16)은 DONE checkpoint 몫이라 아직 없다.
+
+## Owner 결정 (원문, 최종 승인)
+
+```text
+[Manager 질문]
+task-0228을 최종 승인해 main에 반영할까요?
+
+[Owner 답]
+최종 승인
+```
+
+## Complete
+
+Owner 최종 승인에 따라 Record Completion Evidence(Preview 확인 뒤 Confirm)로 completion_evidence를 남기고, Console Complete Preview(DOING → DONE)를 확인한 뒤 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-11 11:37 UTC`). Console은 worktree에서 띄웠고 끈 상태다. `docs/master-plan-history.md` 끝에 이 task 항목(A16)을 붙였고, 81개 대조를 다시 돌려 같은 결과(sha256 `db5af8d23bf15bbc`, 그 뒤 날짜 항목은 task-0227과 task-0228)를 확인했다. 이 기록과 history 항목을 DONE checkpoint로 브랜치에 커밋한 뒤 로컬 main을 ff-only로 옮긴다. master-plan은 바꾸지 않았다. push와 봇 재시작은 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -202,3 +233,7 @@ task-0228 self-review 지적: '기존 master-plan.md에는 현재 상태와 기�
 | A52 | Owner 결정 (원문, self-review 지적 질문) | "어떻게 할까요?" | 답은 A53 |
 | A52a | Owner 결정 (원문, self-review 지적 질문) | "[Owner 답]" | 답의 표지 |
 | A53 | Owner 결정 (원문, self-review 지적 질문) | "§4는 그대로 둠 (Recommended)" | §4는 바꾸지 않는다. 이 답은 이 task에만 효력이 있다 |
+| A54 | Owner 결정 (원문, 최종 승인) | "[Manager 질문]" | 질문의 표지 |
+| A55 | Owner 결정 (원문, 최종 승인) | "task-0228을 최종 승인해 main에 반영할까요?" | A57 답의 질문 |
+| A56 | Owner 결정 (원문, 최종 승인) | "[Owner 답]" | 답의 표지 |
+| A57 | Owner 결정 (원문, 최종 승인) | "최종 승인" | Console로 완료 근거를 남기고 Complete한 뒤 history에 이 task 항목을 붙이고 DONE checkpoint로 main을 ff-only로 옮긴다. push와 봇 재시작은 포함하지 않는다(A45) |
