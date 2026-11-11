@@ -2066,6 +2066,9 @@ def goal_flow(bot, clone: Path) -> None:
         # api, a file name or a repository path included, is a signal as in the baseline.
         "call api.go.kr", "api.rs.example.net에서 받아온다", "call stripe.com/api/charges",
         "api/overview 경로를 읽는다", "apps/jarvis-console/api/x.py를 읽는다", "api.py를 고친다",
+        # task-0227 repair 7: an external host behind a local-looking start, or inside a local URL's token.
+        "fetch http://localhost@example.com/feed", "fetch http://localhost:8790/go?to=https://api.example.com/feed",
+        "fetch http://localhost:8790@example.com/feed",
     ]
     flagged = [text for text in not_calls if "external_service" in policy_gate.text_signals(text)]
     missed = [text for text in calls if "external_service" not in policy_gate.text_signals(text)]

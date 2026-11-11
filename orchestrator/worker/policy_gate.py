@@ -35,11 +35,17 @@ VERDICT_RANK = {AUTO: 0, NEEDS_OWNER: 1, FORBIDDEN: 2}
 # task-0227 repair 4 (Owner decision): a URL to a host other than this machine is always a signal,
 # whatever words are around it; a URL to this machine (localhost, 127.0.0.1, [::1]) is not. Repairs 1 to 3
 # tried to guess a call from the words next to the URL and each left a new gap, so that guess is gone.
-_EXTERNAL_URL = r"https?://(?!(?:localhost|127\.0\.0\.1|\[::1\])(?![\w.\-]))"
-# task-0227 repair 6: a URL to this machine is removed whole before the external service signals are read,
-# so the api in http://localhost:8790/api/overview is not read as a word either.
-_LOCAL_URL = re.compile(r"https?://(?:localhost|127\.0\.0\.1|\[::1\])(?![\w.\-])\S*")
+# Repair 7: a URL is this machine's only when its whole authority is the local host with an optional port
+# (so localhost@example.com and localhost.example.com are external).
+_LOCAL_AUTHORITY = r"(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?=[/?#\s]|$)"
+_EXTERNAL_URL = r"https?://(?!" + _LOCAL_AUTHORITY + ")"
+# task-0227 repair 6: a URL to this machine is removed whole before the other external service signals are
+# read, so the api in http://localhost:8790/api/overview is not read as a word either. Repair 7: the
+# external URL signal reads the text before that removal, so an external URL inside a local URL's token
+# (localhost:8790/go?to=https://api.example.com) is still found.
+_LOCAL_URL = re.compile(r"https?://" + _LOCAL_AUTHORITY + r"\S*")
 _LOCAL_URL_CATEGORIES = frozenset({"external_service"})
+_EXTERNAL_URL_RE = re.compile(_EXTERNAL_URL, re.ASCII)
 
 # Text signals that always need the Owner, by category. Each entry is a regular expression searched in
 # the lower-cased text with whitespace runs folded. English words use ASCII word boundaries; Korean
@@ -130,8 +136,13 @@ def text_signals(text: str) -> list[str]:
 
     folded = " ".join(text.lower().split())
     without_local_urls = _LOCAL_URL.sub(" ", folded)
-    return [category for category, patterns in _COMPILED_SIGNALS
-            if any(p.search(without_local_urls if category in _LOCAL_URL_CATEGORIES else folded) for p in patterns)]
+    found = [category for category, patterns in _COMPILED_SIGNALS
+             if any(p.search(without_local_urls if category in _LOCAL_URL_CATEGORIES else folded) for p in patterns)]
+    if "external_service" not in found and _EXTERNAL_URL_RE.search(folded):
+        # task-0227 repair 7: an external URL counts even inside a token the local URL removal took.
+        found = [category for category, _ in _COMPILED_SIGNALS
+                 if category in found or category == "external_service"]
+    return found
 
 
 def _is_protected(path: str) -> bool:
