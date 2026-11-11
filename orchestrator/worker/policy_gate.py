@@ -53,12 +53,14 @@ OWNER_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
         r"\bcost", r"\bbilling\b", r"\bpaid\b", r"\bpayment", r"\bpurchase", r"\bsubscription",
         r"비용", r"결제", r"유료", r"구매", r"구독", r"요금",
     )),
-    # task-0227: a path alone is not a call. "api" that is part of a path or file name (/api/, api/,
-    # api.py), an http(s) URL scheme and the local module name http.server are not signals; the word
-    # "api", words that start with "http" (HTTP, httpx, http_client) and any URL to a host other than this
-    # machine still are (repair 4).
+    # task-0227: a path alone is not a call. "api" that is part of a path or a file name with a known
+    # extension (/api/, api/, api.py), an http(s) URL scheme and the local module name http.server are not
+    # signals; the word "api", a host name such as api.example.com (repair 5), words that start with
+    # "http" (HTTP, httpx, http_client) and any URL to a host other than this machine (repair 4) still are.
     ("external_service", (
-        r"(?<![/.])\bapi\b(?!/|\.\w)", r"\bhttp(?!s?://|\.server\b)",
+        r"(?<![/.])\bapi\b(?!/|\.(?:py|pyi|js|mjs|cjs|ts|tsx|jsx|md|json|txt|html|css|ya?ml|toml|ini|cfg"
+        r"|go|rs|java|rb|php|sh|ps1|bat|cmd)\b)",
+        r"\bhttp(?!s?://|\.server\b)",
         _EXTERNAL_URL,
         r"\bnetwork", r"\bwebhook", r"\bcrawl", r"\bscrap", r"\bllm\b", r"\bopenrouter\b",
         r"\bopenai\b", r"\bgemini\b", r"\bgpt", r"\bollama\b", r"\bdiscord api\b",

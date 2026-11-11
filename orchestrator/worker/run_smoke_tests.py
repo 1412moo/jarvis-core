@@ -2039,7 +2039,8 @@ def goal_flow(bot, clone: Path) -> None:
     not_calls = [
         "GET /api/overview 응답에 dashboard 필드를 더한다", "새 GET route를 만들지 정한다",
         "/api/history와 /api/status 필드를 확인한다", "api/overview 경로를 읽는다",
-        "apps/jarvis-console/api/x.py를 읽는다", "api.py를 고친다", "http.server 처리기를 읽는다",
+        "apps/jarvis-console/api/x.py를 읽는다", "api.py를 고친다", "api.md와 api.json을 읽는다",
+        "http.server 처리기를 읽는다",
         "fetch http://localhost:8790/api/overview", "http://127.0.0.1:8790/api/overview 에서 가져온다",
         "http://localhost:8790/api/overview 에 연결한다", "GET or POST endpoint 형식을 정한다",
         "GET `/api/overview` 형식을 따른다", "새 `GET` route를 만든다",
@@ -2060,6 +2061,8 @@ def goal_flow(bot, clone: Path) -> None:
         "https://example.com/feed is fetched daily", "get paths from https://api.example.com/tree",
         "get endpoints from https://api.example.com/openapi.json", "fetch http://localhost.example.com/feed",
         "문서에 https://example.com/docs 링크를 적는다", "새 GET route는 https://example.com/docs 를 따른다",
+        # task-0227 repair 5: a host name without a scheme is not a file name.
+        "api.example.com에서 데이터를 받아온다", "call api.stripe.com",
     ]
     flagged = [text for text in not_calls if "external_service" in policy_gate.text_signals(text)]
     missed = [text for text in calls if "external_service" not in policy_gate.text_signals(text)]
