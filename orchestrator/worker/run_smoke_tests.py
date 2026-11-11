@@ -2038,8 +2038,7 @@ def goal_flow(bot, clone: Path) -> None:
     # decision): any URL to another host is a signal, a documentation link included.
     not_calls = [
         "GET /api/overview 응답에 dashboard 필드를 더한다", "새 GET route를 만들지 정한다",
-        "/api/history와 /api/status 필드를 확인한다", "api/overview 경로를 읽는다",
-        "apps/jarvis-console/api/x.py를 읽는다", "api.py를 고친다", "api.md와 api.json을 읽는다",
+        "/api/history와 /api/status 필드를 확인한다", "`/api/overview` 응답을 읽는다", "(/api/x) 경로를 읽는다",
         "http.server 처리기를 읽는다",
         "fetch http://localhost:8790/api/overview", "http://127.0.0.1:8790/api/overview 에서 가져온다",
         "http://localhost:8790/api/overview 에 연결한다", "GET or POST endpoint 형식을 정한다",
@@ -2063,11 +2062,22 @@ def goal_flow(bot, clone: Path) -> None:
         "문서에 https://example.com/docs 링크를 적는다", "새 GET route는 https://example.com/docs 를 따른다",
         # task-0227 repair 5: a host name without a scheme is not a file name.
         "api.example.com에서 데이터를 받아온다", "call api.stripe.com",
+        # task-0227 repair 6 (Owner decision): only a word that starts with /api is a route path; every other
+        # api, a file name or a repository path included, is a signal as in the baseline.
+        "call api.go.kr", "api.rs.example.net에서 받아온다", "call stripe.com/api/charges",
+        "api/overview 경로를 읽는다", "apps/jarvis-console/api/x.py를 읽는다", "api.py를 고친다",
     ]
     flagged = [text for text in not_calls if "external_service" in policy_gate.text_signals(text)]
     missed = [text for text in calls if "external_service" not in policy_gate.text_signals(text)]
     check("gate: a path, a route or a URL to this machine is not an external service signal", not flagged, str(flagged))
     check("gate: a real external call, an external dependency or any external URL is a signal", not missed, str(missed))
+    # task-0227 repair 6: the four regression cases the Owner named, as one check.
+    owner_cases_r6 = {"call api.go.kr": True, "call stripe.com/api/charges": True,
+                      "GET /api/overview 형식 설명": False, "api.py": True}
+    r6_wrong = {text: want for text, want in owner_cases_r6.items()
+                if ("external_service" in policy_gate.text_signals(text)) != want}
+    check("gate: the Owner's repair 6 cases (external hosts and api.py flagged, a /api/ route not)", not r6_wrong,
+          str(r6_wrong))
     check("gate: a sub-task that only names /api/ paths is not flagged, one that calls out is",
           "signal:external_service" not in verdict_of(purpose="/api/overview 응답을 확인한다").reasons
           and "signal:external_service" in verdict_of(worker_request="fetch https://example.com/feed.xml").reasons)

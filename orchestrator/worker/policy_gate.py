@@ -36,6 +36,10 @@ VERDICT_RANK = {AUTO: 0, NEEDS_OWNER: 1, FORBIDDEN: 2}
 # whatever words are around it; a URL to this machine (localhost, 127.0.0.1, [::1]) is not. Repairs 1 to 3
 # tried to guess a call from the words next to the URL and each left a new gap, so that guess is gone.
 _EXTERNAL_URL = r"https?://(?!(?:localhost|127\.0\.0\.1|\[::1\])(?![\w.\-]))"
+# task-0227 repair 6: a URL to this machine is removed whole before the external service signals are read,
+# so the api in http://localhost:8790/api/overview is not read as a word either.
+_LOCAL_URL = re.compile(r"https?://(?:localhost|127\.0\.0\.1|\[::1\])(?![\w.\-])\S*")
+_LOCAL_URL_CATEGORIES = frozenset({"external_service"})
 
 # Text signals that always need the Owner, by category. Each entry is a regular expression searched in
 # the lower-cased text with whitespace runs folded. English words use ASCII word boundaries; Korean
@@ -53,13 +57,13 @@ OWNER_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
         r"\bcost", r"\bbilling\b", r"\bpaid\b", r"\bpayment", r"\bpurchase", r"\bsubscription",
         r"비용", r"결제", r"유료", r"구매", r"구독", r"요금",
     )),
-    # task-0227: a path alone is not a call. "api" that is part of a path or a file name with a known
-    # extension (/api/, api/, api.py), an http(s) URL scheme and the local module name http.server are not
-    # signals; the word "api", a host name such as api.example.com (repair 5), words that start with
-    # "http" (HTTP, httpx, http_client) and any URL to a host other than this machine (repair 4) still are.
+    # task-0227: a route path alone is not a call. "api" right after a "/" that starts a word (/api/overview,
+    # GET /api/overview, `/api/...`; repair 6, Owner decision: only the form the Owner named), an http(s)
+    # URL scheme, a URL to this machine and the local module name http.server are not signals. Every
+    # other "api" (api.py, apps/x/api/, api.example.com, stripe.com/api/), words that start with "http"
+    # (HTTP, httpx, http_client) and any URL to a host other than this machine (repair 4) still are.
     ("external_service", (
-        r"(?<![/.])\bapi\b(?!/|\.(?:py|pyi|js|mjs|cjs|ts|tsx|jsx|md|json|txt|html|css|ya?ml|toml|ini|cfg"
-        r"|go|rs|java|rb|php|sh|ps1|bat|cmd)\b)",
+        r"(?:(?<!/)|(?<=[^\s`'\"(]/))\bapi\b",
         r"\bhttp(?!s?://|\.server\b)",
         _EXTERNAL_URL,
         r"\bnetwork", r"\bwebhook", r"\bcrawl", r"\bscrap", r"\bllm\b", r"\bopenrouter\b",
@@ -125,7 +129,9 @@ def text_signals(text: str) -> list[str]:
     """The categories whose signals appear in the text, in the fixed category order."""
 
     folded = " ".join(text.lower().split())
-    return [category for category, patterns in _COMPILED_SIGNALS if any(p.search(folded) for p in patterns)]
+    without_local_urls = _LOCAL_URL.sub(" ", folded)
+    return [category for category, patterns in _COMPILED_SIGNALS
+            if any(p.search(without_local_urls if category in _LOCAL_URL_CATEGORIES else folded) for p in patterns)]
 
 
 def _is_protected(path: str) -> bool:
