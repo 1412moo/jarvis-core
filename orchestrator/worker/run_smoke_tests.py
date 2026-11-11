@@ -2045,6 +2045,10 @@ def goal_flow(bot, clone: Path) -> None:
         "대시보드에 실제로 빠진 것만 찾는다.",
         "Document says whether the data goes in GET /api/overview or a new GET route, based on the T1 report",
         "GET /api/overview (or the route chosen in T2) returns a dashboard field",
+        # task-0227 repair 2: a word inside the URL itself, and a route's method next to a documentation URL.
+        "문서에 https://example.com/download 링크를 적는다", "https://example.com/docs/getting-started 를 참고한다",
+        "GET /api/overview 형식은 https://example.com/docs 를 따른다",
+        "POST /api/tasks 경로는 https://example.com/spec 에 적혀 있다",
     ]
     calls = [
         "외부 API로 번역한다", "Call the OpenAI API", "the API returns rate limits", "send an HTTP request",
@@ -2058,7 +2062,7 @@ def goal_flow(bot, clone: Path) -> None:
         # task-0227 repair 1: a call word on either side of the URL, connect and access, Korean loanwords.
         "https://example.com/data.zip 을 다운로드한다", "https://example.com/x 에 업로드한다",
         "https://api.example.com 에 연결한다", "connect to https://api.example.com", "access https://example.com/feed",
-        "https://example.com/feed is fetched daily",
+        "https://example.com/feed is fetched daily", "post results to https://hooks.example.com/x",
     ]
     flagged = [text for text in not_calls if "external_service" in policy_gate.text_signals(text)]
     missed = [text for text in calls if "external_service" not in policy_gate.text_signals(text)]

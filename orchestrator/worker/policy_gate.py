@@ -34,12 +34,17 @@ VERDICT_RANK = {AUTO: 0, NEEDS_OWNER: 1, FORBIDDEN: 2}
 
 # task-0227: a URL to a host other than this machine counts as a call only next to a word that fetches,
 # calls, connects or sends to it, before or after the URL within one sentence (repair 1: either order,
-# in English and Korean alike).
-_EXTERNAL_HOST = r"https?://(?!localhost(?![\w.\-])|127\.0\.0\.1(?![\w.\-])|\[::1\])"
+# in English and Korean alike). Repair 2: before the external service signals are read, every URL is
+# replaced by one marker word (externalurl, or localurl for this machine) and an HTTP method with its
+# route (GET /api/overview) by "route", so a word inside a URL or a route's method is not a call word.
+_URL = re.compile(r"https?://\S+")
+_LOCAL_URL = re.compile(r"https?://(?:localhost|127\.0\.0\.1|\[::1\])(?![\w.\-])\S*")
+_METHOD_ROUTE = re.compile(r"\b(?:get|post|put|patch|delete|head)\s+/\S*", re.ASCII)
 _CALL_WORD = (r"(?:\b(?:fetch|request|call|query|get|post|send|poll|crawl|scrap|download|upload|load|connect|access"
               r"|sync|stream)\w*|가져|호출|요청|받아|받는|수집|접속|전송|보내|보낸|다운로드|업로드|연결|동기화|불러)")
-_CALL_BEFORE_EXTERNAL_URL = _CALL_WORD + r"[^.;]{0,60}?" + _EXTERNAL_HOST
-_EXTERNAL_URL_BEFORE_CALL = _EXTERNAL_HOST + r"\S*?[^.;]{0,60}?" + _CALL_WORD
+_CALL_BEFORE_EXTERNAL_URL = _CALL_WORD + r"[^.;]{0,60}?\bexternalurl\b"
+_EXTERNAL_URL_BEFORE_CALL = r"\bexternalurl\b[^.;]{0,60}?" + _CALL_WORD
+_MASKED_CATEGORIES = frozenset({"external_service"})
 
 # Text signals that always need the Owner, by category. Each entry is a regular expression searched in
 # the lower-cased text with whitespace runs folded. English words use ASCII word boundaries; Korean
@@ -61,6 +66,7 @@ OWNER_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # api/, api.py), an http(s) URL scheme and the local module name http.server are not signals; the
     # word "api" and words that start with "http" (HTTP, httpx, http_client) still are, and so is a URL
     # to a host other than this machine next to a word that fetches, calls, connects or sends to it.
+    # These patterns read the text after _mask_urls_and_routes (repair 2).
     ("external_service", (
         r"(?<![/.])\bapi\b(?!/|\.\w)", r"\bhttp(?!s?://|\.server\b)",
         _CALL_BEFORE_EXTERNAL_URL, _EXTERNAL_URL_BEFORE_CALL,
@@ -127,7 +133,18 @@ def text_signals(text: str) -> list[str]:
     """The categories whose signals appear in the text, in the fixed category order."""
 
     folded = " ".join(text.lower().split())
-    return [category for category, patterns in _COMPILED_SIGNALS if any(p.search(folded) for p in patterns)]
+    masked = _mask_urls_and_routes(folded)
+    return [category for category, patterns in _COMPILED_SIGNALS
+            if any(p.search(masked if category in _MASKED_CATEGORIES else folded) for p in patterns)]
+
+
+def _mask_urls_and_routes(folded: str) -> str:
+    """task-0227 repair 2: the text the external service signals read. Each URL becomes one marker word
+    and each HTTP method with its route becomes "route", so only the words around them can count."""
+
+    masked = _LOCAL_URL.sub(" localurl ", folded)
+    masked = _URL.sub(" externalurl ", masked)
+    return _METHOD_ROUTE.sub(" route ", masked)
 
 
 def _is_protected(path: str) -> bool:
