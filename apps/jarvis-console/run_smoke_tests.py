@@ -7517,6 +7517,35 @@ def _test_historical_evidence_uses_branch_ancestry() -> None:
     ], live_conflicts
 
 
+def _master_plan_parser_fixture(live: str) -> str:
+    """task-0228: the parts of the live master plan that read_master_plan_snapshot reads.
+
+    The rejection cases below grow one value past its bound. Run on the whole
+    live plan they also grew the file, so a plan close to MASTER_PLAN_MAX_BYTES
+    failed the size check first and the case tested nothing it meant to. Each
+    section is cut at the next heading the parser stops at, the same bounds as
+    the parser's own regular expressions, so the fixture reads the same values
+    as the live plan (checked by the caller) at a size that does not depend on
+    how long the rest of the plan is.
+    """
+
+    lines = live.splitlines()
+
+    def section(heading: str, stops: tuple[str, ...]) -> list[str]:
+        start = lines.index(heading)
+        end = next(
+            (index for index in range(start + 1, len(lines)) if lines[index].startswith(stops)),
+            len(lines),
+        )
+        return lines[start:end]
+
+    parts = [lines[0], ""]
+    parts += section("### Manager Reporting Workflow v0.1 package evidence", ("## ", "### "))
+    parts += section("## 2. 현재 기준점", ("## ",))
+    parts += section("## 5. 작업 축별 상태", ("## ",))
+    return "\n".join(parts) + "\n"
+
+
 def _test_master_plan_optional_selection_fields() -> None:
     """Let the plan declare a selection without making one mandatory."""
 
@@ -7532,7 +7561,10 @@ def _test_master_plan_optional_selection_fields() -> None:
         run_web_app.MASTER_PLAN_FIELDS.values()
     )
 
-    live = Path(run_web_app.MASTER_PLAN_PATH).read_text(encoding="utf-8")
+    full_live = Path(run_web_app.MASTER_PLAN_PATH).read_text(encoding="utf-8")
+    # task-0228: every case below runs on the parsed parts of the live plan, so
+    # none of them depends on how much room the live plan leaves under the limit.
+    live = _master_plan_parser_fixture(full_live)
     # Take the declared lines from the plan itself rather than restating the
     # outcome text here, so this test does not go stale when it is reworded.
     selected_line = next(
@@ -7566,6 +7598,21 @@ def _test_master_plan_optional_selection_fields() -> None:
         present = run_web_app.read_master_plan_snapshot(plan, root)
         assert present["owner_decision_selected_workstream_id"] == "jarvis-console"
         assert present["owner_decision_desired_outcome"]
+        # task-0228: the fixture reads exactly what the live plan reads.
+        full_snapshot = run_web_app.read_master_plan_snapshot()
+        assert {key: value for key, value in present.items() if key != "source"} == {
+            key: value for key, value in full_snapshot.items() if key != "source"
+        }
+        # And its size is fixed by the parsed parts alone: a long rest of the plan
+        # leaves it unchanged, so the cases below keep their room under the limit.
+        padded = full_live + "\n" + ("가" * 40_000) + "\n"
+        assert _master_plan_parser_fixture(padded) == live
+        assert (
+            len(live.encode("utf-8"))
+            + (run_web_app.MASTER_PLAN_VALUE_MAX_CHARS + 1)
+            + live.count("\n")
+            < run_web_app.MASTER_PLAN_MAX_BYTES
+        )
 
         # Every other parsed field is identical, so adding the lines changed
         # nothing except the selection itself.

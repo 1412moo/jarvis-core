@@ -103,6 +103,7 @@ escalation gate다. 상세 상태 전이, report/evidence 계약과 agent별 경
 - `docs/chatgpt-handoff.md` (특정 시점 스냅샷)
 - `docs/WORKFLOW.md`, `docs/codex-workflow.md`, `README.md`, `docs/architecture.md`
 - `docs/master-plan.md` 중 목표·milestone·approval state 밖의 서술
+- `docs/master-plan-history.md` (master-plan의 완료 기록, task-0228)
 
 ### 판정 규칙
 
