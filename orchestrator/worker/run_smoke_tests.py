@@ -2041,6 +2041,8 @@ def goal_flow(bot, clone: Path) -> None:
         "/api/history와 /api/status 필드를 확인한다", "`/api/overview` 응답을 읽는다", "(/api/x) 경로를 읽는다",
         "http.server 처리기를 읽는다",
         "fetch http://localhost:8790/api/overview", "http://127.0.0.1:8790/api/overview 에서 가져온다",
+        # task-0227 repair 8: a URL to this machine followed by a backtick, a bracket or a Korean particle.
+        "`http://localhost:8790`을 연다", "http://localhost:8790에서 연다", "(http://127.0.0.1:8790)",
         "http://localhost:8790/api/overview 에 연결한다", "GET or POST endpoint 형식을 정한다",
         "GET `/api/overview` 형식을 따른다", "새 `GET` route를 만든다",
         "Project Control, Recent Milestone Evidence, task_view_counts, /api/history가 이미 보여주는 것을 확인하고 "
@@ -2069,6 +2071,8 @@ def goal_flow(bot, clone: Path) -> None:
         # task-0227 repair 7: an external host behind a local-looking start, or inside a local URL's token.
         "fetch http://localhost@example.com/feed", "fetch http://localhost:8790/go?to=https://api.example.com/feed",
         "fetch http://localhost:8790@example.com/feed",
+        # task-0227 repair 8: a host in the query of a URL to this machine.
+        "fetch http://localhost:8790/go?to=api.go.kr",
     ]
     flagged = [text for text in not_calls if "external_service" in policy_gate.text_signals(text)]
     missed = [text for text in calls if "external_service" not in policy_gate.text_signals(text)]

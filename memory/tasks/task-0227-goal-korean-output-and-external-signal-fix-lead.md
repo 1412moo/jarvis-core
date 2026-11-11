@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-11 03:57 UTC`
-- updated_at: `2026-11-11 06:17 UTC`
+- updated_at: `2026-11-11 06:55 UTC`
 - summary: `재시작한 봇의 실제 /goal 계획에서 팀장 설명이 영어와 한국어로 섞였고, /api/ 경로만 적은 하위 작업에 외부 서비스·네트워크 신호가 붙었다. 팀장 안내에 Owner가 읽는 모든 설명을 한국어로 쓰라는 규칙을 넣고, Policy Gate가 /api/… route 경로, route 표현, 이 PC 주소의 URL만으로는 외부 서비스 신호를 붙이지 않되 실제 호출, 외부 서비스 의존, 이 PC가 아닌 주소의 URL은 그대로 잡게 한다. 스레드 동작, 대시보드, Console 역할, task 생성·Worker 실행 권한은 범위 밖이다.`
 - source_command: `Owner 지시: task-0227을 진행하자 (Claude Code 세션)`
 
@@ -14,7 +14,7 @@
 | 항목 | 값 |
 | --- | --- |
 | baseline | `913a347d10f578f7251d324f1539de7a3b79e6b6` (등록 시점 main HEAD = origin/main) |
-| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=7`, `repair_count=7` (SOP §5 기본값 1회에 Owner가 여섯 번 1회씩 증액, repair 1~7은 아래 절) |
+| budget | `retry_budget=1`, `retry_count=0`, `repair_budget=8`, `repair_count=8` (SOP §5 기본값 1회에 Owner가 일곱 번 1회씩 증액, repair 1~8은 아래 절. Owner가 repair 8을 마지막 수정으로 정함) |
 | 작업 위치 | 저장소 밖 worktree `jarvis-core-worktrees/task-0227-goal-korean-signal`, 브랜치 `work/task-0227-goal-korean-signal`. main 체크아웃은 그대로 둔다 |
 
 ## Owner 결정 (원문, 작업 지시)
@@ -86,14 +86,14 @@ Console(worktree에서 띄움) Voice Inbox의 Create Local Task Preview를 확�
 - `orchestrator/worker/goal_plan.py`: 팀장 안내 규칙에 한 줄을 더했다. Owner가 읽는 설명(`goal_summary`, `flow`, 하위 작업의 `title`, `purpose`, `acceptance`, `owner_decision`, `worker_request`)을 자연스러운 한국어로 쓰고, 코드 식별자, 파일 경로, API 경로, 고유 명칭은 필요하면 원문대로 두며, `id`, `kind`, `mode`, `risk`, `paths`는 정해진 형식 그대로라는 내용이다. 파서는 바꾸지 않았다. 답의 언어를 코드로 검사해 거절하면 새 실패 경로가 생기므로 넣지 않았다(Manager 해석, 아래 A 행).
 - 정책 판정 근거는 팀장이 아니라 Policy Gate가 붙이는 한국어 라벨이라 프롬프트로 바꿀 것이 없다. 모든 라벨이 한국어이고 답에 그대로 보이는지를 smoke로 확인한다.
 - `orchestrator/worker/policy_gate.py`의 `external_service` 신호:
-  - `\bapi\b`를 바꿨다(repair 6 최종: `(?:(?<!/)|(?<=[^\s`'\"(]/))\bapi\b`). 단어 맨 앞이 `/api`인 route 경로(`/api/overview`, `GET /api/overview`, 백틱으로 감싼 `/api/…`)의 `api`만 신호가 아니다. 파일 이름(`api.py`), 저장소 경로(`apps/…/api/`, `api/overview`), 호스트 이름(`api.go.kr`, `api.stripe.com`, `stripe.com/api/…`), 단어 `api`("the API returns", "외부 API로", "REST-API")는 baseline처럼 신호다(Owner 결정, Repair 6 절). 이 PC 주소의 URL은 외부 서비스 신호를 읽기 전에 통째로 지운다(그 안의 `/api`도 읽지 않음). repair 7: 이 PC 주소는 호스트 부분 전체가 `localhost`·`127.0.0.1`·`[::1]`(포트는 있어도 됨)일 때만이며, 외부 URL 신호는 지우기 전 원래 글에서 찾는다.
+  - `\bapi\b`를 바꿨다(repair 6 최종: `(?:(?<!/)|(?<=[^\s`'\"(]/))\bapi\b`). 단어 맨 앞이 `/api`인 route 경로(`/api/overview`, `GET /api/overview`, 백틱으로 감싼 `/api/…`)의 `api`만 신호가 아니다. 파일 이름(`api.py`), 저장소 경로(`apps/…/api/`, `api/overview`), 호스트 이름(`api.go.kr`, `api.stripe.com`, `stripe.com/api/…`), 단어 `api`("the API returns", "외부 API로", "REST-API")는 baseline처럼 신호다(Owner 결정, Repair 6 절). 이 PC 주소의 URL은 외부 서비스 신호를 읽기 전에 통째로 지운다(그 안의 `/api`도 읽지 않음). repair 7: 이 PC 주소는 호스트 부분 전체가 `localhost`·`127.0.0.1`·`[::1]`(포트는 있어도 됨)일 때만이며, 외부 URL 신호는 지우기 전 원래 글에서 찾는다. repair 8: 호스트와 포트 바로 뒤가 호스트를 잇는 글자(영문·숫자, `.`, `-`, `@`, `:`, 대괄호)가 아니면 이 PC 주소이고(백틱, 괄호, 한국어 조사 포함), 지우는 것은 scheme과 이 PC의 호스트·포트뿐이라 나머지 경로와 쿼리는 그대로 읽는다.
   - `\bhttp`를 `\bhttp(?!s?://|\.server\b)`로 바꿨다. URL scheme `http://`·`https://`와 모듈 이름 `http.server`만 빠지고, `http`로 시작하는 나머지 단어("HTTP request", "HTTP 요청", `httpx`, `http_client`, `http.client`)는 그대로 신호다.
   - 이 PC가 아닌 주소의 URL은 주변 말과 관계없이 신호다(repair 4, Owner 결정). 이 PC는 호스트 이름이 정확히 `localhost`·`127.0.0.1`(`localhost.example.com`은 밖)이거나 `[::1]`인 경우이며, 이 PC 주소의 URL은 신호가 아니다. repair 1~3은 URL 앞뒤의 말로 실제 호출인지 추측했으나 고칠 때마다 새 빈틈이 나와 repair 4에서 그 추측을 모두 뺐다(아래 Repair 절). 그래서 외부 문서 링크 URL도 신호가 붙는다(Owner 수용, A12).
   - 나머지 `external_service` 신호(network, webhook, crawl, scrap, llm, 외부 서비스 이름, 외부 서비스, 외부 api, 네트워크, 크롤, 스크래핑)와 다른 범주는 바꾸지 않았다. 판정을 느슨하게 만드는 곳은 `/api/…` route 경로, URL scheme, 이 PC 주소의 URL, 모듈 이름 `http.server`뿐이다. `/api/…` 경로만 있고 다른 외부 신호가 없는 문장은 실제 외부 호출이어도 신호가 없는데, 이는 지시 2-1을 따른 결과다(지시 2-1과 2-2가 겹치는 곳). "GET route"는 baseline부터 신호가 아니다.
 - `orchestrator/worker/run_smoke_tests.py`(새 검사 6건, repair 6 Reviewer 지적 2로 정정):
   - 팀장 안내에 한국어 규칙이 있고 설명 필드 일곱 개와 원문 유지 예외를 모두 말하는지
-  - `/api/…` route·route 표현·이 PC 주소 URL만 있는 문장 15개(Owner가 붙여 넣은 실제 계획의 T1 목적, T2·T3 완료 조건 문장, 백틱 route 문장 포함)에 외부 서비스 신호가 없는지
-  - 실제 호출·외부 서비스·외부 URL·그 밖의 api 문장 37개(기존 검사의 "외부 API로 번역한다", self-review 지적의 `httpx`, `http_client`, `REST-API`, `localhost.example.com`, Reviewer 지적의 URL 뒤 동사·다운로드·"get paths from …", 외부 문서 링크, scheme 없는 호스트, `api.go.kr`, `stripe.com/api/charges`, `api.py`, 저장소 경로, repair 7의 `localhost@example.com`·local URL 토큰 안의 외부 URL 포함)에 신호가 붙는지
+  - `/api/…` route·route 표현·이 PC 주소 URL만 있는 문장 18개(repair 8의 백틱·괄호·한국어 조사가 붙은 이 PC 주소 URL 포함, Owner가 붙여 넣은 실제 계획의 T1 목적, T2·T3 완료 조건 문장, 백틱 route 문장 포함)에 외부 서비스 신호가 없는지
+  - 실제 호출·외부 서비스·외부 URL·그 밖의 api 문장 38개(기존 검사의 "외부 API로 번역한다", self-review 지적의 `httpx`, `http_client`, `REST-API`, `localhost.example.com`, Reviewer 지적의 URL 뒤 동사·다운로드·"get paths from …", 외부 문서 링크, scheme 없는 호스트, `api.go.kr`, `stripe.com/api/charges`, `api.py`, 저장소 경로, repair 7의 `localhost@example.com`·local URL 토큰 안의 외부 URL, repair 8의 이 PC 주소 URL 쿼리 속 `api.go.kr` 포함)에 신호가 붙는지
   - `/api/` 경로만 적은 하위 작업에는 근거가 없고 외부 URL을 가져오는 하위 작업에는 근거가 붙는지
   - Owner가 지정한 repair 6 회귀 4건(`call api.go.kr`, `call stripe.com/api/charges`, `GET /api/overview 형식 설명`, `api.py`)
   - Console 목표 사례의 봇 답에 팀장의 한국어 설명 전부와 판정 근거의 한국어 라벨이 그대로 보이고, 모든 라벨이 한국어인지
@@ -316,6 +316,45 @@ repair 7로 고쳐
 - repair 뒤 검증(작업 트리): Worker smoke total=767 failed=0(새 문장은 기존 신호 검사 안에 더해 검사 수는 같음), SOP validator PASS, Discord `--self-check-suite` rc=0, `git diff --check`, 사전 점검 PASS.
 - 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
 
+## Reviewer 결과 (repair 7 candidate `957d5a56a3adadc07d99f863fa50c37661860462`)
+
+verdict FINDINGS, `self_deviations` 없음, 사용량 추정 $0.60. 이 절은 candidate 뒤에 쓴 기록이다. Owner 지시(A76a)대로 고치지 않고 Owner에게 보고한다. major 두 건(Manager가 둘 다 재현):
+
+1. 이 PC 주소의 끝을 `/`, `?`, `#`, 공백, 글 끝으로만 정해, 바로 뒤에 백틱, `)`, 한국어 조사가 붙은 이 PC 주소 URL("`http://localhost:8790`을 연다", "http://localhost:8790에서 연다", "(http://127.0.0.1:8790)")이 외부 URL로 읽혀 신호가 붙는다(엄격한 쪽). smoke `not_calls`의 이 PC 주소 URL은 모두 뒤에 `/`가 있어 잡지 못했다.
+2. 이 PC 주소 URL 토큰을 통째로 지운 뒤에는 scheme 있는 외부 URL만 다시 찾으므로, 토큰 안의 scheme 없는 외부 호스트("fetch http://localhost:8790/go?to=api.go.kr")가 baseline과 달리 신호를 잃는다(느슨한 쪽). Repair 7 절의 "repair 7부터 … 맞다"가 이 입력에서 틀리다.
+
+Reviewer unverified: candidate에서의 검사 실행 결과, 정규식 결과(실행 없이 읽음), 실제 팀장 답의 한국어(A10), `jarvis.bat`·`.env`(A28), push·봇 재시작(A31, A76b), 증거 경로와 기록 전체 읽기.
+
+## Owner 결정 (원문, repair 8 지시)
+
+```text
+repair 8을 승인합니다.
+Reviewer가 제안한 두 가지 수정만 반영하세요.
+
+1. localhost URL은 호스트와 포트가 정확히 일치하는 경우 인식하고, 뒤에 백틱·괄호·한국어 조사가 붙어도 로컬 주소로 판별하도록 합니다.
+2. localhost URL 전체를 삭제하지 말고, 로컬 호스트와 포트 부분만 제거해 나머지 경로와 쿼리의 외부 호스트를 검사할 수 있게 합니다.
+
+기존 회귀 테스트와 Reviewer 사례를 모두 포함하세요.
+중요:
+
+* 이번 repair 8을 마지막 수정으로 합니다.
+* 새로운 예외 규칙이나 정규식 확장은 하지 마세요.
+* 전체 검사 후 Reviewer를 실행합니다.
+* Reviewer가 다시 FINDINGS를 내면 추가 repair 없이 task를 중단하고 결과를 보고하세요.
+* Reviewer PASS일 때만 QA로 넘어가 실제 `/goal` dry-run과 한국어 출력 검증을 진행하세요.
+* main 반영, push, 봇 재시작은 별도 승인 전까지 하지 마세요.
+```
+
+## Repair 8 (`repair_count=8`, Owner 지시, 마지막 수정)
+
+- 지적 1: `_LOCAL_AUTHORITY`의 끝을 `(?=[/?#\s]|$)`에서 `(?![\w.\-@:\[\]])`로 바꿨다. 호스트와 포트 바로 뒤가 호스트나 포트를 잇는 글자가 아니면 이 PC 주소다. 백틱, 괄호, 한국어 조사가 붙어도 이 PC 주소이고, `localhost@example.com`, `localhost:8790@example.com`, `localhost.example.com`은 여전히 외부 주소다.
+- 지적 2: `_LOCAL_URL`이 토큰 전체(`\S*`)가 아니라 scheme과 이 PC의 호스트·포트만 지운다. 나머지 경로와 쿼리는 그대로 읽히므로 `/api/overview`는 route 경로로 신호가 없고, `?to=api.go.kr` 같은 외부 호스트는 신호다.
+- 새 예외 규칙이나 다른 정규식 확장은 하지 않았다. repair 7의 원래 글 외부 URL 확인은 그대로 둔다.
+- smoke: Reviewer 사례 네 문장(신호 없음 세 개, 신호 하나)을 더했고, 기존 회귀 검사(Owner repair 6 네 건 포함)는 모두 그대로다.
+- Repair 7 절의 "repair 7부터 … 맞다"는 repair 7 candidate에서 `?to=api.go.kr` 경우에 틀렸다(History로 둔다).
+- repair 뒤 검증(작업 트리): Worker smoke total=767 failed=0(새 문장은 기존 신호 검사 안에 더해 검사 수는 같음), SOP validator PASS, Discord `--self-check-suite` rc=0, `git diff --check`, 사전 점검 PASS.
+- 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer를 돌리고, PASS일 때만 QA로 간다(A90, A91).
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -335,7 +374,7 @@ repair 7로 고쳐
 | A11 | Owner 결정 (원문, 작업 지시) | "외부 서비스·네트워크 오판 수정" | 2번 문제의 표제 |
 | A12 | Owner 결정 (원문, 작업 지시) | "`/api/`, `GET route`, URL 문자열 등 단순 경로·문서 표현만으로 외부 서비스 호출 신호가 발생하지 않도록 한다." | `/api/…` route 경로, URL scheme, 이 PC 주소의 URL, `http.server`, "GET route"·"GET /api/…" 같은 route 표현은 신호가 아니다. "URL 문자열" 중 이 PC가 아닌 주소의 URL은 repair 4의 Owner 결정(A55)으로 여전히 신호다. 파일 이름·저장소 경로 속 `api`는 repair 6의 Owner 결정(A71, A71d, A78)으로 신호다. 단어 `api`("Console API" 같은 내부 API 언급 포함)도 신호로 남긴다 |
 | A13 | Owner 결정 (원문, 작업 지시) | "실제 외부 네트워크 요청이나 외부 서비스 의존성이 있는 경우에는 기존처럼 탐지해야 한다." | 단어 `api`, `http`로 시작하는 단어(`httpx`, `http_client` 포함), network, webhook, 외부 서비스 이름, 한국어 표현은 그대로이고, 이 PC가 아닌 주소의 URL은 주변 말과 관계없이 신호다(repair 4). 그래서 baseline이 잡던 실제 요청 문장을 놓치지 않는다 |
-| A14 | Owner 결정 (원문, 작업 지시) | "실제 호출 여부와 단순 API 경로 표현을 구분하는 테스트를 추가한다." | smoke: route·이 PC 주소 URL 문장 15개, 신호 문장 37개, Owner가 지정한 repair 6 회귀 4건(A72~A75), 하위 작업 판정 한 쌍 |
+| A14 | Owner 결정 (원문, 작업 지시) | "실제 호출 여부와 단순 API 경로 표현을 구분하는 테스트를 추가한다." | smoke: route·이 PC 주소 URL 문장 18개, 신호 문장 38개, Owner가 지정한 repair 6 회귀 4건(A72~A75), 하위 작업 판정 한 쌍 |
 | A15 | Owner 결정 (원문, 작업 지시) | "기존 정상 탐지 사례가 회귀하지 않는지 확인한다." | 기존 신호 검사가 그대로 통과하고, 실제 호출 목록에 기존 사례 "외부 API로 번역한다"를 넣었다 |
 | A16 | Owner 결정 (원문, 작업 지시) | "스레드 생성 문제" | 3번 표제. 이 task에서 다루지 않는다 |
 | A17 | Owner 결정 (원문, 작업 지시) | "이번 `/goal`은 DM에서 실행했다." | 로그의 `create failed (ValueError)` 원인 |
@@ -417,3 +456,14 @@ repair 7로 고쳐
 | A80 | Owner 결정 (원문, repair 7 지시) | "repair 6의 Reviewer 지적을 어떻게 처리할까요?" | repair 6 candidate의 Reviewer 지적 두 건(위 Reviewer 결과 절) |
 | A81 | Owner 결정 (원문, repair 7 지시) | "[Owner 답]" | 답의 표지 |
 | A82 | Owner 결정 (원문, repair 7 지시) | "repair 7로 고쳐" | `repair_budget=7`. Repair 7 절. 이 답은 이 task에만 효력이 있다 |
+| A83 | Owner 결정 (원문, repair 8 지시) | "repair 8을 승인합니다." | `repair_budget=8`. Repair 8 절 |
+| A84 | Owner 결정 (원문, repair 8 지시) | "Reviewer가 제안한 두 가지 수정만 반영하세요." | 두 가지만 바꿨다 |
+| A85 | Owner 결정 (원문, repair 8 지시) | "localhost URL은 호스트와 포트가 정확히 일치하는 경우 인식하고, 뒤에 백틱·괄호·한국어 조사가 붙어도 로컬 주소로 판별하도록 합니다." | Repair 8 절 지적 1 |
+| A86 | Owner 결정 (원문, repair 8 지시) | "localhost URL 전체를 삭제하지 말고, 로컬 호스트와 포트 부분만 제거해 나머지 경로와 쿼리의 외부 호스트를 검사할 수 있게 합니다." | Repair 8 절 지적 2 |
+| A87 | Owner 결정 (원문, repair 8 지시) | "기존 회귀 테스트와 Reviewer 사례를 모두 포함하세요." | 기존 검사는 그대로이고 Reviewer 사례 네 문장을 더했다 |
+| A88 | Owner 결정 (원문, repair 8 지시) | "이번 repair 8을 마지막 수정으로 합니다." | repair 9는 없다 |
+| A89 | Owner 결정 (원문, repair 8 지시) | "새로운 예외 규칙이나 정규식 확장은 하지 마세요." | 두 정규식의 끝 조건과 지우는 범위만 바꿨다 |
+| A89a | Owner 결정 (원문, repair 8 지시) | "전체 검사 후 Reviewer를 실행합니다." | Repair 8 절 검증 뒤 fresh Reviewer |
+| A90 | Owner 결정 (원문, repair 8 지시) | "Reviewer가 다시 FINDINGS를 내면 추가 repair 없이 task를 중단하고 결과를 보고하세요." | FINDINGS면 중단하고 보고한다 |
+| A91 | Owner 결정 (원문, repair 8 지시) | "Reviewer PASS일 때만 QA로 넘어가 실제 `/goal` dry-run과 한국어 출력 검증을 진행하세요." | PASS일 때만 QA(실제 dry-run과 필드별 한국어 확인) |
+| A92 | Owner 결정 (원문, repair 8 지시) | "main 반영, push, 봇 재시작은 별도 승인 전까지 하지 마세요." | 하지 않는다 |

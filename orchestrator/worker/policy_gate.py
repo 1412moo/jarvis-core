@@ -36,14 +36,16 @@ VERDICT_RANK = {AUTO: 0, NEEDS_OWNER: 1, FORBIDDEN: 2}
 # whatever words are around it; a URL to this machine (localhost, 127.0.0.1, [::1]) is not. Repairs 1 to 3
 # tried to guess a call from the words next to the URL and each left a new gap, so that guess is gone.
 # Repair 7: a URL is this machine's only when its whole authority is the local host with an optional port
-# (so localhost@example.com and localhost.example.com are external).
-_LOCAL_AUTHORITY = r"(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?=[/?#\s]|$)"
+# (so localhost@example.com and localhost.example.com are external). Repair 8: the authority ends at any
+# character that cannot continue a host or port, so a backtick, a bracket or a Korean particle right
+# after it (`http://localhost:8790`을) still leaves it local.
+_LOCAL_AUTHORITY = r"(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?![\w.\-@:\[\]])"
 _EXTERNAL_URL = r"https?://(?!" + _LOCAL_AUTHORITY + ")"
-# task-0227 repair 6: a URL to this machine is removed whole before the other external service signals are
-# read, so the api in http://localhost:8790/api/overview is not read as a word either. Repair 7: the
-# external URL signal reads the text before that removal, so an external URL inside a local URL's token
-# (localhost:8790/go?to=https://api.example.com) is still found.
-_LOCAL_URL = re.compile(r"https?://" + _LOCAL_AUTHORITY + r"\S*")
+# task-0227 repair 6: the local part of a URL to this machine is removed before the other external service
+# signals are read. Repair 8: only the scheme and the local host and port are removed, so the rest of the
+# URL is still read: /api/overview stays a route path, and a host in its query (?to=api.go.kr) is a signal.
+# Repair 7: the external URL signal also reads the text before that removal.
+_LOCAL_URL = re.compile(r"https?://" + _LOCAL_AUTHORITY)
 _LOCAL_URL_CATEGORIES = frozenset({"external_service"})
 _EXTERNAL_URL_RE = re.compile(_EXTERNAL_URL, re.ASCII)
 
