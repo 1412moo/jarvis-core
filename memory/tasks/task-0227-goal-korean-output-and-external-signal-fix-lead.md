@@ -2,11 +2,12 @@
 
 - id: `task-0227-goal-korean-output-and-external-signal-fix-lead`
 - title: `/goal: 팀장 출력 한국어 일관성과 외부 서비스·네트워크 신호 오판 수정`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-11 03:57 UTC`
-- updated_at: `2026-11-11 06:55 UTC`
+- updated_at: `2026-11-11 07:27 UTC`
 - summary: `재시작한 봇의 실제 /goal 계획에서 팀장 설명이 영어와 한국어로 섞였고, /api/ 경로만 적은 하위 작업에 외부 서비스·네트워크 신호가 붙었다. 팀장 안내에 Owner가 읽는 모든 설명을 한국어로 쓰라는 규칙을 넣고, Policy Gate가 /api/… route 경로, route 표현, 이 PC 주소의 URL만으로는 외부 서비스 신호를 붙이지 않되 실제 호출, 외부 서비스 의존, 이 PC가 아닌 주소의 URL은 그대로 잡게 한다. 스레드 동작, 대시보드, Console 역할, task 생성·Worker 실행 권한은 범위 밖이다.`
+- completion_evidence: `candidate 1cef35b356d4a2f13b2448e4b92808a4b843c6ce (repair 8, Owner-approved budget 8): Reviewer PASS with no findings and no self deviations; QA PASS in a fresh worktree (Worker smoke 767/0, validator, Console self-test and smoke, intake smoke, Discord self-check, Studyroom smoke, secrets 0, live Console goal dry-run with every lead text in Korean); Owner final approval recorded in the task file`
 - source_command: `Owner 지시: task-0227을 진행하자 (Claude Code 세션)`
 
 ## 기준선
@@ -355,6 +356,49 @@ Reviewer가 제안한 두 가지 수정만 반영하세요.
 - repair 뒤 검증(작업 트리): Worker smoke total=767 failed=0(새 문장은 기존 신호 검사 안에 더해 검사 수는 같음), SOP validator PASS, Discord `--self-check-suite` rc=0, `git diff --check`, 사전 점검 PASS.
 - 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer를 돌리고, PASS일 때만 QA로 간다(A90, A91).
 
+## Reviewer 결과 (repair 8 candidate `1cef35b356d4a2f13b2448e4b92808a4b843c6ce`)
+
+verdict PASS, findings 없음, `self_deviations` 없음, 사용량 추정 $0.68. 이 절과 아래 절들은 candidate 뒤의 기록이다. Reviewer unverified: candidate에서의 검사 실행 결과, 정규식 실제 결과(`_LOCAL_URL`은 re.ASCII 없이 컴파일돼 포트 바로 뒤 한국어 조사가 있으면 지우기가 막힌다는 점을 포함해 실행 없이 읽음), 실제 팀장 답의 한국어(A10, A91), `jarvis.bat`·`.env`(A28), push·main 반영·봇 재시작(A31, A76b, A92), 증거 경로와 기록 전체 읽기. 이 항목들은 QA가 확인한다.
+
+## QA 결과 (candidate `1cef35b356d4a2f13b2448e4b92808a4b843c6ce`)
+
+- scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗(실행 전후), baseline 대비 변경 파일 5개(범위 owned 행과 같음), `jarvis.bat` 트리에 없음. QA worktree는 지웠다.
+- `git diff --check` 통과, SOP validator PASS, `run_web_app.py --self-test` 통과, Console smoke PYTHONUTF8=1과 없음 모두 rc=0, `node --check apps/jarvis-console/web/app.js` 통과, Worker smoke total=767 failed=0(Owner repair 6 회귀 4건과 Reviewer 사례 포함, `_LOCAL_URL`의 한국어 조사 사례도 실행으로 확인), discord-intake smoke rc=0, Discord `--self-check-suite` rc=0, Studyroom smoke rc=0, `check_no_secrets.py` findings 0.
+- 실제 dry-run(candidate 코드, QA worktree, 실제 `claude` CLI, 봇의 `_run_goal_job`과 답 형식 그대로): Owner의 Console 대시보드 목표 원문. 54초, 팀장 사용량 추정 $0.22, `goal-20261111-072256-493`, 계획 hash `380d7b9809fa…`, 하위 작업 5개 모두 needs_owner, 5단계, task 생성과 Worker 실행 없음(계획 파일만 저장소 밖에 씀).
+- 한국어 출력(A10, A91): 팀장이 쓴 41개 설명(목표 요약, 진행 흐름, 제목 5, 목적 5, Worker 지시 5, Owner 결정 사유 5, 완료 조건 19)이 모두 한국어 문장이다. 코드·경로·식별자를 뺀 나머지 글자 중 한글 비율이 0.5 미만인 것은 T3 완료 조건 하나("기존 overview, history, skill 화면 동작과 기존 self-check의 app.js 검사가 그대로 통과한다", 0.41)이고, 영어 부분은 코드 식별자와 화면 이름이라 원문 유지 예외(A9)에 든다. 판정 근거 라벨은 모두 한국어다. task-0227 전 실제 실행(Owner가 붙여 넣은 `goal-20261111-034857-999`)에서 영어였던 진행 흐름, 완료 조건, Worker 지시, Owner 결정 사유가 이번에는 모두 한국어다.
+- 외부 서비스 근거: T1·T2·T4에 붙고 T3·T5에는 없다. 원인 문구: T1은 제목·Worker 지시의 단어 "API"("기존 API 현황", "기존 GET API"), T2는 완료 조건의 `HTTPStatus`(`http`로 시작하는 단어), T4는 완료 조건의 "네트워크 호출이 없음"(baseline부터 있던 `네트워크` 신호, 부정 표현도 잡음). `/api/overview`, `/api/history`, `/api/dashboard`, "GET 응답" 같은 route 표현은 어디서도 신호를 내지 않았다. 남은 셋은 Owner가 남기기로 한 규칙(단어 `api`, `http`로 시작하는 단어, 기존 한국어 신호)의 결과이며 판정은 어차피 needs_owner다.
+- main과 origin/main은 `913a347`, main 체크아웃은 `jarvis.bat` untracked만 있다. `jarvis.bat` 크기 94, 수정 시각 2026-10-11 02:13:50(+0900). 내용은 열지 않았다. push, main 반영, 봇 재시작은 하지 않았다.
+- QA 판정: PASS. Docs는 `not_required`(문서 변경이 candidate에 포함됨).
+- 확인하지 못한 것: 실제 봇 프로세스에서의 `/goal`(봇 재시작은 별도 승인).
+
+## Owner 결정 (원문, 최종 승인)
+
+```text
+[Manager 질문]
+task-0227을 최종 승인해 main에 반영할까요?
+
+[Owner 답]
+최종 승인
+```
+
+## Complete
+
+Owner 최종 승인에 따라 Record Completion Evidence(Preview 확인 뒤 Confirm)로 completion_evidence를 남기고, Console Complete Preview(DOING → DONE)를 확인한 뒤 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-11 07:27 UTC`). Console은 worktree에서 띄웠고 끈 상태다.
+
+master-plan 항목: 237바이트 항목과 99바이트 항목 모두 `docs/master-plan.md`를 한도 `MASTER_PLAN_MAX_BYTES = 128_000` 아래로 두었지만(127,813·127,675바이트), Console smoke가 실패했다. smoke가 live master-plan의 줄을 더 긴 값으로 바꿔 읽어 보는 검사가 "master plan exceeds the read-only display limit"를 냈기 때문이다. 항목을 빼면(127,574바이트) Console smoke와 self-test가 통과한다. Owner에게 물었고(아래 절) Owner 답대로 master-plan을 바꾸지 않고 이 기록만 DONE checkpoint로 커밋한 뒤 로컬 main을 ff-only로 옮긴다. task-0227 항목은 한도 문제를 푸는 다음 task에서 넣는다. push와 봇 재시작은 하지 않았다.
+
+작업 중 실수 한 건: 원인 확인 중 `git stash`를 잘못 실행해 staged 변경(이 기록, master-plan 항목)이 stash로 들어갔고, 바로 `git stash pop --index`로 되돌렸다. 되돌린 뒤 이 기록의 상태는 DONE 그대로였고 내용 손실은 없었다.
+
+## Owner 결정 (원문, master-plan 항목)
+
+```text
+[Manager 질문]
+task-0227은 Console에서 DONE이 됐지만, master-plan에 완료 항목을 넣으면 99바이트 한 줄로도 Console smoke가 '표시 한도 128,000바이트 초과'로 실패합니다(smoke가 사본을 늘려 검사해 남은 426바이트로는 부족). 항목을 빼면 통과합니다. 어떻게 할까요?
+
+[Owner 답]
+항목 없이 DONE checkpoint (Recommended)
+```
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -467,3 +511,13 @@ Reviewer가 제안한 두 가지 수정만 반영하세요.
 | A90 | Owner 결정 (원문, repair 8 지시) | "Reviewer가 다시 FINDINGS를 내면 추가 repair 없이 task를 중단하고 결과를 보고하세요." | FINDINGS면 중단하고 보고한다 |
 | A91 | Owner 결정 (원문, repair 8 지시) | "Reviewer PASS일 때만 QA로 넘어가 실제 `/goal` dry-run과 한국어 출력 검증을 진행하세요." | PASS일 때만 QA(실제 dry-run과 필드별 한국어 확인) |
 | A92 | Owner 결정 (원문, repair 8 지시) | "main 반영, push, 봇 재시작은 별도 승인 전까지 하지 마세요." | 하지 않는다 |
+| A93 | Owner 결정 (원문, 최종 승인) | "[Manager 질문]" | 질문의 표지 |
+| A94 | Owner 결정 (원문, 최종 승인) | "task-0227을 최종 승인해 main에 반영할까요?" | A96 답의 질문 |
+| A95 | Owner 결정 (원문, 최종 승인) | "[Owner 답]" | 답의 표지 |
+| A96 | Owner 결정 (원문, 최종 승인) | "최종 승인" | Console로 완료 근거를 남기고 Complete한 뒤 main을 ff-only로 옮긴다. push와 봇 재시작은 포함하지 않는다(A92) |
+| A97 | Owner 결정 (원문, master-plan 항목) | "[Manager 질문]" | 질문의 표지 |
+| A98 | Owner 결정 (원문, master-plan 항목) | "task-0227은 Console에서 DONE이 됐지만, master-plan에 완료 항목을 넣으면 99바이트 한 줄로도 Console smoke가 '표시 한도 128,000바이트 초과'로 실패합니다(smoke가 사본을 늘려 검사해 남은 426바이트로는 부족)." | Complete 절의 master-plan 항목 문단 |
+| A99 | Owner 결정 (원문, master-plan 항목) | "항목을 빼면 통과합니다." | 127,574바이트에서 Console smoke rc=0 |
+| A100 | Owner 결정 (원문, master-plan 항목) | "어떻게 할까요?" | 답은 A102 |
+| A101 | Owner 결정 (원문, master-plan 항목) | "[Owner 답]" | 답의 표지 |
+| A102 | Owner 결정 (원문, master-plan 항목) | "항목 없이 DONE checkpoint (Recommended)" | master-plan은 바꾸지 않고 이 기록만 DONE checkpoint로 커밋한다. 이 답은 이 task에만 효력이 있다 |
