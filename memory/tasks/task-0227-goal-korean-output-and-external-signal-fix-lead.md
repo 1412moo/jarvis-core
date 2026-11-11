@@ -5,7 +5,7 @@
 - status: `DOING`
 - repo: `jarvis-core`
 - created_at: `2026-11-11 03:57 UTC`
-- updated_at: `2026-11-11 04:13 UTC`
+- updated_at: `2026-11-11 04:27 UTC`
 - summary: `재시작한 봇의 실제 /goal 계획에서 팀장 설명이 영어와 한국어로 섞였고, /api/ 경로만 적은 하위 작업에 외부 서비스·네트워크 신호가 붙었다. 팀장 안내에 Owner가 읽는 모든 설명을 한국어로 쓰라는 규칙을 넣고, Policy Gate가 경로·파일 이름 속 api와 URL만으로는 외부 서비스 신호를 붙이지 않되 실제 호출과 외부 서비스 의존은 그대로 잡게 한다. 스레드 동작, 대시보드, Console 역할, task 생성·Worker 실행 권한은 범위 밖이다.`
 - source_command: `Owner 지시: task-0227을 진행하자 (Claude Code 세션)`
 
@@ -88,12 +88,12 @@ Console(worktree에서 띄움) Voice Inbox의 Create Local Task Preview를 확�
 - `orchestrator/worker/policy_gate.py`의 `external_service` 신호:
   - `\bapi\b`를 `(?<![/.])\bapi\b(?!/|\.\w)`로 바꿨다. 경로나 파일 이름의 일부인 `api`(`/api/overview`, `api/overview`, `api.py`, `x/api`)는 신호가 아니고, 단어 `api`("the API returns", "외부 API로", "REST-API")는 그대로 신호다.
   - `\bhttp`를 `\bhttp(?!s?://|\.server\b)`로 바꿨다. URL scheme `http://`·`https://`와 모듈 이름 `http.server`만 빠지고, `http`로 시작하는 나머지 단어("HTTP request", "HTTP 요청", `httpx`, `http_client`, `http.client`)는 그대로 신호다.
-  - 이 PC가 아닌 주소의 URL은 같은 문장 안에서 가져오거나 호출하거나 보낸다는 말과 함께 있을 때만 신호다. 이 PC는 호스트 이름이 정확히 `localhost`·`127.0.0.1`(`localhost.example.com`은 밖)이거나 `[::1]`인 경우다. 영어는 URL 앞의 fetch·request·call·query·get·post·send·poll·crawl·scrap·download·upload·load로 시작하는 단어, 한국어는 URL 뒤의 가져·호출·요청·받아·받는·수집·접속·전송·보내·보낸이다.
+  - 이 PC가 아닌 주소의 URL은 같은 문장 안에서 가져오거나 호출하거나 연결하거나 보낸다는 말과 함께 있을 때만 신호다(repair 1: 그 말이 URL 앞이든 뒤든, 영어든 한국어든). 이 PC는 호스트 이름이 정확히 `localhost`·`127.0.0.1`(`localhost.example.com`은 밖)이거나 `[::1]`인 경우다. 그 말은 fetch·request·call·query·get·post·send·poll·crawl·scrap·download·upload·load·connect·access·sync·stream으로 시작하는 영어 단어와 가져·호출·요청·받아·받는·수집·접속·전송·보내·보낸·다운로드·업로드·연결·동기화·불러다.
   - 나머지 `external_service` 신호(network, webhook, crawl, scrap, llm, 외부 서비스 이름, 외부 서비스, 외부 api, 네트워크, 크롤, 스크래핑)와 다른 범주는 바꾸지 않았다. 판정을 느슨하게만 만드는 변경이며 대상은 경로·파일 이름 속 `api`, URL, 모듈 이름 `http.server`뿐이다.
 - `orchestrator/worker/run_smoke_tests.py`(새 검사 5건):
   - 팀장 안내에 한국어 규칙이 있고 설명 필드 일곱 개와 원문 유지 예외를 모두 말하는지
   - 경로·route·URL만 있는 문장 13개(Owner가 붙여 넣은 실제 계획의 T1 목적, T2·T3 완료 조건 문장 포함)에 외부 서비스 신호가 없는지
-  - 실제 호출·외부 서비스 문장 22개(기존 검사의 "외부 API로 번역한다"와 self-review 지적의 `httpx`, `http_client`, `REST-API`, `localhost.example.com`, `upload` 포함)에 신호가 그대로 붙는지
+  - 실제 호출·외부 서비스 문장 28개(기존 검사의 "외부 API로 번역한다", self-review 지적의 `httpx`, `http_client`, `REST-API`, `localhost.example.com`, `upload`, Reviewer 지적의 URL 뒤 동사·다운로드·업로드·연결·connect·access 포함)에 신호가 그대로 붙는지
   - `/api/` 경로만 적은 하위 작업에는 근거가 없고 외부 URL을 가져오는 하위 작업에는 근거가 붙는지
   - Console 목표 사례의 봇 답에 팀장의 한국어 설명 전부와 판정 근거의 한국어 라벨이 그대로 보이고, 모든 라벨이 한국어인지
 - `adapters/discord/README.md` `/goal` 2·3항: 한국어 안내(코드 검사는 아님)와 외부 서비스 신호가 붙는 경우와 붙지 않는 경우를 적었다. SOP §10.1 문단은 신호 목록을 말하지 않아 고치지 않았다.
@@ -115,6 +115,18 @@ SOP §3대로 staged 변경에 `claude -p --agent self-reviewer --tools Read,Gre
 
 수정 뒤 다시 돌린 결과: Worker smoke total=766 failed=0(새 문장은 기존 신호 검사 안에 더해 검사 수는 같음), SOP validator PASS, Discord `--self-check-suite` rc=0, `git diff --check` 통과, 사전 점검 PASS.
 
+## Reviewer 결과 (candidate `e92063b92ced20aa45c7c8b7064d131d2520e6e3`)
+
+verdict FINDINGS, `self_deviations` 없음, 사용량 추정 $0.54. major 1건: 외부 URL은 URL 앞의 영어 동사나 URL 뒤의 한국어 동사가 있을 때만 신호가 되어, baseline `\bhttp`가 잡던 실제 요청 문장("https://example.com/data.zip 을 다운로드한다", "… 에 업로드한다", "… 에 연결한다", "connect to https://…", "access https://…", "https://example.com/feed is fetched daily")이 신호를 잃는다. A13과 Manager 요약 A13의 충족 주장이 맞지 않는다. Reviewer unverified: candidate에서의 검사 실행 결과, 실제 팀장 답의 한국어(A10, QA 몫), `jarvis.bat` 등을 열지 않았는지(A28), Console Start와 종료.
+
+## Repair 1 (`repair_count=1`)
+
+- 동사 목록을 하나로 합쳐 URL 앞이든 뒤든 같은 문장(마침표·세미콜론 전, 60자 안)에 있으면 신호로 보게 했다. 영어에 connect·access·sync·stream을, 한국어에 다운로드·업로드·연결·동기화·불러를 더했다.
+- smoke `calls`에 Reviewer가 든 여섯 문장을 더했다. 경로·URL만 있는 13문장은 그대로 신호가 없다("http://localhost:8790/api/overview 에 연결한다"처럼 이 PC 주소는 여전히 신호가 아니다).
+- 구현 절, Manager 요약 A13·A14, 코드 주석, README 3항을 고쳤다.
+- repair 뒤 검증(작업 트리): Worker smoke total=766 failed=0(새 문장은 기존 신호 검사 안에 더해 검사 수는 같음), SOP validator PASS, Discord `--self-check-suite` rc=0, `git diff --check`, 사전 점검.
+- 이전 candidate의 Reviewer 결과는 무효이며 새 candidate에 fresh Reviewer와 QA를 돌린다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -133,8 +145,8 @@ SOP §3대로 staged 변경에 `claude -p --agent self-reviewer --tools Read,Gre
 | A10 | Owner 결정 (원문, 작업 지시) | "실제 출력 검증 테스트를 추가한다." | smoke: Console 목표 사례의 봇 답에 팀장의 한국어 설명과 한국어 판정 라벨이 그대로 보이는지. 실제 팀장의 답은 QA의 실제 dry-run에서 필드별로 확인한다. 답의 언어를 코드로 거절하는 검사는 넣지 않았다(Manager 해석: 새 실패 경로와 범위 확대가 되므로) |
 | A11 | Owner 결정 (원문, 작업 지시) | "외부 서비스·네트워크 오판 수정" | 2번 문제의 표제 |
 | A12 | Owner 결정 (원문, 작업 지시) | "`/api/`, `GET route`, URL 문자열 등 단순 경로·문서 표현만으로 외부 서비스 호출 신호가 발생하지 않도록 한다." | 경로·파일 이름 속 `api`, URL scheme, `http.server`는 신호가 아니다. "GET route"는 baseline에서도 신호가 아니었고 smoke가 그대로인지 확인한다. 문장 속 단어 `api`("Console API" 같은 내부 API 언급 포함)는 여전히 신호로 남긴다(Manager 해석: 외부 API일 수 있어 넓게 둔다) |
-| A13 | Owner 결정 (원문, 작업 지시) | "실제 외부 네트워크 요청이나 외부 서비스 의존성이 있는 경우에는 기존처럼 탐지해야 한다." | 단어 `api`, `http`로 시작하는 단어(`httpx`, `http_client` 포함), network, webhook, 외부 서비스 이름, 한국어 표현은 그대로이고, 외부 URL은 가져오거나 호출하거나 보낸다는 말과 함께면 신호다 |
-| A14 | Owner 결정 (원문, 작업 지시) | "실제 호출 여부와 단순 API 경로 표현을 구분하는 테스트를 추가한다." | smoke: 경로·route·URL 문장 13개와 실제 호출 문장 22개, 하위 작업 판정 한 쌍 |
+| A13 | Owner 결정 (원문, 작업 지시) | "실제 외부 네트워크 요청이나 외부 서비스 의존성이 있는 경우에는 기존처럼 탐지해야 한다." | 단어 `api`, `http`로 시작하는 단어(`httpx`, `http_client` 포함), network, webhook, 외부 서비스 이름, 한국어 표현은 그대로이고, 외부 URL은 가져오거나 호출하거나 연결하거나 보낸다는 말과 같은 문장에 있으면(앞뒤 순서 무관) 신호다. Reviewer 지적으로 repair 1에서 넓혔다 |
+| A14 | Owner 결정 (원문, 작업 지시) | "실제 호출 여부와 단순 API 경로 표현을 구분하는 테스트를 추가한다." | smoke: 경로·route·URL 문장 13개와 실제 호출 문장 28개, 하위 작업 판정 한 쌍 |
 | A15 | Owner 결정 (원문, 작업 지시) | "기존 정상 탐지 사례가 회귀하지 않는지 확인한다." | 기존 신호 검사가 그대로 통과하고, 실제 호출 목록에 기존 사례 "외부 API로 번역한다"를 넣었다 |
 | A16 | Owner 결정 (원문, 작업 지시) | "스레드 생성 문제" | 3번 표제. 이 task에서 다루지 않는다 |
 | A17 | Owner 결정 (원문, 작업 지시) | "이번 `/goal`은 DM에서 실행했다." | 로그의 `create failed (ValueError)` 원인 |

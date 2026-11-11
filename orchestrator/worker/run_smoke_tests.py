@@ -2055,6 +2055,10 @@ def goal_flow(bot, clone: Path) -> None:
         # task-0227 self-review: HTTP client words, a hyphenated API, a look-alike local host, upload.
         "httpx로 호출한다", "use http_client to post results", "REST-API로 보낸다",
         "fetch http://localhost.example.com/feed", "upload to https://example.com/x",
+        # task-0227 repair 1: a call word on either side of the URL, connect and access, Korean loanwords.
+        "https://example.com/data.zip 을 다운로드한다", "https://example.com/x 에 업로드한다",
+        "https://api.example.com 에 연결한다", "connect to https://api.example.com", "access https://example.com/feed",
+        "https://example.com/feed is fetched daily",
     ]
     flagged = [text for text in not_calls if "external_service" in policy_gate.text_signals(text)]
     missed = [text for text in calls if "external_service" not in policy_gate.text_signals(text)]

@@ -33,11 +33,13 @@ FORBIDDEN = "forbidden"
 VERDICT_RANK = {AUTO: 0, NEEDS_OWNER: 1, FORBIDDEN: 2}
 
 # task-0227: a URL to a host other than this machine counts as a call only next to a word that fetches,
-# calls or sends to it, within one sentence (English: the word before the URL; Korean: after it).
+# calls, connects or sends to it, before or after the URL within one sentence (repair 1: either order,
+# in English and Korean alike).
 _EXTERNAL_HOST = r"https?://(?!localhost(?![\w.\-])|127\.0\.0\.1(?![\w.\-])|\[::1\])"
-_EXTERNAL_URL_CALL_EN = (r"\b(?:fetch|request|call|query|get|post|send|poll|crawl|scrap|download|upload|load)\w*\b"
-                         r"[^.;]{0,60}?" + _EXTERNAL_HOST)
-_EXTERNAL_URL_CALL_KO = _EXTERNAL_HOST + r"\S+?[^.;]{0,30}?(?:가져|호출|요청|받아|받는|수집|접속|전송|보내|보낸)"
+_CALL_WORD = (r"(?:\b(?:fetch|request|call|query|get|post|send|poll|crawl|scrap|download|upload|load|connect|access"
+              r"|sync|stream)\w*|가져|호출|요청|받아|받는|수집|접속|전송|보내|보낸|다운로드|업로드|연결|동기화|불러)")
+_CALL_BEFORE_EXTERNAL_URL = _CALL_WORD + r"[^.;]{0,60}?" + _EXTERNAL_HOST
+_EXTERNAL_URL_BEFORE_CALL = _EXTERNAL_HOST + r"\S*?[^.;]{0,60}?" + _CALL_WORD
 
 # Text signals that always need the Owner, by category. Each entry is a regular expression searched in
 # the lower-cased text with whitespace runs folded. English words use ASCII word boundaries; Korean
@@ -58,10 +60,11 @@ OWNER_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # task-0227: a path or a URL alone is not a call. "api" that is part of a path or file name (/api/,
     # api/, api.py), an http(s) URL scheme and the local module name http.server are not signals; the
     # word "api" and words that start with "http" (HTTP, httpx, http_client) still are, and so is a URL
-    # to a host other than this machine next to a word that fetches, calls or sends to it.
+    # to a host other than this machine next to a word that fetches, calls, connects or sends to it.
     ("external_service", (
         r"(?<![/.])\bapi\b(?!/|\.\w)", r"\bhttp(?!s?://|\.server\b)",
-        _EXTERNAL_URL_CALL_EN, _EXTERNAL_URL_CALL_KO, r"\bnetwork", r"\bwebhook", r"\bcrawl", r"\bscrap", r"\bllm\b", r"\bopenrouter\b",
+        _CALL_BEFORE_EXTERNAL_URL, _EXTERNAL_URL_BEFORE_CALL,
+        r"\bnetwork", r"\bwebhook", r"\bcrawl", r"\bscrap", r"\bllm\b", r"\bopenrouter\b",
         r"\bopenai\b", r"\bgemini\b", r"\bgpt", r"\bollama\b", r"\bdiscord api\b",
         r"외부 서비스", r"외부 api", r"네트워크", r"크롤", r"스크래핑",
     )),
