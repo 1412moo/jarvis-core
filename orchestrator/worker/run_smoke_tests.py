@@ -1977,6 +1977,14 @@ def goal_flow(bot, clone: Path) -> None:
           policy_gate.reason_label("lead_reason_missing") == "팀장이 Owner 결정 사유를 적지 않음")
     check("goal: the lead prompt says a kind none sub-task always gives a reason, read-only too",
           "a kind none sub-task never has owner_decision none" in goal_plan.goal_prompt("x"))
+    # task-0227: the lead writes every text the Owner reads in Korean, and names each such field.
+    korean_rule = next((line for line in goal_plan.goal_prompt("x").splitlines()
+                        if line.startswith("- Write every text value the Owner reads in natural Korean")), "")
+    check("goal: the lead prompt asks for Korean in every text field the Owner reads",
+          bool(korean_rule) and all(name in korean_rule for name in (
+              "goal_summary", "flow", "title", "purpose", "acceptance", "owner_decision", "worker_request"))
+          and "file paths" in korean_rule and "API paths" in korean_rule and "proper names" in korean_rule,
+          korean_rule)
 
     # The Policy Gate: fixed rules, and the lead's words can only make a verdict stricter.
     def verdict_of(**fields) -> policy_gate.TaskVerdict:
@@ -2025,6 +2033,36 @@ def goal_flow(bot, clone: Path) -> None:
     check("gate: signals are read in the title, purpose and acceptance too",
           verdict_of(title="배포 준비").verdict == "needs_owner" and verdict_of(purpose="remove old entries").verdict == "needs_owner"
           and verdict_of(acceptance=["PR이 열린다"]).verdict == "needs_owner")
+    # task-0227: a path, a route or a URL alone is not an external call (the live Console plan's T1 to T3
+    # were flagged so); a real call or external dependency is still flagged.
+    not_calls = [
+        "GET /api/overview 응답에 dashboard 필드를 더한다", "새 GET route를 만들지 정한다",
+        "/api/history와 /api/status 필드를 확인한다", "api/overview 경로를 읽는다",
+        "apps/jarvis-console/api/x.py를 읽는다", "api.py를 고친다", "http.server 처리기를 읽는다",
+        "문서에 https://example.com/docs 링크를 적는다", "fetch http://localhost:8790/api/overview",
+        "http://127.0.0.1:8790/api/overview 에서 가져온다",
+        "Project Control, Recent Milestone Evidence, task_view_counts, /api/history가 이미 보여주는 것을 확인하고 "
+        "대시보드에 실제로 빠진 것만 찾는다.",
+        "Document says whether the data goes in GET /api/overview or a new GET route, based on the T1 report",
+        "GET /api/overview (or the route chosen in T2) returns a dashboard field",
+    ]
+    calls = [
+        "외부 API로 번역한다", "Call the OpenAI API", "the API returns rate limits", "send an HTTP request",
+        "HTTP 요청을 보낸다", "fetch https://example.com/feed.xml", "GET https://api.example.com/v1/items",
+        "https://example.com/feed.xml 에서 데이터를 가져온다", "https://api.github.com/repos 를 호출한다",
+        "send a webhook", "network access를 연다", "네트워크로 받는다", "crawl the site", "외부 서비스에 맡긴다",
+        "Gemini로 요약한다", "LLM에 묻는다", "Discord API로 보낸다",
+        # task-0227 self-review: HTTP client words, a hyphenated API, a look-alike local host, upload.
+        "httpx로 호출한다", "use http_client to post results", "REST-API로 보낸다",
+        "fetch http://localhost.example.com/feed", "upload to https://example.com/x",
+    ]
+    flagged = [text for text in not_calls if "external_service" in policy_gate.text_signals(text)]
+    missed = [text for text in calls if "external_service" not in policy_gate.text_signals(text)]
+    check("gate: a path, a route or a URL alone is not an external service signal", not flagged, str(flagged))
+    check("gate: a real external call or dependency is still an external service signal", not missed, str(missed))
+    check("gate: a sub-task that only names /api/ paths is not flagged, one that calls out is",
+          "signal:external_service" not in verdict_of(purpose="/api/overview 응답을 확인한다").reasons
+          and "signal:external_service" in verdict_of(worker_request="fetch https://example.com/feed.xml").reasons)
     read_only, _ = goal_plan._parse_task(goal_task("T1", mode="read_only", paths=["docs/master-plan.md"]),
                                          {k.name for k in claude_worker.WORK_KINDS})
     check("gate: a read-only sub-task may read outside its kind's path", policy_gate.judge_task(read_only).verdict == "auto")
@@ -2224,6 +2262,24 @@ def goal_flow(bot, clone: Path) -> None:
               console_job.get("ok") is True and console_job["verdict"]["counts"] == {"auto": 0, "needs_owner": 3, "forbidden": 0}
               and "팀장이 Owner 결정 사유를 적지 않음" in console_text and console_job.get("plan_path"),
               console_text[:800])
+        # task-0227: what the Owner reads is Korean. The lead's texts reach the reply as they are, and
+        # every verdict reason the gate can give is shown with a Korean label.
+        def hangul(text: str) -> bool:
+            return any("가" <= char <= "힣" for char in text)
+
+        shown_plan = console_job.get("plan") or {}
+        lead_texts = [shown_plan.get("goal_summary"), shown_plan.get("flow")]
+        for item in shown_plan.get("tasks") or []:
+            lead_texts += [item.get("title"), item.get("purpose"), item.get("worker_request"), item.get("owner_decision"),
+                           *(item.get("acceptance") or [])]
+        lead_texts = [text for text in lead_texts if text]
+        shown_reasons = [reason for item in console_job["verdict"]["tasks"] for reason in item["reasons"]]
+        check("goal job: the lead's Korean texts and Korean verdict labels are what the reply shows",
+              len(lead_texts) >= 15 and all(hangul(text) and text in console_text for text in lead_texts)
+              and shown_reasons and all(hangul(policy_gate.reason_label(r)) and policy_gate.reason_label(r) in console_text
+                                        for r in shown_reasons)
+              and all(hangul(label) for label in policy_gate.REASON_LABELS.values()),
+              str([t for t in lead_texts if not hangul(t) or t not in console_text]))
 
         bot.GOAL_PLAN_DIR = clone / "goal-plans-inside"
         claude_lead._run_claude = answer(goal_answer(three))

@@ -268,6 +268,11 @@ def goal_prompt(goal: str) -> str:
         "publication, deleting data, security or permissions, a path outside the kind, or an unclear goal); "
         "then give the reason.\n"
         "- worker_request is one line telling the Worker what to change for this sub-task.\n"
+        # task-0227: the first live plans mixed English and Korean; every text the Owner reads is Korean.
+        "- Write every text value the Owner reads in natural Korean: goal_summary, flow, and each sub-task's "
+        "title, purpose, acceptance, owner_decision and worker_request. Keep code identifiers, file paths, "
+        "API paths and proper names in their original form where needed. id, kind, mode, risk and paths "
+        "stay exactly as the shape below says.\n"
         "- Never read or open jarvis.bat or any .env file. Task records under memory/tasks and design "
         "documents are history, not current rules.\n"
         "- Nothing runs from this plan; the Owner reviews it first.\n\n"
