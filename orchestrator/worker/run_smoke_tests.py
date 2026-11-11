@@ -2033,45 +2033,38 @@ def goal_flow(bot, clone: Path) -> None:
     check("gate: signals are read in the title, purpose and acceptance too",
           verdict_of(title="배포 준비").verdict == "needs_owner" and verdict_of(purpose="remove old entries").verdict == "needs_owner"
           and verdict_of(acceptance=["PR이 열린다"]).verdict == "needs_owner")
-    # task-0227: a path, a route or a URL alone is not an external call (the live Console plan's T1 to T3
-    # were flagged so); a real call or external dependency is still flagged.
+    # task-0227: a path, a route or a URL to this machine is not an external call (the live Console plan's
+    # T1 to T3 were flagged so); a real call or external dependency is still flagged. Repair 4 (Owner
+    # decision): any URL to another host is a signal, a documentation link included.
     not_calls = [
         "GET /api/overview 응답에 dashboard 필드를 더한다", "새 GET route를 만들지 정한다",
         "/api/history와 /api/status 필드를 확인한다", "api/overview 경로를 읽는다",
         "apps/jarvis-console/api/x.py를 읽는다", "api.py를 고친다", "http.server 처리기를 읽는다",
-        "문서에 https://example.com/docs 링크를 적는다", "fetch http://localhost:8790/api/overview",
-        "http://127.0.0.1:8790/api/overview 에서 가져온다",
+        "fetch http://localhost:8790/api/overview", "http://127.0.0.1:8790/api/overview 에서 가져온다",
+        "http://localhost:8790/api/overview 에 연결한다", "GET or POST endpoint 형식을 정한다",
+        "GET `/api/overview` 형식을 따른다", "새 `GET` route를 만든다",
         "Project Control, Recent Milestone Evidence, task_view_counts, /api/history가 이미 보여주는 것을 확인하고 "
         "대시보드에 실제로 빠진 것만 찾는다.",
         "Document says whether the data goes in GET /api/overview or a new GET route, based on the T1 report",
         "GET /api/overview (or the route chosen in T2) returns a dashboard field",
-        # task-0227 repair 2: a word inside the URL itself, and a route's method next to a documentation URL.
-        "문서에 https://example.com/download 링크를 적는다", "https://example.com/docs/getting-started 를 참고한다",
-        "GET /api/overview 형식은 https://example.com/docs 를 따른다",
-        "POST /api/tasks 경로는 https://example.com/spec 에 적혀 있다",
-        # task-0227 repair 3: a method before a route word without a path, next to a documentation URL.
-        "새 GET route는 https://example.com/docs 를 따른다", "GET or POST endpoint 형식은 https://example.com/spec 에 있다",
-        "GET 경로는 https://example.com/docs 를 따른다", "GET/POST route 설명은 https://example.com/docs 에 있다",
     ]
     calls = [
         "외부 API로 번역한다", "Call the OpenAI API", "the API returns rate limits", "send an HTTP request",
-        "HTTP 요청을 보낸다", "fetch https://example.com/feed.xml", "GET https://api.example.com/v1/items",
-        "https://example.com/feed.xml 에서 데이터를 가져온다", "https://api.github.com/repos 를 호출한다",
-        "send a webhook", "network access를 연다", "네트워크로 받는다", "crawl the site", "외부 서비스에 맡긴다",
-        "Gemini로 요약한다", "LLM에 묻는다", "Discord API로 보낸다",
-        # task-0227 self-review: HTTP client words, a hyphenated API, a look-alike local host, upload.
+        "HTTP 요청을 보낸다", "send a webhook", "network access를 연다", "네트워크로 받는다", "crawl the site",
+        "외부 서비스에 맡긴다", "Gemini로 요약한다", "LLM에 묻는다", "Discord API로 보낸다",
         "httpx로 호출한다", "use http_client to post results", "REST-API로 보낸다",
-        "fetch http://localhost.example.com/feed", "upload to https://example.com/x",
-        # task-0227 repair 1: a call word on either side of the URL, connect and access, Korean loanwords.
-        "https://example.com/data.zip 을 다운로드한다", "https://example.com/x 에 업로드한다",
-        "https://api.example.com 에 연결한다", "connect to https://api.example.com", "access https://example.com/feed",
-        "https://example.com/feed is fetched daily", "post results to https://hooks.example.com/x",
-        "GET 요청을 https://api.example.com 에 보낸다", "get the list from https://example.com/feed",
+        # Any URL to another host, whatever words are around it (repairs 1 to 3 found real calls that the
+        # word-based guess missed; repair 4 drops the guess).
+        "fetch https://example.com/feed.xml", "GET https://api.example.com/v1/items",
+        "https://example.com/feed.xml 에서 데이터를 가져온다", "https://example.com/data.zip 을 다운로드한다",
+        "https://example.com/feed is fetched daily", "get paths from https://api.example.com/tree",
+        "get endpoints from https://api.example.com/openapi.json", "fetch http://localhost.example.com/feed",
+        "문서에 https://example.com/docs 링크를 적는다", "새 GET route는 https://example.com/docs 를 따른다",
     ]
     flagged = [text for text in not_calls if "external_service" in policy_gate.text_signals(text)]
     missed = [text for text in calls if "external_service" not in policy_gate.text_signals(text)]
-    check("gate: a path, a route or a URL alone is not an external service signal", not flagged, str(flagged))
-    check("gate: a real external call or dependency is still an external service signal", not missed, str(missed))
+    check("gate: a path, a route or a URL to this machine is not an external service signal", not flagged, str(flagged))
+    check("gate: a real external call, an external dependency or any external URL is a signal", not missed, str(missed))
     check("gate: a sub-task that only names /api/ paths is not flagged, one that calls out is",
           "signal:external_service" not in verdict_of(purpose="/api/overview 응답을 확인한다").reasons
           and "signal:external_service" in verdict_of(worker_request="fetch https://example.com/feed.xml").reasons)
