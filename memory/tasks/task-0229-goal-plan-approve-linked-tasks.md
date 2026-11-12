@@ -2,11 +2,12 @@
 
 - id: `task-0229-goal-plan-approve-linked-tasks`
 - title: `/goal 계획 승인: auto 하위 작업을 연결된 TODO task로 만들고 팀장 지시를 Worker와 Reviewer에 전달`
-- status: `DOING`
+- status: `DONE`
 - repo: `jarvis-core`
 - created_at: `2026-11-12 08:47 UTC`
-- updated_at: `2026-11-12 08:48 UTC`
+- updated_at: `2026-11-12 14:49 UTC`
 - summary: `Owner 전용 /goal <goal-id> approve가 저장소 밖 계획 파일을 hash로 다시 확인하고, 등록된 작업 종류이면서 Policy Gate가 auto로 판정한 하위 작업만 TODO task로 만든다. task에는 goal_id, goal_task, goal_plan_sha256, goal_depends_on을 두고, 목표 task의 Worker와 Reviewer는 Owner의 /goal 원문과 팀장의 하위 작업 지시와 완료 조건을 받는다. 선행 task가 DONE이 아니면 /go를 거절한다. 실행은 계속 /go, main 반영은 accept뿐이며 자동 실행, 병렬, 목표 브랜치, 작업 종류 추가는 범위 밖이다.`
+- completion_evidence: `candidate 51b4e034d5abf99f3e9c7481a904e734117e88e6 (repair 1, commit message corrected): Reviewer PASS with no findings and no self deviations; QA PASS in a fresh worktree (Worker smoke 812/0, validator, preflight, Console self-test and smoke, intake smoke, Discord self-check, Studyroom and Hermes smoke, secrets PASS, live approve of a real plan and one real Worker and Reviewer run in a throwaway clone); Owner final approval recorded in the task file`
 - source_command: `Owner 지시: A안 진행 (Claude Code 세션)`
 
 ## 기준선
@@ -84,7 +85,7 @@ auto 판정만 (Recommended)
 
 | 구분 | 경로 |
 | --- | --- |
-| owned | `adapters/discord/bot_minimal.py`, `adapters/discord/README.md`, `orchestrator/discord-intake/task_file_writer.py`, `orchestrator/worker/claude_worker.py`, `orchestrator/worker/goal_plan.py`, `orchestrator/worker/run_smoke_tests.py`, `apps/jarvis-console/run_web_app.py`, `apps/jarvis-console/run_smoke_tests.py`, `docs/jarvis-multi-agent-sop-v0.1.md`, `docs/task-model.md`, `.claude/agents/reviewer.md`, 이 task 기록 |
+| owned | `adapters/discord/bot_minimal.py`, `adapters/discord/README.md`, `orchestrator/discord-intake/task_file_writer.py`, `orchestrator/worker/claude_worker.py`, `orchestrator/worker/goal_plan.py`, `orchestrator/worker/run_smoke_tests.py`, `apps/jarvis-console/run_web_app.py`, `apps/jarvis-console/run_smoke_tests.py`, `docs/jarvis-multi-agent-sop-v0.1.md`, `docs/task-model.md`, `.claude/agents/reviewer.md`, 이 task 기록, `docs/master-plan-history.md`(DONE checkpoint에서 이 task의 완료 항목 한 줄만) |
 | deny | `orchestrator/worker/policy_gate.py`, `orchestrator/worker/claude_lead.py`, Console의 화면·API·동작, `docs/lead-goal-plan-design.md`(History), `docs/master-plan.md`와 `docs/master-plan-history.md`(DONE 전), `.codex/agents/*.toml`, 작업 종류 추가, 자동 실행·병렬·목표 브랜치·재계획, 다른 task 기록, validator, `jarvis.bat`, `.env`, push, 봇 재시작 |
 
 ## Start
@@ -161,6 +162,37 @@ Reviewer unverified: 기록의 검사 실행 결과, 완료 기준(가짜 claude
 - candidate가 바뀌었으므로 위 Reviewer 결과는 무효이고 새 candidate에 Reviewer와 QA를 다시 실행한다.
 - 소스가 바뀌지 않아 smoke는 다시 돌리지 않았다(QA가 새 candidate에서 전부 돌린다). 사전 점검은 commit 직전에 다시 돌린다.
 
+## Reviewer 결과 (repair 1 candidate `51b4e034d5abf99f3e9c7481a904e734117e88e6`)
+
+verdict PASS, 지적 없음, `self_deviations` 없음, 사용량 추정 $0.89. 이 절과 아래 QA 절은 candidate 뒤에 쓴 기록이며 DONE checkpoint에 함께 커밋한다.
+
+Reviewer unverified: Worker smoke, Console smoke, SOP validator의 실행 결과(QA에서 실행), A안 완료 기준을 실제 `claude` CLI와 실제 봇으로 돌려 보는 것(QA의 실제 CLI 실행으로 일부 확인, 실제 봇은 승인 밖), Console의 화면·API·쓰기 동작이 그대로라는 것(QA의 Console self-test와 smoke), 이 기록의 조사·Implementer 검증·Self-review·Manager 요약 절을 전부 읽지 못한 것(출력이 커서 일부 절만 읽음. 사전 점검은 QA에서 PASS).
+
+## QA 결과 (candidate `51b4e034d5abf99f3e9c7481a904e734117e88e6`)
+
+- scratchpad의 새 detached worktree(`core.autocrlf=true`)를 candidate에 두고 돌렸다. HEAD = candidate, 작업 트리 깨끗(실행 전후), 변경 파일 12개(범위 owned 행과 같음), `jarvis.bat` 트리에 없음. QA worktree는 지웠다.
+- `git diff --check` 통과, 사전 점검 PASS, SOP validator PASS, Console `--self-test` rc=0, Console smoke rc=0(PYTHONUTF8=1과 없음 둘 다), `node --check apps/jarvis-console/web/app.js` 통과, Worker smoke total=812 failed=0, discord-intake smoke rc=0, Discord `--self-check-suite` rc=0, Studyroom smoke rc=0, Hermes Manager smoke rc=0, `check_no_secrets.py` PASS.
+- 실제 CLI 실행(candidate 코드, QA worktree에서 만든 임시 clone, 실제 `claude` CLI, accept 없음): 저장소 밖 실제 계획 파일 `goal-20261110-080023-693`을 임시 폴더에 복사해 승인했다. T1~T4가 TODO task 4개가 되고(T3은 T1에, T4는 T2에 의존) T5(GitHub push)는 needs_owner로 빠졌다. 두 번째 승인은 `goal_already_approved`, T1 전에 T3을 `/go`하면 `goal_dependency_not_done`으로 거절했다. 계획 파일을 지운 뒤 T1을 `/go`했다. 요청 원문은 Owner의 목표 원문 전체였고, 실제 Worker는 자기 하위 작업의 파일 `apps/studyroom/content/glossary.json`만 바꿨으며(목표의 나머지인 Radar·README·push는 하지 않음) Studyroom smoke 5/5, 실제 Reviewer는 지시 묶음이 든 호출에 PASS를 냈고(BLOCKED 아님) QA 6개 검사가 통과했다. 실행은 64초, 사용량 추정 Worker $0.66, Reviewer $0.17이다.
+- 그 실행은 `qa_unverified_owner_review`로 멈췄다(FAILED, candidate 보존, main 불변). Reviewer가 팀장 완료 조건 3의 일부(용어 설명 속 "Jarvis-Core에 아직 RAG·임베딩 사용이 없다"는 문장이 저장소 전체에서 맞는지)를 확인하지 못했다고 적었고 그 항목을 혼자 확인하는 QA 검사가 없어서다. SOP §10.2 9항의 기존 동작이며 이 task가 바꾼 것이 아니다. 팀장 완료 조건이 Reviewer에게 전달되면서 이런 멈춤이 전보다 자주 나올 수 있다(Owner 보고에 적음).
+- 임시 clone과 그 안의 task·worktree·보고 파일은 지웠다. 실제 저장소의 task 기록, 감사 기록, 사용량 로그, 보고 폴더, 계획 폴더는 쓰지 않았다(계획 파일은 읽어서 복사만 했다).
+- main과 origin/main은 `da6761c`, main 체크아웃은 `jarvis.bat` untracked만 있다. `jarvis.bat` 크기 94, 수정 시각 2026-10-11 02:13(+0900). 내용은 열지 않았다. 8790 포트 listener 없음.
+- QA 판정: PASS. Docs는 `not_required`(문서 변경이 candidate에 포함됨).
+- 확인하지 못한 것: 실제 봇 프로세스에서의 `/goal <goal-id> approve`와 Discord 메시지(봇 재시작은 이 task 승인 밖), 실제 CLI로 accept까지 이어지는 흐름과 읽기 전용 하위 작업 실행(가짜 claude smoke로만 확인).
+
+## Owner 결정 (원문, 최종 승인)
+
+```text
+[Manager 질문]
+task-0229를 최종 승인해 main에 반영할까요?
+
+[Owner 답]
+최종 승인
+```
+
+## Complete
+
+Owner 최종 승인에 따라 Record Completion Evidence(Preview 확인 뒤 Confirm)로 completion_evidence를 남기고, Console Complete Preview(DOING → DONE)를 확인한 뒤 `Confirm Complete`로 DONE이 됐다(updated_at `2026-11-12 14:49 UTC`). Console은 worktree에서 띄웠고 끈 상태다(시작한 PID 종료, 8790 포트 listener 없음). `docs/master-plan-history.md` 끝에 이 task 항목을 붙였다. 이 기록과 history 항목을 DONE checkpoint로 브랜치에 커밋한 뒤 로컬 main을 ff-only로 옮긴다. master-plan은 바꾸지 않았다. push와 봇 재시작은 하지 않았다.
+
 ## Manager 요약
 
 각 행의 "출처" 칸이 인용한 원문 블록의 제목이다. 인용은 그 블록의 문장을 그대로 옮겼고, 해석은 오른쪽 칸에만 적는다.
@@ -192,3 +224,5 @@ Reviewer unverified: 기록의 검사 실행 결과, 완료 기준(가짜 claude
 | A22 | Owner 결정 (원문, self-review 지적 질문) | "task-0229 self-review 지적(major): Owner 답은 '필드 추가 + Console 허용 목록만'이었는데, Console 파서에 형식 검사 한 줄(작성기의 goal_fields_error 호출)도 넣었습니다." | self-review 지적 1의 질문 |
 | A23 | Owner 결정 (원문, self-review 지적 질문) | "허용만 하면 작성기가 거절하는 기록(링크 일부만 있는 기록)을 Console이 정상으로 보이게 됩니다." | 형식 검사를 넣은 이유 |
 | A24 | Owner 결정 (원문, self-review 지적 질문) | "형식 검사 유지 (Recommended)" | Console 파서의 `goal_fields_error` 검사를 유지한다. 이 답은 이 task에만 효력이 있다 |
+| A25 | Owner 결정 (원문, 최종 승인) | "task-0229를 최종 승인해 main에 반영할까요?" | A25a 답의 질문 |
+| A25a | Owner 결정 (원문, 최종 승인) | "최종 승인" | Console로 완료 근거를 남기고 Complete한 뒤 main을 ff-only로 옮긴다. push와 봇 재시작은 포함하지 않는다 |
