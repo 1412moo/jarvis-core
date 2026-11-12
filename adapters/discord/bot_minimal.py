@@ -54,7 +54,10 @@ from intake_parser import parse_intake
 from task_draft_builder import build_task_draft
 from task_file_writer import (
     TASK_ALLOWED_STATUSES,
+    TASK_GOAL_FIELDS,
     TASK_STATUS_TRANSITIONS,
+    _transition_metadata as _canonical_task_metadata,
+    preview_task_file_write,
     record_task_execution_result,
     transition_task_file_status,
     write_task_file,
@@ -75,6 +78,7 @@ if str(WORKER_DIR) not in sys.path:
     sys.path.insert(0, str(WORKER_DIR))
 import claude_worker  # noqa: E402
 import claude_lead  # noqa: E402
+import goal_plan  # noqa: E402  (task-0229: approve reads a plan file back through its parser)
 import policy_gate  # noqa: E402
 import threading  # noqa: E402
 
@@ -812,6 +816,7 @@ def _run_help(command_text: str) -> dict[str, Any]:
             "/work <요청> - Studyroom 콘텐츠 또는 Daily AI Radar 작업 준비. 작업 종류가 없는 요청은 팀장이 읽기 전용으로 계획 (Owner)",
             "자비스, <요청> (또는 봇 멘션 뒤 요청) - `/work <요청>`과 같음 (Owner)",
             "/goal <목표> - 팀장이 목표를 하위 작업으로 나누고 작업마다 정책 판정(auto/needs_owner/forbidden)을 보임. 계획만, task 생성·실행 없음 (Owner)",
+            "/goal <goal-id> approve - 목표 계획 승인: auto 판정이고 등록된 작업 종류인 하위 작업만 TODO task로 만듦. 실행은 task마다 /go (Owner)",
             "/go <task-id> - 작업 승인 및 Claude Worker 실행 (Owner)",
             "/go <task-id> resume - 실패한 시도의 변경을 현재 main 위에서 이어서 검증 (Owner)",
             "/go <task-id> accept - 최종 승인: 확인 대기 중인 candidate를 QA 재확인 뒤 main에 반영 (Owner)",
@@ -1968,6 +1973,12 @@ def _run_goal(command_text: str) -> dict[str, Any]:
     goal = " ".join(parts[1].split()) if len(parts) == 2 else ""
     if parts[:1] != ["/goal"] or not goal:
         return _error_payload("usage:/goal <목표>")
+    words = goal.split()
+    if GOAL_ID_PATTERN.fullmatch(words[0]):
+        # task-0229: a goal id is never planned as a goal text; the only sub-command is approve.
+        if words[1:] != ["approve"]:
+            return _error_payload("usage:/goal <goal-id> approve")
+        return _run_goal_approve(words[0])
     if len(goal) > GOAL_MAX_CHARS:
         return _error_payload(f"goal_too_long:max_{GOAL_MAX_CHARS}")
     return {"result_type": "goal_started", "goal": goal}
@@ -1987,6 +1998,397 @@ def _write_goal_plan_file(record: dict[str, Any]) -> str | None:
     except (OSError, claude_worker.StageFailure) as exc:
         print(f"[goal-plan] file not written ({type(exc).__name__}); the plan is still shown")
         return None
+
+
+# ---------------------------------------------------------------------------
+# task-0229: plan approval -> linked TODO tasks, and the brief a goal task runs with
+# ---------------------------------------------------------------------------
+GOAL_ID_PATTERN = re.compile(r"goal-\d{8}-\d{6}-\d{3}")
+GOAL_PLAN_FILE_MAX_BYTES = 1_000_000
+# task-0229: the title suffix that makes /go settle a read-only run (it is one of READ_ONLY_MARKERS).
+GOAL_READ_ONLY_TITLE_SUFFIX = " (읽기 전용)"
+GOAL_TASK_TITLE_MAX_CHARS = 120
+GOAL_TASK_SUMMARY_MAX_CHARS = 500
+# task-0229: Korean wording for why approve left a sub-task out. A code not listed is shown as it is.
+GOAL_SKIP_LABELS = {
+    "needs_owner": "판정 needs_owner",
+    "forbidden": "판정 forbidden",
+    "unjudged": "판정 없음",
+    "no_registered_kind": "등록된 작업 종류 밖",
+    "title_kind_conflict": "제목이 다른 작업 종류를 고르게 됨",
+    "title_mode_conflict": "제목의 읽기 전용 문구가 계획의 방식과 다름",
+    "depends_on_skipped": "선행 작업이 task로 만들어지지 않음",
+    "task_draft_invalid": "task 기록으로 쓸 수 없는 제목이나 요약",
+}
+
+
+def _goal_skip_label(reason: str) -> str:
+    code, _, detail = reason.partition(":")
+    label = GOAL_SKIP_LABELS.get(code, code)
+    return f"{label} ({detail})" if detail else label
+
+
+def _load_goal_plan(goal_id: str) -> tuple[dict[str, Any] | None, Any, str]:
+    """task-0229: (record, plan, "") for a plan file that still holds the plan its own hash names,
+    or (None, None, reason). The plan is checked again in full, as a lead answer is, and the Owner's
+    goal text must be there. Reads one file outside the repository; writes nothing."""
+
+    try:
+        claude_worker._ensure_outside_repo(GOAL_PLAN_DIR, REPO_ROOT)
+        path = GOAL_PLAN_DIR / f"{goal_id}.json"
+        if not path.is_file():
+            return None, None, "goal_plan_not_found"
+        if path.stat().st_size > GOAL_PLAN_FILE_MAX_BYTES:
+            return None, None, "goal_plan_file_malformed"
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError, claude_worker.StageFailure):
+        return None, None, "goal_plan_unreadable"
+    if not isinstance(record, dict) or record.get("goal_id") != goal_id:
+        return None, None, "goal_plan_file_malformed"
+    if record.get("ok") is False or "plan" not in record:
+        # A failed plan's record (task-0226) has nothing to approve.
+        return None, None, "goal_plan_failed_record"
+    goal = record.get("goal")
+    if not isinstance(goal, str) or not goal.strip() or len(goal) > GOAL_MAX_CHARS or goal != " ".join(goal.split()):
+        return None, None, "goal_plan_file_malformed"
+    plan, reason = goal_plan.plan_from_record(record.get("plan"))
+    if plan is None:
+        return None, None, reason
+    if goal_plan.plan_digest(plan) != record.get("plan_sha256"):
+        return None, None, "goal_plan_hash_mismatch"
+    return record, plan, ""
+
+
+def _read_goal_fields(task_file: Path) -> tuple[dict[str, str], str]:
+    """task-0229: the goal link fields of a task record, read with the canonical parser.
+    ({}, "") for a task that was not made from a goal plan; ({}, reason) for an unreadable record."""
+
+    try:
+        raw = task_file.read_bytes()
+    except OSError:
+        return {}, "goal_task_record_unreadable"
+    if b"- goal_" not in raw:
+        # No goal field line at all: not a goal task, whatever else the record holds.
+        return {}, ""
+    metadata, error = _canonical_task_metadata(raw, task_file.name)
+    if metadata is None:
+        return {}, f"goal_task_record_unreadable:{error}"
+    return {name: metadata[name] for name in TASK_GOAL_FIELDS if name in metadata}, ""
+
+
+def _goal_task_ids(goal_id: str) -> dict[str, str]:
+    """task-0229: sub-task id -> task id for every task record already made from this goal. A record
+    that cannot be read counts under "?" so an approval is refused rather than repeated."""
+
+    found: dict[str, str] = {}
+    tasks_dir = REPO_ROOT / "memory" / "tasks"
+    for path in sorted(tasks_dir.glob("task-*.md")):
+        try:
+            if goal_id.encode("ascii") not in path.read_bytes():
+                continue
+        except OSError:
+            found["?"] = path.stem
+            continue
+        fields, error = _read_goal_fields(path)
+        if error:
+            found["?"] = path.stem
+        elif fields.get("goal_id") == goal_id:
+            found[fields["goal_task"]] = path.stem
+    return found
+
+
+def _goal_task_title(task: Any) -> tuple[str | None, str]:
+    """task-0229: the TODO title of a sub-task, or (None, reason). /go settles the kind and the
+    read-only mode from the title, so the title must settle exactly the plan's kind and mode."""
+
+    kind = claude_worker.work_kind_by_name(task.kind) if task.kind else None
+    if kind is None:
+        return None, "no_registered_kind"
+    read_only = task.mode == "read_only"
+    prefix = f"{kind.markers[0]}: "
+    suffix = GOAL_READ_ONLY_TITLE_SUFFIX if read_only else ""
+    room = GOAL_TASK_TITLE_MAX_CHARS - len(prefix) - len(suffix)
+    title = prefix + task.title[:room].rstrip() + suffix
+    if claude_worker.select_work_kind(title) is not kind:
+        return None, "title_kind_conflict"
+    if claude_worker.is_read_only_request(title) != read_only:
+        return None, "title_mode_conflict"
+    return title, ""
+
+
+# task-0229: the section a goal task's record carries under its header. The approval copies the
+# Owner's goal text and the lead's brief for the sub-task into it, so /go reads the record and never
+# the plan file. The values are bounded as in goal_plan.
+GOAL_BRIEF_HEADING = "## 목표 지시 묶음 (task-0229)"
+GOAL_BRIEF_NOTE = (
+    "`/goal <goal-id> approve`가 승인한 계획에서 옮겨 쓴 실행 입력이다. `/go`가 이 블록을 읽어 Worker와 "
+    "Reviewer에게 전달하므로 손으로 고치지 않는다. 고치면 `brief_sha256`이 맞지 않아 실행을 거절한다."
+)
+GOAL_BRIEF_TEXT_LIMITS = {"goal": 1500, "title": 100, "purpose": 300, "worker_request": 300}
+GOAL_BRIEF_KEYS = frozenset({"goal_id", "goal_task", "plan_sha256", "approval_command", "goal", "title",
+                             "purpose", "worker_request", "acceptance", "paths", "brief_sha256"})
+
+
+def _goal_brief_digest(bundle: dict[str, Any]) -> str:
+    """sha256 of the bundle in a fixed JSON form, without its own digest."""
+
+    body = {key: value for key, value in bundle.items() if key != "brief_sha256"}
+    canonical = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _goal_brief_bundle(goal: str, goal_id: str, digest: str, sub: Any) -> dict[str, Any]:
+    bundle: dict[str, Any] = {
+        "goal_id": goal_id,
+        "goal_task": sub.id,
+        "plan_sha256": digest,
+        "approval_command": f"/goal {goal_id} approve",
+        "goal": goal,
+        "title": sub.title,
+        "purpose": sub.purpose,
+        "worker_request": sub.worker_request,
+        "acceptance": list(sub.acceptance),
+        "paths": list(sub.paths),
+    }
+    bundle["brief_sha256"] = _goal_brief_digest(bundle)
+    return bundle
+
+
+def _goal_brief_body(bundle: dict[str, Any]) -> str:
+    return "\n".join([
+        GOAL_BRIEF_HEADING,
+        "",
+        GOAL_BRIEF_NOTE,
+        "",
+        "```json",
+        json.dumps(bundle, ensure_ascii=False, indent=2),
+        "```",
+        "",
+    ])
+
+
+def _one_line(value: object, limit: int) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= limit and "\n" not in value and "\r" not in value
+
+
+def _parse_goal_brief(text: str) -> tuple[dict[str, Any] | None, str]:
+    """task-0229: the bundle in a goal task record, or (None, reason). The section must appear once,
+    hold exactly the known keys in their bounded forms, and match its own digest."""
+
+    lines = text.replace("\r\n", "\n").split("\n")
+    if lines.count(GOAL_BRIEF_HEADING) != 1:
+        return None, "goal_brief_missing"
+    rest = lines[lines.index(GOAL_BRIEF_HEADING) + 1:]
+    if "```json" not in rest:
+        return None, "goal_brief_malformed"
+    block = rest[rest.index("```json") + 1:]
+    if "```" not in block:
+        return None, "goal_brief_malformed"
+    try:
+        bundle = json.loads("\n".join(block[:block.index("```")]))
+    except (ValueError, RecursionError):
+        return None, "goal_brief_malformed"
+    if not isinstance(bundle, dict) or set(bundle) != GOAL_BRIEF_KEYS:
+        return None, "goal_brief_malformed"
+    acceptance, paths = bundle["acceptance"], bundle["paths"]
+    if (
+        not all(_one_line(bundle[key], limit) for key, limit in GOAL_BRIEF_TEXT_LIMITS.items())
+        or not all(_one_line(bundle[key], 100) for key in ("goal_id", "goal_task", "plan_sha256", "approval_command", "brief_sha256"))
+        or not isinstance(acceptance, list) or not 1 <= len(acceptance) <= 5 or not all(_one_line(item, 200) for item in acceptance)
+        or not isinstance(paths, list) or len(paths) > 10 or not all(_one_line(item, 200) for item in paths)
+    ):
+        return None, "goal_brief_malformed"
+    if _goal_brief_digest(bundle) != bundle["brief_sha256"]:
+        return None, "goal_brief_mismatch"
+    return bundle, ""
+
+
+def _goal_task_draft(goal: str, goal_id: str, digest: str, sub: Any, title: str) -> dict[str, Any]:
+    """task-0229: the TODO draft of one sub-task, without its prerequisite tasks (their ids exist only
+    once they are written). The body is the brief section /go reads."""
+
+    return {
+        "goal_body": _goal_brief_body(_goal_brief_bundle(goal, goal_id, digest, sub)),
+        "title": title,
+        "status": "TODO",
+        "repo": "jarvis-core",
+        "summary": f"목표 {goal_id} {sub.id}: {sub.purpose}".replace("`", "'")[:GOAL_TASK_SUMMARY_MAX_CHARS],
+        "source_command": "/task",
+        "goal_id": goal_id,
+        "goal_task": sub.id,
+        "goal_plan_sha256": digest,
+    }
+
+
+def _run_goal_approve(goal_id: str) -> dict[str, Any]:
+    """task-0229: `/goal <goal-id> approve`, the Owner's approval of one goal plan.
+
+    Reads the plan file, checks it against its own hash, judges it again with the current Policy
+    Gate and writes one TODO task for each sub-task that has a registered kind and an auto verdict.
+    Each task record gets the Owner's goal text and the lead's brief for its sub-task, so this is
+    the only time the plan file is read. Every other sub-task is listed and left out. Nothing runs:
+    each task still starts with /go and reaches main only through accept. A goal that already has
+    a task is refused.
+    """
+
+    command = f"/goal {goal_id} approve"
+    record, plan, reason = _load_goal_plan(goal_id)
+    if plan is None or record is None:
+        return _error_payload(reason)
+    if _goal_task_ids(goal_id):
+        return _error_payload("goal_already_approved")
+    goal = str(record["goal"])
+    digest = goal_plan.plan_digest(plan)
+    verdict = policy_gate.judge_plan(plan, goal)
+    eligible: dict[str, str] = {}
+    skipped: list[dict[str, str]] = []
+    for sub in plan.tasks:
+        judged = verdict.of(sub.id)
+        if judged is None or judged.verdict != policy_gate.AUTO:
+            skipped.append({"id": sub.id, "title": sub.title, "reason": judged.verdict if judged else "unjudged"})
+            continue
+        title, title_reason = _goal_task_title(sub)
+        if title is None:
+            skipped.append({"id": sub.id, "title": sub.title, "reason": title_reason})
+            continue
+        missing = [dep for dep in sub.depends_on if dep not in eligible]
+        if missing:
+            skipped.append({"id": sub.id, "title": sub.title, "reason": f"depends_on_skipped:{missing[0]}"})
+            continue
+        # Every draft is checked before the first task is written, so a text the task record cannot
+        # hold leaves that sub-task out instead of stopping the approval half way.
+        preview = preview_task_file_write(
+            _goal_task_draft(goal, goal_id, digest, sub, title), tasks_dir=REPO_ROOT / "memory" / "tasks"
+        ).to_dict()
+        if preview.get("result_type") != "would_create":
+            skipped.append({"id": sub.id, "title": sub.title, "reason": "task_draft_invalid"})
+            continue
+        eligible[sub.id] = title
+    result: dict[str, Any] = {
+        "result_type": "goal_approved",
+        "goal_id": goal_id,
+        "goal": goal,
+        "command": command,
+        "digest": digest,
+        "policy_version": verdict.policy_version,
+        "ok": False,
+        "reason": "",
+        "created": [],
+        "skipped": skipped,
+    }
+    if not eligible:
+        result["reason"] = "goal_no_task_to_create"
+        return result
+    created: dict[str, str] = {}
+    for sub in plan.tasks:
+        if sub.id not in eligible:
+            continue
+        draft = _goal_task_draft(goal, goal_id, digest, sub, eligible[sub.id])
+        if sub.depends_on:
+            draft["goal_depends_on"] = ",".join(created[dep] for dep in sub.depends_on)
+        written = write_task_file(draft).to_dict()
+        if written.get("result_type") != "created":
+            # The tasks already written stay; the goal now counts as approved, so the Owner sees which.
+            result["reason"] = f"goal_task_not_created:{sub.id}:{written.get('reason') or written.get('result_type')}"
+            return result
+        created[sub.id] = str(written.get("task_id") or "")
+        result["created"].append({
+            "id": sub.id,
+            "task_id": created[sub.id],
+            "title": eligible[sub.id],
+            "depends_on": [created[dep] for dep in sub.depends_on],
+            "read_only": sub.mode == "read_only",
+        })
+    result["ok"] = True
+    return result
+
+
+def _goal_brief_for(task_file: Path) -> tuple[Any, str, str]:
+    """task-0229: (brief, Owner goal text, "") for a task made from a goal plan, (None, "", "") for
+    any other task, or (None, "", reason) when the record's brief cannot be used: the record is
+    unreadable, the brief section is missing or malformed, it does not match its own digest, or it
+    names another goal, sub-task or plan than the record's link fields. Reads only the task record;
+    the plan file is not needed after the approval."""
+
+    fields, error = _read_goal_fields(task_file)
+    if error:
+        return None, "", error
+    if not fields:
+        return None, "", ""
+    try:
+        text = task_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None, "", "goal_task_record_unreadable"
+    bundle, reason = _parse_goal_brief(text)
+    if bundle is None:
+        return None, "", reason
+    if (
+        bundle["goal_id"] != fields["goal_id"]
+        or bundle["goal_task"] != fields["goal_task"]
+        or bundle["plan_sha256"] != fields["goal_plan_sha256"]
+        or bundle["approval_command"] != f"/goal {fields['goal_id']} approve"
+    ):
+        return None, "", "goal_brief_mismatch"
+    brief = claude_worker.GoalBrief(
+        goal_id=bundle["goal_id"],
+        goal_task=bundle["goal_task"],
+        plan_sha256=bundle["plan_sha256"],
+        approval_command=bundle["approval_command"],
+        title=bundle["title"],
+        purpose=bundle["purpose"],
+        worker_request=bundle["worker_request"],
+        acceptance=tuple(bundle["acceptance"]),
+        paths=tuple(bundle["paths"]),
+    )
+    return brief, bundle["goal"], ""
+
+
+def _goal_dependency_error(task_file: Path) -> str:
+    """task-0229: "" when every task this goal task depends on is DONE, else the reason naming the
+    first one that is not. A task without the goal link has no dependency."""
+
+    fields, error = _read_goal_fields(task_file)
+    if error:
+        return error
+    for dep in filter(None, (fields.get("goal_depends_on") or "").split(",")):
+        dep_file = REPO_ROOT / "memory" / "tasks" / f"{dep}.md"
+        status = (_read_task_metadata(dep_file) or {}).get("status", "") if dep_file.is_file() else ""
+        if status != "DONE":
+            return f"goal_dependency_not_done:{dep}:{status or 'missing'}"
+    return ""
+
+
+def _format_goal_approve_reply(result: dict[str, Any]) -> str:
+    """task-0229: what `/goal <goal-id> approve` made and what it left out."""
+
+    created = result.get("created") or []
+    skipped = result.get("skipped") or []
+    lines = [
+        f"🗂️ 목표 계획 승인 `{result.get('goal_id')}` (계획 hash `{str(result.get('digest'))[:12]}`, "
+        f"판정 `{result.get('policy_version')}`)",
+        f"- 목표: {_discord_safe(str(result.get('goal') or ''))[:200]}",
+    ]
+    if created:
+        lines.append(f"- 만든 TODO task {len(created)}개 (실행하지 않았습니다):")
+        for item in created:
+            deps = ", ".join(item.get("depends_on") or []) or "없음"
+            mode = " · 읽기 전용" if item.get("read_only") else ""
+            lines.append(f"  · {item.get('id')} → `{item.get('task_id')}`{mode} · 선행: {deps}")
+    if skipped:
+        lines.append(f"- task로 만들지 않은 하위 작업 {len(skipped)}개:")
+        for item in skipped:
+            lines.append(
+                f"  · {item.get('id')} {_discord_safe(str(item.get('title') or ''))[:60]}"
+                f" ({_goal_skip_label(_discord_safe(str(item.get('reason') or '')))})"
+            )
+    if not result.get("ok"):
+        lines.append(f"⚠️ reason: `{_discord_safe(str(result.get('reason') or ''))}`")
+    if created:
+        lines.append(
+            "▶️ 실행은 task마다 `/go <task-id>`입니다. 선행 task가 DONE이 아니면 `/go`를 거절하고, "
+            "main 반영은 지금처럼 `/go <task-id> accept`로만 합니다."
+        )
+    return _fit_message("\n".join(lines))
 
 
 def _run_goal_job(goal: str) -> dict[str, Any]:
@@ -2123,6 +2525,12 @@ def _run_go(command_text: str) -> dict[str, Any]:
     work_kind = _go_work_kind(request)
     # task-0201: so is a read-only check, from the same title.
     read_only = claude_worker.is_read_only_request(request)
+    # task-0229: a task made from a goal plan runs with the Owner's /goal text and the lead's brief
+    # for its sub-task, both read from its own record. goal_error stops a run that would need them;
+    # accept, reject and recover do not.
+    goal_brief, goal_text, goal_error = _goal_brief_for(task_file)
+    owner_request = goal_text if goal_brief is not None else _worker_request_for(request, metadata.get("summary", ""))
+    goal_extra = {"goal_brief": goal_brief} if goal_brief is not None else {}
     if len(parts) == 3 and parts[2] == "accept":
         # task-0220: NEEDS_APPROVAL is the normal final approval; FAILED stays for a stop that left
         # entries QA could not verify. A second accept finds DONE and is refused here; two at once
@@ -2140,7 +2548,7 @@ def _run_go(command_text: str) -> dict[str, Any]:
         return {
             "result_type": "work_started",
             "task_id": task_id,
-            "request": _worker_request_for(request, metadata.get("summary", "")),
+            "request": owner_request,
             "command": command_text.strip(),
             "retry": False,
             "resume": False,
@@ -2157,13 +2565,15 @@ def _run_go(command_text: str) -> dict[str, Any]:
             return _error_payload(f"{mode}_not_worker_path")
         if _final_review_record(task_file) is None:
             return _error_payload(f"{mode}_record_invalid")
+        if goal_error:
+            return _error_payload(goal_error)
         if not _acquire_worker_locks():
             return _error_payload("worker_busy")
         # The locks stay held until _run_worker_job finishes.
         return {
             "result_type": "work_started",
             "task_id": task_id,
-            "request": _worker_request_for(request, metadata.get("summary", "")),
+            "request": owner_request,
             "command": command_text.strip(),
             "retry": False,
             "resume": False,
@@ -2172,6 +2582,7 @@ def _run_go(command_text: str) -> dict[str, Any]:
             "instruction": instruction,
             "work_kind": work_kind,
             "audit_error": None,
+            **goal_extra,
         }
     if len(parts) == 3 and parts[2] == "reject":
         return _run_reject(task_id, task_file, status, command_text.strip(), work_kind)
@@ -2208,6 +2619,12 @@ def _run_go(command_text: str) -> dict[str, Any]:
     # meets one mid-run. Nothing is locked or written before this refusal.
     if _task_source_command(task_file) != "/task":
         return _error_payload("go_requires_worker_path")
+    # task-0229: a goal task starts only with its brief intact and every prerequisite task DONE.
+    if goal_error:
+        return _error_payload(goal_error)
+    dependency_error = _goal_dependency_error(task_file)
+    if dependency_error:
+        return _error_payload(dependency_error)
     if not _acquire_worker_locks():
         return _error_payload("worker_busy")
     try:
@@ -2236,13 +2653,15 @@ def _run_go(command_text: str) -> dict[str, Any]:
         "result_type": "work_started",
         "task_id": task_id,
         # task-0183: for a task the lead made, the Owner's /work text; the kind stays the title's.
-        "request": _worker_request_for(request, metadata.get("summary", "")),
+        # task-0229: for a task made from a goal plan, the Owner's /goal text.
+        "request": owner_request,
         "command": command_text.strip(),
         "retry": status == "FAILED",
         "resume": resume,
         "work_kind": work_kind,
         "read_only": read_only,
         "audit_error": audit_error,
+        **goal_extra,
     }
 
 
@@ -2438,8 +2857,12 @@ def _run_worker_job(
     read_only: bool = False,
     mode: str = "",
     instruction: str = "",
+    goal_brief: Any = None,
 ) -> dict[str, Any]:
     """Run the pipeline once and record the outcome on the task. Releases the lock.
+
+    task-0229: goal_brief is the brief /go read for a task made from a goal plan; it goes to the
+    Worker and the Reviewer unchanged. accept calls neither, so it takes none.
 
     task-0220: mode "revise" or "recheck" continues a candidate waiting for final approval.
 
@@ -2589,6 +3012,7 @@ def _run_worker_job(
                 record_awaiting=record_awaiting,
                 work_kind=work_kind,
                 progress=progress,
+                goal_brief=goal_brief,
             )
         elif mode == "recheck":
             task_file = REPO_ROOT / "memory" / "tasks" / f"{task_id}.md"
@@ -2601,6 +3025,7 @@ def _run_worker_job(
                 record_failure=record_recheck_failure,
                 work_kind=work_kind,
                 progress=progress,
+                goal_brief=goal_brief,
             )
         elif read_only:
             outcome = claude_worker.run_report(
@@ -2609,6 +3034,7 @@ def _run_worker_job(
                 repo_root=REPO_ROOT,
                 record_result=record,
                 progress=progress,
+                goal_brief=goal_brief,
             )
         else:
             outcome = claude_worker.run_pipeline(
@@ -2621,6 +3047,7 @@ def _run_worker_job(
                 resume=resume,
                 work_kind=work_kind,
                 progress=progress,
+                goal_brief=goal_brief,
             )
     finally:
         _release_worker_locks()
@@ -3106,7 +3533,12 @@ def _goal_reply_messages(result: dict[str, Any]) -> list[str]:
         tail.append(f"- 계획 hash: `{str(result.get('digest'))[:12]}`")
     if usage_text:
         tail.append(usage_text)
-    tail.append("⏸️ 실행하지 않았습니다. task도 만들지 않았습니다. 이 계획을 실행하는 기능은 아직 없고, auto 판정도 실행 권한이 아닙니다.")
+    # task-0229: how to approve this plan. The closing notice stays the last line.
+    tail.append(
+        f"- 승인: `/goal {result.get('goal_id')} approve`는 auto 판정이고 등록된 작업 종류인 하위 작업만 "
+        "TODO task로 만듭니다 (실행은 task마다 `/go`)."
+    )
+    tail.append("⏸️ 실행하지 않았습니다. task도 만들지 않았습니다. auto 판정도 실행 권한이 아닙니다.")
     messages = [_fit_head_tail(overview, tail)]
     allowed = result.get("allowed_paths") or {}
     current = ""
@@ -3410,6 +3842,8 @@ def _format_reply(pipeline_result: dict[str, Any]) -> str:
         return _format_lead_reply(pipeline_result)
     if result_type in ("goal_started", "goal_result"):
         return "\n\n".join(_goal_reply_messages(pipeline_result))
+    if result_type == "goal_approved":
+        return _format_goal_approve_reply(pipeline_result)
     if result_type == "help":
         lines = pipeline_result.get("lines") or []
         body = "\n".join(f"- {line}" for line in lines) if lines else "- (없음)"
@@ -5448,6 +5882,7 @@ async def _start_discord_bot() -> None:
                     bool(result.get("read_only")),
                     str(result.get("mode") or ""),
                     str(result.get("instruction") or ""),
+                    result.get("goal_brief"),
                 )
                 # task-0191: the final result goes to the channel; the task thread is the fallback.
                 await _send_safely(_result_channel(message), channel, _format_reply(job))

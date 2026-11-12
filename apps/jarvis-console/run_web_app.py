@@ -68,6 +68,7 @@ from task_file_writer import (  # noqa: E402
     TASK_CLOSED_REASON_FIELD,
     TASK_CLOSED_STATUS,
     TASK_FILE_PATTERN,
+    TASK_GOAL_FIELDS,
     TASK_HOLD_FROM_FIELD,
     TASK_HOLD_FROM_STATUSES,
     TASK_HOLD_STATUS,
@@ -75,6 +76,7 @@ from task_file_writer import (  # noqa: E402
     CompletionEvidenceWriteResult,
     TaskStatusTransitionResult,
     close_task_file,
+    goal_fields_error,
     hold_task_file,
     preview_task_file_write,
     record_task_completion_evidence,
@@ -222,6 +224,10 @@ TASK_VIEW_ALLOWED_FIELDS = frozenset(TASK_VIEW_REQUIRED_FIELDS).union(
     TASK_VIEW_OPTIONAL_BOOLEAN_FIELDS,
     TASK_VIEW_OPTIONAL_TIMESTAMP_FIELDS,
     {TASK_HOLD_FROM_FIELD, TASK_CLOSED_REASON_FIELD},
+    # task-0229: the goal link fields task_file_writer allows. The Task view only accepts a
+    # record that carries them, under the writer's own rule; it shows nothing new for them
+    # and writes none of them.
+    TASK_GOAL_FIELDS,
 )
 TASK_VIEW_METADATA_PATTERN = re.compile(
     r"^- (?P<field>[a-z][a-z0-9_]*): `(?P<value>[^`\r\n]*)`$"
@@ -1754,6 +1760,9 @@ def parse_task_view_text(file_name: str, text: str) -> dict[str, Any] | None:
             return invalid_task_view("invalid_text", TASK_CLOSED_REASON_FIELD)
     elif TASK_CLOSED_REASON_FIELD in metadata:
         return invalid_task_view("invalid_text", TASK_CLOSED_REASON_FIELD)
+    # task-0229: the same goal link rule as task_file_writer: whole and well formed, or absent.
+    if goal_fields_error(metadata):
+        return invalid_task_view("invalid_text", "goal_id")
     if (
         "completion_evidence" in metadata
         and metadata_line_indexes["completion_evidence"]

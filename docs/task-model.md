@@ -284,3 +284,42 @@ These fields do not replace the required task fields. If no execution result has
   failure leaves the file unchanged. No other path writes or removes the field.
 - `CLOSED` is final. A `completion_evidence` recorded before the close stays as it
   was. To do the work again, create a new Task.
+
+## 14) Goal link metadata (`goal_id`, `goal_task`, `goal_plan_sha256`, `goal_depends_on`, task-0229)
+
+A Task made from an Owner-approved goal plan (`/goal <goal-id> approve`, SOP 10.1) carries
+the link to the sub-task it was made from:
+
+```markdown
+- goal_id: `goal-YYYYMMDD-HHMMSS-mmm`
+- goal_task: `T1`
+- goal_plan_sha256: `<64 lower-case hex characters>`
+- goal_depends_on: `task-0230-example,task-0231-example`
+```
+
+- `goal_id`, `goal_task` and `goal_plan_sha256` are present together or not at all.
+  `goal_depends_on` appears only with them, and only when the sub-task has
+  prerequisites: it is the comma-separated ids of the Tasks that must be `DONE` first,
+  with no spaces and no repeated id.
+- A record with part of the link, a value in another form, or a duplicate field fails
+  canonical validation in both the writer and the Console parser; both use
+  `task_file_writer.goal_fields_error`.
+- Only the approval writes these fields, when it creates the Task
+  (`task_file_writer.write_task_file`). No transition, execution record, Hold, Resume or
+  Close changes or removes them, and no path adds them to an existing Task.
+- The fields are a link, not a status: they never change which transitions are allowed.
+  `/go` reads `goal_depends_on` to find the prerequisite Tasks (SOP 10.1). The plan file
+  stays outside the repository and is read only by the approval; `goal_plan_sha256` records
+  which plan the Owner approved.
+- Goal brief section. The approval also writes one body section under the header,
+  headed `## 목표 지시 묶음 (task-0229)`, with one fenced `json` block: `goal` (the Owner's
+  `/goal` text), `goal_id`, `goal_task`, `plan_sha256`, `approval_command`, the lead's
+  `title`, `purpose`, `worker_request`, `acceptance` and `paths` for the sub-task, and
+  `brief_sha256`, the sha256 of the other keys in a fixed JSON form. Unlike the rest of a
+  record's body, this section is an execution input: `/go` reads it and passes it to the
+  Worker and the Reviewer, and refuses to run when it is missing, repeated, malformed,
+  does not match `brief_sha256`, or names another goal, sub-task or plan than the link
+  fields. It is written once (`write_task_file`, draft key `goal_body`, only together with
+  the link fields) and is not to be edited. `brief_sha256` catches an accidental change; it
+  is not a protection against a deliberate edit by someone who can write to the repository.
+- Jarvis Console accepts a record that carries the fields and shows nothing new for them.

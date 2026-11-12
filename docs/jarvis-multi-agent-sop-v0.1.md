@@ -321,7 +321,7 @@ Owner 승인(task-0142, 보완 task-0144·task-0145)에 따라 Discord 봇이 Wo
 | 읽기 전용 확인·보고 | task-0201부터. 요청(`/go`에서는 task 제목)에 정해진 문구(수정하지 마, 수정하지 말, 수정 금지, 고치지 마, 고치지 말, 변경하지 마, 변경하지 말, 변경 금지, 보고만, 확인만, 읽기 전용, read-only, read only, readonly. 소문자로, 공백을 하나로 줄여 봄)가 있으면 작업 종류 표지어와 관계없이 읽기 전용 실행이다. 아래 읽기 전용 문단 | `READ_ONLY_MARKERS`, `run_report` |
 | 테스트 명령 | `apps/studyroom/run_smoke_tests.py`(studyroom_content), `apps/daily-ai-radar/run_smoke_tests.py`(daily_ai_radar), `apps/research-council/run_smoke_tests.py`(research_council) | `test_script` |
 | worktree 위치 | 저장소 밖 `C:\work\jarvis-core-worktrees\` | `WORKTREE_ROOT` |
-| 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `reject`, `revise`, `recheck`, `recover` 포함), `/goal`(task-0225, task를 만들거나 실행하지 않고 계획만 보임, Worker 잠금이 아니라 팀장 잠금을 써서 `lead_busy`로 거절, 아래 목표 계획 문단). Worker는 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
+| 진입 명령 | Owner 전용 `/work`(슬래시 없는 메시지의 `자비스,`·`jarvis:`·봇 멘션 호출은 `/work`와 같음, task-0184), `/go`(`resume`, `accept`, `reject`, `revise`, `recheck`, `recover` 포함), `/goal`(task-0225, task를 만들거나 실행하지 않고 계획만 보임, Worker 잠금이 아니라 팀장 잠금을 써서 `lead_busy`로 거절, 아래 목표 계획 문단), `/goal <goal-id> approve`(task-0229, 승인한 계획의 하위 작업 중 일부를 TODO task로 만들 뿐 실행하지 않음, 아래 목표 계획 승인 문단). Worker는 동시 실행 1개. 프로세스 안 잠금과 저장소 밖 파일 잠금을 함께 잡아 다른 봇 프로세스의 실행도 `worker_busy`로 거절. `/work`로 만든 DOING task는 실행 중인 Worker(두 잠금, 그리고 살아 있는 프로세스를 가리키는 실행 표지)가 없으면 이전 실행 기록과 관계없이 멈춤으로 보고, `/go`는 `stalled_doing`으로 알리기만 하고 상태는 바꾸지 않음(task-0167). 그 밖의 DOING task는 기존처럼 실행 기록이 없을 때 `doing_without_execution_record`. `/work`로 만든 task에 대한 `/retry`는 거절하고 `/go`로 안내. 실행 중에는 실제로 들어간 단계(Worker·Reviewer·repair·QA·통합)마다 작업 스레드에(스레드를 쓸 수 없으면 같은 채널에) 한 줄씩 보고하고(멘션 없음, 보고 실패는 실행에 영향 없음), 실패와 Owner 판단 필요 결과는 설정된 Owner를 멘션해 구분한다. 봇 시작 시 `/work`로 만든 task 중 멈춘 DOING(task-0167 판정)과 봇 없이 Worker가 아직 실행 중인 DOING을 프로세스당 한 번 Owner DM으로 알리고(그 밖의 DOING은 건수만), 상태는 바꾸지 않음(task-0165) | `bot_minimal.py` |
 
 자연어 호출(task-0184): 슬래시 없는 Discord 메시지가 `자비스` 또는 `jarvis` 뒤 쉼표·콜론, 또는 이 봇의 멘션으로
 시작하면, 호출어를 뗀 본문으로 `/work <본문>`과 똑같이 처리한다(같은 Owner 권한 검사와 경로). 호출어가 없는 메시지는
@@ -357,9 +357,35 @@ Discord에는 작업별 스레드에 팀장 계획, 단계 진행, Reviewer 판�
 그 사유를 빠뜨려도 계획을 거절하지 않고 판정 근거에 남긴다(task-0226). 이 판정 기준은 Owner 승인 전 제안이며 auto는 실행 권한이 아니다. 봇은 계획과
 판정을 작업 스레드에(스레드를 쓸 수 없으면 채널에) 2000자 이하 메시지로 보이고, 검토 자료로 저장소 밖에 계획 파일 한 개를 쓴다
 (저장소 안을 가리키거나 쓰기에 실패하면 쓰지 않은 것으로 보고 계획은 그대로 보인다). 계획이 실패하면 같은 곳에 팀장 답 원문 없이
-목표, 사유 코드, 사용량을 담은 실패 기록을 쓴다(task-0226). task 생성, Worker 실행, 배정, 큐, 반영은 하지 않고
-계획 파일을 다시 읽는 기능도 없다. 실패하면 팀장 답 원문 없이 사유 코드, 등록된 코드의 한국어 설명, 사용량, 실패 기록 경로를
+목표, 사유 코드, 사용량을 담은 실패 기록을 쓴다(task-0226). `/goal <목표>`는 task 생성, Worker 실행, 배정, 큐, 반영을 하지 않는다.
+계획 파일을 다시 읽는 것은 아래 목표 계획 승인 한 번뿐이다(task-0229). 실패하면 팀장 답 원문 없이 사유 코드, 등록된 코드의 한국어 설명, 사용량, 실패 기록 경로를
 보낸다(task-0226). 이 문단은 §9 금지의 예외를 넓히지 않는다.
+
+목표 계획 승인(task-0229): Owner 전용 `/goal <goal-id> approve`는 그 goal id의 계획 파일을 읽어, 등록된 작업 종류이고 Policy Gate가
+auto로 판정한 하위 작업마다 TODO task 하나를 만든다(`bot_minimal._run_goal_approve`). 이 승인으로 Policy Gate v0의 auto는 "task를 만들 자격"이
+되며 실행 권한은 여전히 아니다. 계획 파일은 lead 답과 같은 파서로 다시 전부 검사하고, 계획의 sha256이 파일에 적힌 hash와 다르거나,
+파일이 없거나 읽을 수 없거나, 다른 goal id를 담았거나, 실패 기록이거나, 계획 폴더가 저장소 안을 가리키면 아무것도 만들지 않는다. 판정은
+승인 시점의 코드로 다시 하며 파일에 적힌 판정은 쓰지 않는다. needs_owner·forbidden 하위 작업, 등록된 작업 종류가 없는 하위 작업, 제목이
+다른 작업 종류나 다른 방식(수정·읽기 전용)을 고르게 되는 하위 작업, 제목이나 요약을 task 기록으로 쓸 수 없는 하위 작업, 그리고 task로
+만들어지지 않은 하위 작업에 의존하는 하위 작업은 만들지 않고 사유와 함께 보인다. 이 검사는 첫 task를 쓰기 전에 모두 한다. 만든 task는 `source_command`가 `/task`인 Worker 경로 task이고, 제목은 작업 종류의 첫 표지어와 팀장 제목(읽기
+전용이면 끝에 "(읽기 전용)")이며, 메타데이터에 `goal_id`, `goal_task`, `goal_plan_sha256`과 선행 task가 있으면 `goal_depends_on`을
+둔다(`docs/task-model.md` 14절). 승인은 그 task 기록의 머리말 아래에 "목표 지시 묶음" 절을 함께 쓴다. 이 절은 Owner의 `/goal` 원문과 그
+하위 작업의 팀장 제목·목적·지시·완료 조건·경로, 계획 hash, 승인 명령, 그리고 이 내용의 sha256(`brief_sha256`)을 담은 JSON 블록이며, 승인 뒤
+계획 파일은 다시 읽지 않는다. 같은 goal id의 task가 하나라도 있으면 다시 승인하지 않는다(`goal_already_approved`). task를 쓰다가 실패하면
+(`goal_task_not_created`) 이미 쓴 task는 남고 그 목표는 승인된 것으로 보아 다시 승인하지 않으므로, 남은 하위 작업은 Owner가 따로 지시한다.
+승인은 Worker, 팀장, git, 잠금, 상태 전이를 쓰지 않고 아무것도 실행하지 않는다. 실행은 task마다 Owner의 `/go`로만 시작하고 main 반영은
+10.2의 9·12항 그대로 accept로만 한다. 목표 task의 `/go`(`resume`, `revise`, `recheck` 포함)는 그 task 기록의 지시 묶음 절만 읽는다. 절이
+한 번 있고, 정해진 항목만 정해진 형식으로 담고, `brief_sha256`이 내용과 맞고, goal id·하위 작업·계획 hash가 머리말의 필드와 같을 때만
+시작하며(아니면 `goal_brief_missing`, `goal_brief_malformed`, `goal_brief_mismatch`로 거절), 새 실행과 `resume`은 `goal_depends_on`의
+task가 모두 `DONE`일 때만 시작한다(`goal_dependency_not_done`). 거절은 잠금과 상태 전이 전에 한다. `brief_sha256`은 실수로 바뀐 기록을
+걸러 낼 뿐 저장소에 쓸 수 있는 사람의 의도적 수정을 막는 장치가 아니다. `accept`, `reject`, `recover`는 Worker와 Reviewer를 부르지
+않으므로 지시 묶음 없이도 받는다. 목표 task에서 Worker와 Reviewer가 받는 요청 원문은
+Owner의 `/goal` 원문이고, 팀장이 쓴 그 하위 작업의 지시·목적·경로·완료 조건은 "팀장의 말"로 표시해 함께 전달한다(`claude_worker.GoalBrief`).
+Worker는 그 하위 작업 하나만 하고, 팀장 지시가 Owner 목표 밖을 요구하면 그 부분은 하지 않는다. Reviewer 호출의 승인 원문은 `/goal <목표
+원문>`, `/goal <goal-id> approve`, 실행한 `/go` 명령 세 줄이며 팀장의 말은 승인 원문에 넣지 않는다. Reviewer는 팀장 지시와 candidate가 Owner
+목표 안인지, candidate가 완료 조건을 충족하는지 본다(`.claude/agents/reviewer.md`의 Goal plan sub-task 절). 읽기 전용 하위 작업은 위 읽기 전용
+확인·보고와 같은 실행이며 같은 요청 원문과 팀장 지시를 받는다. 목표에서 만들지 않은 task는 이 문단의 영향을 받지 않고 지금처럼 Owner 원문만
+받는다. 자동 실행, 배정, 큐, 백그라운드 실행, 목표 단위 반영은 없고, 이 문단은 §9 금지의 예외를 넓히지 않는다.
 
 읽기 전용 확인·보고(task-0201): `/work` 요청에 위 표의 읽기 전용 문구가 있으면 팀장을 거치지 않고 TODO task를
 만들고, 작업 준비 메시지에 읽기 전용이라고 보인다. Owner의 `/go`로만 시작하며 같은 잠금과 승인 전이·감사를 쓴다. 실행은
@@ -384,7 +410,9 @@ worktree를 지운다. 결과는 채널에 "검증 안 된 Worker 답"으로 보
 1. Candidate. Worker 변경은 attempt 브랜치의 candidate commit으로만 만들어진다.
    이전 시도의 worktree와 branch는 삭제하지 않는다.
 2. Reviewer 호출. Owner 요청 원문, baseline..candidate 변경 파일 목록, 범위
-   기대값만 전달한다. Worker 동작이나 테스트 결과를 주장하지 않는다. evidence는
+   기대값만 전달한다. 목표 계획에서 만든 task(10.1 목표 계획 승인 문단, task-0229)는 여기에 더해 그
+   하위 작업의 팀장 지시·목적·경로·완료 조건을 팀장의 말로 표시해 전달하고, 승인 원문은 Owner의
+   `/goal` 원문과 계획 승인 명령, `/go` 명령이다. Worker 동작이나 테스트 결과를 주장하지 않는다. evidence는
    candidate 시점 기준의 읽기 전용 파일이며, 요청에 이름이 나온 task 기록과
    요청 또는 baseline..candidate 추가 줄에 적힌 저장소 상대 경로 파일이다(task-0170).
    절대 경로·`..`·URL·디렉터리·와일드카드는 쓰지 않고, candidate tree에 있는 파일만

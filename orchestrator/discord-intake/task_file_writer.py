@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, BinaryIO, Callable, TextIO
+from typing import Any, BinaryIO, Callable, Mapping, TextIO
 import hashlib
 import hmac
 import json
@@ -214,6 +214,24 @@ TASK_OPTIONAL_TEXT_METADATA = frozenset(
         "execution_summary",
     }
 )
+# task-0229: the link from a Task to the goal plan sub-task it was made from. The three link
+# fields are present together or not at all; goal_depends_on (the Task ids that must be DONE
+# first, comma-separated) may be left out when there is none. See docs/task-model.md section 14.
+TASK_GOAL_LINK_FIELDS = ("goal_id", "goal_task", "goal_plan_sha256")
+TASK_GOAL_DEPENDS_ON_FIELD = "goal_depends_on"
+TASK_GOAL_FIELDS = (*TASK_GOAL_LINK_FIELDS, TASK_GOAL_DEPENDS_ON_FIELD)
+TASK_GOAL_FIELD_PATTERNS = {
+    "goal_id": re.compile(r"^goal-\d{8}-\d{6}-\d{3}$"),
+    "goal_task": re.compile(r"^T[1-9][0-9]?$"),
+    "goal_plan_sha256": re.compile(r"^[0-9a-f]{64}$"),
+    TASK_GOAL_DEPENDS_ON_FIELD: re.compile(
+        r"^task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*(?:,task-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*)*$"
+    ),
+}
+# task-0229: a goal Task is created with one body section under its header, the brief the
+# approval copied from the plan. Only write_task_file writes it, and only with the goal link.
+TASK_GOAL_BODY_DRAFT_KEY = "goal_body"
+MAX_GOAL_BODY_CHARS = 20000
 TASK_OPTIONAL_BOOLEAN_METADATA = frozenset(
     {
         "execution_candidate",
@@ -228,6 +246,7 @@ TASK_ALLOWED_METADATA = TASK_REQUIRED_METADATA.union(
     TASK_OPTIONAL_BOOLEAN_METADATA,
     TASK_OPTIONAL_TIMESTAMP_METADATA,
     {TASK_HOLD_FROM_FIELD, TASK_CLOSED_REASON_FIELD},
+    TASK_GOAL_FIELDS,
 )
 TASK_ALLOWED_STATUSES = frozenset(
     {"NEEDS_APPROVAL", "BLOCKED", "ON_HOLD", "FAILED", "DOING", "TODO", "DONE", "CLOSED"}
@@ -390,6 +409,51 @@ def _existing_task_numbers(tasks_dir: Path) -> list[int]:
     return sorted(numbers)
 
 
+def goal_fields_error(fields: Mapping[str, Any]) -> str | None:
+    """task-0229: None when the goal link fields in `fields` are absent or well formed.
+
+    The three link fields come together, goal_depends_on only with them, and each value has
+    its own fixed form. Used for a draft before it is written and for a record when it is read.
+    """
+
+    present = [name for name in TASK_GOAL_FIELDS if name in fields]
+    if not present:
+        return None
+    if any(name not in fields for name in TASK_GOAL_LINK_FIELDS):
+        return "task_file_invalid_goal_metadata"
+    for name in present:
+        value = fields[name]
+        if not isinstance(value, str) or not TASK_GOAL_FIELD_PATTERNS[name].fullmatch(value):
+            return "task_file_invalid_goal_metadata"
+    depends_on = fields.get(TASK_GOAL_DEPENDS_ON_FIELD)
+    if depends_on is not None and len(set(depends_on.split(","))) != len(depends_on.split(",")):
+        return "task_file_invalid_goal_metadata"
+    return None
+
+
+def goal_body_error(task_draft: Mapping[str, Any]) -> str | None:
+    """task-0229: None when the draft has no goal body or one that can sit under the header.
+
+    The body comes only with the goal link. It starts with a `## ` heading, so the header block
+    ends before it, and it holds no carriage return and no control or format character other
+    than the line feed.
+    """
+
+    if TASK_GOAL_BODY_DRAFT_KEY not in task_draft:
+        return None
+    body = task_draft[TASK_GOAL_BODY_DRAFT_KEY]
+    if any(name not in task_draft for name in TASK_GOAL_LINK_FIELDS):
+        return "invalid_goal_body"
+    if not isinstance(body, str) or not body.startswith("## ") or len(body) > MAX_GOAL_BODY_CHARS:
+        return "invalid_goal_body"
+    if any(
+        character != "\n" and unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        for character in body
+    ):
+        return "invalid_goal_body"
+    return None
+
+
 def _render_task_markdown(
     task_id: str,
     title: str,
@@ -398,6 +462,8 @@ def _render_task_markdown(
     created_at: str,
     updated_at: str,
     source_command: str | None,
+    goal_fields: Mapping[str, str] | None = None,
+    goal_body: str | None = None,
 ) -> str:
     lines = [
         f"# {task_id}",
@@ -412,7 +478,15 @@ def _render_task_markdown(
     ]
     if source_command:
         lines.append(f"- source_command: `{source_command}`")
+    # task-0229: the goal link, in the fixed field order.
+    for name in TASK_GOAL_FIELDS:
+        if goal_fields and name in goal_fields:
+            lines.append(f"- {name}: `{goal_fields[name]}`")
     lines.append("")
+    if goal_body:
+        # task-0229: the brief section, after the blank line that closes the header block.
+        lines.extend(goal_body.rstrip("\n").split("\n"))
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -512,6 +586,12 @@ def _validate_draft(task_draft: dict[str, Any]) -> tuple[bool, str | None]:
     if status and status != DEFAULT_STATUS:
         return False, "invalid_status_for_creation:only_TODO_allowed"
 
+    # task-0229: a draft may carry the goal link; it is written only when it is well formed.
+    if goal_fields_error(task_draft):
+        return False, "invalid_goal_fields"
+    if goal_body_error(task_draft):
+        return False, "invalid_goal_body"
+
     return True, None
 
 
@@ -567,6 +647,8 @@ def write_task_file(
             created_at=now_utc,
             updated_at=now_utc,
             source_command=source_command,
+            goal_fields={name: task_draft[name] for name in TASK_GOAL_FIELDS if name in task_draft},
+            goal_body=task_draft.get(TASK_GOAL_BODY_DRAFT_KEY),
         )
 
         publish_result, publish_reason = _write_failure_atomic(
@@ -729,6 +811,10 @@ def _transition_metadata(
             return None, "task_file_invalid_closed_reason_metadata"
     elif TASK_CLOSED_REASON_FIELD in metadata:
         return None, "task_file_invalid_closed_reason_metadata"
+    # task-0229: the goal link is whole and well formed, or absent.
+    goal_error = goal_fields_error(metadata)
+    if goal_error:
+        return None, goal_error
     if (
         "completion_evidence" in metadata
         and metadata_line_indexes["completion_evidence"]

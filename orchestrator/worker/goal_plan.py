@@ -236,6 +236,34 @@ def parse_goal_answer(text: str) -> tuple[GoalPlan | None, str]:
     return GoalPlan(goal_summary=summary, tasks=[tasks[task_id] for task_id in order], order=list(order), flow=flow), ""
 
 
+def plan_from_record(stored: object) -> tuple[GoalPlan | None, str]:
+    """task-0229: the plan a plan file holds (GoalPlan.to_dict()), checked again in full.
+
+    The stored form is turned back into the lead's answer shape and goes through parse_goal_answer,
+    so a plan file is trusted no more than a lead answer. Returns (plan, "") or (None, reason).
+    """
+
+    if not isinstance(stored, dict) or not isinstance(stored.get("tasks"), list):
+        return None, "goal_plan_file_malformed"
+    tasks = []
+    for item in stored["tasks"]:
+        if not isinstance(item, dict):
+            return None, "goal_plan_file_malformed"
+        raw = {key: item.get(key) for key in TASK_KEYS}
+        raw["kind"] = "none" if item.get("kind") is None else item.get("kind")
+        raw["owner_decision"] = "none" if item.get("owner_decision") is None else item.get("owner_decision")
+        tasks.append(raw)
+    answer = {"goal_summary": stored.get("goal_summary"), "tasks": tasks,
+              "order": stored.get("order"), "flow": stored.get("flow")}
+    try:
+        plan, reason = parse_goal_answer(json.dumps(answer, ensure_ascii=False))
+    except Exception:  # noqa: BLE001 - e.g. RecursionError on a deeply nested file; fail closed
+        return None, "goal_plan_file_malformed"
+    if plan is None:
+        return None, "goal_plan_file_malformed"
+    return plan, ""
+
+
 def plan_digest(plan: GoalPlan) -> str:
     """sha256 of the checked plan in a fixed JSON form, so a later approval can name this exact plan."""
 

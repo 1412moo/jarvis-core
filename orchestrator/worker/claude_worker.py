@@ -191,6 +191,60 @@ def select_work_kind(text: str) -> WorkKind | None:
     return kinds[0] if kinds else None
 
 
+@dataclass(frozen=True)
+class GoalBrief:
+    """task-0229: what a task made from an Owner-approved goal plan carries besides the Owner's
+    goal text. The lead wrote title, purpose, worker_request, acceptance and paths; they narrow the
+    work to one sub-task and never stand in for the Owner's words."""
+
+    goal_id: str
+    goal_task: str
+    plan_sha256: str
+    approval_command: str
+    title: str
+    purpose: str
+    worker_request: str
+    acceptance: tuple[str, ...] = ()
+    paths: tuple[str, ...] = ()
+
+
+# task-0229: the brief of the run in progress, or None for a task that was not made from a goal
+# plan. The entry functions set it; the prompt builders read it.
+_ACTIVE_GOAL_BRIEF: contextvars.ContextVar[GoalBrief | None] = contextvars.ContextVar(
+    "jarvis_active_goal_brief", default=None
+)
+
+
+def _brief_lines(brief: GoalBrief) -> str:
+    """The sub-task as the lead planned it, labelled as the lead's words."""
+
+    criteria = "".join(f"  - {item}\n" for item in brief.acceptance)
+    paths = ", ".join(brief.paths) or "(none listed)"
+    return (
+        f"Lead instruction for this sub-task (the team lead's words, not the Owner's): {brief.worker_request}\n"
+        f"Lead purpose: {brief.purpose}\n"
+        f"Lead expected paths: {paths}\n"
+        f"Lead completion criteria:\n{criteria}"
+    )
+
+
+def _request_block(request: str) -> str:
+    """The request lines of a Worker prompt: the Owner's text, and for a goal task its sub-task."""
+
+    brief = _ACTIVE_GOAL_BRIEF.get()
+    if brief is None:
+        return f"Owner request (verbatim): {request}\n\n"
+    return (
+        f"Owner goal (verbatim): {request}\n"
+        f"This task is sub-task {brief.goal_task} ({brief.title}) of the Owner-approved goal plan "
+        f"{brief.goal_id} (plan sha256 {brief.plan_sha256}). Do only this sub-task: the rest of the goal "
+        "belongs to other tasks.\n"
+        f"{_brief_lines(brief)}"
+        "If the lead instruction asks for anything the Owner goal does not cover, leave that part undone "
+        "and say so in your reply.\n\n"
+    )
+
+
 def _active_kind() -> WorkKind:
     return _ACTIVE_WORK_KIND.get()
 
@@ -912,7 +966,7 @@ def _run_tests(worktree: Path) -> tuple[bool, str]:
 def worker_prompt(task_id: str, request: str) -> str:
     return (
         f"You are the Jarvis-Core Implementer for {task_id}.\n"
-        f"Owner request (verbatim): {request}\n\n"
+        f"{_request_block(request)}"
         "Rules:\n"
         f"- Change only files under {_active_kind().allowed_prefix}.{_active_kind().prompt_note}\n"
         "- If the Owner request names a source (for example a task record), use only facts stated in that source, "
@@ -930,7 +984,7 @@ def report_prompt(task_id: str, request: str) -> str:
 
     return (
         f"You are the Jarvis-Core read-only checker for {task_id}.\n"
-        f"Owner request (verbatim): {request}\n\n"
+        f"{_request_block(request)}"
         "Rules:\n"
         "- Only read. Do not create, change or delete any file, even if the request seems to ask for it.\n"
         "- Answer the request from the repository files. Name the file (and line, where it helps) for each fact. "
@@ -1067,6 +1121,27 @@ def reviewer_call(
             else ""
         )
     )
+    # task-0229: a goal task's approval is the Owner's /goal text and the plan approval; the lead's
+    # sub-task is passed as the lead's words for the Reviewer to check against them.
+    brief = _ACTIVE_GOAL_BRIEF.get()
+    if brief is None:
+        condition = f"- Owner condition (verbatim, the only one): {request}\n"
+        approval = f"/work {request}\n{approval_command}\n"
+    else:
+        condition = (
+            f"- Owner goal (verbatim, the only Owner condition): {request}\n"
+            f"- Goal plan sub-task: this task is sub-task {brief.goal_task} ({brief.title}) of the goal plan "
+            f"{brief.goal_id} (plan sha256 {brief.plan_sha256}) that the Owner approved with the approval line "
+            "below. Only this sub-task is expected in the candidate; the other sub-tasks are other tasks.\n"
+            + f"- Lead instruction for this sub-task (the team lead's words, not an Owner condition): "
+            f"{brief.worker_request}\n"
+            f"- Lead purpose: {brief.purpose}\n"
+            f"- Lead expected paths: {', '.join(brief.paths) or '(none listed)'}\n"
+            + "".join(f"- Lead completion criterion {n}: {item}\n" for n, item in enumerate(brief.acceptance, start=1))
+            + "- Goal plan checks (see your definition): the lead's instruction and the candidate stay inside "
+            "the Owner goal, and the candidate meets each lead completion criterion.\n"
+        )
+        approval = f"/goal {request}\n{brief.approval_command}\n{approval_command}\n"
     return (
         f"Review request from Manager (the caller): {task_id}, {purpose} "
         "(Jarvis v0.2 worker pipeline).\n\n"
@@ -1085,14 +1160,13 @@ def reviewer_call(
         'Follow the "Allowed commands" section of your own definition exactly as written.\n\n'
         "=== MANAGER SUMMARY ===\n"
         # task-0145: no paraphrase of the Owner condition and no claim the Reviewer cannot check.
-        f"- Owner condition (verbatim, the only one): {request}\n"
+        f"{condition}"
         f"- Candidate change set, baseline..candidate (check with git diff --name-status): {', '.join(changed_files)}\n"
         f"- Pipeline limit, not an Owner condition (check it in the change set above): every changed file is "
         f"expected under {_active_kind().allowed_prefix} and none is jarvis.bat.\n"
         "- This summary makes no claim about how the Worker ran or about test results.\n\n"
         "=== OWNER APPROVAL (verbatim) ===\n"
-        f"/work {request}\n"
-        f"{approval_command}\n"
+        f"{approval}"
     )
 
 
@@ -1727,8 +1801,12 @@ def run_pipeline(
     repair_budget: int | None = None,
     work_kind: str | None = None,
     progress: Callable[[str], None] | None = None,
+    goal_brief: GoalBrief | None = None,
 ) -> WorkerRunResult:
     """Run the whole slice once for one registry kind (Studyroom by default). Never raises.
+
+    task-0229: goal_brief, for a task made from an approved goal plan, reaches the Worker and the
+    Reviewer through the prompt builders. request stays the Owner's own text.
 
     task-0165: progress, when given, is called with a PROGRESS_STAGES name as each stage starts.
     task-0220: a run that passes stops with awaiting_owner, after record_awaiting wrote its record.
@@ -1738,6 +1816,7 @@ def run_pipeline(
     if kind is None:
         return _unknown_kind_result(task_id, str(work_kind), record_result)
     token = _ACTIVE_WORK_KIND.set(kind)
+    brief_token = _ACTIVE_GOAL_BRIEF.set(goal_brief)
     usage: list[dict] = []
     usage_token = _ACTIVE_USAGE.set((task_id, usage))
     try:
@@ -1755,6 +1834,7 @@ def run_pipeline(
         )
     finally:
         _ACTIVE_USAGE.reset(usage_token)
+        _ACTIVE_GOAL_BRIEF.reset(brief_token)
         _ACTIVE_WORK_KIND.reset(token)
     result.work_kind = kind.name
     result.usage = usage
@@ -2087,6 +2167,7 @@ def revise_candidate(
     record_awaiting: Callable[[str], tuple[bool, str]] | None = None,
     work_kind: str | None = None,
     progress: Callable[[str], None] | None = None,
+    goal_brief: GoalBrief | None = None,
 ) -> WorkerRunResult:
     """task-0220: `/go <id> revise <instruction>`, a new Owner-approved run on the waiting attempt.
 
@@ -2101,6 +2182,7 @@ def revise_candidate(
         result.accept_retryable = True
         return result
     token = _ACTIVE_WORK_KIND.set(kind)
+    brief_token = _ACTIVE_GOAL_BRIEF.set(goal_brief)
     usage: list[dict] = []
     usage_token = _ACTIVE_USAGE.set((task_id, usage))
     try:
@@ -2119,6 +2201,7 @@ def revise_candidate(
         )
     finally:
         _ACTIVE_USAGE.reset(usage_token)
+        _ACTIVE_GOAL_BRIEF.reset(brief_token)
         _ACTIVE_WORK_KIND.reset(token)
     result.work_kind = kind.name
     result.usage = usage
@@ -2137,6 +2220,7 @@ def recheck_candidate(
     record_failure: Callable[[str], tuple[bool, str]] | None = None,
     work_kind: str | None = None,
     progress: Callable[[str], None] | None = None,
+    goal_brief: GoalBrief | None = None,
 ) -> WorkerRunResult:
     """task-0220: `/go <id> recheck`, a fresh Reviewer and QA on the waiting candidate. No Worker.
 
@@ -2151,6 +2235,7 @@ def recheck_candidate(
         result.accept_retryable = True
         return result
     token = _ACTIVE_WORK_KIND.set(kind)
+    brief_token = _ACTIVE_GOAL_BRIEF.set(goal_brief)
     usage: list[dict] = []
     usage_token = _ACTIVE_USAGE.set((task_id, usage))
     try:
@@ -2166,6 +2251,7 @@ def recheck_candidate(
         )
     finally:
         _ACTIVE_USAGE.reset(usage_token)
+        _ACTIVE_GOAL_BRIEF.reset(brief_token)
         _ACTIVE_WORK_KIND.reset(token)
     result.work_kind = kind.name
     result.usage = usage
@@ -2475,6 +2561,7 @@ def run_report(
     worktree_root: Path | None = None,
     record_result: Callable[[bool, str], tuple[bool, str]] | None = None,
     progress: Callable[[str], None] | None = None,
+    goal_brief: GoalBrief | None = None,
 ) -> WorkerRunResult:
     """task-0201: one read-only check and report. Never raises.
 
@@ -2484,6 +2571,7 @@ def run_report(
     """
 
     usage: list[dict] = []
+    brief_token = _ACTIVE_GOAL_BRIEF.set(goal_brief)
     usage_token = _ACTIVE_USAGE.set((task_id, usage))
     try:
         result = _run_report(
@@ -2496,6 +2584,7 @@ def run_report(
         )
     finally:
         _ACTIVE_USAGE.reset(usage_token)
+        _ACTIVE_GOAL_BRIEF.reset(brief_token)
     result.usage = usage
     return result
 

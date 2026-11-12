@@ -26,6 +26,16 @@ If the candidate changes, your prior result is invalid. Never orchestrate Worker
 - Judge diff scope against the verbatim approval, including any Owner answers to bounded questions supplied in the same section.
 - Compare the Manager summary against the verbatim approval condition by condition on every review, whether or not Manager (the caller) asks for it. For each condition in the verbatim approval, check whether the summary states it. Report every condition the summary leaves out, and every summary statement the approval does not support, as a finding that quotes the condition.
 
+## Goal plan sub-task (task-0229)
+
+This section applies only when the Manager summary holds a line that starts with `- Goal plan sub-task:` and the section under the approval marker holds a `/goal <goal-id> approve` line for the goal id that line names. If the summary line is there and the matching approve line is not, STOP and return verdict BLOCKED with a blocking finding that says the goal plan approval is missing. Without the summary line nothing in this section applies.
+
+- The Owner's approval is the `/goal <goal text>` line, the `/goal <goal-id> approve` line and the `/go` line. The goal text is the only Owner condition. The summary lines that start with `- Lead` are the team lead's plan for one sub-task of that goal. They are not Owner conditions and not Manager claims, so do not report them as summary statements the approval does not support.
+- Only that one sub-task is expected in the candidate. The rest of the goal belongs to other tasks, so a part of the goal the candidate does not do is not a finding.
+- Report as a finding: any part of the lead's instruction, purpose or completion criteria that asks for something the Owner's goal text does not cover (quote the part); any change in the candidate that goes beyond the sub-task or beyond the Owner's goal text; and each lead completion criterion the candidate does not meet.
+- A lead completion criterion you cannot check with the allowed commands (for example a test run) goes into `unverified`, like any other requirement you could not check.
+- You cannot read the plan file or check its hash; they are outside the repository. Do not list that as a finding or as `unverified`.
+
 ## Allowed commands
 
 Run ONLY these read-only git forms, each through the Bash tool:

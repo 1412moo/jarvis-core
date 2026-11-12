@@ -2334,6 +2334,341 @@ def goal_flow(bot, clone: Path) -> None:
           "_run_goal_job" in handler and "_run_worker_job" not in handler and "_run_lead_job" not in handler)
 
 
+def goal_approve_flow(bot, clone: Path, status_of) -> None:
+    """task-0229: `/goal <goal-id> approve` turns the auto sub-tasks of one plan file into linked TODO
+    tasks; a goal task runs with the Owner's /goal text and the lead's brief, and only after the tasks
+    it depends on are DONE. Nothing is started by the approval itself."""
+
+    import claude_lead
+    import goal_plan
+    import task_file_writer
+
+    tasks_dir = clone / "memory" / "tasks"
+    plan_dir = clone.parent / "goal-approve-plans"
+    log = clone.parent / "goal-approve-fake-claude.log"
+    goal_text = "Studyroom 용어집을 정리하고 Daily AI Radar 머리말을 점검해 줘"
+
+    # The task record fields: whole and well formed, or refused.
+    link = {"goal_id": "goal-20261110-080023-693", "goal_task": "T2", "goal_plan_sha256": "a" * 64}
+    check("goal fields: a whole link passes, with or without prerequisites",
+          task_file_writer.goal_fields_error({}) is None and task_file_writer.goal_fields_error(link) is None
+          and task_file_writer.goal_fields_error(dict(link, goal_depends_on="task-0001-a,task-0002-b")) is None)
+    bad_links = {
+        "a part of the link": {"goal_id": link["goal_id"]},
+        "prerequisites alone": {"goal_depends_on": "task-0001-a"},
+        "a bad goal id": dict(link, goal_id="goal-1"),
+        "a bad sub-task id": dict(link, goal_task="task-1"),
+        "a short hash": dict(link, goal_plan_sha256="abc"),
+        "an upper-case hash": dict(link, goal_plan_sha256="A" * 64),
+        "a prerequisite that is not a task id": dict(link, goal_depends_on="T1"),
+        "a repeated prerequisite": dict(link, goal_depends_on="task-0001-a,task-0001-a"),
+        "an empty prerequisite list": dict(link, goal_depends_on=""),
+        "a value that is not text": dict(link, goal_task=2),
+    }
+    check("goal fields: every malformed link is refused",
+          all(task_file_writer.goal_fields_error(fields) for fields in bad_links.values()),
+          str([name for name, fields in bad_links.items() if not task_file_writer.goal_fields_error(fields)]))
+    draft = {"title": "studyroom: x", "status": "TODO", "repo": "jarvis-core", "summary": "s", "source_command": "/task"}
+    check("goal fields: a body is written only with the link, under a heading, without control characters",
+          task_file_writer.goal_body_error(dict(draft, **link, goal_body="## 묶음\n\ntext\n")) is None
+          and task_file_writer.goal_body_error(draft) is None
+          and task_file_writer.goal_body_error(dict(draft, goal_body="## 묶음\n")) == "invalid_goal_body"
+          and task_file_writer.goal_body_error(dict(draft, **link, goal_body="- status: `DONE`\n")) == "invalid_goal_body"
+          and task_file_writer.goal_body_error(dict(draft, **link, goal_body="## 묶음\r\n")) == "invalid_goal_body"
+          and task_file_writer.goal_body_error(dict(draft, **link, goal_body="## " + "x" * 20001)) == "invalid_goal_body"
+          and task_file_writer.goal_body_error(dict(draft, **link, goal_body=3)) == "invalid_goal_body"
+          and bot.write_task_file(dict(draft, goal_body="## 묶음\n")).to_dict().get("reason") == "invalid_goal_body")
+    check("goal fields: a draft with a malformed link writes nothing",
+          bot.write_task_file({"title": "studyroom: x", "status": "TODO", "repo": "jarvis-core", "summary": "s",
+                               "source_command": "/task", "goal_id": "goal-1"}).to_dict().get("reason") == "invalid_goal_fields")
+
+    def answer(text: str):
+        payload = {"result": text, "total_cost_usd": 0.1}
+        return lambda prompt, root: subprocess.CompletedProcess(["claude"], 0, json.dumps(payload), "")
+
+    subs = [
+        goal_task("T1", title="용어집 표기 정리"),
+        goal_task("T2", title="용어집 예문 보강", depends_on=["T1"], purpose="예문을 `보강`한다",
+                  worker_request="glossary.json의 예문을 보강한다", acceptance=["예문이 비어 있지 않다"]),
+        goal_task("T3", kind="daily_ai_radar", mode="read_only", title="머리말 문구 점검",
+                  paths=["apps/daily-ai-radar/README.md"], worker_request="머리말 문구가 README와 맞는지 본다"),
+        goal_task("T4", kind="none", title="Console 화면 추가", paths=["apps/jarvis-console/web/app.js"],
+                  owner_decision="등록된 작업 종류 밖"),
+        goal_task("T5", title="결과를 GitHub에 push"),
+        goal_task("T6", title="용어집 마무리 점검", depends_on=["T5"]),
+        goal_task("T7", kind="daily_ai_radar", title="Studyroom 문구를 Radar에도 반영", paths=["apps/daily-ai-radar/README.md"]),
+        goal_task("T8", title="용어집 수정 금지 항목 표시"),
+    ]
+
+    real_run_claude, real_plan_dir = claude_lead._run_claude, bot.GOAL_PLAN_DIR
+    previous_log = os.environ.get("FAKE_LOG")
+    claude_lead.LEAD_REPO_ROOT = clone
+    bot.GOAL_PLAN_DIR = plan_dir
+    os.environ["FAKE_LOG"] = str(log)
+    os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
+    try:
+        claude_lead._run_claude = answer(goal_answer(subs))
+        job = bot._run_goal_job(goal_text)
+        goal_id = job.get("goal_id", "")
+        plan_file = Path(job.get("plan_path") or "")
+        original = plan_file.read_text(encoding="utf-8") if plan_file.is_file() else ""
+        stored = json.loads(original) if original else {}
+        rebuilt, rebuilt_reason = goal_plan.plan_from_record(stored.get("plan"))
+        check("goal approve: a plan file reads back as the same plan, by its hash",
+              rebuilt is not None and goal_plan.plan_digest(rebuilt) == job.get("digest") == stored.get("plan_sha256"),
+              rebuilt_reason)
+        check("goal approve: a plan file that is not a plan fails closed",
+              goal_plan.plan_from_record(None)[0] is None and goal_plan.plan_from_record({"tasks": [1]})[0] is None
+              and goal_plan.plan_from_record(dict(stored.get("plan") or {}, order=["T1"]))[0] is None)
+        overview = bot._goal_reply_messages(job)[0]
+        check("goal approve: the plan overview names the approve command and still says nothing ran",
+              f"`/goal {goal_id} approve`" in overview and "실행하지 않았습니다" in overview and overview.endswith("auto 판정도 실행 권한이 아닙니다."), overview)
+
+        def tree_state() -> tuple:
+            return (sorted(p.name for p in tasks_dir.glob("*.md")), git(["rev-parse", "HEAD"], clone),
+                    git(["status", "--porcelain", "--untracked-files=all"], clone), git(["worktree", "list", "--porcelain"], clone))
+
+        before = tree_state()
+        check("goal approve: a goal id is never planned as a goal, and approve is its only sub-command",
+              bot._run_command(f"/goal {goal_id}").get("reason") == "usage:/goal <goal-id> approve"
+              and bot._run_command(f"/goal {goal_id} show").get("reason") == "usage:/goal <goal-id> approve"
+              and bot._run_command(f"/goal {goal_id} approve now").get("reason") == "usage:/goal <goal-id> approve"
+              and bot._run_command(f"/goal {goal_id}x approve").get("result_type") == "goal_started")
+        check("goal approve: only the Owner may approve", bot._authorize_command(f"/goal {goal_id} approve", "not-the-owner")[0] is False)
+        check("goal approve: an unknown goal id is refused",
+              bot._run_command("/goal goal-20990101-000000-000 approve").get("reason") == "goal_plan_not_found")
+        failed_id = "goal-20990101-000000-001"
+        (plan_dir / f"{failed_id}.json").write_text(json.dumps({"goal_id": failed_id, "goal": goal_text, "ok": False,
+                                                              "reason": "lead_timeout"}), encoding="utf-8")
+        check("goal approve: a failed plan's record has nothing to approve",
+              bot._run_command(f"/goal {failed_id} approve").get("reason") == "goal_plan_failed_record")
+        tampered = json.loads(original)
+        tampered["plan"]["tasks"][0]["worker_request"] = "다른 지시"
+        plan_file.write_text(json.dumps(tampered, ensure_ascii=False), encoding="utf-8")
+        check("goal approve: a plan changed after it was shown is refused by its hash",
+              bot._run_command(f"/goal {goal_id} approve").get("reason") == "goal_plan_hash_mismatch")
+        renamed = json.loads(original)
+        renamed["goal_id"] = failed_id
+        plan_file.write_text(json.dumps(renamed, ensure_ascii=False), encoding="utf-8")
+        check("goal approve: a plan file that names another goal is refused",
+              bot._run_command(f"/goal {goal_id} approve").get("reason") == "goal_plan_file_malformed")
+        plan_file.write_text("{not json", encoding="utf-8")
+        check("goal approve: an unreadable plan file is refused",
+              bot._run_command(f"/goal {goal_id} approve").get("reason") == "goal_plan_unreadable")
+        plan_file.write_text(original, encoding="utf-8")
+        bot.GOAL_PLAN_DIR = clone / "goal-plans-inside"
+        check("goal approve: a plan folder inside the repository is never read",
+              bot._run_command(f"/goal {goal_id} approve").get("reason") == "goal_plan_unreadable")
+        bot.GOAL_PLAN_DIR = plan_dir
+        check("goal approve: every refusal created no task and changed nothing", tree_state() == before)
+
+        approved = bot._run_command(f"/goal {goal_id} approve")
+        created = {item["id"]: item for item in approved.get("created") or []}
+        skipped = {item["id"]: item["reason"] for item in approved.get("skipped") or []}
+        check("goal approve: only the auto sub-tasks with a registered kind become tasks",
+              approved.get("result_type") == "goal_approved" and approved.get("ok") is True
+              and sorted(created) == ["T1", "T2", "T3"], str(approved)[:600])
+        check("goal approve: every other sub-task is listed with why it was left out",
+              skipped == {"T4": "needs_owner", "T5": "needs_owner", "T6": "needs_owner",
+                          "T7": "title_kind_conflict", "T8": "title_mode_conflict"}, str(skipped))
+        ids = {sub: item["task_id"] for sub, item in created.items()}
+        fields = {sub: bot._read_goal_fields(tasks_dir / f"{task_id}.md")[0] for sub, task_id in ids.items()}
+        check("goal approve: each task carries the goal id, its sub-task, the plan hash and its prerequisite tasks",
+              all(fields[sub].get("goal_id") == goal_id and fields[sub].get("goal_task") == sub
+                  and fields[sub].get("goal_plan_sha256") == job.get("digest") for sub in ids)
+              and fields["T2"].get("goal_depends_on") == ids["T1"] and "goal_depends_on" not in fields["T1"]
+              and "goal_depends_on" not in fields["T3"], str(fields))
+        metas = {sub: bot._read_task_metadata(tasks_dir / f"{task_id}.md") or {} for sub, task_id in ids.items()}
+        check("goal approve: the tasks are TODO Worker-path tasks whose titles settle the plan's kind and mode",
+              all(meta.get("status") == "TODO" for meta in metas.values())
+              and all(bot._task_source_command(tasks_dir / f"{task_id}.md") == "/task" for task_id in ids.values())
+              and bot._go_work_kind(metas["T1"]["title"]) == "studyroom_content"
+              and bot._go_work_kind(metas["T3"]["title"]) == "daily_ai_radar"
+              and claude_worker.is_read_only_request(metas["T3"]["title"])
+              and not claude_worker.is_read_only_request(metas["T1"]["title"])
+              and "`" not in metas["T2"]["summary"], str(metas))
+        after = tree_state()
+        check("goal approve: nothing ran: HEAD, worktrees and locks are as before and only three task files are new",
+              after[1] == before[1] and after[3] == before[3] and len(after[0]) == len(before[0]) + 3
+              and not bot._worker_running() and not claude_lead._LEAD_LOCK.locked(), f"{before} | {after}")
+        reply = bot._format_reply(approved)
+        check("goal approve: the reply lists the tasks, the left-out sub-tasks and how to run, within one message",
+              all(task_id in reply for task_id in ids.values()) and "판정 needs_owner" in reply
+              and "제목이 다른 작업 종류를 고르게 됨" in reply and "실행하지 않았습니다" in reply
+              and "`/go <task-id>`" in reply and "accept" in reply and len(reply) <= bot.DISCORD_MESSAGE_CHARS, reply)
+        check("goal approve: a second approval of the same goal is refused and creates nothing",
+              bot._run_command(f"/goal {goal_id} approve").get("reason") == "goal_already_approved" and tree_state() == after)
+
+        # A plan with nothing to create makes no task: no kind, a title the task record cannot hold
+        # (a zero-width character), and a sub-task that depends on one left out.
+        claude_lead._run_claude = answer(goal_answer([
+            goal_task("T1", kind="none", owner_decision="종류 밖", paths=["apps/jarvis-console/"]),
+            goal_task("T2", title="용어집 \u200b정리"),
+            goal_task("T3", title="용어집 후속 정리", depends_on=["T2"]),
+        ]))
+        none_job = bot._run_goal_job("Console에 화면을 더해 줘")
+        none_approved = bot._run_command(f"/goal {none_job.get('goal_id')} approve")
+        check("goal approve: a plan with nothing to create writes no task and says why for each sub-task",
+              none_approved.get("ok") is False and none_approved.get("reason") == "goal_no_task_to_create"
+              and none_approved.get("created") == [] and tree_state() == after
+              and {item["id"]: item["reason"] for item in none_approved.get("skipped") or []}
+              == {"T1": "needs_owner", "T2": "task_draft_invalid", "T3": "depends_on_skipped:T2"}
+              and "goal_no_task_to_create" in bot._format_reply(none_approved)
+              and "task 기록으로 쓸 수 없는 제목이나 요약" in bot._format_reply(none_approved), str(none_approved)[:500])
+
+        # /go: the prerequisite gate, then the brief.
+        t1_path, t2_path, t3_path = (tasks_dir / f"{ids[sub]}.md" for sub in ("T1", "T2", "T3"))
+        blocked = bot._run_command(f"/go {ids['T2']}")
+        check("goal go: a task whose prerequisite is not DONE is refused before any lock or write",
+              blocked.get("reason") == f"goal_dependency_not_done:{ids['T1']}:TODO" and status_of(ids["T2"]) == "TODO"
+              and not bot._worker_running(), str(blocked))
+        # The brief is in the task record: the approval wrote it there, and /go reads nothing else.
+        t1_text = t1_path.read_text(encoding="utf-8")
+        bundle, bundle_reason = bot._parse_goal_brief(t1_text)
+        check("goal approve: each task record holds the Owner's goal and the lead's brief for its sub-task",
+              bundle is not None and bundle["goal"] == goal_text and bundle["goal_task"] == "T1"
+              and bundle["worker_request"] == "glossary.json의 표기를 맞춘다" and bundle["plan_sha256"] == job.get("digest")
+              and bundle["approval_command"] == f"/goal {goal_id} approve" and t1_text.count(bot.GOAL_BRIEF_HEADING) == 1
+              and (bot._parse_goal_brief(t2_path.read_text(encoding="utf-8"))[0] or {}).get("purpose") == "예문을 `보강`한다",
+              bundle_reason)
+        check("goal approve: the record with the brief still reads as a task record",
+              (bot._read_task_metadata(t1_path) or {}).get("status") == "TODO"
+              and bot._read_goal_fields(t1_path)[0].get("goal_task") == "T1")
+        plan_file.unlink()
+        check("goal go: the plan file is not needed after the approval",
+              bot._goal_brief_for(t1_path)[2] == "" and bot._goal_brief_for(t1_path)[1] == goal_text)
+        edits = {
+            "an edited instruction": (t1_text.replace("glossary.json의 표기를 맞춘다", "저장소 전체를 고친다"), "goal_brief_mismatch"),
+            "an edited goal": (t1_text.replace(goal_text, goal_text + " 그리고 push"), "goal_brief_mismatch"),
+            "a removed section": (t1_text[:t1_text.index(bot.GOAL_BRIEF_HEADING)], "goal_brief_missing"),
+            "a repeated section": (t1_text + "\n" + t1_text[t1_text.index(bot.GOAL_BRIEF_HEADING):], "goal_brief_missing"),
+            "a block that is not JSON": (t1_text.replace('"goal_task": "T1"', '"goal_task": T1'), "goal_brief_malformed"),
+            "an extra key": (t1_text.replace('"goal_task": "T1",', '"goal_task": "T1",\n  "note": "x",'), "goal_brief_malformed"),
+            "another task's brief": (t1_text[:t1_text.index(bot.GOAL_BRIEF_HEADING)]
+                                     + t2_path.read_text(encoding="utf-8")[t2_path.read_text(encoding="utf-8").index(bot.GOAL_BRIEF_HEADING):],
+                                     "goal_brief_mismatch"),
+        }
+        refusals = {}
+        for name, (text, expected) in edits.items():
+            t1_path.write_text(text, encoding="utf-8")
+            refusals[name] = (bot._run_command(f"/go {ids['T1']}").get("reason"), expected, status_of(ids["T1"]))
+        t1_path.write_text(t1_text, encoding="utf-8")
+        check("goal go: a record whose brief was edited, removed or swapped stops the run before any lock or write",
+              all(got == expected and status == "TODO" for got, expected, status in refusals.values())
+              and not bot._worker_running(), str(refusals))
+
+        log.unlink(missing_ok=True)
+        head = git(["rev-parse", "HEAD"], clone)
+        started = bot._run_command(f"/go {ids['T1']}")
+        brief = started.get("goal_brief")
+        check("goal go: the run starts with the Owner's goal text as the request and the lead's brief beside it",
+              started.get("result_type") == "work_started" and started.get("request") == goal_text
+              and isinstance(brief, claude_worker.GoalBrief) and brief.goal_id == goal_id and brief.goal_task == "T1"
+              and brief.plan_sha256 == job.get("digest") and brief.approval_command == f"/goal {goal_id} approve"
+              and brief.worker_request == "glossary.json의 표기를 맞춘다"
+              and isinstance(bot._format_reply(started), str), str(started)[:400])
+        waiting = bot._run_worker_job(ids["T1"], started["request"], started["command"], False, False, None,
+                                      started["work_kind"], False, "", "", brief)
+        check("goal go: the run ends at the Owner's final approval like any other and main does not move",
+              waiting.get("awaiting_owner") is True and status_of(ids["T1"]) == "NEEDS_APPROVAL"
+              and git(["rev-parse", "HEAD"], clone) == head, f"{waiting.get('stage')}:{waiting.get('reason')}:{waiting.get('detail')}")
+        logged = log.read_text(encoding="utf-8") if log.exists() else ""
+        worker_prompt = logged.split("WORKER\n", 1)[1].split("=====", 1)[0] if "WORKER\n" in logged else ""
+        reviewer_prompt = logged.split("REVIEWER\n", 1)[1].split("=====", 1)[0] if "REVIEWER\n" in logged else ""
+        check("goal go: the Worker gets the Owner's goal, its one sub-task and the lead's instruction and criteria",
+              f"Owner goal (verbatim): {goal_text}\n" in worker_prompt and "Owner request (verbatim)" not in worker_prompt
+              and f"sub-task T1 (용어집 표기 정리) of the Owner-approved goal plan {goal_id}" in worker_prompt
+              and "Do only this sub-task" in worker_prompt
+              and "Lead instruction for this sub-task (the team lead's words, not the Owner's): glossary.json의 표기를 맞춘다" in worker_prompt
+              and "  - Studyroom smoke가 통과한다\n" in worker_prompt and "Change only files under apps/studyroom/" in worker_prompt,
+              worker_prompt[:900])
+        approval = reviewer_prompt.split("=== OWNER APPROVAL (verbatim) ===\n", 1)[-1]
+        check("goal go: the Reviewer's approval is the Owner's /goal text, the plan approval and /go, never the lead's words",
+              approval.strip().splitlines() == [f"/goal {goal_text}", f"/goal {goal_id} approve", f"/go {ids['T1']}"], approval)
+        check("goal go: the Reviewer gets the sub-task as the lead's words, with each criterion to check",
+              f"- Owner goal (verbatim, the only Owner condition): {goal_text}\n" in reviewer_prompt
+              and f"sub-task T1 (용어집 표기 정리) of the goal plan {goal_id} (plan sha256 {job.get('digest')})" in reviewer_prompt
+              and "- Lead instruction for this sub-task (the team lead's words, not an Owner condition): glossary.json의 표기를 맞춘다\n" in reviewer_prompt
+              and "- Lead completion criterion 2: Studyroom smoke가 통과한다\n" in reviewer_prompt
+              and "- Goal plan checks (see your definition)" in reviewer_prompt, reviewer_prompt[-1500:])
+
+        accept = bot._run_command(f"/go {ids['T1']} accept")
+        done = bot._run_worker_job(ids["T1"], accept["request"], accept["command"], False, True)
+        check("goal go: accept reaches main as before, takes no brief and makes the prerequisite DONE",
+              done.get("ok") is True and status_of(ids["T1"]) == "DONE" and "goal_brief" not in accept,
+              f"{done.get('stage')}:{done.get('reason')}:{done.get('detail')}:{accept.get('reason')}")
+        check("goal go: with its prerequisite DONE the next task may start",
+              bot._goal_dependency_error(t2_path) == "" and bot._goal_dependency_error(t1_path) == ""
+              and bot._goal_dependency_error(t3_path) == "")
+        broken = tasks_dir / "task-8990-goal-link-broken.md"
+        broken.write_text(t2_path.read_text(encoding="utf-8").replace(ids["T2"], broken.stem)
+                          .replace("- goal_task: `T2`\n", ""), encoding="utf-8")
+        check("goal go: a record with part of the link is unreadable, so its run and a new approval are refused",
+              bot._read_goal_fields(broken)[1] == "goal_task_record_unreadable:task_file_invalid_goal_metadata"
+              and bot._goal_brief_for(broken)[2].startswith("goal_task_record_unreadable")
+              and bot._goal_task_ids(goal_id).get("?") == broken.stem)
+        broken.unlink()
+        check("goal go: the link survives the run's record writes",
+              bot._read_goal_fields(t1_path)[0].get("goal_task") == "T1" and bot._goal_task_ids(goal_id) == ids)
+
+        check("goal go: the brief survives the run's record writes too",
+              bot._goal_brief_for(t1_path)[2] == "" and bot._goal_brief_for(t1_path)[0].goal_task == "T1")
+
+        # reject and recover do not need the brief; a run does.
+        t2_text = t2_path.read_text(encoding="utf-8")
+        t2_path.write_text(t2_text[:t2_text.index(bot.GOAL_BRIEF_HEADING)], encoding="utf-8")
+        check("goal go: without the brief reject is still taken and a run is not",
+              bot._run_command(f"/go {ids['T2']}").get("reason") == "goal_brief_missing"
+              and bot._run_command(f"/go {ids['T2']} reject").get("reason") != "goal_brief_missing"
+              and bot._run_command(f"/go {ids['T2']} recover").get("reason") != "goal_brief_missing")
+        t2_path.write_text(t2_text, encoding="utf-8")
+        check("goal go: the plan file stayed away for every run above", not plan_file.exists())
+
+        # A read-only sub-task runs as a read-only report with the same brief.
+        log.unlink(missing_ok=True)
+        os.environ["FAKE_WORKER"] = "report"
+        started = bot._run_command(f"/go {ids['T3']}")
+        report = bot._run_worker_job(ids["T3"], started["request"], started["command"], False, False, None,
+                                     started["work_kind"], bool(started.get("read_only")), "", "", started.get("goal_brief"))
+        report_prompt = log.read_text(encoding="utf-8") if log.exists() else ""
+        check("goal go: a read-only sub-task runs as a read-only report with the Owner's goal and the lead's brief",
+              started.get("read_only") is True and report.get("ok") is True and status_of(ids["T3"]) == "DONE"
+              and "read-only checker" in report_prompt and f"Owner goal (verbatim): {goal_text}\n" in report_prompt
+              and "머리말 문구가 README와 맞는지 본다" in report_prompt and "REVIEWER\n" not in report_prompt,
+              f"{report.get('stage')}:{report.get('reason')}:{report_prompt[:300]}")
+        os.environ["FAKE_WORKER"] = "ok"
+
+        # A task that was not made from a goal plan is untouched by all of this.
+        plain = bot._run_command("/work Studyroom glossary에 목표와 무관한 용어 추가").get("task_id", "")
+        plain_path = tasks_dir / f"{plain}.md"
+        check("goal go: a task without the link has no brief, no prerequisite and no goal error",
+              bot._read_goal_fields(plain_path) == ({}, "") and bot._goal_brief_for(plain_path) == (None, "", "")
+              and bot._goal_dependency_error(plain_path) == "", str(bot._goal_brief_for(plain_path)))
+        check("goal prompts: without a brief the Worker and Reviewer prompts are the earlier ones",
+              "Owner request (verbatim): 요청\n\nRules:" in claude_worker.worker_prompt("task-0001-x", "요청")
+              and "Owner request (verbatim): 요청\n\nRules:" in claude_worker.report_prompt("task-0001-x", "요청")
+              and claude_worker.reviewer_call(task_id="task-0001-x", candidate="c" * 40, baseline="b" * 40,
+                                              changed_files=["apps/studyroom/a.json"], request="요청",
+                                              approval_command="/go task-0001-x").endswith(
+                  "=== OWNER APPROVAL (verbatim) ===\n/work 요청\n/go task-0001-x\n")
+              and claude_worker._ACTIVE_GOAL_BRIEF.get() is None)
+    finally:
+        claude_lead._run_claude, bot.GOAL_PLAN_DIR = real_run_claude, real_plan_dir
+        claude_lead.LEAD_REPO_ROOT = None
+        os.environ["FAKE_WORKER"], os.environ["FAKE_REVIEW"] = "ok", "pass"
+        if previous_log is None:
+            os.environ.pop("FAKE_LOG", None)
+        else:
+            os.environ["FAKE_LOG"] = previous_log
+
+    source = Path(bot.__file__).read_text(encoding="utf-8")
+    approve_source = source[source.index("def _run_goal_approve"):source.index("def _goal_brief_for")]
+    check("goal approve: the approval calls no Worker, pipeline, lead or git and takes no lock",
+          all(name not in approve_source for name in ("_run_worker_job", "run_pipeline", "run_report", "run_lead",
+                                                       "run_goal_plan", "_git(", "subprocess", "_acquire_worker_locks",
+                                                       "_apply_task_status_transition")))
+
+
 def discussion_flow(bot, clone: Path, status_of) -> None:
     """task-0183: what the Owner sees in Discord while the AIs work: the Reviewer's finding, the
     Worker's repair and the re-review, in order; a lost message never changes the run; the task
@@ -2789,6 +3124,7 @@ def bot_flow(clone: Path, worktrees: Path) -> None:
     revise_recheck_flow(bot, clone, status_of)
     lead_flow(bot, clone, status_of)
     goal_flow(bot, clone)
+    goal_approve_flow(bot, clone, status_of)
     discussion_flow(bot, clone, status_of)
     call_flow(bot, clone)
     report_bot_flow(bot, clone, status_of)

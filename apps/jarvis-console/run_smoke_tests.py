@@ -2075,6 +2075,38 @@ def _test_task_hold_resume() -> None:
         )
         assert run_web_app.TASK_ALLOWED_METADATA == run_web_app.TASK_VIEW_ALLOWED_FIELDS
         assert "hold_from" in run_web_app.TASK_VIEW_ALLOWED_FIELDS
+        # task-0229: the goal link fields are readable here too, under the writer's rule:
+        # a whole link parses, a partial one goes to metadata review.
+        assert {"goal_id", "goal_task", "goal_plan_sha256", "goal_depends_on"} <= (
+            run_web_app.TASK_VIEW_ALLOWED_FIELDS
+        )
+        goal_record = "\n".join(
+            [
+                "# task-0230-goal-link",
+                "",
+                "- id: `task-0230-goal-link`",
+                "- title: `studyroom: goal link`",
+                "- status: `TODO`",
+                "- repo: `jarvis-core`",
+                "- created_at: `2026-11-12 09:00 UTC`",
+                "- updated_at: `2026-11-12 09:00 UTC`",
+                "- summary: `goal link`",
+                "- source_command: `/task`",
+                "- goal_id: `goal-20261110-080023-693`",
+                "- goal_task: `T2`",
+                "- goal_plan_sha256: `" + "a" * 64 + "`",
+                "- goal_depends_on: `task-0229-goal-first`",
+                "",
+            ]
+        )
+        goal_view = run_web_app.parse_task_view_text("task-0230-goal-link.md", goal_record)
+        assert goal_view["parse_state"] == "valid" and goal_view["status"] == "TODO"
+        partial_view = run_web_app.parse_task_view_text(
+            "task-0230-goal-link.md", goal_record.replace("- goal_task: `T2`\n", "")
+        )
+        assert partial_view["parse_state"] == "invalid"
+        assert partial_view["reason_code"] == "invalid_text"
+        assert partial_view["reason_field"] == "goal_id"
         # The page keeps its own copy of the group list; it must match.
         app_js = Path(run_web_app.WEB_ROOT, "app.js").read_text(encoding="utf-8")
         groups_source = app_js.split("function renderActionableTaskView", 1)[1].split(

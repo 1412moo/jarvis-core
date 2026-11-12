@@ -133,7 +133,17 @@ Owner 전용. 작업 종류는 `studyroom_content`(Studyroom 앱 전체 `apps/st
 4. 스레드에 개요(목표 요약, 판정 집계, 단계별 실행 순서, 진행 흐름, 계획 파일, 계획 hash, 팀장 사용량 추정)와 작업별 블록(판정 근거 포함)을 2000자 이하 메시지로 올린다. 실패하면 팀장 답 원문 없이 사유 코드, 한국어 설명(등록된 코드에만, `lead_failed:`로 시작하는 그 밖의 코드는 공통 설명), 사용량, 실패 기록 경로를 보낸다(task-0226).
 5. 계획 파일은 저장소 밖 `%LOCALAPPDATA%\jarvis-core\goal-plans\<goal-id>.json`(환경 변수 `JARVIS_GOAL_PLAN_DIR`로 변경)에 쓴다. 실패하면 같은 곳에 팀장 답 원문 없이 goal id, 시각, 목표, `dry_run`, `executed: false`, `ok: false`, 사유 코드, 사용량을 담은 실패 기록을 쓴다(task-0226).
 6. 등록된 작업 종류가 없는(`none`) 하위 작업은 수정이든 읽기 전용이든 `needs_owner`다. 팀장이 그 사유를 적지 않아도 계획 전체를 거절하지 않고 판정 근거에 "팀장이 Owner 결정 사유를 적지 않음"을 붙인다(task-0226).
-7. task 생성, Worker 실행, 배정, 반영은 하지 않는다. 설계: `docs/lead-goal-plan-design.md`.
+7. `/goal <목표>`는 task 생성, Worker 실행, 배정, 반영을 하지 않는다. 설계 기록: `docs/lead-goal-plan-design.md`. 계획을 task로 만드는 것은 아래 `/goal <goal-id> approve`다.
+
+### `/goal <goal-id> approve` (목표 계획 승인, task-0229)
+
+1. Owner 전용. 계획 개요에 보인 goal id로 그 계획 파일을 승인한다. goal id 뒤에는 `approve`만 올 수 있고(`usage:/goal <goal-id> approve`), goal id로 시작하는 문장은 목표로 계획하지 않는다.
+2. 계획 파일을 다시 읽어 전부 검사한다. 파일이 없으면 `goal_plan_not_found`, 읽을 수 없거나 계획 폴더가 저장소 안이면 `goal_plan_unreadable`, 형식이 어긋나거나 다른 goal id를 담았으면 `goal_plan_file_malformed`, 실패 기록이면 `goal_plan_failed_record`, 계획이 파일에 적힌 hash와 다르면 `goal_plan_hash_mismatch`로 거절하고 아무것도 만들지 않는다.
+3. 현재 코드의 Policy Gate로 다시 판정해, 등록된 작업 종류이고 `auto`인 하위 작업만 TODO task로 만든다. `needs_owner`·`forbidden`, 제목이 다른 작업 종류나 방식을 고르게 되는 하위 작업, 제목이나 요약을 task 기록으로 쓸 수 없는 하위 작업, 만들어지지 않은 하위 작업에 의존하는 하위 작업은 만들지 않고 사유와 함께 보인다. 만들 것이 없으면 `goal_no_task_to_create`다.
+4. task 제목은 작업 종류의 첫 표지어와 팀장 제목이고 읽기 전용 하위 작업은 끝에 "(읽기 전용)"이 붙는다. task 기록에 `goal_id`, `goal_task`, `goal_plan_sha256`, 선행 task가 있으면 `goal_depends_on`을 두고, 머리말 아래 "목표 지시 묶음" 절에 Owner의 `/goal` 원문과 그 하위 작업의 팀장 제목·목적·지시·완료 조건·경로를 JSON 블록으로 옮겨 쓴다(`docs/task-model.md` 14절). 계획 파일은 승인 때 한 번만 읽는다.
+5. 같은 목표를 두 번 승인하면 `goal_already_approved`로 거절한다. task를 쓰다가 실패하면(`goal_task_not_created:<T번호>:<사유>`) 이미 쓴 task는 남고 다시 승인할 수 없다. 승인은 아무것도 실행하지 않는다.
+6. 실행은 task마다 `/go <task-id>`다. 선행 task가 `DONE`이 아니면 `goal_dependency_not_done:<task-id>:<상태>`로, task 기록의 지시 묶음 절이 없거나(`goal_brief_missing`) 형식이 어긋나거나(`goal_brief_malformed`) 내용이 그 절의 `brief_sha256`이나 머리말 필드와 맞지 않으면(`goal_brief_mismatch`) 거절한다. `/go`는 계획 파일을 읽지 않는다. `accept`, `reject`, `recover`는 지시 묶음 없이도 받는다.
+7. 목표 task의 Worker와 Reviewer는 Owner의 `/goal` 원문과, 팀장이 쓴 그 하위 작업의 지시·목적·경로·완료 조건(팀장의 말로 표시)을 받는다. Reviewer의 승인 원문은 `/goal <목표>`, `/goal <goal-id> approve`, `/go` 명령이다. main 반영은 지금처럼 `/go <task-id> accept`로만 한다.
 
 ### `/help`
 1. 지원 명령 목록을 고정 텍스트로 안내한다.
